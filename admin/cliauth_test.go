@@ -51,7 +51,7 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 		},
 	})
 
-	handler := NewHandler(cliauthMgr, nil, nil, "admin", string(passwordHash))
+	handler := NewHandler(cliauthMgr, nil, nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 	req := httptest.NewRequest(http.MethodPost, "/admin/cliauth/codex", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -83,7 +83,7 @@ func TestCLIAuthReturnsNotFoundForUnknownCliname(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	handler := NewHandler(manager.NewManager(nil, nil, nil), nil, nil, "admin", string(passwordHash))
+	handler := NewHandler(manager.NewManager(nil, nil, nil), nil, nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 	req := httptest.NewRequest(http.MethodPost, "/admin/cliauth/unknown", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -114,7 +114,7 @@ func TestCLIAuthStatusReportsCompletion(t *testing.T) {
 		},
 	})
 
-	handler := NewHandler(cliauthMgr, nil, nil, "admin", string(passwordHash))
+	handler := NewHandler(cliauthMgr, nil, nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	startReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/codex", nil)

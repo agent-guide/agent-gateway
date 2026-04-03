@@ -779,7 +779,7 @@ func TestAdminProvisionedRouteAndLocalAPIKeyDriveOpenAIHandler(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	adminHandler := admin.NewHandler(nil, cfgStore, nil, "admin", string(passwordHash))
+	adminHandler := admin.NewHandler(nil, cfgStore, nil, "admin", string(passwordHash), nil)
 	adminToken := loginAdminForTest(t, adminHandler, "admin", "secret-pass")
 
 	postJSON := func(path string, body any) {

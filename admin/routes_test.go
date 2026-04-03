@@ -158,7 +158,7 @@ func TestRouteCRUD(t *testing.T) {
 
 	handler := NewHandler(nil, &testConfigStore{
 		routeStore: &testRouteStore{items: map[string]*routepkg.Route{}},
-	}, nil, "admin", string(passwordHash))
+	}, nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	createBody, err := json.Marshal(routepkg.Route{
@@ -210,7 +210,7 @@ func TestLocalAPIKeyCRUD(t *testing.T) {
 
 	handler := NewHandler(nil, &testConfigStore{
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*routepkg.LocalAPIKey{}},
-	}, nil, "admin", string(passwordHash))
+	}, nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body, err := json.Marshal(routepkg.LocalAPIKey{
@@ -254,7 +254,7 @@ func TestLocalAPIKeyCRUD(t *testing.T) {
 func TestProtectedRouteRejectsRequestsWhenAdminAuthIsNotConfigured(t *testing.T) {
 	handler := NewHandler(nil, &testConfigStore{
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*routepkg.LocalAPIKey{}},
-	}, nil, "", "")
+	}, nil, "", "", nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/local_api_keys", nil)
 	rec := httptest.NewRecorder()
@@ -272,7 +272,7 @@ func TestCreateLocalAPIKeyRejectsMismatchedSessionUserID(t *testing.T) {
 
 	handler := NewHandler(nil, &testConfigStore{
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*routepkg.LocalAPIKey{}},
-	}, nil, "admin", string(passwordHash))
+	}, nil, "admin", string(passwordHash), nil)
 
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -303,7 +303,7 @@ func TestListLocalAPIKeysRejectsMismatchedSessionUserID(t *testing.T) {
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*routepkg.LocalAPIKey{
 			"lk-test": {Key: "lk-test", UserID: "admin"},
 		}},
-	}, nil, "admin", string(passwordHash))
+	}, nil, "admin", string(passwordHash), nil)
 
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
