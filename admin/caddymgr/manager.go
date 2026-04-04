@@ -5,7 +5,6 @@
 package caddymgr
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,6 +13,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/caddyserver/caddy/v2"
 )
 
 // allowedPrefixes is the whitelist of Caddy config paths this manager may touch.
@@ -292,10 +293,14 @@ func (m *CaddyManager) toCaddyServer(req *ServerRequest, routes []caddyRoute) ca
 }
 
 func (m *CaddyManager) toCaddyRoute(req *RouteRequest) caddyRoute {
+	handles := make([]caddyHandler, 0, len(req.Handlers))
+	for _, h := range req.Handlers {
+		handles = append(handles, m.toCaddyHandler(h))
+	}
 	r := caddyRoute{
 		Group:    req.ID,
 		Terminal: true,
-		Handle:   []caddyHandler{m.toCaddyHandler(req.Handler)},
+		Handle:   handles,
 	}
 	if len(req.Match.Paths) > 0 || len(req.Match.Hosts) > 0 {
 		r.Match = []caddyMatch{{
@@ -309,15 +314,11 @@ func (m *CaddyManager) toCaddyRoute(req *RouteRequest) caddyRoute {
 // toCaddyHandler translates our simple HandlerConf into Caddy's handler JSON.
 func (m *CaddyManager) toCaddyHandler(h HandlerConf) caddyHandler {
 	switch h.Type {
-	case "openai":
+	case "openai", "anthropic":
 		return caddyHandler{
-			"handler":  "openai",
-			"route_id": h.RouteID,
-		}
-	case "anthropic":
-		return caddyHandler{
-			"handler":  "anthropic",
-			"route_id": h.RouteID,
+			"handler":      "llm_api",
+			"llm_route_id": h.RouteID,
+			"api_handler":  map[string]any{"handler": h.Type},
 		}
 	case "admin":
 		return caddyHandler{
@@ -481,9 +482,16 @@ func (m *CaddyManager) extractHandlersFromHandler(h caddyHandler) []HandlerConf 
 func (m *CaddyManager) fromCaddyHandler(h caddyHandler) HandlerConf {
 	handlerType, _ := h["handler"].(string)
 	switch handlerType {
-	case "openai", "anthropic":
-		routeID, _ := h["route_id"].(string)
-		return HandlerConf{Type: handlerType, RouteID: routeID}
+	case "llm_api":
+		routeID, _ := h["llm_route_id"].(string)
+		subType := ""
+		if apiHandler, ok := h["api_handler"].(map[string]any); ok {
+			subType, _ = apiHandler["handler"].(string)
+		}
+		if subType == "" {
+			subType = "openai"
+		}
+		return HandlerConf{Type: subType, RouteID: routeID}
 	case "agent_gateway_admin":
 		return HandlerConf{Type: "admin"}
 	case "reverse_proxy":
@@ -643,51 +651,147 @@ func (m *CaddyManager) caddyGET(ctx context.Context, path string) (json.RawMessa
 	return body, nil
 }
 
+// caddyPUT sets val at path in the live Caddy config by:
+//  1. Reading the full current config via the admin HTTP API (GET is safe — no reload).
+//  2. Navigating the JSON tree to path and replacing the node.
+//  3. Calling caddy.Load() directly, which bypasses the HTTP admin endpoint and
+//     therefore avoids the self-referential deadlock that occurs when the PUT
+//     triggers a reload while the current request is still in flight.
 func (m *CaddyManager) caddyPUT(ctx context.Context, path string, val any) error {
 	if err := m.checkAllowed(path); err != nil {
 		return err
 	}
-	data, err := json.Marshal(val)
-	if err != nil {
-		return fmt.Errorf("marshal caddy payload: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, m.adminAddr+"/config"+path, bytes.NewReader(data))
+
+	cfgMap, err := m.getFullConfigMap(ctx)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := m.client.Do(req)
+
+	// Convert val through JSON so we operate on plain map[string]any types.
+	valJSON, err := json.Marshal(val)
 	if err != nil {
-		return fmt.Errorf("caddy admin unreachable: %w", err)
+		return fmt.Errorf("marshal value: %w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("caddy admin error %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	var valData any
+	if err := json.Unmarshal(valJSON, &valData); err != nil {
+		return fmt.Errorf("unmarshal value: %w", err)
 	}
-	return nil
+
+	if err := setAtJSONPath(cfgMap, path, valData); err != nil {
+		return fmt.Errorf("set config at path %q: %w", path, err)
+	}
+
+	return m.applyConfig(cfgMap)
 }
 
+// caddyDELETE removes the node at path from the live Caddy config using the
+// same get-modify-caddy.Load() approach as caddyPUT.
 func (m *CaddyManager) caddyDELETE(ctx context.Context, path string) error {
 	if err := m.checkAllowed(path); err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, m.adminAddr+"/config"+path, nil)
+
+	cfgMap, err := m.getFullConfigMap(ctx)
 	if err != nil {
 		return err
 	}
+
+	if err := deleteAtJSONPath(cfgMap, path); err != nil {
+		return fmt.Errorf("delete config at path %q: %w", path, err)
+	}
+
+	return m.applyConfig(cfgMap)
+}
+
+// getFullConfigMap fetches the current full Caddy config as a map via HTTP GET
+// (reads never trigger a reload, so they are safe to call from a handler).
+func (m *CaddyManager) getFullConfigMap(ctx context.Context) (map[string]any, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.adminAddr+"/config/", nil)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := m.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("caddy admin unreachable: %w", err)
+		return nil, fmt.Errorf("caddy admin unreachable: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
-		return ErrNotFound
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read caddy config: %w", err)
 	}
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("caddy admin error %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("caddy admin error %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
+	var cfgMap map[string]any
+	if err := json.Unmarshal(body, &cfgMap); err != nil {
+		return nil, fmt.Errorf("parse caddy config: %w", err)
+	}
+	return cfgMap, nil
+}
+
+// applyConfig marshals cfgMap and calls caddy.Load() directly, bypassing the
+// HTTP admin endpoint to avoid the reload-deadlock.
+func (m *CaddyManager) applyConfig(cfgMap map[string]any) error {
+	newCfgJSON, err := json.Marshal(cfgMap)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	if err := caddy.Load(newCfgJSON, false); err != nil {
+		return fmt.Errorf("apply caddy config: %w", err)
+	}
+	return nil
+}
+
+// setAtJSONPath sets val at the slash-delimited path inside cfgMap,
+// creating intermediate maps as needed.
+// Example path: "/apps/http/servers/srv0/routes"
+func setAtJSONPath(cfgMap map[string]any, path string, val any) error {
+	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		return fmt.Errorf("empty path")
+	}
+	var curr any = cfgMap
+	for _, part := range parts[:len(parts)-1] {
+		m, ok := curr.(map[string]any)
+		if !ok {
+			return fmt.Errorf("expected object at %q, got %T", part, curr)
+		}
+		if _, exists := m[part]; !exists {
+			m[part] = make(map[string]any)
+		}
+		curr = m[part]
+	}
+	m, ok := curr.(map[string]any)
+	if !ok {
+		return fmt.Errorf("expected object at parent of %q", parts[len(parts)-1])
+	}
+	m[parts[len(parts)-1]] = val
+	return nil
+}
+
+// deleteAtJSONPath removes the node at path from cfgMap.
+func deleteAtJSONPath(cfgMap map[string]any, path string) error {
+	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		return fmt.Errorf("empty path")
+	}
+	var curr any = cfgMap
+	for _, part := range parts[:len(parts)-1] {
+		m, ok := curr.(map[string]any)
+		if !ok {
+			return nil // already absent
+		}
+		next, exists := m[part]
+		if !exists {
+			return nil // already absent
+		}
+		curr = next
+	}
+	m, ok := curr.(map[string]any)
+	if !ok {
+		return nil
+	}
+	delete(m, parts[len(parts)-1])
 	return nil
 }
 

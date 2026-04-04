@@ -16,16 +16,18 @@ func TestFromCaddyRouteExtractsNestedSubrouteHandlers(t *testing.T) {
 					map[string]any{
 						"handle": []any{
 							map[string]any{
-								"handler":  "openai",
-								"route_id": "openai-chat",
+								"handler":      "llm_api",
+								"llm_route_id": "openai-chat",
+								"api_handler":  map[string]any{"handler": "openai"},
 							},
 						},
 					},
 					map[string]any{
 						"handle": []any{
 							map[string]any{
-								"handler":  "anthropic",
-								"route_id": "openai-chat",
+								"handler":      "llm_api",
+								"llm_route_id": "openai-chat",
+								"api_handler":  map[string]any{"handler": "anthropic"},
 							},
 						},
 					},
@@ -80,8 +82,9 @@ func TestFromCaddyRouteCombinesOuterHostAndNestedPath(t *testing.T) {
 						},
 						"handle": []any{
 							map[string]any{
-								"handler":  "openai",
-								"route_id": "openai-chat",
+								"handler":      "llm_api",
+								"llm_route_id": "openai-chat",
+								"api_handler":  map[string]any{"handler": "openai"},
 							},
 						},
 					},
@@ -108,8 +111,9 @@ func TestFromCaddyRouteCollectsAllMatcherEntries(t *testing.T) {
 		},
 		Handle: []caddyHandler{
 			{
-				"handler":  "openai",
-				"route_id": "openai-chat",
+				"handler":      "llm_api",
+				"llm_route_id": "openai-chat",
+				"api_handler":  map[string]any{"handler": "openai"},
 			},
 		},
 	})

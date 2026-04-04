@@ -40,9 +40,9 @@ type RouteRequest struct {
 	ID string `json:"id"`
 	// Order controls insertion position when adding a route (0 = first).
 	// Ignored on update; to reorder, delete and re-add.
-	Order   int         `json:"order"`
-	Match   MatchConf   `json:"match"`
-	Handler HandlerConf `json:"handler"`
+	Order    int           `json:"order"`
+	Match    MatchConf     `json:"match"`
+	Handlers []HandlerConf `json:"handlers"`
 }
 
 // MatchConf describes which requests a route matches.

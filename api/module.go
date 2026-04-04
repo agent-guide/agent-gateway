@@ -68,7 +68,7 @@ func (h *Handler) Validate() error {
 	if h.RouteID == "" {
 		return fmt.Errorf("llm_route_id is required")
 	}
-	if h.APIHandlerRaw == nil {
+	if h.apiHandler == nil {
 		return fmt.Errorf("llm_api api handler is required")
 	}
 	return nil
