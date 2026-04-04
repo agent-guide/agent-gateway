@@ -1,67 +1,62 @@
 package api
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 )
 
-func init() {
-	httpcaddyfile.RegisterHandlerDirective("handle_llm_api", parseHandleLLMAPI)
+// ParseLLMAPIForTest exposes the parser to external tests.
+func ParseLLMAPIForTest(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
+	return parseLLMAPI(h)
 }
 
-// ParseHandleLLMAPIForTest exposes the parser to external tests.
-func ParseHandleLLMAPIForTest(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
-	return parseHandleLLMAPI(h)
-}
-
-func parseHandleLLMAPI(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
-	d := h.Dispenser
+// UnmarshalCaddyfile implements caddyfile.Unmarshaler.
+func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	if !d.Next() {
-		return nil, d.Err("expected directive name")
+		return d.Err("expected directive name")
 	}
 	if !d.NextArg() {
-		return nil, d.Err("expected llm api name")
+		return d.Err("expected llm api name")
 	}
 	apiName := strings.Trim(d.Val(), "\"`")
 	if d.NextArg() {
-		return nil, d.ArgErr()
+		return d.ArgErr()
 	}
 
-	var routeID string
 	for d.NextBlock(0) {
 		switch d.Val() {
-		case "route_id":
+		case "llm_route_id":
 			args := d.RemainingArgsRaw()
 			if len(args) != 1 {
-				return nil, d.ArgErr()
+				return d.ArgErr()
 			}
-			routeID = strings.Trim(args[0], "\"`")
+			h.RouteID = strings.Trim(args[0], "\"`")
 		default:
-			return nil, d.Errf("unknown subdirective: %s", d.Val())
+			return d.Errf("unknown subdirective: %s", d.Val())
 		}
 	}
-	if routeID == "" {
-		return nil, d.Err("route_id is required")
+	if h.RouteID == "" {
+		return d.Err("llm_route_id is required")
 	}
 
-	moduleID := "http.handlers." + apiName
+	moduleID := "http.handlers.llm_api." + apiName
 	mod, err := caddy.GetModule(moduleID)
 	if err != nil {
-		return nil, d.Errf("getting module named '%s': %v", moduleID, err)
+		return d.Errf("getting module named '%s': %v", moduleID, err)
 	}
-	inst := mod.New()
+	h.APIHandlerRaw = caddyconfig.JSONModuleObject(mod.New(), "handler", mod.ID.Name(), nil)
+	return nil
+}
 
-	if acceptor, ok := inst.(RouteIDAcceptor); ok {
-		acceptor.SetRouteID(routeID)
-	}
-
-	handler, ok := inst.(caddyhttp.MiddlewareHandler)
-	if !ok {
-		return nil, fmt.Errorf("%s does not implement caddyhttp.MiddlewareHandler", moduleID)
+func parseLLMAPI(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
+	handler := &Handler{}
+	if err := handler.UnmarshalCaddyfile(h.Dispenser); err != nil {
+		return nil, err
 	}
 	return handler, nil
 }

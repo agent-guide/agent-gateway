@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"go.uber.org/zap"
@@ -18,6 +19,18 @@ func WriteJSON(w http.ResponseWriter, status int, v any) error {
 // WriteError writes a JSON error response.
 func WriteError(w http.ResponseWriter, status int, message string) error {
 	return WriteJSON(w, status, map[string]string{"error": message})
+}
+
+// StatusCode returns the HTTP status from an error when available.
+func StatusCode(err error) int {
+	type statusCoder interface {
+		StatusCode() int
+	}
+	var sc statusCoder
+	if errors.As(err, &sc) {
+		return sc.StatusCode()
+	}
+	return http.StatusBadGateway
 }
 
 // LogHTTPError writes a structured HTTP error log entry.

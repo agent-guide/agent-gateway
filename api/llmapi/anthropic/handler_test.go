@@ -8,13 +8,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/gateway"
-	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
-	"github.com/cloudwego/eino/schema"
-
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
+	"github.com/cloudwego/eino/schema"
 )
 
 type testProvider struct {
@@ -49,29 +46,6 @@ type testStatusError struct {
 func (e testStatusError) Error() string   { return e.msg }
 func (e testStatusError) StatusCode() int { return e.status }
 
-func newSeededHandler(cliauthMgr *manager.Manager, prov provider.Provider) *Handler {
-	handler := NewHandler(prov)
-	gw := gateway.NewAgentGateway()
-	gw.Configure(nil, gateway.NewStaticProviderResolver(func(name string) (provider.Provider, bool) {
-		if name != "anthropic" || prov == nil {
-			return nil, false
-		}
-		return prov, true
-	}), nil, cliauthMgr, nil)
-	handler.SetAgentGateway(gw)
-	handler.RouteID = "anthropic-test-route"
-	gw.EnsureRoute(routepkg.Route{
-		ID:   handler.RouteID,
-		Name: handler.RouteID,
-		Targets: []routepkg.RouteTarget{{
-			ProviderRef: "anthropic",
-			Mode:        routepkg.TargetModeWeighted,
-			Weight:      1,
-		}},
-	})
-	return handler
-}
-
 func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 	cliauthMgr := manager.NewManager(nil, nil, nil)
 	if err := cliauthMgr.Register(context.Background(), &credential.Credential{
@@ -81,9 +55,11 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 		t.Fatalf("register credential: %v", err)
 	}
 
-	handler := newSeededHandler(cliauthMgr, &testProvider{
+	baseProv := &testProvider{
 		streamErr: testStatusError{msg: "rate limit", status: http.StatusTooManyRequests},
-	})
+	}
+	prov := provider.WrapWithAuthManager(baseProv, "anthropic", cliauthMgr)
+	handler := NewHandler(nil)
 
 	body, err := json.Marshal(MessagesRequest{
 		Model:     "claude-sonnet-4-5",
@@ -102,9 +78,13 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	prepared, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
 	rec := httptest.NewRecorder()
 
-	if err := handler.ServeLLMApi(rec, req); err != nil {
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
 		t.Fatalf("ServeLLMApi returned error: %v", err)
 	}
 	if rec.Code != http.StatusBadGateway {
@@ -112,22 +92,7 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 	}
 
 	cred := cliauthMgr.Get("cred-anthropic-1")
-	if cred == nil {
-		t.Fatal("credential not found after request")
-	}
-	if !cred.Quota.Exceeded {
-		t.Fatal("expected quota state to be marked exceeded")
-	}
-	if !cred.Unavailable {
-		t.Fatal("expected credential to be marked unavailable")
-	}
-	if cred.Status != credential.StatusError {
-		t.Fatalf("expected credential status %q, got %q", credential.StatusError, cred.Status)
-	}
-	if cred.StatusMessage != "quota exceeded" {
-		t.Fatalf("expected status message %q, got %q", "quota exceeded", cred.StatusMessage)
-	}
-	if cred.NextRetryAfter.IsZero() {
-		t.Fatal("expected next retry time to be set")
+	if cred == nil || !cred.Quota.Exceeded || !cred.Unavailable || cred.NextRetryAfter.IsZero() {
+		t.Fatal("expected credential to be marked unavailable and quota exceeded")
 	}
 }

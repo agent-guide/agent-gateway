@@ -1,23 +1,34 @@
 package api
 
 import (
-	"errors"
+	"fmt"
 	"net/http"
+
+	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
+	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
+	"github.com/caddyserver/caddy/v2"
+	"go.uber.org/zap"
 )
 
-// RouteIDAcceptor is implemented by handlers that accept a route id parsed from
-// the shared handle_llm_api directive.
-type RouteIDAcceptor interface {
-	SetRouteID(string)
+type LLMApiHandler interface {
+	caddy.Module
+	Name() string
+	MatchLLMApi(*http.Request) bool
+	PrepareLLMApiRequest(*http.Request) (*PreparedLLMApiRequest, error)
+	ServeLLMApi(http.ResponseWriter, *http.Request, provider.Provider, *PreparedLLMApiRequest) error
 }
 
-func StatusCode(err error) int {
-	type statusCoder interface {
-		StatusCode() int
-	}
-	var sc statusCoder
-	if errors.As(err, &sc) {
-		return sc.StatusCode()
-	}
-	return http.StatusBadGateway
+type PreparedLLMApiRequest struct {
+	GenerateRequest *provider.GenerateRequest
+	Stream          bool
+	RawRequest      any
+}
+
+func WriteError(logger *zap.Logger, apiName, routeID, model string, w http.ResponseWriter, r *http.Request, err error, message string) error {
+	status := utils.StatusCode(err)
+	return utils.WriteLoggedError(logger, w, r, status, err.Error(), fmt.Errorf("%s: %w", message, err),
+		zap.String("protocol", apiName),
+		zap.String("route_id", routeID),
+		zap.String("model", model),
+	)
 }

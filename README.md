@@ -8,8 +8,8 @@ The current codebase is already usable as a route-oriented LLM gateway. It also 
 
 - A Caddy app module named `agent_gateway`
 - HTTP handlers:
-  - `handle_llm_api openai`
-  - `handle_llm_api anthropic`
+  - `llm_api openai`
+  - `llm_api anthropic`
   - `agent_gateway_admin`
 - Provider modules under `llm.providers.*`
 - Authenticator modules under `llm.authenticators.*`
@@ -25,8 +25,8 @@ The current codebase is already usable as a route-oriented LLM gateway. It also 
   - Loads providers, authenticators, config store, and static routes
   - Builds runtime dependencies such as route loading, provider resolution, and local API key lookup
 - `api/`
-  - Registers `handle_llm_api`
-  - Includes OpenAI-compatible and Anthropic-compatible ingress handlers
+  - Registers `llm_api`
+  - Includes the parent `http.handlers.llm_api` middleware plus OpenAI-compatible and Anthropic-compatible child handlers
 - `admin/`
   - Registers `agent_gateway_admin`
   - Exposes operational endpoints under `/admin/*`
@@ -88,8 +88,8 @@ Minimal `Caddyfile`:
 
 :8082 {
     route /v1/* {
-        handle_llm_api openai {
-            route_id openai-chat
+        llm_api openai {
+            llm_route_id openai-chat
         }
     }
 
@@ -146,8 +146,8 @@ Static routes currently support these subdirectives:
 
 For a normal API call:
 
-1. The HTTP handler selected by `handle_llm_api` receives the request.
-2. The handler resolves `route_id`.
+1. The HTTP handler selected by `llm_api` receives the request.
+2. The handler resolves `llm_route_id`.
 3. The gateway loads the route definition from the config store when available, otherwise from static app config.
 4. If the route requires a local API key, the gateway validates the caller key.
 5. The gateway resolves the target provider.

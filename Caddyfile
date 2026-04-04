@@ -1,7 +1,7 @@
 # Caddy Agent Gateway
 # Caddy App module ID: "agent_gateway"
 # HTTP handler module IDs:
-# - "http.handlers.openai" / "http.handlers.anthropic" (Caddyfile directive: "handle_llm_api")
+# - "http.handlers.llm_api" with child handlers "http.handlers.llm_api.openai" / "http.handlers.llm_api.anthropic" (Caddyfile directive: "llm_api")
 # - "http.handlers.agent_gateway_admin" (Caddyfile directive: "agent_gateway_admin")
 
 {
@@ -43,11 +43,11 @@ http://127.0.0.1:8082 {
 
 	# LLM API routes
 	route /v1/* {
-		handle_llm_api openai {
-			route_id openai-chat
+		llm_api openai {
+			llm_route_id openai-chat
 		}
-		handle_llm_api anthropic {
-			route_id openai-chat
+		llm_api anthropic {
+			llm_route_id openai-chat
 		}
 	}
 }

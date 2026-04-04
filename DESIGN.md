@@ -24,8 +24,9 @@ Client
   |
   v
 HTTP handlers
-  - http.handlers.openai
-  - http.handlers.anthropic
+  - http.handlers.llm_api
+  - http.handlers.llm_api.openai
+  - http.handlers.llm_api.anthropic
   - http.handlers.agent_gateway_admin
   |
   v
@@ -70,20 +71,20 @@ This is the key design choice in the project: the HTTP handlers are intentionall
 
 ### 4.2 `api/`: Compatible LLM Ingress
 
-The `api/` package registers the `handle_llm_api` Caddyfile directive. That directive currently accepts:
+The `api/` package registers the `llm_api` Caddyfile directive. That directive currently accepts:
 
 ```caddy
-handle_llm_api <dialect> {
-    route_id <route-id>
+llm_api <dialect> {
+    llm_route_id <route-id>
 }
 ```
 
-The handler itself is selected by dialect:
+The parent HTTP handler is `http.handlers.llm_api`, and it loads a child dialect handler from:
 
-- `http.handlers.openai`
-- `http.handlers.anthropic`
+- `http.handlers.llm_api.openai`
+- `http.handlers.llm_api.anthropic`
 
-The handler does not define route policy inline. Instead, it binds to a `route_id`, then asks the shared gateway runtime to resolve the route and target provider.
+The handler does not define route policy inline. Instead, it binds to an `llm_route_id`, then asks the shared gateway runtime to resolve the route and target provider.
 
 This separation is deliberate:
 
@@ -290,7 +291,7 @@ The standard request path is:
 
 ```text
 HTTP request
-  -> handle_llm_api.<dialect>
+  -> llm_api.<dialect>
   -> resolve route_id
   -> load route definition
   -> validate local API key if required
