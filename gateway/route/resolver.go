@@ -20,7 +20,7 @@ type ResolveRequest struct {
 }
 
 // ResolveTarget validates route policy and selects an eligible target for the request.
-func (r Route) ResolveTarget(req ResolveRequest, selector RouteSelector) (*RouteTarget, error) {
+func (r Route) ResolveTarget(req ResolveRequest, selector RouteTargetSelector) (*RouteTarget, error) {
 	r.Normalize()
 
 	if err := r.ValidateRequestPolicy(req); err != nil {

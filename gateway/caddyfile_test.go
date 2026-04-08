@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/configstore/sqlite"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
@@ -74,6 +75,14 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 			foo bar
 		}
 
+		localapikey key1 {
+			user_id admin
+			name "Primary local key"
+			description "configured from caddyfile"
+			allowed_route openai-chat
+			expires_at 2030-01-02T03:04:05Z
+		}
+
 		route openai-chat {
 			require_local_api_key
 			allowed_model gpt-4.1
@@ -134,6 +143,9 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	if len(app.Routes) != 1 {
 		t.Fatalf("route count = %d, want 1", len(app.Routes))
 	}
+	if len(app.LocalAPIKeys) != 1 {
+		t.Fatalf("local api key count = %d, want 1", len(app.LocalAPIKeys))
+	}
 
 	var codex struct {
 		Foo string `json:"foo,omitempty"`
@@ -157,6 +169,24 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	}
 	if len(route.Targets) != 1 || route.Targets[0].ProviderRef != "ollama" {
 		t.Fatalf("route targets = %#v", route.Targets)
+	}
+
+	key := app.LocalAPIKeys[0]
+	if key.Key != "key1" {
+		t.Fatalf("local api key = %q, want key1", key.Key)
+	}
+	if key.UserID != "admin" {
+		t.Fatalf("local api key user_id = %q, want admin", key.UserID)
+	}
+	if key.Name != "Primary local key" {
+		t.Fatalf("local api key name = %q", key.Name)
+	}
+	if len(key.AllowedRouteIDs) != 1 || key.AllowedRouteIDs[0] != "openai-chat" {
+		t.Fatalf("local api key allowed routes = %#v", key.AllowedRouteIDs)
+	}
+	wantExpiresAt := time.Date(2030, time.January, 2, 3, 4, 5, 0, time.UTC)
+	if !key.ExpiresAt.Equal(wantExpiresAt) {
+		t.Fatalf("local api key expires_at = %v, want %v", key.ExpiresAt, wantExpiresAt)
 	}
 }
 
@@ -186,5 +216,40 @@ func TestParseAppRejectsDuplicateRouteID(t *testing.T) {
 
 	if _, err := parseApp(d, nil); err == nil {
 		t.Fatal("expected duplicate route to fail")
+	}
+}
+
+func TestParseAppRejectsDuplicateLocalAPIKey(t *testing.T) {
+	d := caddyfile.NewTestDispenser(`
+	agent_gateway {
+		localapikey key1 {}
+		localapikey key1 {}
+	}
+	`)
+
+	if _, err := parseApp(d, nil); err == nil {
+		t.Fatal("expected duplicate localapikey to fail")
+	}
+}
+
+func TestParseLocalAPIKeySegmentAcceptsEmptyBlock(t *testing.T) {
+	d := caddyfile.NewTestDispenser(`
+	localapikey key1 {
+	}
+	`)
+
+	if !d.Next() {
+		t.Fatal("expected localapikey directive")
+	}
+	key, err := parseLocalAPIKeySegment(d)
+	if err != nil {
+		t.Fatalf("parseLocalAPIKeySegment() error = %v", err)
+	}
+
+	if key.Key != "key1" {
+		t.Fatalf("local api key = %q, want key1", key.Key)
+	}
+	if key.UserID != "" || key.Name != "" || key.Description != "" || key.Disabled || len(key.AllowedRouteIDs) != 0 || key.StatusMessage != "" || !key.ExpiresAt.IsZero() {
+		t.Fatalf("unexpected local api key defaults: %#v", key)
 	}
 }

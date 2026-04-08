@@ -2,14 +2,18 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	configstoreIntf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/configstore/sqlite"
+	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
@@ -31,6 +35,8 @@ type App struct {
 	ConfigStoreRaw caddy.ModuleMap `json:"config_store,omitempty" caddy:"namespace=agent_gateway.config_stores"`
 	// Routes lists statically configured gateway routes from the Caddyfile app block.
 	Routes []routepkg.Route `json:"routes,omitempty"`
+	// LocalAPIKeys lists statically configured gateway consumer API keys from the Caddyfile app block.
+	LocalAPIKeys []localapikeypkg.LocalAPIKey `json:"local_api_keys,omitempty"`
 
 	logger         *zap.Logger
 	cliauthManager *manager.Manager
@@ -69,6 +75,9 @@ func (a *App) Provision(ctx caddy.Context) error {
 	}
 	if err := a.cliauthManager.Load(ctx); err != nil {
 		return fmt.Errorf("load credentials: %w", err)
+	}
+	if err := a.provisionLocalAPIKeys(ctx); err != nil {
+		return fmt.Errorf("provision local api keys: %w", err)
 	}
 
 	if err := a.agentGateway.Bootstrap(ctx, BootstrapOptions{
@@ -225,6 +234,52 @@ func (a *App) provisionProviders(ctx caddy.Context) error {
 		}
 		a.providers[name] = prov
 	}
+	return nil
+}
+
+func (a *App) provisionLocalAPIKeys(ctx context.Context) error {
+	if len(a.LocalAPIKeys) == 0 {
+		return nil
+	}
+	if a.configStorer == nil {
+		return fmt.Errorf("config store is not configured")
+	}
+
+	store, err := a.configStorer.GetLocalAPIKeyStore(ctx, localapikeypkg.DecodeStoredLocalAPIKey)
+	if err != nil {
+		return fmt.Errorf("get local api key store: %w", err)
+	}
+	if store == nil {
+		return fmt.Errorf("local api key store is not configured")
+	}
+
+	now := time.Now().UTC()
+	for _, configured := range a.LocalAPIKeys {
+		key := configured
+		if key.CreatedAt.IsZero() {
+			key.CreatedAt = now
+		}
+		key.UpdatedAt = now
+
+		existing, err := store.Get(ctx, key.Key)
+		if err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("get local api key %q: %w", key.Key, err)
+			}
+			if err := store.Create(ctx, key.Key, key.UserID, &key); err != nil {
+				return fmt.Errorf("create local api key %q: %w", key.Key, err)
+			}
+			continue
+		}
+
+		if existingKey, ok := existing.(*localapikeypkg.LocalAPIKey); ok && existingKey != nil && configured.CreatedAt.IsZero() {
+			key.CreatedAt = existingKey.CreatedAt
+		}
+		if err := store.Update(ctx, key.Key, &key); err != nil {
+			return fmt.Errorf("update local api key %q: %w", key.Key, err)
+		}
+	}
+
 	return nil
 }
 

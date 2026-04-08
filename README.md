@@ -115,6 +115,7 @@ The runtime is centered on the global `agent_gateway` block.
         provider <name> { ... }
         config_store sqlite { ... }
         authenticator <name> { ... }
+        localapikey <key> { ... }
         route <route-id> { ... }
     }
 }
@@ -128,6 +129,8 @@ The runtime is centered on the global `agent_gateway` block.
   - Configures the default SQLite-backed config store
 - `authenticator <name> { ... }`
   - Loads an authenticator from `llm.authenticators.<name>`
+- `localapikey <key> { ... }`
+  - Declares a static local API key and syncs it into the configured local API key store during startup
 - `route <route-id> { ... }`
   - Declares a static gateway route
 
@@ -141,6 +144,32 @@ Static routes currently support these subdirectives:
 - `target <provider> [weight]`
 
 `target` entries are currently parsed as weighted targets. More advanced target conditions and policies exist in Go types and Admin API payloads, but the Caddyfile parser does not expose all of them yet.
+
+### Static Local API Key Syntax
+
+Static local API keys currently support these subdirectives:
+
+- `user_id <user>`
+- `name <display-name>`
+- `description <text>`
+- `disabled [true|false]`
+- `allowed_route <route-id> [more-route-ids...]`
+- `status_message <text>`
+- `expires_at <rfc3339>`
+
+Example:
+
+```caddy
+{
+    agent_gateway {
+        localapikey key1 {
+            user_id admin
+            name "Primary local key"
+            allowed_route openai-chat
+        }
+    }
+}
+```
 
 ## Request Flow
 

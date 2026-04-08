@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"time"
 
+	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
@@ -45,6 +47,10 @@ func parseApp(d *caddyfile.Dispenser, existingVal any) (any, error) {
 			}
 		case "route":
 			if err := parseRoute(d, app); err != nil {
+				return nil, err
+			}
+		case "localapikey":
+			if err := parseLocalAPIKey(d, app); err != nil {
 				return nil, err
 			}
 		default:
@@ -127,6 +133,97 @@ func parseRoute(d *caddyfile.Dispenser, app *App) error {
 	}
 	app.Routes = append(app.Routes, route)
 	return nil
+}
+
+func parseLocalAPIKey(d *caddyfile.Dispenser, app *App) error {
+	key, err := parseLocalAPIKeySegment(d)
+	if err != nil {
+		return err
+	}
+
+	for _, declared := range app.LocalAPIKeys {
+		if declared.Key == key.Key {
+			return d.Errf("duplicate localapikey %q", key.Key)
+		}
+	}
+	app.LocalAPIKeys = append(app.LocalAPIKeys, key)
+	return nil
+}
+
+func parseLocalAPIKeySegment(d *caddyfile.Dispenser) (localapikeypkg.LocalAPIKey, error) {
+	seg := d.NewFromNextSegment()
+	if !seg.Next() {
+		return localapikeypkg.LocalAPIKey{}, d.Err("expected localapikey directive")
+	}
+
+	args := seg.RemainingArgsRaw()
+	if len(args) != 1 {
+		return localapikeypkg.LocalAPIKey{}, seg.ArgErr()
+	}
+
+	key := localapikeypkg.LocalAPIKey{
+		Key: strings.Trim(args[0], "\"`"),
+	}
+
+	for seg.NextBlock(0) {
+		name := seg.Val()
+		args := seg.RemainingArgsRaw()
+		switch name {
+		case "user_id":
+			if len(args) != 1 {
+				return localapikeypkg.LocalAPIKey{}, seg.ArgErr()
+			}
+			key.UserID = strings.Trim(args[0], "\"`")
+		case "name":
+			if len(args) != 1 {
+				return localapikeypkg.LocalAPIKey{}, seg.ArgErr()
+			}
+			key.Name = strings.Trim(args[0], "\"`")
+		case "description":
+			if len(args) != 1 {
+				return localapikeypkg.LocalAPIKey{}, seg.ArgErr()
+			}
+			key.Description = strings.Trim(args[0], "\"`")
+		case "disabled":
+			if len(args) == 0 {
+				key.Disabled = true
+				continue
+			}
+			if len(args) != 1 {
+				return localapikeypkg.LocalAPIKey{}, seg.ArgErr()
+			}
+			v, err := strconv.ParseBool(strings.Trim(args[0], "\"`"))
+			if err != nil {
+				return localapikeypkg.LocalAPIKey{}, seg.Errf("invalid disabled value: %s", args[0])
+			}
+			key.Disabled = v
+		case "allowed_route":
+			if len(args) == 0 {
+				return localapikeypkg.LocalAPIKey{}, seg.ArgErr()
+			}
+			for _, arg := range args {
+				key.AllowedRouteIDs = append(key.AllowedRouteIDs, strings.Trim(arg, "\"`"))
+			}
+		case "status_message":
+			if len(args) != 1 {
+				return localapikeypkg.LocalAPIKey{}, seg.ArgErr()
+			}
+			key.StatusMessage = strings.Trim(args[0], "\"`")
+		case "expires_at":
+			if len(args) != 1 {
+				return localapikeypkg.LocalAPIKey{}, seg.ArgErr()
+			}
+			expiresAt, err := time.Parse(time.RFC3339, strings.Trim(args[0], "\"`"))
+			if err != nil {
+				return localapikeypkg.LocalAPIKey{}, seg.Errf("invalid expires_at value: %s", args[0])
+			}
+			key.ExpiresAt = expiresAt
+		default:
+			return localapikeypkg.LocalAPIKey{}, seg.Errf("unknown subdirective: %s", name)
+		}
+	}
+
+	return key, nil
 }
 
 // ParseRouteSegment parses a route declaration from the current directive or subdirective.
