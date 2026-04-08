@@ -12,7 +12,7 @@ func DecodeStoredRoute(data []byte) (any, error) {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return nil, fmt.Errorf("decode route: %w", err)
 	}
-	r.Policy.Defaults()
+	r.Normalize()
 	now := time.Now().UTC()
 	if r.CreatedAt.IsZero() {
 		r.CreatedAt = now

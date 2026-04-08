@@ -22,8 +22,7 @@ const (
 )
 
 // Route is the primary gateway entrypoint abstraction exposed to agent clients.
-// A route owns request matching, target selection metadata, and default policy
-// for requests authenticated by LocalAPIKey.
+// A route owns request matching, target selection metadata, and default policy.
 type Route struct {
 	ID          string        `json:"id"`
 	Name        string        `json:"name"`
@@ -143,34 +142,4 @@ func (p *RetryPolicy) Defaults() {
 type FallbackPolicy struct {
 	Enabled       bool  `json:"enabled,omitempty"`
 	OnStatusCodes []int `json:"on_status_codes,omitempty"`
-}
-
-// LocalAPIKey represents a gateway consumer identity, not an upstream provider credential.
-type LocalAPIKey struct {
-	Key         string `json:"key"`
-	UserID      string `json:"user_id,omitempty"`
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
-	Disabled    bool   `json:"disabled"`
-
-	AllowedRouteIDs []string        `json:"allowed_route_ids,omitempty"`
-	PolicyOverride  *ConsumerPolicy `json:"policy_override,omitempty"`
-
-	StatusMessage string    `json:"status_message,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
-	ExpiresAt     time.Time `json:"expires_at,omitempty"`
-}
-
-// ConsumerPolicy allows caller-specific overrides on top of route defaults.
-type ConsumerPolicy struct {
-	RateLimit RateLimitPolicy `json:"rate_limit,omitempty"`
-	Quota     QuotaPolicy     `json:"quota,omitempty"`
-
-	AllowedModels []string `json:"allowed_models,omitempty"`
-
-	AllowStreaming  *bool `json:"allow_streaming,omitempty"`
-	AllowTools      *bool `json:"allow_tools,omitempty"`
-	AllowVision     *bool `json:"allow_vision,omitempty"`
-	AllowEmbeddings *bool `json:"allow_embeddings,omitempty"`
 }

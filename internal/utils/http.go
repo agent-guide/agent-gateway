@@ -140,3 +140,17 @@ func LogHTTPResponseError(logger *zap.Logger, message string, r *http.Request, w
 	}
 	LogHTTPError(logger, message, r, status, nil, fields...)
 }
+
+// HTTPError describes a request resolution failure with an HTTP status code.
+type HTTPError struct {
+	status int
+	msg    string
+}
+
+func (e *HTTPError) Error() string   { return e.msg }
+func (e *HTTPError) StatusCode() int { return e.status }
+
+// NewHTTPError constructs an HTTPError with the given status and message.
+func NewHTTPError(status int, msg string) error {
+	return &HTTPError{status: status, msg: msg}
+}

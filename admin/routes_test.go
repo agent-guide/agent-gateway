@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
+	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -103,7 +104,7 @@ func (s *testRouteStore) Get(_ context.Context, id string) (any, error) {
 }
 
 type testLocalAPIKeyStore struct {
-	items map[string]*routepkg.LocalAPIKey
+	items map[string]*localapikeypkg.LocalAPIKey
 }
 
 func (s *testLocalAPIKeyStore) ListByUserID(_ context.Context, userID string) ([]any, error) {
@@ -118,12 +119,12 @@ func (s *testLocalAPIKeyStore) ListByUserID(_ context.Context, userID string) ([
 }
 
 func (s *testLocalAPIKeyStore) Create(_ context.Context, key string, _ string, obj any) error {
-	item, ok := obj.(*routepkg.LocalAPIKey)
+	item, ok := obj.(*localapikeypkg.LocalAPIKey)
 	if !ok {
 		return errors.New("unexpected type")
 	}
 	if s.items == nil {
-		s.items = map[string]*routepkg.LocalAPIKey{}
+		s.items = map[string]*localapikeypkg.LocalAPIKey{}
 	}
 	cloned := *item
 	s.items[key] = &cloned
@@ -209,11 +210,11 @@ func TestLocalAPIKeyCRUD(t *testing.T) {
 	}
 
 	handler := NewHandler(nil, &testConfigStore{
-		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*routepkg.LocalAPIKey{}},
+		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
 	}, nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	body, err := json.Marshal(routepkg.LocalAPIKey{
+	body, err := json.Marshal(localapikeypkg.LocalAPIKey{
 		Key:             "lk-test",
 		UserID:          "admin",
 		Name:            "test key",
@@ -239,7 +240,7 @@ func TestLocalAPIKeyCRUD(t *testing.T) {
 		t.Fatalf("unexpected get status: got %d want %d", getRec.Code, http.StatusOK)
 	}
 
-	var got routepkg.LocalAPIKey
+	var got localapikeypkg.LocalAPIKey
 	if err := json.NewDecoder(getRec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode local api key: %v", err)
 	}
@@ -253,7 +254,7 @@ func TestLocalAPIKeyCRUD(t *testing.T) {
 
 func TestProtectedRouteRejectsRequestsWhenAdminAuthIsNotConfigured(t *testing.T) {
 	handler := NewHandler(nil, &testConfigStore{
-		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*routepkg.LocalAPIKey{}},
+		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
 	}, nil, "", "", nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/local_api_keys", nil)
@@ -271,12 +272,12 @@ func TestCreateLocalAPIKeyRejectsMismatchedSessionUserID(t *testing.T) {
 	}
 
 	handler := NewHandler(nil, &testConfigStore{
-		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*routepkg.LocalAPIKey{}},
+		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
 	}, nil, "admin", string(passwordHash), nil)
 
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	body, err := json.Marshal(routepkg.LocalAPIKey{
+	body, err := json.Marshal(localapikeypkg.LocalAPIKey{
 		Key:    "lk-test",
 		UserID: "someone-else",
 	})
@@ -300,7 +301,7 @@ func TestListLocalAPIKeysRejectsMismatchedSessionUserID(t *testing.T) {
 	}
 
 	handler := NewHandler(nil, &testConfigStore{
-		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*routepkg.LocalAPIKey{
+		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{
 			"lk-test": {Key: "lk-test", UserID: "admin"},
 		}},
 	}, nil, "admin", string(passwordHash), nil)

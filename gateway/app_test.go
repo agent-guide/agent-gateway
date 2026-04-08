@@ -3,7 +3,6 @@ package gateway
 import (
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/authenticator"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
 	"github.com/caddyserver/caddy/v2"
 )
@@ -20,31 +19,5 @@ func TestProvisionAuthenticatorsWithEmptyConfig(t *testing.T) {
 	}
 	if _, ok := app.cliauthManager.GetAuthenticator("claude"); ok {
 		t.Fatal("expected claude authenticator to remain disabled without configuration")
-	}
-}
-
-func TestRegisterLoadedAuthenticators(t *testing.T) {
-	app := &App{cliauthManager: manager.NewManager(nil, nil, nil)}
-
-	err := app.registerLoadedAuthenticators(map[string]any{
-		"gemini": authenticator.NewGeminiAuthenticator(),
-	})
-	if err != nil {
-		t.Fatalf("registerLoadedAuthenticators() error = %v", err)
-	}
-
-	if _, ok := app.cliauthManager.GetAuthenticator("gemini"); !ok {
-		t.Fatal("expected configured gemini authenticator to be registered")
-	}
-}
-
-func TestRegisterLoadedAuthenticatorsRejectsInvalidModule(t *testing.T) {
-	app := &App{cliauthManager: manager.NewManager(nil, nil, nil)}
-
-	err := app.registerLoadedAuthenticators(map[string]any{
-		"invalid": struct{}{},
-	})
-	if err == nil {
-		t.Fatal("expected invalid authenticator module to be rejected")
 	}
 }

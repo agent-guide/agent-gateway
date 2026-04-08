@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/agent-guide/caddy-agent-gateway/configstore/intf"
+	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
@@ -414,7 +415,7 @@ func (h *Handler) handleCreateLocalAPIKey(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var key routepkg.LocalAPIKey
+	var key localapikeypkg.LocalAPIKey
 	if err := utils.DecodeJSON(r, &key); err != nil {
 		_ = utils.WriteError(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
@@ -469,7 +470,7 @@ func (h *Handler) handleUpdateLocalAPIKey(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var key routepkg.LocalAPIKey
+	var key localapikeypkg.LocalAPIKey
 	if err := utils.DecodeJSON(r, &key); err != nil {
 		_ = utils.WriteError(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
@@ -629,7 +630,7 @@ func (h *Handler) localAPIKeyStore() intf.LocalAPIKeyStorer {
 	if h.configStore == nil {
 		return nil
 	}
-	store, err := h.configStore.GetLocalAPIKeyStore(context.Background(), routepkg.DecodeStoredLocalAPIKey)
+	store, err := h.configStore.GetLocalAPIKeyStore(context.Background(), localapikeypkg.DecodeStoredLocalAPIKey)
 	if err != nil {
 		return nil
 	}

@@ -9,7 +9,6 @@ import (
 	"go.uber.org/zap"
 
 	configstoreIntf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
-	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/configstore/sqlite"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
@@ -72,12 +71,14 @@ func (a *App) Provision(ctx caddy.Context) error {
 		return fmt.Errorf("load credentials: %w", err)
 	}
 
-	routeLoader, providerResolver, localAPIKeyStore, err := a.buildGatewayDependencies()
-	if err != nil {
+	if err := a.agentGateway.Bootstrap(ctx, BootstrapOptions{
+		StaticRoutes:    a.Routes,
+		StaticProviders: a.providers,
+		ConfigStore:     a.configStorer,
+		CLIAuthManager:  a.cliauthManager,
+	}); err != nil {
 		return fmt.Errorf("configure agent gateway: %w", err)
 	}
-	a.agentGateway.Configure(routeLoader, providerResolver, localAPIKeyStore, a.cliauthManager, nil)
-	a.agentGateway.SetRoutes(a.Routes)
 
 	a.logger.Info("Agent Gateway provisioned")
 	return nil
@@ -190,7 +191,14 @@ func (a *App) provisionAuthenticators(ctx caddy.Context) error {
 	if !ok {
 		return fmt.Errorf("unexpected authenticator module type %T", modules)
 	}
-	return a.registerLoadedAuthenticators(loaded)
+	for name, mod := range loaded {
+		auth, ok := mod.(manager.Authenticator)
+		if !ok {
+			return fmt.Errorf("authenticator module %q does not implement manager.Authenticator", name)
+		}
+		a.cliauthManager.RegisterAuthenticator(name, auth)
+	}
+	return nil
 }
 
 func (a *App) provisionProviders(ctx caddy.Context) error {
@@ -218,57 +226,6 @@ func (a *App) provisionProviders(ctx caddy.Context) error {
 		a.providers[name] = prov
 	}
 	return nil
-}
-
-func (a *App) registerLoadedAuthenticators(loaded map[string]any) error {
-	for name, mod := range loaded {
-		auth, ok := mod.(manager.Authenticator)
-		if !ok {
-			return fmt.Errorf("authenticator module %q does not implement manager.Authenticator", name)
-		}
-		a.cliauthManager.RegisterAuthenticator(name, auth)
-	}
-	return nil
-}
-
-func (app *App) buildGatewayDependencies() (routepkg.RouteLoader, ProviderResolver, configstoreintf.LocalAPIKeyStorer, error) {
-	staticResolver := NewStaticProviderResolver(func(name string) (provider.Provider, bool) {
-		return app.Provider(name)
-	})
-
-	if app.ConfigStore() == nil {
-		return nil, staticResolver, nil, nil
-	}
-
-	localAPIKeyStore, err := app.ConfigStore().GetLocalAPIKeyStore(context.Background(), routepkg.DecodeStoredLocalAPIKey)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("get local api key store: %w", err)
-	}
-
-	var dynamicResolver ProviderResolver
-	providerStore, err := app.ConfigStore().GetProviderConfigStore(context.Background(), provider.DecodeStoredProviderConfig)
-	if providerStore != nil {
-		dynamicResolver = newCachedDynamicResolver(providerStore)
-	}
-
-	var routeLoader routepkg.RouteLoader
-	routeStore, err := app.ConfigStore().GetRouteStore(context.Background(), routepkg.DecodeStoredRoute)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("get route store: %w", err)
-	}
-	routeLoader = func(ctx context.Context, routeID string) (*routepkg.Route, error) {
-		item, err := routeStore.Get(ctx, routeID)
-		if err != nil {
-			return nil, err
-		}
-		r, ok := item.(*routepkg.Route)
-		if !ok || r == nil {
-			return nil, fmt.Errorf("route %q has unexpected type %T", routeID, item)
-		}
-		return r, nil
-	}
-
-	return routeLoader, ChainProviderResolvers(dynamicResolver, staticResolver), localAPIKeyStore, nil
 }
 
 // Interface guards

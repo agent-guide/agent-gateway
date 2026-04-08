@@ -7,10 +7,20 @@ import (
 	"sync"
 
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
+	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
+	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 )
+
+type BootstrapOptions struct {
+	StaticRoutes    []routepkg.Route
+	StaticProviders map[string]provider.Provider
+	ConfigStore     configstoreintf.ConfigStorer
+	CLIAuthManager  *manager.Manager
+	Selector        routepkg.RouteTargetSelector
+}
 
 type AgentGateway struct {
 	mu sync.RWMutex
@@ -22,7 +32,7 @@ type AgentGateway struct {
 	ProviderResolver ProviderResolver
 	LocalAPIKeyStore configstoreintf.LocalAPIKeyStorer
 	cliauthManager   *manager.Manager
-	Selector         routepkg.RouteSelector
+	Selector         routepkg.RouteTargetSelector
 }
 
 func NewAgentGateway() *AgentGateway {
@@ -30,6 +40,17 @@ func NewAgentGateway() *AgentGateway {
 		routes:     map[string]routepkg.Route{},
 		configured: false,
 	}
+}
+
+func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) error {
+	routeLoader, providerResolver, localAPIKeyStore, err := g.buildDependencies(ctx, opts.StaticProviders, opts.ConfigStore)
+	if err != nil {
+		return err
+	}
+
+	g.Configure(routeLoader, providerResolver, localAPIKeyStore, opts.CLIAuthManager, opts.Selector)
+	g.SetRoutes(opts.StaticRoutes)
+	return nil
 }
 
 func (g *AgentGateway) Reset() {
@@ -45,7 +66,7 @@ func (g *AgentGateway) Reset() {
 	g.Selector = nil
 }
 
-func (g *AgentGateway) Configure(routeLoader routepkg.RouteLoader, providerResolver ProviderResolver, localAPIKeyStore configstoreintf.LocalAPIKeyStorer, cliauthMgr *manager.Manager, selector routepkg.RouteSelector) {
+func (g *AgentGateway) Configure(routeLoader routepkg.RouteLoader, providerResolver ProviderResolver, localAPIKeyStore configstoreintf.LocalAPIKeyStorer, cliauthMgr *manager.Manager, selector routepkg.RouteTargetSelector) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.RouteLoader = routeLoader
@@ -65,7 +86,7 @@ func (g *AgentGateway) SetRoutes(routes []routepkg.Route) {
 		if r.ID == "" {
 			continue
 		}
-		r.Policy.Defaults()
+		r.Normalize()
 		g.routes[r.ID] = r
 	}
 }
@@ -75,7 +96,7 @@ func (g *AgentGateway) EnsureRoute(r routepkg.Route) {
 		return
 	}
 
-	r.Policy.Defaults()
+	r.Normalize()
 
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -105,23 +126,12 @@ func (g *AgentGateway) Route(routeID string) (routepkg.Route, bool) {
 }
 
 func (g *AgentGateway) ValidateRoute(ctx context.Context, routeID string) error {
-	if routeID == "" {
-		return fmt.Errorf("route_id is required")
+	r, err := g.resolveRouteForValidation(ctx, routeID)
+	if err != nil {
+		return err
 	}
-
-	r, ok := g.Route(routeID)
-	if !ok {
-		g.mu.RLock()
-		routeLoader := g.RouteLoader
-		g.mu.RUnlock()
-		if routeLoader == nil {
-			return fmt.Errorf("route %q is not configured", routeID)
-		}
-		loaded, err := routeLoader(ctx, routeID)
-		if err != nil || loaded == nil {
-			return fmt.Errorf("route %q is not configured", routeID)
-		}
-		r = *loaded
+	if err := r.ValidateDefinition(); err != nil {
+		return err
 	}
 
 	resolver := g.providerResolver()
@@ -129,15 +139,15 @@ func (g *AgentGateway) ValidateRoute(ctx context.Context, routeID string) error 
 		return fmt.Errorf("provider resolver is not configured")
 	}
 
-	for _, target := range r.Targets {
-		if _, _, err := resolver.ResolveProvider(ctx, target.ProviderRef); err != nil {
-			return fmt.Errorf("provider %q is not configured", target.ProviderRef)
+	for _, ref := range r.ProviderRefs() {
+		if _, _, err := resolver.ResolveProvider(ctx, ref); err != nil {
+			return fmt.Errorf("provider %q is not configured", ref)
 		}
 	}
 	return nil
 }
 
-func (g *AgentGateway) ResolveProvider(ctx context.Context, routeID string, req routepkg.ResolveRequest) (*routepkg.ResolvedRoute, error) {
+func (g *AgentGateway) Resolve(ctx context.Context, routeID string, req routepkg.ResolveRequest) (*ResolvedRequest, error) {
 	r, err := g.resolveRoute(ctx, routeID)
 	if err != nil {
 		return nil, err
@@ -147,30 +157,25 @@ func (g *AgentGateway) ResolveProvider(ctx context.Context, routeID string, req 
 	if err != nil {
 		return nil, err
 	}
-	if err := routepkg.ValidateRequestPolicy(r, localKey, req); err != nil {
-		return nil, err
-	}
-
-	selector := g.selector()
-	target, err := selector.SelectTarget(r, req)
+	target, err := r.ResolveTarget(req, g.selector())
 	if err != nil {
 		return nil, err
 	}
 
 	resolver := g.providerResolver()
 	if resolver == nil {
-		return nil, routepkg.NewHTTPError(http.StatusServiceUnavailable, "provider resolver is not configured")
+		return nil, utils.NewHTTPError(http.StatusServiceUnavailable, "provider resolver is not configured")
 	}
 	prov, providerName, err := resolver.ResolveProvider(ctx, target.ProviderRef)
 	if err != nil || prov == nil {
-		return nil, routepkg.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("route target provider %q is not configured", target.ProviderRef))
+		return nil, utils.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("route target provider %q is not configured", target.ProviderRef))
 	}
 	if providerName == "" {
 		providerName = target.ProviderRef
 	}
 	prov = g.wrapProvider(prov, providerName)
 
-	return &routepkg.ResolvedRoute{
+	return &ResolvedRequest{
 		Route:        r,
 		LocalAPIKey:  localKey,
 		ProviderName: providerName,
@@ -178,9 +183,17 @@ func (g *AgentGateway) ResolveProvider(ctx context.Context, routeID string, req 
 	}, nil
 }
 
+func (g *AgentGateway) ResolveProvider(ctx context.Context, routeID string, req routepkg.ResolveRequest) (provider.Provider, error) {
+	resolved, err := g.Resolve(ctx, routeID, req)
+	if err != nil {
+		return nil, err
+	}
+	return resolved.Provider, nil
+}
+
 func (g *AgentGateway) resolveRoute(ctx context.Context, routeID string) (routepkg.Route, error) {
 	if routeID == "" {
-		return routepkg.Route{}, routepkg.NewHTTPError(http.StatusServiceUnavailable, "route id is not configured")
+		return routepkg.Route{}, utils.NewHTTPError(http.StatusServiceUnavailable, "route id is not configured")
 	}
 
 	g.mu.RLock()
@@ -191,48 +204,53 @@ func (g *AgentGateway) resolveRoute(ctx context.Context, routeID string) (routep
 	if loader != nil {
 		latest, err := loader(ctx, routeID)
 		if err != nil {
-			return routepkg.Route{}, routepkg.NewHTTPError(http.StatusServiceUnavailable, fmt.Sprintf("route %q is unavailable", routeID))
+			return routepkg.Route{}, utils.NewHTTPError(http.StatusServiceUnavailable, fmt.Sprintf("route %q is unavailable", routeID))
 		}
 		if latest != nil {
-			latest.Policy.Defaults()
+			latest.Normalize()
 			g.EnsureRoute(*latest)
 			return *latest, nil
 		}
 	}
 
 	if !ok {
-		return routepkg.Route{}, routepkg.NewHTTPError(http.StatusServiceUnavailable, fmt.Sprintf("route %q is not configured", routeID))
+		return routepkg.Route{}, utils.NewHTTPError(http.StatusServiceUnavailable, fmt.Sprintf("route %q is not configured", routeID))
 	}
-	r.Policy.Defaults()
+	r.Normalize()
 	return r, nil
 }
 
-func (g *AgentGateway) resolveLocalAPIKey(ctx context.Context, httpReq *http.Request, r routepkg.Route) (*routepkg.LocalAPIKey, error) {
-	rawKey := routepkg.ExtractAPIKey(httpReq)
-	if rawKey == "" {
-		if r.Policy.Auth.RequireLocalAPIKey {
-			return nil, routepkg.NewHTTPError(http.StatusUnauthorized, "local api key is required")
-		}
-		return nil, nil
+func (g *AgentGateway) resolveRouteForValidation(ctx context.Context, routeID string) (routepkg.Route, error) {
+	if routeID == "" {
+		return routepkg.Route{}, fmt.Errorf("route_id is required")
+	}
+
+	r, ok := g.Route(routeID)
+	if ok {
+		r.Normalize()
+		return r, nil
 	}
 
 	g.mu.RLock()
+	loader := g.RouteLoader
+	g.mu.RUnlock()
+	if loader == nil {
+		return routepkg.Route{}, fmt.Errorf("route %q is not configured", routeID)
+	}
+
+	loaded, err := loader(ctx, routeID)
+	if err != nil || loaded == nil {
+		return routepkg.Route{}, fmt.Errorf("route %q is not configured", routeID)
+	}
+	loaded.Normalize()
+	return *loaded, nil
+}
+
+func (g *AgentGateway) resolveLocalAPIKey(ctx context.Context, httpReq *http.Request, r routepkg.Route) (*localapikeypkg.LocalAPIKey, error) {
+	g.mu.RLock()
 	store := g.LocalAPIKeyStore
 	g.mu.RUnlock()
-	if store == nil {
-		return nil, routepkg.NewHTTPError(http.StatusServiceUnavailable, "local api key store is not configured")
-	}
-
-	item, err := store.Get(ctx, rawKey)
-	if err != nil {
-		return nil, routepkg.NewHTTPError(http.StatusUnauthorized, "invalid local api key")
-	}
-
-	key, ok := item.(*routepkg.LocalAPIKey)
-	if !ok || key == nil {
-		return nil, routepkg.NewHTTPError(http.StatusUnauthorized, "invalid local api key")
-	}
-	return routepkg.ValidateLocalAPIKeyForRoute(r, key)
+	return localapikeypkg.AuthenticateRequest(ctx, store, httpReq, r.ID, r.Policy.Auth.RequireLocalAPIKey)
 }
 
 func (g *AgentGateway) providerResolver() ProviderResolver {
@@ -241,7 +259,7 @@ func (g *AgentGateway) providerResolver() ProviderResolver {
 	return g.ProviderResolver
 }
 
-func (g *AgentGateway) selector() routepkg.RouteSelector {
+func (g *AgentGateway) selector() routepkg.RouteTargetSelector {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	if g.Selector == nil {
@@ -255,4 +273,54 @@ func (g *AgentGateway) wrapProvider(prov provider.Provider, providerName string)
 	cliauthMgr := g.cliauthManager
 	g.mu.RUnlock()
 	return provider.WrapWithAuthManager(prov, providerName, cliauthMgr)
+}
+
+func (g *AgentGateway) buildDependencies(ctx context.Context, staticProviders map[string]provider.Provider, configStore configstoreintf.ConfigStorer) (routepkg.RouteLoader, ProviderResolver, configstoreintf.LocalAPIKeyStorer, error) {
+	staticResolver := NewStaticProviderResolver(func(name string) (provider.Provider, bool) {
+		if staticProviders == nil {
+			return nil, false
+		}
+		prov, ok := staticProviders[name]
+		return prov, ok
+	})
+
+	if configStore == nil {
+		return nil, staticResolver, nil, nil
+	}
+
+	localAPIKeyStore, err := configStore.GetLocalAPIKeyStore(ctx, localapikeypkg.DecodeStoredLocalAPIKey)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("get local api key store: %w", err)
+	}
+
+	var dynamicResolver ProviderResolver
+	providerStore, err := configStore.GetProviderConfigStore(ctx, provider.DecodeStoredProviderConfig)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("get provider config store: %w", err)
+	}
+	if providerStore != nil {
+		dynamicResolver = newCachedDynamicResolver(providerStore)
+	}
+
+	routeStore, err := configStore.GetRouteStore(ctx, routepkg.DecodeStoredRoute)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("get route store: %w", err)
+	}
+
+	var routeLoader routepkg.RouteLoader
+	if routeStore != nil {
+		routeLoader = func(ctx context.Context, routeID string) (*routepkg.Route, error) {
+			item, err := routeStore.Get(ctx, routeID)
+			if err != nil {
+				return nil, err
+			}
+			r, ok := item.(*routepkg.Route)
+			if !ok || r == nil {
+				return nil, fmt.Errorf("route %q has unexpected type %T", routeID, item)
+			}
+			return r, nil
+		}
+	}
+
+	return routeLoader, ChainProviderResolvers(dynamicResolver, staticResolver), localAPIKeyStore, nil
 }

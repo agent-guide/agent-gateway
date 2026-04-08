@@ -3,10 +3,12 @@ package route
 import (
 	"fmt"
 	"math/rand"
+
+	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
 )
 
 // RouteSelector chooses an eligible route target for a request.
-type RouteSelector interface {
+type RouteTargetSelector interface {
 	SelectTarget(route Route, req ResolveRequest) (*RouteTarget, error)
 }
 
@@ -25,7 +27,7 @@ func (s DefaultRouteSelector) SelectTarget(r Route, req ResolveRequest) (*RouteT
 		candidates = append(candidates, target)
 	}
 	if len(candidates) == 0 {
-		return nil, &HTTPError{status: 502, msg: fmt.Sprintf("route %q has no eligible targets", r.ID)}
+		return nil, utils.NewHTTPError(502, fmt.Sprintf("route %q has no eligible targets", r.ID))
 	}
 
 	var (
@@ -67,7 +69,8 @@ func (s DefaultRouteSelector) SelectTarget(r Route, req ResolveRequest) (*RouteT
 		}
 	}
 
-	return nil, &HTTPError{status: 502, msg: fmt.Sprintf("route %q has no eligible targets", r.ID)}
+	return nil, utils.NewHTTPError(502, fmt.Sprintf("route %q has no eligible targets", r.ID))
+
 }
 
 func selectionOrder(strategy RouteSelectionStrategy, allowFallback bool, weighted, conditional, failover, other []RouteTarget) [][]RouteTarget {

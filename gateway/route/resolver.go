@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"strings"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
+	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
 )
 
 // RouteLoader resolves the latest persisted route definition for a route ID.
@@ -20,46 +19,30 @@ type ResolveRequest struct {
 	Stream      bool
 }
 
-// ResolvedRoute contains the chosen route, consumer, and provider for a request.
-type ResolvedRoute struct {
-	Route        Route
-	LocalAPIKey  *LocalAPIKey
-	ProviderName string
-	Provider     provider.Provider
+// ResolveTarget validates route policy and selects an eligible target for the request.
+func (r Route) ResolveTarget(req ResolveRequest, selector RouteSelector) (*RouteTarget, error) {
+	r.Normalize()
+
+	if err := r.ValidateRequestPolicy(req); err != nil {
+		return nil, err
+	}
+	if selector == nil {
+		selector = DefaultRouteSelector{}
+	}
+	return selector.SelectTarget(r, req)
 }
 
-// HTTPError describes a request resolution failure with an HTTP status code.
-type HTTPError struct {
-	status int
-	msg    string
-}
-
-func (e *HTTPError) Error() string   { return e.msg }
-func (e *HTTPError) StatusCode() int { return e.status }
-
-// NewHTTPError constructs an HTTPError with the given status and message.
-func NewHTTPError(status int, msg string) error {
-	return &HTTPError{status: status, msg: msg}
-}
-
-// ValidateRequestPolicy validates the request against route-level and consumer-level policy.
-func ValidateRequestPolicy(r Route, key *LocalAPIKey, req ResolveRequest) error {
+// ValidateRequestPolicy validates the request against route-level policy.
+func (r Route) ValidateRequestPolicy(req ResolveRequest) error {
 	if req.Model != "" {
 		if len(r.Policy.AllowedModels) > 0 && !slices.Contains(r.Policy.AllowedModels, req.Model) {
-			return &HTTPError{status: http.StatusForbidden, msg: fmt.Sprintf("model %q is not allowed on route %q", req.Model, r.ID)}
-		}
-		if key != nil && key.PolicyOverride != nil && len(key.PolicyOverride.AllowedModels) > 0 &&
-			!slices.Contains(key.PolicyOverride.AllowedModels, req.Model) {
-			return &HTTPError{status: http.StatusForbidden, msg: fmt.Sprintf("model %q is not allowed for this local api key", req.Model)}
+			return utils.NewHTTPError(http.StatusForbidden, fmt.Sprintf("model %q is not allowed on route %q", req.Model, r.ID))
 		}
 	}
 
 	if req.Stream {
 		if r.Policy.AllowStreaming != nil && !*r.Policy.AllowStreaming {
-			return &HTTPError{status: http.StatusForbidden, msg: "streaming is disabled on this route"}
-		}
-		if key != nil && key.PolicyOverride != nil && key.PolicyOverride.AllowStreaming != nil && !*key.PolicyOverride.AllowStreaming {
-			return &HTTPError{status: http.StatusForbidden, msg: "streaming is disabled for this local api key"}
+			return utils.NewHTTPError(http.StatusForbidden, "streaming is disabled on this route")
 		}
 	}
 
@@ -75,19 +58,4 @@ func matchesConditions(conditions TargetConditions, req ResolveRequest) bool {
 		return false
 	}
 	return true
-}
-
-// ExtractAPIKey extracts the bearer token or x-api-key value from the request.
-func ExtractAPIKey(r *http.Request) string {
-	if r == nil {
-		return ""
-	}
-	if key := strings.TrimSpace(r.Header.Get("x-api-key")); key != "" {
-		return key
-	}
-	auth := strings.TrimSpace(r.Header.Get("Authorization"))
-	if len(auth) > 7 && strings.EqualFold(auth[:7], "bearer ") {
-		return strings.TrimSpace(auth[7:])
-	}
-	return ""
 }

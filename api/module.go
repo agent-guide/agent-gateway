@@ -92,7 +92,7 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhtt
 		return WriteError(h.logger, h.apiHandler.Name(), h.RouteID, "", w, r, fmt.Errorf("llm api handler returned nil generate request"), "prepare request")
 	}
 
-	resolved, err := h.gateway.ResolveProvider(r.Context(), h.RouteID, gatewayResolveRequest(r, prepared))
+	resolved, err := h.gateway.Resolve(r.Context(), h.RouteID, gatewayResolveRequest(r, prepared))
 	if err != nil {
 		return WriteError(h.logger, h.apiHandler.Name(), h.RouteID, prepared.GenerateRequest.Model, w, r, err, "resolve provider")
 	}
