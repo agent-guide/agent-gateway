@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/agent-guide/caddy-agent-gateway/configstore/intf"
+	"github.com/agent-guide/caddy-agent-gateway/gateway"
 	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
@@ -236,9 +237,9 @@ func (h *Handler) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleListRoutes(w http.ResponseWriter, r *http.Request) {
-	store := h.routeStore()
-	if store == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "route store not configured")
+	manager := h.routeManagerForRoutes()
+	if manager == nil {
+		_ = utils.WriteError(w, http.StatusServiceUnavailable, "route manager is not configured")
 		return
 	}
 
@@ -248,15 +249,7 @@ func (h *Handler) handleListRoutes(w http.ResponseWriter, r *http.Request) {
 		tag = defaultRouteTag
 	}
 
-	var (
-		items []any
-		err   error
-	)
-	if tagPrefix != "" {
-		items, err = store.ListByTagPrefix(r.Context(), tagPrefix)
-	} else {
-		items, err = store.ListByTag(r.Context(), tag)
-	}
+	items, err := manager.List(r.Context(), gateway.RouteListOptions{Tag: tag, TagPrefix: tagPrefix})
 	if err != nil {
 		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -265,9 +258,9 @@ func (h *Handler) handleListRoutes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
-	store := h.routeStore()
-	if store == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "route store not configured")
+	manager := h.routeManagerForRoutes()
+	if manager == nil {
+		_ = utils.WriteError(w, http.StatusServiceUnavailable, "route manager is not configured")
 		return
 	}
 
@@ -294,7 +287,11 @@ func (h *Handler) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 		tag = defaultRouteTag
 	}
 
-	if err := store.Create(r.Context(), route.ID, tag, &route); err != nil {
+	if err := manager.Create(r.Context(), route, tag); err != nil {
+		if errors.Is(err, gateway.ErrStaticRouteReadOnly) {
+			_ = utils.WriteError(w, http.StatusConflict, err.Error())
+			return
+		}
 		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -302,15 +299,15 @@ func (h *Handler) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetRoute(w http.ResponseWriter, r *http.Request) {
-	store := h.routeStore()
-	if store == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "route store not configured")
+	manager := h.routeManagerForRoutes()
+	if manager == nil {
+		_ = utils.WriteError(w, http.StatusServiceUnavailable, "route manager is not configured")
 		return
 	}
 
-	item, err := store.Get(r.Context(), r.PathValue("id"))
+	item, err := manager.Get(r.Context(), r.PathValue("id"))
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, gateway.ErrRouteNotConfigured) {
 			_ = utils.WriteError(w, http.StatusNotFound, "route not found")
 			return
 		}
@@ -321,9 +318,9 @@ func (h *Handler) handleGetRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleUpdateRoute(w http.ResponseWriter, r *http.Request) {
-	store := h.routeStore()
-	if store == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "route store not configured")
+	manager := h.routeManagerForRoutes()
+	if manager == nil {
+		_ = utils.WriteError(w, http.StatusServiceUnavailable, "route manager is not configured")
 		return
 	}
 
@@ -349,7 +346,11 @@ func (h *Handler) handleUpdateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	route.Policy.Defaults()
 
-	if err := store.Update(r.Context(), id, &route); err != nil {
+	if err := manager.Update(r.Context(), id, route); err != nil {
+		if errors.Is(err, gateway.ErrStaticRouteReadOnly) {
+			_ = utils.WriteError(w, http.StatusConflict, err.Error())
+			return
+		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			_ = utils.WriteError(w, http.StatusNotFound, "route not found")
 			return
@@ -358,7 +359,7 @@ func (h *Handler) handleUpdateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item, err := store.Get(r.Context(), id)
+	item, err := manager.Get(r.Context(), id)
 	if err != nil {
 		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -367,14 +368,18 @@ func (h *Handler) handleUpdateRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleDeleteRoute(w http.ResponseWriter, r *http.Request) {
-	store := h.routeStore()
-	if store == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "route store not configured")
+	manager := h.routeManagerForRoutes()
+	if manager == nil {
+		_ = utils.WriteError(w, http.StatusServiceUnavailable, "route manager is not configured")
 		return
 	}
 
 	id := r.PathValue("id")
-	if err := store.Delete(r.Context(), id); err != nil {
+	if err := manager.Delete(r.Context(), id); err != nil {
+		if errors.Is(err, gateway.ErrStaticRouteReadOnly) {
+			_ = utils.WriteError(w, http.StatusConflict, err.Error())
+			return
+		}
 		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -624,6 +629,18 @@ func (h *Handler) routeStore() intf.RouteStorer {
 		return nil
 	}
 	return store
+}
+
+func (h *Handler) routeManagerForRoutes() *gateway.RouteManager {
+	if h.routeManager != nil {
+		return h.routeManager
+	}
+
+	store := h.routeStore()
+	if store == nil {
+		return nil
+	}
+	return gateway.NewRouteManager(store)
 }
 
 func (h *Handler) localAPIKeyStore() intf.LocalAPIKeyStorer {

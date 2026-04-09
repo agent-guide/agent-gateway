@@ -11,8 +11,10 @@ import (
 	"testing"
 
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
+	"github.com/agent-guide/caddy-agent-gateway/gateway"
 	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -20,6 +22,18 @@ import (
 type testConfigStore struct {
 	routeStore       configstoreintf.RouteStorer
 	localAPIKeyStore configstoreintf.LocalAPIKeyStorer
+}
+
+func newTestAgentGateway(configStore configstoreintf.ConfigStorer, cliauthMgr *manager.Manager, routeManager *gateway.RouteManager) *gateway.AgentGateway {
+	if routeManager == nil && configStore != nil {
+		routeStore, err := configStore.GetRouteStore(context.Background(), routepkg.DecodeStoredRoute)
+		if err == nil && routeStore != nil {
+			routeManager = gateway.NewRouteManager(routeStore)
+		}
+	}
+	agentGateway := gateway.NewAgentGateway()
+	agentGateway.Configure(configStore, routeManager, nil, nil, cliauthMgr, nil)
+	return agentGateway
 }
 
 func (s *testConfigStore) GetCredentialStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.CredentialStorer, error) {
@@ -157,9 +171,9 @@ func TestRouteCRUD(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	handler := NewHandler(nil, &testConfigStore{
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testRouteStore{items: map[string]*routepkg.Route{}},
-	}, nil, "admin", string(passwordHash), nil)
+	}, nil, nil), nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	createBody, err := json.Marshal(routepkg.Route{
@@ -209,9 +223,9 @@ func TestLocalAPIKeyCRUD(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	handler := NewHandler(nil, &testConfigStore{
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
-	}, nil, "admin", string(passwordHash), nil)
+	}, nil, nil), nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body, err := json.Marshal(localapikeypkg.LocalAPIKey{
@@ -253,9 +267,9 @@ func TestLocalAPIKeyCRUD(t *testing.T) {
 }
 
 func TestProtectedRouteRejectsRequestsWhenAdminAuthIsNotConfigured(t *testing.T) {
-	handler := NewHandler(nil, &testConfigStore{
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
-	}, nil, "", "", nil)
+	}, nil, nil), nil, "", "", nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/local_api_keys", nil)
 	rec := httptest.NewRecorder()
@@ -271,9 +285,9 @@ func TestCreateLocalAPIKeyRejectsMismatchedSessionUserID(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	handler := NewHandler(nil, &testConfigStore{
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
-	}, nil, "admin", string(passwordHash), nil)
+	}, nil, nil), nil, "admin", string(passwordHash), nil)
 
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -300,11 +314,11 @@ func TestListLocalAPIKeysRejectsMismatchedSessionUserID(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	handler := NewHandler(nil, &testConfigStore{
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{
 			"lk-test": {Key: "lk-test", UserID: "admin"},
 		}},
-	}, nil, "admin", string(passwordHash), nil)
+	}, nil, nil), nil, "admin", string(passwordHash), nil)
 
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -314,6 +328,49 @@ func TestListLocalAPIKeysRejectsMismatchedSessionUserID(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("unexpected list status: got %d want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
+func TestRouteGetPrefersStaticRouteManager(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	store := &testRouteStore{
+		items: map[string]*routepkg.Route{
+			"chat-prod": {
+				ID:      "chat-prod",
+				Name:    "dynamic",
+				Targets: []routepkg.RouteTarget{{ProviderRef: "openai"}},
+			},
+		},
+	}
+	manager := gateway.NewRouteManager(store)
+	manager.InitStaticRoutes([]routepkg.Route{{
+		ID:      "chat-prod",
+		Name:    "static",
+		Targets: []routepkg.RouteTarget{{ProviderRef: "anthropic"}},
+	}})
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, manager), nil, "admin", string(passwordHash), nil)
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/routes/chat-prod", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected get status: got %d want %d", rec.Code, http.StatusOK)
+	}
+
+	var got routepkg.Route
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode route: %v", err)
+	}
+	if got.Name != "static" {
+		t.Fatalf("route name = %q, want static", got.Name)
 	}
 }
 

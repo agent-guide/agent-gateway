@@ -6,6 +6,7 @@ import (
 
 	"github.com/agent-guide/caddy-agent-gateway/admin/caddymgr"
 	"github.com/agent-guide/caddy-agent-gateway/configstore/intf"
+	"github.com/agent-guide/caddy-agent-gateway/gateway"
 	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
 	"go.uber.org/zap"
@@ -15,6 +16,7 @@ import (
 type Handler struct {
 	cliauthManager    *manager.Manager
 	configStore       intf.ConfigStorer
+	routeManager      *gateway.RouteManager
 	caddyManager      *caddymgr.CaddyManager
 	mux               *http.ServeMux
 	logger            *zap.Logger
@@ -27,13 +29,24 @@ type Handler struct {
 // NewHandler constructs an admin Handler.
 // caddyMgr may be nil; caddy server management endpoints will return 503 in that case.
 // logger may be nil (a no-op logger is used in that case).
-func NewHandler(cliauthMgr *manager.Manager, configStore intf.ConfigStorer, logger *zap.Logger, adminUser, adminPasswordHash string, caddyMgr *caddymgr.CaddyManager) *Handler {
+func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUser, adminPasswordHash string, caddyMgr *caddymgr.CaddyManager) *Handler {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
+
+	var cliauthMgr *manager.Manager
+	var configStore intf.ConfigStorer
+	var routeManager *gateway.RouteManager
+	if agentGateway != nil {
+		cliauthMgr = agentGateway.CLIAuthManager()
+		configStore = agentGateway.ConfigStore()
+		routeManager = agentGateway.RouteManager()
+	}
+
 	h := &Handler{
 		cliauthManager:    cliauthMgr,
 		configStore:       configStore,
+		routeManager:      routeManager,
 		caddyManager:      caddyMgr,
 		logger:            logger,
 		sessions:          newSessionStore(),
