@@ -32,7 +32,7 @@ func newTestAgentGateway(configStore configstoreintf.ConfigStorer, cliauthMgr *m
 		}
 	}
 	agentGateway := gateway.NewAgentGateway()
-	agentGateway.Configure(configStore, routeManager, nil, nil, cliauthMgr, nil)
+	agentGateway.Configure(configStore, routeManager, nil, nil, nil, cliauthMgr, nil)
 	return agentGateway
 }
 

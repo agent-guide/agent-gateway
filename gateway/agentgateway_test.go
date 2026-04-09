@@ -53,7 +53,7 @@ func TestResolverUsesCustomSelector(t *testing.T) {
 	gw := NewAgentGateway()
 	rm := NewRouteManager(nil)
 	rm.cacheDynamicRoute(route)
-	gw.Configure(nil, rm, NewStaticProviderResolver(func(name string) (provider.Provider, bool) {
+	gw.Configure(nil, rm, nil, NewStaticProviderResolver(func(name string) (provider.Provider, bool) {
 		if name == "openrouter" {
 			return testProvider{}, true
 		}
@@ -77,7 +77,7 @@ func TestLookupRouteNormalizesRoutePolicy(t *testing.T) {
 	gw := NewAgentGateway()
 	rm := NewRouteManager(nil)
 	rm.cacheDynamicRoute(routepkg.Route{ID: "chat-prod"})
-	gw.Configure(nil, rm, nil, nil, nil, nil)
+	gw.Configure(nil, rm, nil, nil, nil, nil, nil)
 
 	got, err := gw.LookupRoute(context.Background(), "chat-prod")
 	if err != nil {
@@ -98,7 +98,7 @@ func TestValidateRouteRejectsRouteWithoutEnabledTargets(t *testing.T) {
 		ID:      "chat-prod",
 		Targets: []routepkg.RouteTarget{{ProviderRef: "openai", Disabled: true}},
 	})
-	gw.Configure(nil, rm, NewStaticProviderResolver(func(name string) (provider.Provider, bool) {
+	gw.Configure(nil, rm, nil, NewStaticProviderResolver(func(name string) (provider.Provider, bool) {
 		return testProvider{}, true
 	}), nil, nil, nil)
 
@@ -120,7 +120,7 @@ func TestValidateRouteChecksUniqueProviderRefs(t *testing.T) {
 			{ProviderRef: "anthropic"},
 		},
 	})
-	gw.Configure(nil, rm, ProviderResolverFunc(func(ctx context.Context, ref string) (provider.Provider, string, error) {
+	gw.Configure(nil, rm, nil, ProviderResolverFunc(func(ctx context.Context, ref string) (provider.Provider, string, error) {
 		resolved = append(resolved, ref)
 		return testProvider{}, ref, nil
 	}), nil, nil, nil)

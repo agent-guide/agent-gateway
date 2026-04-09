@@ -387,9 +387,9 @@ func (h *Handler) handleDeleteRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleListLocalAPIKeys(w http.ResponseWriter, r *http.Request) {
-	store := h.localAPIKeyStore()
-	if store == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "local api key store not configured")
+	manager := h.localAPIKeyManagerForRoutes()
+	if manager == nil {
+		_ = utils.WriteError(w, http.StatusServiceUnavailable, "local api key manager not configured")
 		return
 	}
 
@@ -405,7 +405,7 @@ func (h *Handler) handleListLocalAPIKeys(w http.ResponseWriter, r *http.Request)
 	}
 	userID = sessionUsername
 
-	items, err := store.ListByUserID(r.Context(), userID)
+	items, err := manager.List(r.Context(), gateway.LocalAPIKeyListOptions{UserID: userID})
 	if err != nil {
 		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -414,9 +414,9 @@ func (h *Handler) handleListLocalAPIKeys(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) handleCreateLocalAPIKey(w http.ResponseWriter, r *http.Request) {
-	store := h.localAPIKeyStore()
-	if store == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "local api key store not configured")
+	manager := h.localAPIKeyManagerForRoutes()
+	if manager == nil {
+		_ = utils.WriteError(w, http.StatusServiceUnavailable, "local api key manager not configured")
 		return
 	}
 
@@ -442,7 +442,7 @@ func (h *Handler) handleCreateLocalAPIKey(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := store.Create(r.Context(), key.Key, key.UserID, &key); err != nil {
+	if err := manager.Create(r.Context(), key); err != nil {
 		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -450,15 +450,15 @@ func (h *Handler) handleCreateLocalAPIKey(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) handleGetLocalAPIKey(w http.ResponseWriter, r *http.Request) {
-	store := h.localAPIKeyStore()
-	if store == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "local api key store not configured")
+	manager := h.localAPIKeyManagerForRoutes()
+	if manager == nil {
+		_ = utils.WriteError(w, http.StatusServiceUnavailable, "local api key manager not configured")
 		return
 	}
 
-	item, err := store.Get(r.Context(), r.PathValue("key"))
+	item, err := manager.Get(r.Context(), r.PathValue("key"))
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, gateway.ErrLocalAPIKeyNotConfigured) {
 			_ = utils.WriteError(w, http.StatusNotFound, "local api key not found")
 			return
 		}
@@ -469,9 +469,9 @@ func (h *Handler) handleGetLocalAPIKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleUpdateLocalAPIKey(w http.ResponseWriter, r *http.Request) {
-	store := h.localAPIKeyStore()
-	if store == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "local api key store not configured")
+	manager := h.localAPIKeyManagerForRoutes()
+	if manager == nil {
+		_ = utils.WriteError(w, http.StatusServiceUnavailable, "local api key manager not configured")
 		return
 	}
 
@@ -489,8 +489,8 @@ func (h *Handler) handleUpdateLocalAPIKey(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if _, err := store.Get(r.Context(), pathKey); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	if _, err := manager.Get(r.Context(), pathKey); err != nil {
+		if errors.Is(err, gateway.ErrLocalAPIKeyNotConfigured) {
 			_ = utils.WriteError(w, http.StatusNotFound, "local api key not found")
 			return
 		}
@@ -498,7 +498,7 @@ func (h *Handler) handleUpdateLocalAPIKey(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := store.Update(r.Context(), key.Key, &key); err != nil {
+	if err := manager.Update(r.Context(), key.Key, key); err != nil {
 		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -506,14 +506,14 @@ func (h *Handler) handleUpdateLocalAPIKey(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) handleDeleteLocalAPIKey(w http.ResponseWriter, r *http.Request) {
-	store := h.localAPIKeyStore()
-	if store == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "local api key store not configured")
+	manager := h.localAPIKeyManagerForRoutes()
+	if manager == nil {
+		_ = utils.WriteError(w, http.StatusServiceUnavailable, "local api key manager not configured")
 		return
 	}
 
 	key := r.PathValue("key")
-	if err := store.Delete(r.Context(), key); err != nil {
+	if err := manager.Delete(r.Context(), key); err != nil {
 		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -652,4 +652,16 @@ func (h *Handler) localAPIKeyStore() intf.LocalAPIKeyStorer {
 		return nil
 	}
 	return store
+}
+
+func (h *Handler) localAPIKeyManagerForRoutes() *gateway.LocalAPIKeyManager {
+	if h.localAPIKeyManager != nil {
+		return h.localAPIKeyManager
+	}
+
+	store := h.localAPIKeyStore()
+	if store == nil {
+		return nil
+	}
+	return gateway.NewLocalAPIKeyManager(store)
 }

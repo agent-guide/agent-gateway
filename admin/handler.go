@@ -14,16 +14,17 @@ import (
 
 // Handler handles Admin API requests under /admin/.
 type Handler struct {
-	cliauthManager    *manager.Manager
-	configStore       intf.ConfigStorer
-	routeManager      *gateway.RouteManager
-	caddyManager      *caddymgr.CaddyManager
-	mux               *http.ServeMux
-	logger            *zap.Logger
-	cliAuthSessions   sync.Map // cliname -> cliAuthStatus
-	sessions          *sessionStore
-	adminUsername     string
-	adminPasswordHash string
+	cliauthManager     *manager.Manager
+	configStore        intf.ConfigStorer
+	routeManager       *gateway.RouteManager
+	localAPIKeyManager *gateway.LocalAPIKeyManager
+	caddyManager       *caddymgr.CaddyManager
+	mux                *http.ServeMux
+	logger             *zap.Logger
+	cliAuthSessions    sync.Map // cliname -> cliAuthStatus
+	sessions           *sessionStore
+	adminUsername      string
+	adminPasswordHash  string
 }
 
 // NewHandler constructs an admin Handler.
@@ -37,21 +38,24 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 	var cliauthMgr *manager.Manager
 	var configStore intf.ConfigStorer
 	var routeManager *gateway.RouteManager
+	var localAPIKeyManager *gateway.LocalAPIKeyManager
 	if agentGateway != nil {
 		cliauthMgr = agentGateway.CLIAuthManager()
 		configStore = agentGateway.ConfigStore()
 		routeManager = agentGateway.RouteManager()
+		localAPIKeyManager = agentGateway.LocalAPIKeyManager()
 	}
 
 	h := &Handler{
-		cliauthManager:    cliauthMgr,
-		configStore:       configStore,
-		routeManager:      routeManager,
-		caddyManager:      caddyMgr,
-		logger:            logger,
-		sessions:          newSessionStore(),
-		adminUsername:     adminUser,
-		adminPasswordHash: adminPasswordHash,
+		cliauthManager:     cliauthMgr,
+		configStore:        configStore,
+		routeManager:       routeManager,
+		localAPIKeyManager: localAPIKeyManager,
+		caddyManager:       caddyMgr,
+		logger:             logger,
+		sessions:           newSessionStore(),
+		adminUsername:      adminUser,
+		adminPasswordHash:  adminPasswordHash,
 	}
 	h.mux = http.NewServeMux()
 	for _, route := range h.Routes() {

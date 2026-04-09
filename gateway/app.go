@@ -81,10 +81,11 @@ func (a *App) Provision(ctx caddy.Context) error {
 	}
 
 	if err := a.agentGateway.Bootstrap(ctx, BootstrapOptions{
-		StaticRoutes:    a.Routes,
-		StaticProviders: a.providers,
-		ConfigStore:     a.configStorer,
-		CLIAuthManager:  a.cliauthManager,
+		StaticRoutes:       a.Routes,
+		StaticLocalAPIKeys: a.LocalAPIKeys,
+		StaticProviders:    a.providers,
+		ConfigStore:        a.configStorer,
+		CLIAuthManager:     a.cliauthManager,
 	}); err != nil {
 		return fmt.Errorf("configure agent gateway: %w", err)
 	}

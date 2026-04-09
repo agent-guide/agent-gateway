@@ -16,29 +16,32 @@ import (
 )
 
 type BootstrapOptions struct {
-	StaticRoutes    []routepkg.Route
-	StaticProviders map[string]provider.Provider
-	ConfigStore     configstoreintf.ConfigStorer
-	CLIAuthManager  *manager.Manager
-	Selector        routepkg.RouteTargetSelector
+	StaticRoutes       []routepkg.Route
+	StaticLocalAPIKeys []localapikeypkg.LocalAPIKey
+	StaticProviders    map[string]provider.Provider
+	ConfigStore        configstoreintf.ConfigStorer
+	CLIAuthManager     *manager.Manager
+	Selector           routepkg.RouteTargetSelector
 }
 
 type AgentGateway struct {
 	mu sync.RWMutex
 
-	configured       bool
-	configStore      configstoreintf.ConfigStorer
-	routeManager     *RouteManager
-	ProviderResolver ProviderResolver
-	LocalAPIKeyStore configstoreintf.LocalAPIKeyStorer
-	cliauthManager   *manager.Manager
-	Selector         routepkg.RouteTargetSelector
+	configured         bool
+	configStore        configstoreintf.ConfigStorer
+	routeManager       *RouteManager
+	localAPIKeyManager *LocalAPIKeyManager
+	ProviderResolver   ProviderResolver
+	LocalAPIKeyStore   configstoreintf.LocalAPIKeyStorer
+	cliauthManager     *manager.Manager
+	Selector           routepkg.RouteTargetSelector
 }
 
 func NewAgentGateway() *AgentGateway {
 	return &AgentGateway{
-		routeManager: NewRouteManager(nil),
-		configured:   false,
+		routeManager:       NewRouteManager(nil),
+		localAPIKeyManager: NewLocalAPIKeyManager(nil),
+		configured:         false,
 	}
 }
 
@@ -50,7 +53,9 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 
 	routeManager := NewRouteManager(routeStore)
 	routeManager.InitStaticRoutes(opts.StaticRoutes)
-	g.Configure(opts.ConfigStore, routeManager, providerResolver, localAPIKeyStore, opts.CLIAuthManager, opts.Selector)
+	localAPIKeyManager := NewLocalAPIKeyManager(localAPIKeyStore)
+	localAPIKeyManager.InitStaticKeys(opts.StaticLocalAPIKeys)
+	g.Configure(opts.ConfigStore, routeManager, localAPIKeyManager, providerResolver, localAPIKeyStore, opts.CLIAuthManager, opts.Selector)
 	return nil
 }
 
@@ -61,20 +66,31 @@ func (g *AgentGateway) Reset() {
 	g.configured = false
 	g.configStore = nil
 	g.routeManager = NewRouteManager(nil)
+	g.localAPIKeyManager = NewLocalAPIKeyManager(nil)
 	g.ProviderResolver = nil
 	g.LocalAPIKeyStore = nil
 	g.cliauthManager = nil
 	g.Selector = nil
 }
 
-func (g *AgentGateway) Configure(configStore configstoreintf.ConfigStorer, routeManager *RouteManager, providerResolver ProviderResolver, localAPIKeyStore configstoreintf.LocalAPIKeyStorer, cliauthMgr *manager.Manager, selector routepkg.RouteTargetSelector) {
+func (g *AgentGateway) Configure(configStore configstoreintf.ConfigStorer, routeManager *RouteManager, localAPIKeyManager *LocalAPIKeyManager, providerResolver ProviderResolver, localAPIKeyStore configstoreintf.LocalAPIKeyStorer, cliauthMgr *manager.Manager, selector routepkg.RouteTargetSelector) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if routeManager == nil {
 		routeManager = NewRouteManager(nil)
 	}
+	if localAPIKeyStore == nil && configStore != nil {
+		store, err := configStore.GetLocalAPIKeyStore(context.Background(), localapikeypkg.DecodeStoredLocalAPIKey)
+		if err == nil {
+			localAPIKeyStore = store
+		}
+	}
+	if localAPIKeyManager == nil {
+		localAPIKeyManager = NewLocalAPIKeyManager(localAPIKeyStore)
+	}
 	g.configStore = configStore
 	g.routeManager = routeManager
+	g.localAPIKeyManager = localAPIKeyManager
 	g.ProviderResolver = providerResolver
 	g.LocalAPIKeyStore = localAPIKeyStore
 	g.cliauthManager = cliauthMgr
@@ -98,6 +114,12 @@ func (g *AgentGateway) RouteManager() *RouteManager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.routeManager
+}
+
+func (g *AgentGateway) LocalAPIKeyManager() *LocalAPIKeyManager {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.localAPIKeyManager
 }
 
 func (g *AgentGateway) LookupRoute(ctx context.Context, routeID string) (routepkg.Route, error) {
@@ -174,9 +196,20 @@ func (g *AgentGateway) ResolveProvider(ctx context.Context, routeID string, req 
 
 func (g *AgentGateway) resolveLocalAPIKey(ctx context.Context, httpReq *http.Request, r routepkg.Route) (*localapikeypkg.LocalAPIKey, error) {
 	g.mu.RLock()
-	store := g.LocalAPIKeyStore
+	localAPIKeyManager := g.localAPIKeyManager
 	g.mu.RUnlock()
-	return localapikeypkg.AuthenticateRequest(ctx, store, httpReq, r.ID, r.Policy.Auth.RequireLocalAPIKey)
+	rawKey := localapikeypkg.ExtractAPIKey(httpReq)
+	if rawKey == "" {
+		return localapikeypkg.ValidateForRoute(r.ID, r.Policy.Auth.RequireLocalAPIKey, nil)
+	}
+	if localAPIKeyManager == nil {
+		return nil, utils.NewHTTPError(http.StatusServiceUnavailable, "local api key manager is not configured")
+	}
+	key, err := localAPIKeyManager.Get(ctx, rawKey)
+	if err != nil {
+		return nil, utils.NewHTTPError(http.StatusUnauthorized, "invalid local api key")
+	}
+	return localapikeypkg.ValidateForRoute(r.ID, r.Policy.Auth.RequireLocalAPIKey, &key)
 }
 
 func (g *AgentGateway) providerResolver() ProviderResolver {
