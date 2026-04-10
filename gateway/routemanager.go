@@ -60,6 +60,14 @@ func (m *RouteManager) InitStaticRoutes(routes []routepkg.Route) {
 	}
 }
 
+func (m *RouteManager) IsStatic(routeID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	_, ok := m.staticRoutes[routeID]
+	return ok
+}
+
 func (m *RouteManager) Get(ctx context.Context, routeID string) (routepkg.Route, error) {
 	if routeID == "" {
 		return routepkg.Route{}, fmt.Errorf("route_id is required")

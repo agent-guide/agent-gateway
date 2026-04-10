@@ -23,6 +23,12 @@ type LocalAPIKeyView struct {
 	ReadOnly bool   `json:"read_only"`
 }
 
+type RouteView struct {
+	routepkg.Route
+	Source   string `json:"source"`
+	ReadOnly bool   `json:"read_only"`
+}
+
 // Route defines an admin API route.
 type Route struct {
 	Method      string
@@ -260,7 +266,11 @@ func (h *Handler) handleListRoutes(w http.ResponseWriter, r *http.Request) {
 		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
+	views := make([]RouteView, 0, len(items))
+	for _, item := range items {
+		views = append(views, routeViewFromRoute(manager, item))
+	}
+	_ = utils.WriteJSON(w, http.StatusOK, map[string]any{"items": views})
 }
 
 func (h *Handler) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
@@ -320,7 +330,7 @@ func (h *Handler) handleGetRoute(w http.ResponseWriter, r *http.Request) {
 		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, item)
+	_ = utils.WriteJSON(w, http.StatusOK, routeViewFromRoute(manager, item))
 }
 
 func (h *Handler) handleUpdateRoute(w http.ResponseWriter, r *http.Request) {
@@ -683,6 +693,19 @@ func localAPIKeyViewFromKey(manager *gateway.LocalAPIKeyManager, key localapikey
 		ReadOnly:    false,
 	}
 	if manager != nil && manager.IsStatic(key.Key) {
+		view.Source = "caddyfile"
+		view.ReadOnly = true
+	}
+	return view
+}
+
+func routeViewFromRoute(manager *gateway.RouteManager, route routepkg.Route) RouteView {
+	view := RouteView{
+		Route:    route,
+		Source:   "store",
+		ReadOnly: false,
+	}
+	if manager != nil && manager.IsStatic(route.ID) {
 		view.Source = "caddyfile"
 		view.ReadOnly = true
 	}

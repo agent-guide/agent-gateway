@@ -205,7 +205,7 @@ func TestRouteCRUD(t *testing.T) {
 		t.Fatalf("unexpected get status: got %d want %d", getRec.Code, http.StatusOK)
 	}
 
-	var got routepkg.Route
+	var got RouteView
 	if err := json.NewDecoder(getRec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode route: %v", err)
 	}
@@ -214,6 +214,9 @@ func TestRouteCRUD(t *testing.T) {
 	}
 	if len(got.Targets) != 1 || got.Targets[0].ProviderRef != "openai" {
 		t.Fatalf("unexpected targets: %#v", got.Targets)
+	}
+	if got.Source != "store" || got.ReadOnly {
+		t.Fatalf("unexpected route metadata: %#v", got)
 	}
 }
 
@@ -461,12 +464,71 @@ func TestRouteGetPrefersStaticRouteManager(t *testing.T) {
 		t.Fatalf("unexpected get status: got %d want %d", rec.Code, http.StatusOK)
 	}
 
-	var got routepkg.Route
+	var got RouteView
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode route: %v", err)
 	}
 	if got.Name != "static" {
 		t.Fatalf("route name = %q, want static", got.Name)
+	}
+	if got.Source != "caddyfile" || !got.ReadOnly {
+		t.Fatalf("unexpected route metadata: %#v", got)
+	}
+}
+
+func TestRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	store := &testRouteStore{
+		items: map[string]*routepkg.Route{
+			"chat-dynamic": {
+				ID:      "chat-dynamic",
+				Name:    "dynamic",
+				Targets: []routepkg.RouteTarget{{ProviderRef: "openai"}},
+			},
+		},
+	}
+	manager := gateway.NewRouteManager(store)
+	manager.InitStaticRoutes([]routepkg.Route{{
+		ID:      "chat-static",
+		Name:    "static",
+		Targets: []routepkg.RouteTarget{{ProviderRef: "anthropic"}},
+	}})
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, manager), nil, "admin", string(passwordHash), nil)
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/routes", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected list status: got %d want %d", rec.Code, http.StatusOK)
+	}
+
+	var got struct {
+		Items []RouteView `json:"items"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode routes: %v", err)
+	}
+	if len(got.Items) != 2 {
+		t.Fatalf("item count = %d, want 2", len(got.Items))
+	}
+
+	byID := map[string]RouteView{}
+	for _, item := range got.Items {
+		byID[item.ID] = item
+	}
+	if byID["chat-static"].Source != "caddyfile" || !byID["chat-static"].ReadOnly {
+		t.Fatalf("unexpected static route metadata: %#v", byID["chat-static"])
+	}
+	if byID["chat-dynamic"].Source != "store" || byID["chat-dynamic"].ReadOnly {
+		t.Fatalf("unexpected dynamic route metadata: %#v", byID["chat-dynamic"])
 	}
 }
 
