@@ -254,7 +254,7 @@ func TestLocalAPIKeyCRUD(t *testing.T) {
 		t.Fatalf("unexpected get status: got %d want %d", getRec.Code, http.StatusOK)
 	}
 
-	var got localapikeypkg.LocalAPIKey
+	var got LocalAPIKeyView
 	if err := json.NewDecoder(getRec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode local api key: %v", err)
 	}
@@ -263,6 +263,102 @@ func TestLocalAPIKeyCRUD(t *testing.T) {
 	}
 	if len(got.AllowedRouteIDs) != 1 || got.AllowedRouteIDs[0] != "chat-prod" {
 		t.Fatalf("unexpected allowed routes: %#v", got.AllowedRouteIDs)
+	}
+	if got.Source != "store" || got.ReadOnly {
+		t.Fatalf("unexpected local api key metadata: %#v", got)
+	}
+}
+
+func TestLocalAPIKeyGetMarksStaticKeyAsReadOnly(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	localAPIKeyManager := gateway.NewLocalAPIKeyManager(&testLocalAPIKeyStore{
+		items: map[string]*localapikeypkg.LocalAPIKey{
+			"lk-static": {Key: "lk-static", UserID: "admin", Name: "dynamic copy"},
+		},
+	})
+	localAPIKeyManager.InitStaticKeys([]localapikeypkg.LocalAPIKey{
+		{Key: "lk-static", UserID: "admin", Name: "static key"},
+	})
+
+	agentGateway := gateway.NewAgentGateway()
+	agentGateway.Configure(&testConfigStore{
+		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
+	}, nil, localAPIKeyManager, nil, nil, nil, nil)
+	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash), nil)
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/local_api_keys/lk-static", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected get status: got %d want %d", rec.Code, http.StatusOK)
+	}
+
+	var got LocalAPIKeyView
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode local api key: %v", err)
+	}
+	if got.Name != "static key" {
+		t.Fatalf("name = %q, want static key", got.Name)
+	}
+	if got.Source != "caddyfile" || !got.ReadOnly {
+		t.Fatalf("unexpected local api key metadata: %#v", got)
+	}
+}
+
+func TestLocalAPIKeyListMarksStaticKeysAsReadOnly(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	store := &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{
+		"lk-dynamic": {Key: "lk-dynamic", UserID: "admin", Name: "dynamic key"},
+	}}
+	localAPIKeyManager := gateway.NewLocalAPIKeyManager(store)
+	localAPIKeyManager.InitStaticKeys([]localapikeypkg.LocalAPIKey{
+		{Key: "lk-static", UserID: "admin", Name: "static key"},
+	})
+
+	agentGateway := gateway.NewAgentGateway()
+	agentGateway.Configure(&testConfigStore{localAPIKeyStore: store}, nil, localAPIKeyManager, nil, store, nil, nil)
+	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash), nil)
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/local_api_keys", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected list status: got %d want %d", rec.Code, http.StatusOK)
+	}
+
+	var got struct {
+		Items []LocalAPIKeyView `json:"items"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode local api keys: %v", err)
+	}
+	if len(got.Items) != 2 {
+		t.Fatalf("item count = %d, want 2", len(got.Items))
+	}
+
+	byKey := map[string]LocalAPIKeyView{}
+	for _, item := range got.Items {
+		byKey[item.Key] = item
+	}
+	if byKey["lk-static"].Source != "caddyfile" || !byKey["lk-static"].ReadOnly {
+		t.Fatalf("unexpected static local api key metadata: %#v", byKey["lk-static"])
+	}
+	if byKey["lk-dynamic"].Source != "store" || byKey["lk-dynamic"].ReadOnly {
+		t.Fatalf("unexpected dynamic local api key metadata: %#v", byKey["lk-dynamic"])
 	}
 }
 

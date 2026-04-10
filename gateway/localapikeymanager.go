@@ -58,6 +58,14 @@ func (m *LocalAPIKeyManager) InitStaticKeys(keys []localapikeypkg.LocalAPIKey) {
 	}
 }
 
+func (m *LocalAPIKeyManager) IsStatic(key string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	_, ok := m.staticKeys[key]
+	return ok
+}
+
 func (m *LocalAPIKeyManager) Get(ctx context.Context, key string) (localapikeypkg.LocalAPIKey, error) {
 	if key == "" {
 		return localapikeypkg.LocalAPIKey{}, fmt.Errorf("key is required")
