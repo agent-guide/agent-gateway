@@ -24,15 +24,16 @@ type testConfigStore struct {
 	localAPIKeyStore configstoreintf.LocalAPIKeyStorer
 }
 
-func newTestAgentGateway(configStore configstoreintf.ConfigStorer, cliauthMgr *manager.Manager, routeManager *gateway.RouteManager) *gateway.AgentGateway {
-	if routeManager == nil && configStore != nil {
-		routeStore, err := configStore.GetRouteStore(context.Background(), routepkg.DecodeStoredRoute)
-		if err == nil && routeStore != nil {
-			routeManager = gateway.NewRouteManager(routeStore)
-		}
-	}
+func newTestAgentGateway(configStore configstoreintf.ConfigStorer, cliauthMgr *manager.Manager, staticRoutes []routepkg.Route, staticLocalAPIKeys []localapikeypkg.LocalAPIKey) *gateway.AgentGateway {
 	agentGateway := gateway.NewAgentGateway()
-	agentGateway.Configure(configStore, routeManager, nil, nil, nil, cliauthMgr, nil)
+	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
+		ConfigStore:        configStore,
+		StaticRoutes:       staticRoutes,
+		StaticLocalAPIKeys: staticLocalAPIKeys,
+		CLIAuthManager:     cliauthMgr,
+	}); err != nil {
+		panic(err)
+	}
 	return agentGateway
 }
 
@@ -173,7 +174,7 @@ func TestRouteCRUD(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testRouteStore{items: map[string]*routepkg.Route{}},
-	}, nil, nil), nil, "admin", string(passwordHash), nil)
+	}, nil, nil, nil), nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	createBody, err := json.Marshal(routepkg.Route{
@@ -228,7 +229,7 @@ func TestLocalAPIKeyCRUD(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
-	}, nil, nil), nil, "admin", string(passwordHash), nil)
+	}, nil, nil, nil), nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body, err := json.Marshal(localapikeypkg.LocalAPIKey{
@@ -288,9 +289,16 @@ func TestLocalAPIKeyGetMarksStaticKeyAsReadOnly(t *testing.T) {
 	})
 
 	agentGateway := gateway.NewAgentGateway()
-	agentGateway.Configure(&testConfigStore{
-		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
-	}, nil, localAPIKeyManager, nil, nil, nil, nil)
+	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
+		ConfigStore: &testConfigStore{
+			localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
+		},
+		StaticLocalAPIKeys: []localapikeypkg.LocalAPIKey{
+			{Key: "lk-static", UserID: "admin", Name: "static key"},
+		},
+	}); err != nil {
+		t.Fatalf("bootstrap gateway: %v", err)
+	}
 	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -324,13 +332,15 @@ func TestLocalAPIKeyListMarksStaticKeysAsReadOnly(t *testing.T) {
 	store := &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{
 		"lk-dynamic": {Key: "lk-dynamic", UserID: "admin", Name: "dynamic key"},
 	}}
-	localAPIKeyManager := gateway.NewLocalAPIKeyManager(store)
-	localAPIKeyManager.InitStaticKeys([]localapikeypkg.LocalAPIKey{
-		{Key: "lk-static", UserID: "admin", Name: "static key"},
-	})
-
 	agentGateway := gateway.NewAgentGateway()
-	agentGateway.Configure(&testConfigStore{localAPIKeyStore: store}, nil, localAPIKeyManager, nil, store, nil, nil)
+	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
+		ConfigStore: &testConfigStore{localAPIKeyStore: store},
+		StaticLocalAPIKeys: []localapikeypkg.LocalAPIKey{
+			{Key: "lk-static", UserID: "admin", Name: "static key"},
+		},
+	}); err != nil {
+		t.Fatalf("bootstrap gateway: %v", err)
+	}
 	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -368,7 +378,7 @@ func TestLocalAPIKeyListMarksStaticKeysAsReadOnly(t *testing.T) {
 func TestProtectedRouteRejectsRequestsWhenAdminAuthIsNotConfigured(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
-	}, nil, nil), nil, "", "", nil)
+	}, nil, nil, nil), nil, "", "", nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/local_api_keys", nil)
 	rec := httptest.NewRecorder()
@@ -386,7 +396,7 @@ func TestCreateLocalAPIKeyRejectsMismatchedSessionUserID(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
-	}, nil, nil), nil, "admin", string(passwordHash), nil)
+	}, nil, nil, nil), nil, "admin", string(passwordHash), nil)
 
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -417,7 +427,7 @@ func TestListLocalAPIKeysRejectsMismatchedSessionUserID(t *testing.T) {
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{
 			"lk-test": {Key: "lk-test", UserID: "admin"},
 		}},
-	}, nil, nil), nil, "admin", string(passwordHash), nil)
+	}, nil, nil, nil), nil, "admin", string(passwordHash), nil)
 
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -445,14 +455,11 @@ func TestRouteGetPrefersStaticRouteManager(t *testing.T) {
 			},
 		},
 	}
-	manager := gateway.NewRouteManager(store)
-	manager.InitStaticRoutes([]routepkg.Route{{
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, []routepkg.Route{{
 		ID:      "chat-prod",
 		Name:    "static",
 		Targets: []routepkg.RouteTarget{{ProviderRef: "anthropic"}},
-	}})
-
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, manager), nil, "admin", string(passwordHash), nil)
+	}}, nil), nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/routes/chat-prod", nil)
@@ -491,14 +498,11 @@ func TestRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 			},
 		},
 	}
-	manager := gateway.NewRouteManager(store)
-	manager.InitStaticRoutes([]routepkg.Route{{
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, []routepkg.Route{{
 		ID:      "chat-static",
 		Name:    "static",
 		Targets: []routepkg.RouteTarget{{ProviderRef: "anthropic"}},
-	}})
-
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, manager), nil, "admin", string(passwordHash), nil)
+	}}, nil), nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/routes", nil)

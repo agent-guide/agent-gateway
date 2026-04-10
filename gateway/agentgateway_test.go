@@ -51,14 +51,15 @@ func TestResolverUsesCustomSelector(t *testing.T) {
 		},
 	}
 	gw := NewAgentGateway()
-	rm := NewRouteManager(nil)
-	rm.cacheDynamicRoute(route)
-	gw.Configure(nil, rm, nil, NewStaticProviderResolver(func(name string) (provider.Provider, bool) {
-		if name == "openrouter" {
-			return testProvider{}, true
-		}
-		return nil, false
-	}), nil, nil, fixedSelector{target: routepkg.RouteTarget{ProviderRef: "openrouter"}})
+	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
+		StaticRoutes: []routepkg.Route{route},
+		StaticProviders: map[string]provider.Provider{
+			"openrouter": testProvider{},
+		},
+		Selector: fixedSelector{target: routepkg.RouteTarget{ProviderRef: "openrouter"}},
+	}); err != nil {
+		t.Fatalf("Bootstrap returned error: %v", err)
+	}
 
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
 	resolved, err := gw.Resolve(context.Background(), route.ID, routepkg.ResolveRequest{
@@ -75,9 +76,11 @@ func TestResolverUsesCustomSelector(t *testing.T) {
 
 func TestLookupRouteNormalizesRoutePolicy(t *testing.T) {
 	gw := NewAgentGateway()
-	rm := NewRouteManager(nil)
-	rm.cacheDynamicRoute(routepkg.Route{ID: "chat-prod"})
-	gw.Configure(nil, rm, nil, nil, nil, nil, nil)
+	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
+		StaticRoutes: []routepkg.Route{{ID: "chat-prod"}},
+	}); err != nil {
+		t.Fatalf("Bootstrap returned error: %v", err)
+	}
 
 	got, err := gw.LookupRoute(context.Background(), "chat-prod")
 	if err != nil {
@@ -93,14 +96,17 @@ func TestLookupRouteNormalizesRoutePolicy(t *testing.T) {
 
 func TestValidateRouteRejectsRouteWithoutEnabledTargets(t *testing.T) {
 	gw := NewAgentGateway()
-	rm := NewRouteManager(nil)
-	rm.cacheDynamicRoute(routepkg.Route{
-		ID:      "chat-prod",
-		Targets: []routepkg.RouteTarget{{ProviderRef: "openai", Disabled: true}},
-	})
-	gw.Configure(nil, rm, nil, NewStaticProviderResolver(func(name string) (provider.Provider, bool) {
-		return testProvider{}, true
-	}), nil, nil, nil)
+	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
+		StaticRoutes: []routepkg.Route{{
+			ID:      "chat-prod",
+			Targets: []routepkg.RouteTarget{{ProviderRef: "openai", Disabled: true}},
+		}},
+		StaticProviders: map[string]provider.Provider{
+			"openai": testProvider{},
+		},
+	}); err != nil {
+		t.Fatalf("Bootstrap returned error: %v", err)
+	}
 
 	if err := gw.ValidateRoute(context.Background(), "chat-prod"); err == nil {
 		t.Fatal("ValidateRoute returned nil error, want definition rejection")
@@ -111,19 +117,22 @@ func TestValidateRouteChecksUniqueProviderRefs(t *testing.T) {
 	var resolved []string
 
 	gw := NewAgentGateway()
-	rm := NewRouteManager(nil)
-	rm.cacheDynamicRoute(routepkg.Route{
-		ID: "chat-prod",
-		Targets: []routepkg.RouteTarget{
-			{ProviderRef: "openai"},
-			{ProviderRef: "openai"},
-			{ProviderRef: "anthropic"},
-		},
-	})
-	gw.Configure(nil, rm, nil, ProviderResolverFunc(func(ctx context.Context, ref string) (provider.Provider, string, error) {
+	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
+		StaticRoutes: []routepkg.Route{{
+			ID: "chat-prod",
+			Targets: []routepkg.RouteTarget{
+				{ProviderRef: "openai"},
+				{ProviderRef: "openai"},
+				{ProviderRef: "anthropic"},
+			},
+		}},
+	}); err != nil {
+		t.Fatalf("Bootstrap returned error: %v", err)
+	}
+	gw.ProviderResolver = ProviderResolverFunc(func(ctx context.Context, ref string) (provider.Provider, string, error) {
 		resolved = append(resolved, ref)
 		return testProvider{}, ref, nil
-	}), nil, nil, nil)
+	})
 
 	if err := gw.ValidateRoute(context.Background(), "chat-prod"); err != nil {
 		t.Fatalf("ValidateRoute returned error: %v", err)

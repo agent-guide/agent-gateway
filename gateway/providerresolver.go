@@ -10,9 +10,6 @@ import (
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 )
 
-// ProviderLookup resolves a statically provisioned provider instance by reference.
-type ProviderLookup func(name string) (provider.Provider, bool)
-
 // ProviderResolver resolves a provider reference into an executable provider instance.
 type ProviderResolver interface {
 	ResolveProvider(ctx context.Context, ref string) (provider.Provider, string, error)
@@ -25,50 +22,82 @@ func (f ProviderResolverFunc) ResolveProvider(ctx context.Context, ref string) (
 	return f(ctx, ref)
 }
 
-// NewStaticProviderResolver wraps a static provider lookup as a ProviderResolver.
-func NewStaticProviderResolver(lookup ProviderLookup) ProviderResolver {
-	if lookup == nil {
-		return nil
-	}
-	return ProviderResolverFunc(func(_ context.Context, ref string) (provider.Provider, string, error) {
-		prov, ok := lookup(ref)
-		if !ok {
-			return nil, "", fmt.Errorf("provider %q is not configured", ref)
-		}
-		return prov, ref, nil
-	})
+type ProviderManager struct {
+	mu sync.RWMutex
+
+	staticProviders map[string]provider.Provider
+	dynamicCache    map[string]cachedProviderEntry
+
+	store configstoreintf.ProviderConfigStorer
 }
 
-// ChainProviderResolvers tries resolvers in order until one succeeds.
-func ChainProviderResolvers(resolvers ...ProviderResolver) ProviderResolver {
-	filtered := make([]ProviderResolver, 0, len(resolvers))
-	for _, resolver := range resolvers {
-		if resolver != nil {
-			filtered = append(filtered, resolver)
-		}
+func NewProviderManager(store configstoreintf.ProviderConfigStorer) *ProviderManager {
+	return &ProviderManager{
+		staticProviders: map[string]provider.Provider{},
+		dynamicCache:    map[string]cachedProviderEntry{},
+		store:           store,
 	}
-	if len(filtered) == 0 {
-		return nil
-	}
-	if len(filtered) == 1 {
-		return filtered[0]
-	}
-	return ProviderResolverFunc(func(ctx context.Context, ref string) (provider.Provider, string, error) {
-		var lastErr error
-		for _, resolver := range filtered {
-			prov, name, err := resolver.ResolveProvider(ctx, ref)
-			if err == nil && prov != nil {
-				return prov, name, nil
-			}
-			if err != nil {
-				lastErr = err
-			}
+}
+
+func (m *ProviderManager) Reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.staticProviders = map[string]provider.Provider{}
+	m.dynamicCache = map[string]cachedProviderEntry{}
+}
+
+func (m *ProviderManager) InitStaticProviders(providers map[string]provider.Provider) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.staticProviders = make(map[string]provider.Provider, len(providers))
+	for name, prov := range providers {
+		if name == "" || prov == nil {
+			continue
 		}
-		if lastErr != nil {
-			return nil, "", lastErr
-		}
+		m.staticProviders[name] = prov
+	}
+}
+
+func (m *ProviderManager) IsStatic(ref string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	_, ok := m.staticProviders[ref]
+	return ok
+}
+
+func (m *ProviderManager) ResolveProvider(ctx context.Context, ref string) (provider.Provider, string, error) {
+	if ref == "" {
+		return nil, "", fmt.Errorf("provider ref is required")
+	}
+
+	m.mu.RLock()
+	staticProvider, ok := m.staticProviders[ref]
+	m.mu.RUnlock()
+	if ok {
+		return staticProvider, ref, nil
+	}
+
+	m.mu.RLock()
+	cached, ok := m.dynamicCache[ref]
+	store := m.store
+	m.mu.RUnlock()
+	if store == nil {
 		return nil, "", fmt.Errorf("provider %q is not configured", ref)
-	})
+	}
+
+	entry, err := m.loadDynamicProvider(ctx, ref, store)
+	if err != nil {
+		return nil, "", err
+	}
+	if ok && cached.cfgJSON == entry.cfgJSON {
+		return cached.provider, cached.name, nil
+	}
+
+	m.cacheDynamicProvider(ref, entry)
+	return entry.provider, entry.name, nil
 }
 
 // cachedProviderEntry holds a cached provider instance and the config fingerprint
@@ -79,54 +108,51 @@ type cachedProviderEntry struct {
 	name     string
 }
 
-// cachedDynamicResolver wraps a ProviderConfigStorer and caches provider instances
-// by their serialized config. A config change (different JSON fingerprint) causes
-// the cached instance to be replaced, avoiding per-request provider construction.
-type cachedDynamicResolver struct {
-	mu    sync.RWMutex
-	store configstoreintf.ProviderConfigStorer
-	cache map[string]cachedProviderEntry
+func (m *ProviderManager) cacheDynamicProvider(ref string, entry cachedProviderEntry) {
+	if ref == "" || entry.provider == nil {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.dynamicCache == nil {
+		m.dynamicCache = map[string]cachedProviderEntry{}
+	}
+	m.dynamicCache[ref] = entry
 }
 
-func newCachedDynamicResolver(store configstoreintf.ProviderConfigStorer) *cachedDynamicResolver {
-	return &cachedDynamicResolver{
-		store: store,
-		cache: make(map[string]cachedProviderEntry),
-	}
-}
-
-func (r *cachedDynamicResolver) ResolveProvider(ctx context.Context, ref string) (provider.Provider, string, error) {
-	tag, obj, err := r.store.Get(ctx, ref)
+func (m *ProviderManager) loadDynamicProvider(ctx context.Context, ref string, store configstoreintf.ProviderConfigStorer) (cachedProviderEntry, error) {
+	tag, obj, err := store.Get(ctx, ref)
 	if err != nil {
-		return nil, "", err
+		return cachedProviderEntry{}, err
 	}
 
-	cfgJSON, err := json.Marshal(obj)
+	fingerprint, err := fingerprintProviderConfig(ref, obj)
 	if err != nil {
-		return nil, "", fmt.Errorf("fingerprint provider config %q: %w", ref, err)
-	}
-	fingerprint := string(cfgJSON)
-
-	r.mu.RLock()
-	entry, ok := r.cache[ref]
-	r.mu.RUnlock()
-	if ok && entry.cfgJSON == fingerprint {
-		return entry.provider, entry.name, nil
+		return cachedProviderEntry{}, err
 	}
 
 	resolvedCfg, err := provider.NormalizeStoredProviderConfig(tag, obj)
 	if err != nil {
-		return nil, "", fmt.Errorf("normalize provider config %q: %w", ref, err)
+		return cachedProviderEntry{}, fmt.Errorf("normalize provider config %q: %w", ref, err)
 	}
 
 	prov, err := provider.NewProvider(resolvedCfg)
 	if err != nil {
-		return nil, "", err
+		return cachedProviderEntry{}, err
 	}
 
-	r.mu.Lock()
-	r.cache[ref] = cachedProviderEntry{cfgJSON: fingerprint, provider: prov, name: resolvedCfg.ProviderName}
-	r.mu.Unlock()
+	return cachedProviderEntry{
+		cfgJSON:  fingerprint,
+		provider: prov,
+		name:     resolvedCfg.ProviderName,
+	}, nil
+}
 
-	return prov, resolvedCfg.ProviderName, nil
+func fingerprintProviderConfig(ref string, obj any) (string, error) {
+	cfgJSON, err := json.Marshal(obj)
+	if err != nil {
+		return "", fmt.Errorf("fingerprint provider config %q: %w", ref, err)
+	}
+	return string(cfgJSON), nil
 }
