@@ -138,6 +138,9 @@ func (g *AgentGateway) Resolve(ctx context.Context, routeID string, req routepkg
 	if err != nil {
 		return nil, utils.NewHTTPError(http.StatusServiceUnavailable, err.Error())
 	}
+	if r.Disabled {
+		return nil, utils.NewHTTPError(http.StatusForbidden, fmt.Sprintf("route %q is disabled", routeID))
+	}
 
 	localKey, err := g.resolveLocalAPIKey(ctx, req.HTTPRequest, r)
 	if err != nil {
@@ -154,6 +157,9 @@ func (g *AgentGateway) Resolve(ctx context.Context, routeID string, req routepkg
 	}
 	prov, providerName, err := resolver.ResolveProvider(ctx, target.ProviderRef)
 	if err != nil || prov == nil {
+		if errors.Is(err, ErrProviderDisabled) {
+			return nil, utils.NewHTTPError(http.StatusForbidden, fmt.Sprintf("route target provider %q is disabled", target.ProviderRef))
+		}
 		return nil, utils.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("route target provider %q is not configured", target.ProviderRef))
 	}
 	if providerName == "" {

@@ -519,6 +519,149 @@ func TestProviderCRUD(t *testing.T) {
 	}
 }
 
+func TestProviderEnableDisable(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
+			"openai-main": {Id: "openai-main", ProviderName: "openai"},
+		}},
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash), nil)
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	disableReq := httptest.NewRequest(http.MethodPost, "/admin/providers/openai-main/disable", nil)
+	disableReq.Header.Set("Authorization", "Bearer "+token)
+	disableRec := httptest.NewRecorder()
+	handler.ServeHTTP(disableRec, disableReq)
+	if disableRec.Code != http.StatusOK {
+		t.Fatalf("disable status = %d, want %d", disableRec.Code, http.StatusOK)
+	}
+
+	var disabled ProviderView
+	if err := json.NewDecoder(disableRec.Body).Decode(&disabled); err != nil {
+		t.Fatalf("decode disabled provider: %v", err)
+	}
+	if !disabled.Disabled {
+		t.Fatal("provider disabled = false, want true")
+	}
+
+	enableReq := httptest.NewRequest(http.MethodPost, "/admin/providers/openai-main/enable", nil)
+	enableReq.Header.Set("Authorization", "Bearer "+token)
+	enableRec := httptest.NewRecorder()
+	handler.ServeHTTP(enableRec, enableReq)
+	if enableRec.Code != http.StatusOK {
+		t.Fatalf("enable status = %d, want %d", enableRec.Code, http.StatusOK)
+	}
+
+	var enabled ProviderView
+	if err := json.NewDecoder(enableRec.Body).Decode(&enabled); err != nil {
+		t.Fatalf("decode enabled provider: %v", err)
+	}
+	if enabled.Disabled {
+		t.Fatal("provider disabled = true, want false")
+	}
+}
+
+func TestRouteEnableDisable(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		routeStore: &testRouteStore{items: map[string]*routepkg.Route{
+			"chat-prod": {
+				ID: "chat-prod",
+				Targets: []routepkg.RouteTarget{{
+					ProviderRef: "openai",
+				}},
+			},
+		}},
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash), nil)
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	disableReq := httptest.NewRequest(http.MethodPost, "/admin/routes/chat-prod/disable", nil)
+	disableReq.Header.Set("Authorization", "Bearer "+token)
+	disableRec := httptest.NewRecorder()
+	handler.ServeHTTP(disableRec, disableReq)
+	if disableRec.Code != http.StatusOK {
+		t.Fatalf("disable status = %d, want %d", disableRec.Code, http.StatusOK)
+	}
+
+	var disabled RouteView
+	if err := json.NewDecoder(disableRec.Body).Decode(&disabled); err != nil {
+		t.Fatalf("decode disabled route: %v", err)
+	}
+	if !disabled.Disabled {
+		t.Fatal("route disabled = false, want true")
+	}
+
+	enableReq := httptest.NewRequest(http.MethodPost, "/admin/routes/chat-prod/enable", nil)
+	enableReq.Header.Set("Authorization", "Bearer "+token)
+	enableRec := httptest.NewRecorder()
+	handler.ServeHTTP(enableRec, enableReq)
+	if enableRec.Code != http.StatusOK {
+		t.Fatalf("enable status = %d, want %d", enableRec.Code, http.StatusOK)
+	}
+
+	var enabled RouteView
+	if err := json.NewDecoder(enableRec.Body).Decode(&enabled); err != nil {
+		t.Fatalf("decode enabled route: %v", err)
+	}
+	if enabled.Disabled {
+		t.Fatal("route disabled = true, want false")
+	}
+}
+
+func TestLocalAPIKeyEnableDisable(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{
+			"lk-test": {Key: "lk-test", UserID: "admin"},
+		}},
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash), nil)
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	disableReq := httptest.NewRequest(http.MethodPost, "/admin/local_api_keys/lk-test/disable", nil)
+	disableReq.Header.Set("Authorization", "Bearer "+token)
+	disableRec := httptest.NewRecorder()
+	handler.ServeHTTP(disableRec, disableReq)
+	if disableRec.Code != http.StatusOK {
+		t.Fatalf("disable status = %d, want %d", disableRec.Code, http.StatusOK)
+	}
+
+	var disabled LocalAPIKeyView
+	if err := json.NewDecoder(disableRec.Body).Decode(&disabled); err != nil {
+		t.Fatalf("decode disabled local api key: %v", err)
+	}
+	if !disabled.Disabled {
+		t.Fatal("local api key disabled = false, want true")
+	}
+
+	enableReq := httptest.NewRequest(http.MethodPost, "/admin/local_api_keys/lk-test/enable", nil)
+	enableReq.Header.Set("Authorization", "Bearer "+token)
+	enableRec := httptest.NewRecorder()
+	handler.ServeHTTP(enableRec, enableReq)
+	if enableRec.Code != http.StatusOK {
+		t.Fatalf("enable status = %d, want %d", enableRec.Code, http.StatusOK)
+	}
+
+	var enabled LocalAPIKeyView
+	if err := json.NewDecoder(enableRec.Body).Decode(&enabled); err != nil {
+		t.Fatalf("decode enabled local api key: %v", err)
+	}
+	if enabled.Disabled {
+		t.Fatal("local api key disabled = true, want false")
+	}
+}
+
 func TestProviderGetMarksStaticProviderAsReadOnly(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {

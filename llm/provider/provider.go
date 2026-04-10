@@ -76,6 +76,8 @@ type ProviderConfig struct {
 	Id string `json:"id"`
 	// ProviderName is the registered provider name (e.g. "openai", "anthropic").
 	ProviderName string `json:"provider_name"`
+	// Disabled prevents the provider from being selected at runtime.
+	Disabled bool `json:"disabled"`
 	// APIKey is the provider API key. May be empty for local providers (Ollama).
 	APIKey string `json:"api_key,omitempty"`
 	// BaseURL overrides the provider's default API base URL.

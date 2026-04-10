@@ -267,6 +267,26 @@ func TestProviderManagerGetAndListConfigPreferStaticProvider(t *testing.T) {
 	}
 }
 
+func TestProviderManagerResolveRejectsDisabledProvider(t *testing.T) {
+	registerCountingProviderFactory()
+
+	store := &testManagedProviderStore{
+		items: map[string]*provider.ProviderConfig{
+			"test-provider": {
+				Id:           "test-provider",
+				ProviderName: "test-counting-provider",
+				Disabled:     true,
+			},
+		},
+	}
+	manager := NewProviderManager(store)
+
+	_, _, err := manager.ResolveProvider(context.Background(), "test-provider")
+	if !errors.Is(err, ErrProviderDisabled) {
+		t.Fatalf("ResolveProvider error = %v, want %v", err, ErrProviderDisabled)
+	}
+}
+
 func TestProviderManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	registerCountingProviderFactory()
 

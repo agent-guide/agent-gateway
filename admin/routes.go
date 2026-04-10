@@ -59,16 +59,22 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodPost, Path: "/admin/providers", Handler: h.handleCreateProvider, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/providers/{id}", Handler: h.handleGetProvider, RequireAuth: true},
 		{Method: http.MethodPut, Path: "/admin/providers/{id}", Handler: h.handleUpdateProvider, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/providers/{id}/enable", Handler: h.handleEnableProvider, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/providers/{id}/disable", Handler: h.handleDisableProvider, RequireAuth: true},
 		{Method: http.MethodDelete, Path: "/admin/providers/{id}", Handler: h.handleDeleteProvider, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/routes", Handler: h.handleListRoutes, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/routes", Handler: h.handleCreateRoute, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/routes/{id}", Handler: h.handleGetRoute, RequireAuth: true},
 		{Method: http.MethodPut, Path: "/admin/routes/{id}", Handler: h.handleUpdateRoute, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/routes/{id}/enable", Handler: h.handleEnableRoute, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/routes/{id}/disable", Handler: h.handleDisableRoute, RequireAuth: true},
 		{Method: http.MethodDelete, Path: "/admin/routes/{id}", Handler: h.handleDeleteRoute, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/local_api_keys", Handler: h.handleListLocalAPIKeys, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/local_api_keys", Handler: h.handleCreateLocalAPIKey, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/local_api_keys/{key}", Handler: h.handleGetLocalAPIKey, RequireAuth: true},
 		{Method: http.MethodPut, Path: "/admin/local_api_keys/{key}", Handler: h.handleUpdateLocalAPIKey, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/local_api_keys/{key}/enable", Handler: h.handleEnableLocalAPIKey, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/local_api_keys/{key}/disable", Handler: h.handleDisableLocalAPIKey, RequireAuth: true},
 		{Method: http.MethodDelete, Path: "/admin/local_api_keys/{key}", Handler: h.handleDeleteLocalAPIKey, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/credentials", Handler: h.handleListCredentials, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/credentials/{id}", Handler: h.handleGetCredential, RequireAuth: true},
@@ -256,6 +262,62 @@ func (h *Handler) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 	_ = utils.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted", "id": id})
 }
 
+func (h *Handler) handleEnableProvider(w http.ResponseWriter, r *http.Request) {
+	h.handleSetProviderDisabled(w, r, false)
+}
+
+func (h *Handler) handleDisableProvider(w http.ResponseWriter, r *http.Request) {
+	h.handleSetProviderDisabled(w, r, true)
+}
+
+func (h *Handler) handleSetProviderDisabled(w http.ResponseWriter, r *http.Request, disabled bool) {
+	manager := h.providerManagerForRoutes()
+	if manager == nil {
+		_ = utils.WriteError(w, http.StatusServiceUnavailable, "provider manager is not configured")
+		return
+	}
+
+	id := r.PathValue("id")
+	cfg, err := manager.GetConfig(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, gateway.ErrProviderNotConfigured) {
+			_ = utils.WriteError(w, http.StatusNotFound, "provider not found")
+			return
+		}
+		if errors.Is(err, gateway.ErrProviderDisabled) && !disabled {
+			_ = utils.WriteError(w, http.StatusNotFound, "provider not found")
+			return
+		}
+		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	cfg.Disabled = disabled
+
+	if err := manager.UpdateConfig(r.Context(), id, cfg); err != nil {
+		if errors.Is(err, gateway.ErrProviderNotConfigured) || errors.Is(err, gorm.ErrRecordNotFound) {
+			_ = utils.WriteError(w, http.StatusNotFound, "provider not found")
+			return
+		}
+		if errors.Is(err, gateway.ErrStaticProviderReadOnly) {
+			_ = utils.WriteError(w, http.StatusConflict, err.Error())
+			return
+		}
+		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	updatedCfg, err := manager.GetConfig(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, gateway.ErrProviderDisabled) && disabled {
+			_ = utils.WriteJSON(w, http.StatusOK, providerViewFromConfig(manager, cfg))
+			return
+		}
+		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = utils.WriteJSON(w, http.StatusOK, providerViewFromConfig(manager, updatedCfg))
+}
+
 func (h *Handler) handleListRoutes(w http.ResponseWriter, r *http.Request) {
 	manager := h.routeManagerForRoutes()
 	if manager == nil {
@@ -410,6 +472,54 @@ func (h *Handler) handleDeleteRoute(w http.ResponseWriter, r *http.Request) {
 	_ = utils.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted", "id": id})
 }
 
+func (h *Handler) handleEnableRoute(w http.ResponseWriter, r *http.Request) {
+	h.handleSetRouteDisabled(w, r, false)
+}
+
+func (h *Handler) handleDisableRoute(w http.ResponseWriter, r *http.Request) {
+	h.handleSetRouteDisabled(w, r, true)
+}
+
+func (h *Handler) handleSetRouteDisabled(w http.ResponseWriter, r *http.Request, disabled bool) {
+	manager := h.routeManagerForRoutes()
+	if manager == nil {
+		_ = utils.WriteError(w, http.StatusServiceUnavailable, "route manager is not configured")
+		return
+	}
+
+	id := r.PathValue("id")
+	item, err := manager.Get(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, gateway.ErrRouteNotConfigured) {
+			_ = utils.WriteError(w, http.StatusNotFound, "route not found")
+			return
+		}
+		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	item.Disabled = disabled
+
+	if err := manager.Update(r.Context(), id, item); err != nil {
+		if errors.Is(err, gateway.ErrStaticRouteReadOnly) {
+			_ = utils.WriteError(w, http.StatusConflict, err.Error())
+			return
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			_ = utils.WriteError(w, http.StatusNotFound, "route not found")
+			return
+		}
+		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	updated, err := manager.Get(r.Context(), id)
+	if err != nil {
+		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = utils.WriteJSON(w, http.StatusOK, routeViewFromRoute(manager, updated))
+}
+
 func (h *Handler) handleListLocalAPIKeys(w http.ResponseWriter, r *http.Request) {
 	manager := h.localAPIKeyManagerForRoutes()
 	if manager == nil {
@@ -546,6 +656,54 @@ func (h *Handler) handleDeleteLocalAPIKey(w http.ResponseWriter, r *http.Request
 		return
 	}
 	_ = utils.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted", "key": key})
+}
+
+func (h *Handler) handleEnableLocalAPIKey(w http.ResponseWriter, r *http.Request) {
+	h.handleSetLocalAPIKeyDisabled(w, r, false)
+}
+
+func (h *Handler) handleDisableLocalAPIKey(w http.ResponseWriter, r *http.Request) {
+	h.handleSetLocalAPIKeyDisabled(w, r, true)
+}
+
+func (h *Handler) handleSetLocalAPIKeyDisabled(w http.ResponseWriter, r *http.Request, disabled bool) {
+	manager := h.localAPIKeyManagerForRoutes()
+	if manager == nil {
+		_ = utils.WriteError(w, http.StatusServiceUnavailable, "local api key manager not configured")
+		return
+	}
+
+	keyID := r.PathValue("key")
+	key, err := manager.Get(r.Context(), keyID)
+	if err != nil {
+		if errors.Is(err, gateway.ErrLocalAPIKeyNotConfigured) {
+			_ = utils.WriteError(w, http.StatusNotFound, "local api key not found")
+			return
+		}
+		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	key.Disabled = disabled
+
+	if err := manager.Update(r.Context(), keyID, key); err != nil {
+		if errors.Is(err, gateway.ErrStaticLocalAPIKeyReadOnly) {
+			_ = utils.WriteError(w, http.StatusConflict, err.Error())
+			return
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			_ = utils.WriteError(w, http.StatusNotFound, "local api key not found")
+			return
+		}
+		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	updated, err := manager.Get(r.Context(), keyID)
+	if err != nil {
+		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = utils.WriteJSON(w, http.StatusOK, localAPIKeyViewFromKey(manager, updated))
 }
 
 func (h *Handler) handleListCredentials(w http.ResponseWriter, r *http.Request) {

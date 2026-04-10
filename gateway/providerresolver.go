@@ -26,6 +26,7 @@ func (f ProviderResolverFunc) ResolveProvider(ctx context.Context, ref string) (
 
 var (
 	ErrProviderNotConfigured  = errors.New("provider is not configured")
+	ErrProviderDisabled       = errors.New("provider is disabled")
 	ErrStaticProviderReadOnly = errors.New("static provider is read-only")
 )
 
@@ -242,6 +243,10 @@ func (m *ProviderManager) ResolveProvider(ctx context.Context, ref string) (prov
 	staticProvider, ok := m.staticProviders[ref]
 	m.mu.RUnlock()
 	if ok {
+		cfg := provider.NormalizeConfig(staticProvider.Config(), ref, "")
+		if cfg.Disabled {
+			return nil, "", fmt.Errorf("%w: %q", ErrProviderDisabled, ref)
+		}
 		return staticProvider, ref, nil
 	}
 
@@ -303,6 +308,9 @@ func (m *ProviderManager) loadDynamicProvider(ctx context.Context, ref string, s
 	resolvedCfg, err := decodeProviderConfigItem(ref, tag, obj)
 	if err != nil {
 		return cachedProviderEntry{}, fmt.Errorf("normalize provider config %q: %w", ref, err)
+	}
+	if resolvedCfg.Disabled {
+		return cachedProviderEntry{}, fmt.Errorf("%w: %q", ErrProviderDisabled, ref)
 	}
 
 	prov, err := provider.NewProvider(resolvedCfg)

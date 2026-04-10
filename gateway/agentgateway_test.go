@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -109,5 +110,29 @@ func TestValidateRouteRejectsRouteWithoutEnabledTargets(t *testing.T) {
 
 	if err := gw.ValidateRoute(context.Background(), "chat-prod"); err == nil {
 		t.Fatal("ValidateRoute returned nil error, want definition rejection")
+	}
+}
+
+func TestResolveRejectsDisabledRoute(t *testing.T) {
+	gw := NewAgentGateway()
+	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
+		StaticRoutes: []routepkg.Route{{
+			ID:       "chat-prod",
+			Disabled: true,
+			Targets:  []routepkg.RouteTarget{{ProviderRef: "openai"}},
+		}},
+		StaticProviders: map[string]provider.Provider{
+			"openai": testProvider{},
+		},
+	}); err != nil {
+		t.Fatalf("Bootstrap returned error: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	_, err := gw.Resolve(context.Background(), "chat-prod", routepkg.ResolveRequest{
+		HTTPRequest: req,
+	})
+	if err == nil {
+		t.Fatal("Resolve returned nil error, want disabled route rejection")
 	}
 }
