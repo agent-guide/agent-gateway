@@ -2,12 +2,14 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/cloudwego/eino/schema"
+	"gorm.io/gorm"
 )
 
 type testManagedProviderStore struct {
@@ -22,7 +24,7 @@ func (s *testManagedProviderStore) ListByName(_ context.Context, name string) ([
 
 	out := make([]any, 0, len(s.items))
 	for _, item := range s.items {
-		if item.ProviderName != "" && item.ProviderName != name {
+		if name != "" && item.ProviderName != name {
 			continue
 		}
 		cloned := *item
@@ -66,6 +68,9 @@ func (s *testManagedProviderStore) Update(_ context.Context, id string, obj any)
 }
 
 func (s *testManagedProviderStore) Delete(_ context.Context, id string) error {
+	if _, ok := s.items[id]; !ok {
+		return gorm.ErrRecordNotFound
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -80,7 +85,7 @@ func (s *testManagedProviderStore) Get(_ context.Context, id string) (string, an
 	s.getCalls++
 	item := s.items[id]
 	if item == nil {
-		return "", nil, ErrRouteNotConfigured
+		return "", nil, gorm.ErrRecordNotFound
 	}
 	cloned := *item
 	tag := cloned.ProviderName
@@ -225,5 +230,107 @@ func TestProviderManagerResolveRefreshesProviderWhenConfigChanges(t *testing.T) 
 	}
 	if secondCfg.BaseURL != "https://v2.example" {
 		t.Fatalf("second provider base_url = %q, want https://v2.example", secondCfg.BaseURL)
+	}
+}
+
+func TestProviderManagerGetAndListConfigPreferStaticProvider(t *testing.T) {
+	registerCountingProviderFactory()
+
+	store := &testManagedProviderStore{
+		items: map[string]*provider.ProviderConfig{
+			"test-provider":  {Id: "test-provider", ProviderName: "test-counting-provider", BaseURL: "https://dynamic.example"},
+			"other-provider": {Id: "other-provider", ProviderName: "test-counting-provider", BaseURL: "https://other.example"},
+		},
+	}
+	manager := NewProviderManager(store)
+	manager.InitStaticProviders(map[string]provider.Provider{
+		"test-provider": &countingProvider{
+			instance: 999,
+			cfg:      provider.ProviderConfig{Id: "test-provider", ProviderName: "test-counting-provider", BaseURL: "https://static.example"},
+		},
+	})
+
+	got, err := manager.GetConfig(context.Background(), "test-provider")
+	if err != nil {
+		t.Fatalf("GetConfig returned error: %v", err)
+	}
+	if got.BaseURL != "https://static.example" {
+		t.Fatalf("BaseURL = %q, want https://static.example", got.BaseURL)
+	}
+
+	items, err := manager.ListConfigs(context.Background(), ProviderListOptions{})
+	if err != nil {
+		t.Fatalf("ListConfigs returned error: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("item count = %d, want 2", len(items))
+	}
+}
+
+func TestProviderManagerCreateUpdateDeleteManageCache(t *testing.T) {
+	registerCountingProviderFactory()
+
+	store := &testManagedProviderStore{items: map[string]*provider.ProviderConfig{}}
+	manager := NewProviderManager(store)
+
+	if err := manager.CreateConfig(context.Background(), provider.ProviderConfig{
+		Id:           "test-provider",
+		ProviderName: "test-counting-provider",
+		BaseURL:      "https://created.example",
+	}); err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	if _, _, err := manager.ResolveProvider(context.Background(), "test-provider"); err != nil {
+		t.Fatalf("ResolveProvider returned error: %v", err)
+	}
+
+	store.mu.Lock()
+	store.items["test-provider"] = &provider.ProviderConfig{
+		Id:           "test-provider",
+		ProviderName: "test-counting-provider",
+		BaseURL:      "https://updated.example",
+	}
+	store.mu.Unlock()
+
+	if err := manager.UpdateConfig(context.Background(), "test-provider", provider.ProviderConfig{
+		ProviderName: "test-counting-provider",
+		BaseURL:      "https://update-call.example",
+	}); err != nil {
+		t.Fatalf("Update returned error: %v", err)
+	}
+
+	cfg, err := manager.GetConfig(context.Background(), "test-provider")
+	if err != nil {
+		t.Fatalf("GetConfig returned error: %v", err)
+	}
+	if cfg.BaseURL != "https://update-call.example" {
+		t.Fatalf("BaseURL = %q, want https://update-call.example", cfg.BaseURL)
+	}
+
+	if err := manager.DeleteConfig(context.Background(), "test-provider"); err != nil {
+		t.Fatalf("Delete returned error: %v", err)
+	}
+	if _, err := manager.GetConfig(context.Background(), "test-provider"); !errors.Is(err, ErrProviderNotConfigured) {
+		t.Fatalf("GetConfig after delete error = %v, want ErrProviderNotConfigured", err)
+	}
+}
+
+func TestProviderManagerRejectsStaticProviderMutation(t *testing.T) {
+	registerCountingProviderFactory()
+
+	manager := NewProviderManager(&testManagedProviderStore{items: map[string]*provider.ProviderConfig{}})
+	manager.InitStaticProviders(map[string]provider.Provider{
+		"test-provider": &countingProvider{
+			instance: 999,
+			cfg:      provider.ProviderConfig{Id: "test-provider", ProviderName: "test-counting-provider"},
+		},
+	})
+
+	if err := manager.UpdateConfig(context.Background(), "test-provider", provider.ProviderConfig{ProviderName: "test-counting-provider"}); !errors.Is(err, ErrStaticProviderReadOnly) {
+		t.Fatalf("Update error = %v, want ErrStaticProviderReadOnly", err)
+	}
+	if err := manager.DeleteConfig(context.Background(), "test-provider"); !errors.Is(err, ErrStaticProviderReadOnly) {
+		t.Fatalf("Delete error = %v, want ErrStaticProviderReadOnly", err)
 	}
 }

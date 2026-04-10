@@ -15,21 +15,29 @@ import (
 	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
+	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
+	"github.com/cloudwego/eino/schema"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
 type testConfigStore struct {
+	providerStore    configstoreintf.ProviderConfigStorer
 	routeStore       configstoreintf.RouteStorer
 	localAPIKeyStore configstoreintf.LocalAPIKeyStorer
 }
 
-func newTestAgentGateway(configStore configstoreintf.ConfigStorer, cliauthMgr *manager.Manager, staticRoutes []routepkg.Route, staticLocalAPIKeys []localapikeypkg.LocalAPIKey) *gateway.AgentGateway {
+func newTestAgentGateway(configStore configstoreintf.ConfigStorer, cliauthMgr *manager.Manager, staticRoutes []routepkg.Route, staticLocalAPIKeys []localapikeypkg.LocalAPIKey, staticProviders ...map[string]provider.Provider) *gateway.AgentGateway {
+	var providers map[string]provider.Provider
+	if len(staticProviders) > 0 {
+		providers = staticProviders[0]
+	}
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
 		ConfigStore:        configStore,
 		StaticRoutes:       staticRoutes,
 		StaticLocalAPIKeys: staticLocalAPIKeys,
+		StaticProviders:    providers,
 		CLIAuthManager:     cliauthMgr,
 	}); err != nil {
 		panic(err)
@@ -42,7 +50,7 @@ func (s *testConfigStore) GetCredentialStore(context.Context, configstoreintf.Co
 }
 
 func (s *testConfigStore) GetProviderConfigStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.ProviderConfigStorer, error) {
-	return nil, nil
+	return s.providerStore, nil
 }
 
 func (s *testConfigStore) GetLocalAPIKeyStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.LocalAPIKeyStorer, error) {
@@ -122,6 +130,90 @@ type testLocalAPIKeyStore struct {
 	items map[string]*localapikeypkg.LocalAPIKey
 }
 
+type testProviderConfigStore struct {
+	items map[string]*provider.ProviderConfig
+}
+
+func (s *testProviderConfigStore) ListByName(_ context.Context, name string) ([]any, error) {
+	out := make([]any, 0, len(s.items))
+	for _, item := range s.items {
+		if name != "" && item.ProviderName != name {
+			continue
+		}
+		cloned := *item
+		out = append(out, &cloned)
+	}
+	return out, nil
+}
+
+func (s *testProviderConfigStore) Create(_ context.Context, id string, name string, obj any) (string, error) {
+	cfg, ok := obj.(*provider.ProviderConfig)
+	if !ok {
+		return "", errors.New("unexpected type")
+	}
+	if s.items == nil {
+		s.items = map[string]*provider.ProviderConfig{}
+	}
+	cloned := *cfg
+	cloned.Id = id
+	if cloned.ProviderName == "" {
+		cloned.ProviderName = name
+	}
+	s.items[id] = &cloned
+	return id, nil
+}
+
+func (s *testProviderConfigStore) Update(_ context.Context, id string, obj any) error {
+	if _, ok := s.items[id]; !ok {
+		return gorm.ErrRecordNotFound
+	}
+	_, err := s.Create(context.Background(), id, "", obj)
+	return err
+}
+
+func (s *testProviderConfigStore) Delete(_ context.Context, id string) error {
+	if _, ok := s.items[id]; !ok {
+		return gorm.ErrRecordNotFound
+	}
+	delete(s.items, id)
+	return nil
+}
+
+func (s *testProviderConfigStore) Get(_ context.Context, id string) (string, any, error) {
+	item, ok := s.items[id]
+	if !ok {
+		return "", nil, gorm.ErrRecordNotFound
+	}
+	cloned := *item
+	tag := cloned.ProviderName
+	cloned.ProviderName = ""
+	return tag, &cloned, nil
+}
+
+type stubAdminProvider struct {
+	cfg provider.ProviderConfig
+}
+
+func (p *stubAdminProvider) Generate(context.Context, *provider.GenerateRequest) (*provider.GenerateResponse, error) {
+	return nil, nil
+}
+
+func (p *stubAdminProvider) Stream(context.Context, *provider.GenerateRequest) (*schema.StreamReader[*schema.Message], error) {
+	return nil, nil
+}
+
+func (p *stubAdminProvider) ListModels(context.Context) ([]provider.ModelInfo, error) {
+	return nil, nil
+}
+
+func (p *stubAdminProvider) Capabilities() provider.ProviderCapabilities {
+	return provider.ProviderCapabilities{}
+}
+
+func (p *stubAdminProvider) Config() provider.ProviderConfig {
+	return p.cfg
+}
+
 func (s *testLocalAPIKeyStore) ListByUserID(_ context.Context, userID string) ([]any, error) {
 	out := make([]any, 0, len(s.items))
 	for _, item := range s.items {
@@ -174,7 +266,7 @@ func TestRouteCRUD(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testRouteStore{items: map[string]*routepkg.Route{}},
-	}, nil, nil, nil), nil, "admin", string(passwordHash), nil)
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	createBody, err := json.Marshal(routepkg.Route{
@@ -229,7 +321,7 @@ func TestLocalAPIKeyCRUD(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
-	}, nil, nil, nil), nil, "admin", string(passwordHash), nil)
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body, err := json.Marshal(localapikeypkg.LocalAPIKey{
@@ -375,10 +467,167 @@ func TestLocalAPIKeyListMarksStaticKeysAsReadOnly(t *testing.T) {
 	}
 }
 
+func TestProviderCRUD(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash), nil)
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	body, err := json.Marshal(provider.ProviderConfig{
+		Id:           "openai-main",
+		ProviderName: "openai",
+		BaseURL:      "https://api.openai.com/v1",
+		DefaultModel: "gpt-4o-mini",
+	})
+	if err != nil {
+		t.Fatalf("marshal provider config: %v", err)
+	}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/admin/providers", bytes.NewReader(body))
+	createReq.Header.Set("Authorization", "Bearer "+token)
+	createRec := httptest.NewRecorder()
+	handler.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("unexpected create status: got %d want %d", createRec.Code, http.StatusCreated)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/admin/providers/openai-main", nil)
+	getReq.Header.Set("Authorization", "Bearer "+token)
+	getRec := httptest.NewRecorder()
+	handler.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("unexpected get status: got %d want %d", getRec.Code, http.StatusOK)
+	}
+
+	var got ProviderView
+	if err := json.NewDecoder(getRec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode provider: %v", err)
+	}
+	if got.Id != "openai-main" {
+		t.Fatalf("unexpected provider id: got %q want %q", got.Id, "openai-main")
+	}
+	if got.ProviderName != "openai" {
+		t.Fatalf("unexpected provider_name: got %q want %q", got.ProviderName, "openai")
+	}
+	if got.Source != "store" || got.ReadOnly {
+		t.Fatalf("unexpected provider metadata: %#v", got)
+	}
+}
+
+func TestProviderGetMarksStaticProviderAsReadOnly(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
+			"openai-main": {Id: "openai-main", ProviderName: "openai", BaseURL: "https://dynamic.example"},
+		}},
+	}, nil, nil, nil, map[string]provider.Provider{
+		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderName: "openai", BaseURL: "https://static.example"}},
+	}), nil, "admin", string(passwordHash), nil)
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/providers/openai-main", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected get status: got %d want %d", rec.Code, http.StatusOK)
+	}
+
+	var got ProviderView
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode provider: %v", err)
+	}
+	if got.BaseURL != "https://static.example" {
+		t.Fatalf("base_url = %q, want https://static.example", got.BaseURL)
+	}
+	if got.Source != "caddyfile" || !got.ReadOnly {
+		t.Fatalf("unexpected provider metadata: %#v", got)
+	}
+}
+
+func TestProviderListMarksStaticProvidersAsReadOnly(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
+			"openai-dynamic": {Id: "openai-dynamic", ProviderName: "openai"},
+		}},
+	}, nil, nil, nil, map[string]provider.Provider{
+		"anthropic-static": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "anthropic-static", ProviderName: "anthropic"}},
+	}), nil, "admin", string(passwordHash), nil)
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected list status: got %d want %d", rec.Code, http.StatusOK)
+	}
+
+	var got struct {
+		Items []ProviderView `json:"items"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode providers: %v", err)
+	}
+	if len(got.Items) != 2 {
+		t.Fatalf("item count = %d, want 2", len(got.Items))
+	}
+
+	byID := map[string]ProviderView{}
+	for _, item := range got.Items {
+		byID[item.Id] = item
+	}
+	if byID["anthropic-static"].Source != "caddyfile" || !byID["anthropic-static"].ReadOnly {
+		t.Fatalf("unexpected static provider metadata: %#v", byID["anthropic-static"])
+	}
+	if byID["openai-dynamic"].Source != "store" || byID["openai-dynamic"].ReadOnly {
+		t.Fatalf("unexpected dynamic provider metadata: %#v", byID["openai-dynamic"])
+	}
+}
+
+func TestProviderDeleteRejectsStaticProvider(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
+	}, nil, nil, nil, map[string]provider.Provider{
+		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderName: "openai"}},
+	}), nil, "admin", string(passwordHash), nil)
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	req := httptest.NewRequest(http.MethodDelete, "/admin/providers/openai-main", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("unexpected delete status: got %d want %d", rec.Code, http.StatusConflict)
+	}
+}
+
 func TestProtectedRouteRejectsRequestsWhenAdminAuthIsNotConfigured(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
-	}, nil, nil, nil), nil, "", "", nil)
+	}, nil, nil, nil, nil), nil, "", "", nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/local_api_keys", nil)
 	rec := httptest.NewRecorder()
@@ -396,7 +645,7 @@ func TestCreateLocalAPIKeyRejectsMismatchedSessionUserID(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
-	}, nil, nil, nil), nil, "admin", string(passwordHash), nil)
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash), nil)
 
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -427,7 +676,7 @@ func TestListLocalAPIKeysRejectsMismatchedSessionUserID(t *testing.T) {
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{
 			"lk-test": {Key: "lk-test", UserID: "admin"},
 		}},
-	}, nil, nil, nil), nil, "admin", string(passwordHash), nil)
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash), nil)
 
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -459,7 +708,7 @@ func TestRouteGetPrefersStaticRouteManager(t *testing.T) {
 		ID:      "chat-prod",
 		Name:    "static",
 		Targets: []routepkg.RouteTarget{{ProviderRef: "anthropic"}},
-	}}, nil), nil, "admin", string(passwordHash), nil)
+	}}, nil, nil), nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/routes/chat-prod", nil)
@@ -502,7 +751,7 @@ func TestRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 		ID:      "chat-static",
 		Name:    "static",
 		Targets: []routepkg.RouteTarget{{ProviderRef: "anthropic"}},
-	}}, nil), nil, "admin", string(passwordHash), nil)
+	}}, nil, nil), nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/routes", nil)

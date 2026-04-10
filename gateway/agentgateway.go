@@ -31,8 +31,7 @@ type AgentGateway struct {
 	configStore        configstoreintf.ConfigStorer
 	routeManager       *RouteManager
 	localAPIKeyManager *LocalAPIKeyManager
-	ProviderResolver   ProviderResolver
-	LocalAPIKeyStore   configstoreintf.LocalAPIKeyStorer
+	providerManager    *ProviderManager
 	cliauthManager     *manager.Manager
 	Selector           routepkg.RouteTargetSelector
 }
@@ -71,7 +70,7 @@ func (g *AgentGateway) Reset() {
 	g.configStore = nil
 	g.routeManager = nil
 	g.localAPIKeyManager = nil
-	g.ProviderResolver = nil
+	g.providerManager = nil
 	g.cliauthManager = nil
 	g.Selector = nil
 }
@@ -98,6 +97,12 @@ func (g *AgentGateway) LocalAPIKeyManager() *LocalAPIKeyManager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.localAPIKeyManager
+}
+
+func (g *AgentGateway) ProviderManager() *ProviderManager {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.providerManager
 }
 
 func (g *AgentGateway) LookupRoute(ctx context.Context, routeID string) (routepkg.Route, error) {
@@ -193,7 +198,7 @@ func (g *AgentGateway) resolveLocalAPIKey(ctx context.Context, httpReq *http.Req
 func (g *AgentGateway) providerResolver() ProviderResolver {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	return g.ProviderResolver
+	return g.providerManager
 }
 
 func (g *AgentGateway) selector() routepkg.RouteTargetSelector {
@@ -255,7 +260,7 @@ func (g *AgentGateway) configureLocalAPIKeyManager(ctx context.Context, configSt
 }
 
 func (g *AgentGateway) configureProviderResolver(ctx context.Context, configStore configstoreintf.ConfigStorer, staticProviders map[string]provider.Provider) error {
-	if g.ProviderResolver != nil {
+	if g.providerManager != nil {
 		return fmt.Errorf("provider resolver is not nil")
 	}
 
@@ -270,6 +275,6 @@ func (g *AgentGateway) configureProviderResolver(ctx context.Context, configStor
 
 	providerManager := NewProviderManager(providerStore)
 	providerManager.InitStaticProviders(staticProviders)
-	g.ProviderResolver = providerManager
+	g.providerManager = providerManager
 	return nil
 }

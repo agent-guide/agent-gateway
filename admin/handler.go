@@ -18,6 +18,7 @@ type Handler struct {
 	configStore        intf.ConfigStorer
 	routeManager       *gateway.RouteManager
 	localAPIKeyManager *gateway.LocalAPIKeyManager
+	providerManager    *gateway.ProviderManager
 	caddyManager       *caddymgr.CaddyManager
 	mux                *http.ServeMux
 	logger             *zap.Logger
@@ -39,11 +40,13 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 	var configStore intf.ConfigStorer
 	var routeManager *gateway.RouteManager
 	var localAPIKeyManager *gateway.LocalAPIKeyManager
+	var providerManager *gateway.ProviderManager
 	if agentGateway != nil {
 		cliauthMgr = agentGateway.CLIAuthManager()
 		configStore = agentGateway.ConfigStore()
 		routeManager = agentGateway.RouteManager()
 		localAPIKeyManager = agentGateway.LocalAPIKeyManager()
+		providerManager = agentGateway.ProviderManager()
 	}
 
 	h := &Handler{
@@ -51,6 +54,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 		configStore:        configStore,
 		routeManager:       routeManager,
 		localAPIKeyManager: localAPIKeyManager,
+		providerManager:    providerManager,
 		caddyManager:       caddyMgr,
 		logger:             logger,
 		sessions:           newSessionStore(),

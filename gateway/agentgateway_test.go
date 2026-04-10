@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"fmt"
 	"net/http/httptest"
 	"testing"
 
@@ -110,34 +109,5 @@ func TestValidateRouteRejectsRouteWithoutEnabledTargets(t *testing.T) {
 
 	if err := gw.ValidateRoute(context.Background(), "chat-prod"); err == nil {
 		t.Fatal("ValidateRoute returned nil error, want definition rejection")
-	}
-}
-
-func TestValidateRouteChecksUniqueProviderRefs(t *testing.T) {
-	var resolved []string
-
-	gw := NewAgentGateway()
-	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
-		StaticRoutes: []routepkg.Route{{
-			ID: "chat-prod",
-			Targets: []routepkg.RouteTarget{
-				{ProviderRef: "openai"},
-				{ProviderRef: "openai"},
-				{ProviderRef: "anthropic"},
-			},
-		}},
-	}); err != nil {
-		t.Fatalf("Bootstrap returned error: %v", err)
-	}
-	gw.ProviderResolver = ProviderResolverFunc(func(ctx context.Context, ref string) (provider.Provider, string, error) {
-		resolved = append(resolved, ref)
-		return testProvider{}, ref, nil
-	})
-
-	if err := gw.ValidateRoute(context.Background(), "chat-prod"); err != nil {
-		t.Fatalf("ValidateRoute returned error: %v", err)
-	}
-	if fmt.Sprint(resolved) != "[openai anthropic]" {
-		t.Fatalf("resolved provider refs = %v, want [openai anthropic]", resolved)
 	}
 }

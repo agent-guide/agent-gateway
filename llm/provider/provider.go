@@ -136,7 +136,10 @@ func (c *ProviderConfig) Defaults() {
 
 // NormalizeConfig returns a runtime-ready provider config without mutating the
 // source value. If ProviderName is empty, fallbackName is applied before defaults.
-func NormalizeConfig(cfg ProviderConfig, fallbackName string) ProviderConfig {
+func NormalizeConfig(cfg ProviderConfig, fallbackId string, fallbackName string) ProviderConfig {
+	if cfg.Id == "" {
+		cfg.Id = fallbackId
+	}
 	if cfg.ProviderName == "" {
 		cfg.ProviderName = fallbackName
 	}
@@ -146,12 +149,25 @@ func NormalizeConfig(cfg ProviderConfig, fallbackName string) ProviderConfig {
 
 // NormalizeStoredProviderConfig converts a decoded config-store object into a
 // runtime-ready ProviderConfig without mutating the decoded object.
-func NormalizeStoredProviderConfig(tag string, obj any) (ProviderConfig, error) {
+func NormalizeStoredProviderConfig(fallbackId string, fallbackName string, obj any) (ProviderConfig, error) {
 	cfg, ok := obj.(*ProviderConfig)
 	if !ok || cfg == nil {
-		return ProviderConfig{}, fmt.Errorf("unexpected stored provider config type %T", obj)
+		if fallbackId == "" {
+			fallbackId = "<unknown>"
+		}
+		return ProviderConfig{}, fmt.Errorf("stored provider %q has unexpected type %T", fallbackId, obj)
 	}
-	return NormalizeConfig(*cfg, tag), nil
+
+	return NormalizeConfig(*cfg, fallbackId, fallbackName), nil
+}
+
+// DecodeStoredProviderConfig converts a config-store provider payload into ProviderConfig.
+func DecodeStoredProviderConfig(data []byte) (any, error) {
+	var providerConfig ProviderConfig
+	if err := json.Unmarshal(data, &providerConfig); err != nil {
+		return nil, err
+	}
+	return &providerConfig, nil
 }
 
 // --- Request / Response types ---
@@ -195,13 +211,4 @@ type ModelInfo struct {
 type Usage struct {
 	InputTokens  int
 	OutputTokens int
-}
-
-// DecodeStoredProviderConfig converts a config-store provider payload into ProviderConfig.
-func DecodeStoredProviderConfig(data []byte) (any, error) {
-	var providerConfig ProviderConfig
-	if err := json.Unmarshal(data, &providerConfig); err != nil {
-		return nil, err
-	}
-	return &providerConfig, nil
 }
