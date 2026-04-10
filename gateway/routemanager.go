@@ -8,7 +8,6 @@ import (
 
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
-	"gorm.io/gorm"
 )
 
 var (
@@ -94,7 +93,7 @@ func (m *RouteManager) Get(ctx context.Context, routeID string) (routepkg.Route,
 
 	item, err := store.Get(ctx, routeID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, configstoreintf.ErrNotFound) {
 			return routepkg.Route{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
 		}
 		return routepkg.Route{}, fmt.Errorf("load route %q: %w", routeID, err)

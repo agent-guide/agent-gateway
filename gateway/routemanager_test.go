@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
-	"gorm.io/gorm"
 )
 
 type testManagedRouteStore struct {
@@ -42,7 +42,7 @@ func (s *testManagedRouteStore) Create(_ context.Context, id string, _ string, o
 
 func (s *testManagedRouteStore) Update(_ context.Context, id string, obj any) error {
 	if _, ok := s.items[id]; !ok {
-		return gorm.ErrRecordNotFound
+		return configstoreintf.ErrNotFound
 	}
 	return s.Create(context.Background(), id, "", obj)
 }
@@ -56,7 +56,7 @@ func (s *testManagedRouteStore) Get(_ context.Context, id string) (any, error) {
 	s.getCalls++
 	item, ok := s.items[id]
 	if !ok {
-		return nil, gorm.ErrRecordNotFound
+		return nil, configstoreintf.ErrNotFound
 	}
 	cloned := *item
 	return &cloned, nil

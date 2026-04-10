@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -126,7 +127,7 @@ func TestRouteStoreUpdateRejectsMissingID(t *testing.T) {
 			Weight:      1,
 		}},
 	})
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		t.Fatalf("update missing route error = %v, want %v", err, gorm.ErrRecordNotFound)
+	if !errors.Is(err, configstoreintf.ErrNotFound) {
+		t.Fatalf("update missing route error = %v, want %v", err, configstoreintf.ErrNotFound)
 	}
 }

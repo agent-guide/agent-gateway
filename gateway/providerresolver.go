@@ -9,7 +9,6 @@ import (
 
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
-	"gorm.io/gorm"
 )
 
 // ProviderResolver resolves a provider reference into an executable provider instance.
@@ -108,7 +107,7 @@ func (m *ProviderManager) GetConfig(ctx context.Context, ref string) (provider.P
 
 	tag, obj, err := store.Get(ctx, ref)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, configstoreintf.ErrNotFound) {
 			return provider.ProviderConfig{}, fmt.Errorf("%w: %q", ErrProviderNotConfigured, ref)
 		}
 		return provider.ProviderConfig{}, fmt.Errorf("load provider %q: %w", ref, err)
@@ -234,6 +233,14 @@ func (m *ProviderManager) DeleteConfig(ctx context.Context, ref string) error {
 	return nil
 }
 
+// ResolveProvider resolves a provider reference to a live provider instance.
+//
+// For dynamic (store-backed) providers, the store is consulted on every call to detect
+// config changes at runtime. If the config fingerprint has not changed since the last
+// call, the cached provider instance is reused to avoid re-establishing connections.
+// This is intentionally different from RouteManager/LocalAPIKeyManager, which skip the
+// store on cache hit, because provider config changes (API keys, base URLs) must take
+// effect without a gateway restart.
 func (m *ProviderManager) ResolveProvider(ctx context.Context, ref string) (provider.Provider, string, error) {
 	if ref == "" {
 		return nil, "", fmt.Errorf("provider ref is required")
@@ -294,7 +301,7 @@ func (m *ProviderManager) cacheDynamicProvider(ref string, entry cachedProviderE
 func (m *ProviderManager) loadDynamicProvider(ctx context.Context, ref string, store configstoreintf.ProviderConfigStorer) (cachedProviderEntry, error) {
 	tag, obj, err := store.Get(ctx, ref)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, configstoreintf.ErrNotFound) {
 			return cachedProviderEntry{}, fmt.Errorf("%w: %q", ErrProviderNotConfigured, ref)
 		}
 		return cachedProviderEntry{}, err
@@ -352,7 +359,7 @@ func fingerprintProviderConfig(ref string, obj any) (string, error) {
 func decodeProviderConfigItem(ref string, fallbackName string, item any) (provider.ProviderConfig, error) {
 	normalized, err := provider.NormalizeStoredProviderConfig(ref, fallbackName, item)
 	if err != nil {
-		return provider.ProviderConfig{}, nil
+		return provider.ProviderConfig{}, err
 	}
 	if normalized.Id == "" {
 		return provider.ProviderConfig{}, fmt.Errorf("provider %q id is required", ref)

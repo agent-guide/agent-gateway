@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -137,7 +138,7 @@ func (s *sqliteJSONStore) Update(ctx context.Context, id string, obj any) error 
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
+		return intf.ErrNotFound
 	}
 	return nil
 }
@@ -152,6 +153,9 @@ func (s *sqliteJSONStore) Delete(ctx context.Context, id string) error {
 func (s *sqliteJSONStore) Get(ctx context.Context, id string) (string, any, error) {
 	var row sqliteJSONRecord
 	if err := s.baseQuery(ctx).Where(s.quotedColumnName(s.idField)+" = ?", id).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", nil, intf.ErrNotFound
+		}
 		return "", nil, err
 	}
 

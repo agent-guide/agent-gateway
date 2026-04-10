@@ -8,7 +8,6 @@ import (
 
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
-	"gorm.io/gorm"
 )
 
 var (
@@ -92,7 +91,7 @@ func (m *LocalAPIKeyManager) Get(ctx context.Context, key string) (localapikeypk
 
 	item, err := store.Get(ctx, key)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, configstoreintf.ErrNotFound) {
 			return localapikeypkg.LocalAPIKey{}, fmt.Errorf("%w: %q", ErrLocalAPIKeyNotConfigured, key)
 		}
 		return localapikeypkg.LocalAPIKey{}, fmt.Errorf("load local api key %q: %w", key, err)

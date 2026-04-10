@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
-	"gorm.io/gorm"
 )
 
 type testManagedLocalAPIKeyStore struct {
@@ -41,7 +41,7 @@ func (s *testManagedLocalAPIKeyStore) Create(_ context.Context, key string, _ st
 
 func (s *testManagedLocalAPIKeyStore) Update(_ context.Context, key string, obj any) error {
 	if _, ok := s.items[key]; !ok {
-		return gorm.ErrRecordNotFound
+		return configstoreintf.ErrNotFound
 	}
 	return s.Create(context.Background(), key, "", obj)
 }
@@ -55,7 +55,7 @@ func (s *testManagedLocalAPIKeyStore) Get(_ context.Context, key string) (any, e
 	s.getCalls++
 	item, ok := s.items[key]
 	if !ok {
-		return nil, gorm.ErrRecordNotFound
+		return nil, configstoreintf.ErrNotFound
 	}
 	cloned := *item
 	return &cloned, nil

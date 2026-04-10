@@ -9,7 +9,6 @@ import (
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/cloudwego/eino/schema"
-	"gorm.io/gorm"
 )
 
 type testManagedProviderStore struct {
@@ -69,7 +68,7 @@ func (s *testManagedProviderStore) Update(_ context.Context, id string, obj any)
 
 func (s *testManagedProviderStore) Delete(_ context.Context, id string) error {
 	if _, ok := s.items[id]; !ok {
-		return gorm.ErrRecordNotFound
+		return configstoreintf.ErrNotFound
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -85,7 +84,7 @@ func (s *testManagedProviderStore) Get(_ context.Context, id string) (string, an
 	s.getCalls++
 	item := s.items[id]
 	if item == nil {
-		return "", nil, gorm.ErrRecordNotFound
+		return "", nil, configstoreintf.ErrNotFound
 	}
 	cloned := *item
 	tag := cloned.ProviderName

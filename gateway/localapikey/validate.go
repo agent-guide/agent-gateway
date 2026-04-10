@@ -1,13 +1,11 @@
 package localapikey
 
 import (
-	"context"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
 
-	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
 )
 
@@ -45,25 +43,3 @@ func ExtractAPIKey(r *http.Request) string {
 	return ""
 }
 
-// AuthenticateRequest extracts, loads, and validates a local API key for a route.
-func AuthenticateRequest(ctx context.Context, store configstoreintf.LocalAPIKeyStorer, httpReq *http.Request, routeID string, requireLocalAPIKey bool) (*LocalAPIKey, error) {
-	rawKey := ExtractAPIKey(httpReq)
-	if rawKey == "" {
-		return ValidateForRoute(routeID, requireLocalAPIKey, nil)
-	}
-	if store == nil {
-		return nil, utils.NewHTTPError(http.StatusServiceUnavailable, "local api key store is not configured")
-	}
-
-	item, err := store.Get(ctx, rawKey)
-	if err != nil {
-		return nil, utils.NewHTTPError(http.StatusUnauthorized, "invalid local api key")
-	}
-
-	key, ok := item.(*LocalAPIKey)
-	if !ok || key == nil {
-		return nil, utils.NewHTTPError(http.StatusUnauthorized, "invalid local api key")
-	}
-
-	return ValidateForRoute(routeID, requireLocalAPIKey, key)
-}

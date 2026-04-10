@@ -36,6 +36,14 @@ type AgentGateway struct {
 	Selector           routepkg.RouteTargetSelector
 }
 
+// ResolvedRequest contains the route, consumer, and provider selected for a request.
+type ResolvedRequest struct {
+	Route        routepkg.Route
+	LocalAPIKey  *localapikeypkg.LocalAPIKey
+	ProviderName string
+	Provider     provider.Provider
+}
+
 func NewAgentGateway() *AgentGateway {
 	return &AgentGateway{
 		configured: false,
