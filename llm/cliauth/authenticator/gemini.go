@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/google/uuid"
@@ -35,6 +36,7 @@ const (
 
 func init() {
 	caddy.RegisterModule(GeminiAuthenticator{})
+	manager.RegisterAuthenticatorFactory("gemini", NewGeminiAuthenticator)
 }
 
 // geminiScopes are the OAuth2 scopes requested for Gemini CLI authentication.
@@ -69,8 +71,8 @@ func (GeminiAuthenticator) CaddyModule() caddy.ModuleInfo {
 }
 
 // NewGeminiAuthenticator creates a GeminiAuthenticator with default settings.
-func NewGeminiAuthenticator() *GeminiAuthenticator {
-	return &GeminiAuthenticator{CallbackPort: geminiDefaultCallbackPort}
+func NewGeminiAuthenticator() (manager.Authenticator, error) {
+	return &GeminiAuthenticator{CallbackPort: geminiDefaultCallbackPort}, nil
 }
 
 // Provision applies default settings after the module is loaded.

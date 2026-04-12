@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/google/uuid"
@@ -48,6 +49,7 @@ const (
 
 func init() {
 	caddy.RegisterModule(CodexAuthenticator{})
+	manager.RegisterAuthenticatorFactory("codex", NewCodexAuthenticator)
 }
 
 // ---- Internal HTTP response types ----
@@ -120,8 +122,8 @@ func (CodexAuthenticator) CaddyModule() caddy.ModuleInfo {
 }
 
 // NewCodexAuthenticator creates a CodexAuthenticator with default settings.
-func NewCodexAuthenticator() *CodexAuthenticator {
-	return &CodexAuthenticator{CallbackPort: codexDefaultCallbackPort}
+func NewCodexAuthenticator() (manager.Authenticator, error) {
+	return &CodexAuthenticator{CallbackPort: codexDefaultCallbackPort}, nil
 }
 
 // Provision applies default settings after the module is loaded.

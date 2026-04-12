@@ -321,16 +321,20 @@ This is why the project can support operational changes without treating the Cad
 CLI login flow:
 
 ```text
-POST /admin/cliauth/{cliname}
+POST /admin/cliauth/authenticators/{authenticator_name}/enable
+  -> create runtime authenticator from registered factory
+  -> register authenticator in auth manager
+POST /admin/cliauth/authenticators/{authenticator_name}/login
   -> lookup authenticator
   -> start async login goroutine
   -> authenticator.Login()
-  -> auth manager Register()
+  -> auth manager RegisterCredential()
   -> persist credential
-  -> poll /admin/cliauth/{cliname}/status
+  -> poll /admin/cliauth/authenticators/{authenticator_name}/login/status
 ```
 
 The login flow is async because the provider login step may require browser or human interaction.
+Authenticators configured by Caddyfile are read-only and cannot be disabled through the admin API.
 
 ## 8. Current Implementation Boundaries
 

@@ -241,13 +241,16 @@ The admin surface is mounted through `agent_gateway_admin` and currently include
   - `GET /admin/local_api_keys/{key}`
   - `PUT /admin/local_api_keys/{key}`
   - `DELETE /admin/local_api_keys/{key}`
-- Credential inspection:
-  - `GET /admin/credentials`
-  - `GET /admin/credentials/{id}`
-  - `DELETE /admin/credentials/{id}`
-- CLI login:
-  - `POST /admin/cliauth/{cliname}`
-  - `GET /admin/cliauth/{cliname}/status`
+- CLI auth credentials:
+  - `GET /admin/cliauth/credentials`
+  - `GET /admin/cliauth/credentials/{credential_id}`
+  - `DELETE /admin/cliauth/credentials/{credential_id}`
+- CLI auth authenticators:
+  - `GET /admin/cliauth/authenticators`
+  - `POST /admin/cliauth/authenticators/{authenticator_name}/enable`
+  - `POST /admin/cliauth/authenticators/{authenticator_name}/disable`
+  - `POST /admin/cliauth/authenticators/{authenticator_name}/login`
+  - `GET /admin/cliauth/authenticators/{authenticator_name}/login/status`
 
 The route table also includes MCP, memory, agent, and metrics endpoints, but those handlers currently return `501 not implemented`.
 

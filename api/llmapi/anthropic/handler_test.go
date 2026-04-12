@@ -48,7 +48,7 @@ func (e testStatusError) StatusCode() int { return e.status }
 
 func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 	cliauthMgr := manager.NewManager(nil, nil, nil)
-	if err := cliauthMgr.Register(context.Background(), &credential.Credential{
+	if err := cliauthMgr.RegisterCredential(context.Background(), &credential.Credential{
 		ID:       "cred-anthropic-1",
 		Provider: "anthropic",
 	}); err != nil {
@@ -91,7 +91,7 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusBadGateway)
 	}
 
-	cred := cliauthMgr.Get("cred-anthropic-1")
+	cred := cliauthMgr.GetCredential("cred-anthropic-1")
 	if cred == nil || !cred.Quota.Exceeded || !cred.Unavailable || cred.NextRetryAfter.IsZero() {
 		t.Fatal("expected credential to be marked unavailable and quota exceeded")
 	}

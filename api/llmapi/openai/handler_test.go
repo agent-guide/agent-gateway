@@ -65,7 +65,7 @@ func withRouteInfo(req *http.Request) *http.Request {
 
 func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 	cliauthMgr := manager.NewManager(nil, nil, nil)
-	if err := cliauthMgr.Register(context.Background(), &credential.Credential{
+	if err := cliauthMgr.RegisterCredential(context.Background(), &credential.Credential{
 		ID:       "cred-openai-1",
 		Provider: "openai",
 	}); err != nil {
@@ -104,7 +104,7 @@ func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusBadGateway)
 	}
 
-	cred := cliauthMgr.Get("cred-openai-1")
+	cred := cliauthMgr.GetCredential("cred-openai-1")
 	if cred == nil {
 		t.Fatal("credential not found after request")
 	}

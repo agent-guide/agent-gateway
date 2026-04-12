@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -80,7 +81,8 @@ type Manager struct {
 
 	mu              sync.RWMutex
 	creds           map[string]*credential.Credential // credID -> Credential
-	authenticators  map[string]Authenticator          // cli/provider key -> Authenticator
+	authenticators  map[string]*authenticatorEntry    // cli key -> Authenticator
+	providerAuths   map[string]string                 // provider key -> cli key
 	refresher       Refresher                         // fallback global refresher
 	scheduler       *authScheduler
 	providerOffsets map[string]int
@@ -110,7 +112,8 @@ func NewManager(store intf.CredentialStorer, strategy Strategy, hook Hook) *Mana
 		strategy:         strategy,
 		hook:             hook,
 		creds:            make(map[string]*credential.Credential),
-		authenticators:   make(map[string]Authenticator),
+		authenticators:   make(map[string]*authenticatorEntry),
+		providerAuths:    make(map[string]string),
 		providerOffsets:  make(map[string]int),
 		refreshSemaphore: make(chan struct{}, defaultRefreshMaxConcurrent),
 	}
@@ -122,6 +125,13 @@ func NewManager(store intf.CredentialStorer, strategy Strategy, hook Hook) *Mana
 // It also indexes the same Authenticator by its provider name so refresh lookups
 // can continue resolving via credential.Provider.
 func (m *Manager) RegisterAuthenticator(cliname string, auth Authenticator) {
+	m.RegisterAuthenticatorWithOptions(cliname, auth, RegisterAuthenticatorOptions{
+		Source: AuthenticatorSourceRuntime,
+	})
+}
+
+// RegisterAuthenticatorWithOptions registers an Authenticator with lifecycle metadata.
+func (m *Manager) RegisterAuthenticatorWithOptions(cliname string, auth Authenticator, opts RegisterAuthenticatorOptions) {
 	if auth == nil {
 		return
 	}
@@ -130,21 +140,130 @@ func (m *Manager) RegisterAuthenticator(cliname string, auth Authenticator) {
 		return
 	}
 	providerKey := strings.ToLower(strings.TrimSpace(auth.Provider()))
+	if opts.Source == "" {
+		opts.Source = AuthenticatorSourceRuntime
+	}
 	m.mu.Lock()
-	m.authenticators[cliKey] = auth
+	if previous := m.authenticators[cliKey]; previous != nil && previous.state.Provider != "" {
+		previousProviderKey := strings.ToLower(previous.state.Provider)
+		if m.providerAuths[previousProviderKey] == cliKey {
+			delete(m.providerAuths, previousProviderKey)
+		}
+	}
+	m.authenticators[cliKey] = &authenticatorEntry{
+		state: AuthenticatorState{
+			Name:     cliKey,
+			Provider: providerKey,
+			Source:   opts.Source,
+			ReadOnly: opts.ReadOnly,
+			Enabled:  true,
+		},
+		auth: auth,
+	}
 	if providerKey != "" {
-		m.authenticators[providerKey] = auth
+		m.providerAuths[providerKey] = cliKey
 	}
 	m.mu.Unlock()
+}
+
+// EnableAuthenticator creates and registers a runtime Authenticator by CLI name.
+func (m *Manager) EnableAuthenticator(cliname string) (AuthenticatorState, error) {
+	cliKey := strings.ToLower(strings.TrimSpace(cliname))
+	if cliKey == "" {
+		return AuthenticatorState{}, fmt.Errorf("manager: authenticator name is empty")
+	}
+	if state, ok := m.AuthenticatorState(cliKey); ok && state.Enabled {
+		return state, nil
+	}
+	auth, err := NewAuthenticator(cliKey)
+	if err != nil {
+		return AuthenticatorState{}, err
+	}
+	m.RegisterAuthenticatorWithOptions(cliKey, auth, RegisterAuthenticatorOptions{
+		Source: AuthenticatorSourceRuntime,
+	})
+	state, _ := m.AuthenticatorState(cliKey)
+	return state, nil
+}
+
+// DisableAuthenticator deregisters a runtime Authenticator by CLI name.
+func (m *Manager) DisableAuthenticator(cliname string) error {
+	cliKey := strings.ToLower(strings.TrimSpace(cliname))
+	if cliKey == "" {
+		return fmt.Errorf("manager: authenticator name is empty")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	entry := m.authenticators[cliKey]
+	if entry == nil {
+		return nil
+	}
+	if entry.state.ReadOnly {
+		return ErrAuthenticatorReadOnly
+	}
+	if entry.state.Provider != "" {
+		providerKey := strings.ToLower(entry.state.Provider)
+		if m.providerAuths[providerKey] == cliKey {
+			delete(m.providerAuths, providerKey)
+		}
+	}
+	delete(m.authenticators, cliKey)
+	return nil
 }
 
 // GetAuthenticator returns the Authenticator registered for the given CLI name.
 func (m *Manager) GetAuthenticator(cliname string) (Authenticator, bool) {
 	key := strings.ToLower(strings.TrimSpace(cliname))
 	m.mu.RLock()
-	auth, ok := m.authenticators[key]
+	entry, ok := m.authenticators[key]
 	m.mu.RUnlock()
-	return auth, ok
+	if !ok || entry == nil || entry.auth == nil {
+		return nil, false
+	}
+	return entry.auth, true
+}
+
+// AuthenticatorState returns lifecycle metadata for the given CLI name.
+func (m *Manager) AuthenticatorState(cliname string) (AuthenticatorState, bool) {
+	key := strings.ToLower(strings.TrimSpace(cliname))
+	m.mu.RLock()
+	entry, ok := m.authenticators[key]
+	m.mu.RUnlock()
+	if !ok || entry == nil {
+		return AuthenticatorState{Name: key}, false
+	}
+	return entry.state, true
+}
+
+// ListAuthenticatorStates returns supported authenticators merged with enabled runtime state.
+func (m *Manager) ListAuthenticatorStates() []AuthenticatorState {
+	names := ListAuthenticatorNames()
+	seen := make(map[string]struct{}, len(names))
+	out := make([]AuthenticatorState, 0, len(names))
+
+	m.mu.RLock()
+	for _, name := range names {
+		seen[name] = struct{}{}
+		if entry := m.authenticators[name]; entry != nil {
+			out = append(out, entry.state)
+			continue
+		}
+		out = append(out, AuthenticatorState{Name: name})
+	}
+	for name, entry := range m.authenticators {
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		if entry != nil {
+			out = append(out, entry.state)
+		}
+	}
+	m.mu.RUnlock()
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
+	})
+	return out
 }
 
 // SetStrategy replaces the credential selection strategy.
@@ -203,17 +322,17 @@ func (m *Manager) Load(ctx context.Context) error {
 		if cred.Status == credential.StatusRefreshing {
 			cred.Status = credential.StatusActive
 		}
-		if err := m.Register(WithSkipPersist(ctx), cred); err != nil {
+		if err := m.RegisterCredential(WithSkipPersist(ctx), cred); err != nil {
 			return fmt.Errorf("manager: register credential %s: %w", cred.ID, err)
 		}
 	}
 	return nil
 }
 
-// Register adds a new credential to the manager and optionally persists it.
+// RegisterCredential adds a new credential to the manager and optionally persists it.
 // If the credential has no ID, one is generated. If a credential with the same
 // ID already exists, it is replaced.
-func (m *Manager) Register(ctx context.Context, cred *credential.Credential) error {
+func (m *Manager) RegisterCredential(ctx context.Context, cred *credential.Credential) error {
 	if cred == nil {
 		return fmt.Errorf("manager: credential is nil")
 	}
@@ -248,8 +367,8 @@ func (m *Manager) Register(ctx context.Context, cred *credential.Credential) err
 	return nil
 }
 
-// Update merges new state into an existing credential and optionally persists.
-func (m *Manager) Update(ctx context.Context, cred *credential.Credential) error {
+// UpdateCredential merges new state into an existing credential and optionally persists.
+func (m *Manager) UpdateCredential(ctx context.Context, cred *credential.Credential) error {
 	if cred == nil {
 		return fmt.Errorf("manager: credential is nil")
 	}
@@ -272,8 +391,8 @@ func (m *Manager) Update(ctx context.Context, cred *credential.Credential) error
 	return nil
 }
 
-// Deregister removes a credential from memory and optionally deletes it from the store.
-func (m *Manager) Deregister(ctx context.Context, id string) error {
+// DeregisterCredential removes a credential from memory and optionally deletes it from the store.
+func (m *Manager) DeregisterCredential(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return fmt.Errorf("manager: id is empty")
@@ -298,8 +417,8 @@ func (m *Manager) Deregister(ctx context.Context, id string) error {
 	return nil
 }
 
-// Get returns the credential with the given ID, or nil if not found.
-func (m *Manager) Get(id string) *credential.Credential {
+// GetCredential returns the credential with the given ID, or nil if not found.
+func (m *Manager) GetCredential(id string) *credential.Credential {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if cred, ok := m.creds[id]; ok {
@@ -308,9 +427,9 @@ func (m *Manager) Get(id string) *credential.Credential {
 	return nil
 }
 
-// List returns all credentials, optionally filtered by provider.
+// ListCredential returns all credentials, optionally filtered by provider.
 // Pass an empty string to list all.
-func (m *Manager) List(provider string) []*credential.Credential {
+func (m *Manager) ListCredential(provider string) []*credential.Credential {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -451,7 +570,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 
 	if changed {
 		cred.UpdatedAt = now
-		_ = m.Update(ctx, cred)
+		_ = m.UpdateCredential(ctx, cred)
 	}
 
 	m.hook.OnResult(ctx, result)
@@ -534,11 +653,12 @@ func (m *Manager) runRefreshCycle(ctx context.Context) {
 func (m *Manager) resolveRefresher(provider string) Refresher {
 	key := strings.ToLower(strings.TrimSpace(provider))
 	m.mu.RLock()
-	auth, ok := m.authenticators[key]
+	cliKey, ok := m.providerAuths[key]
+	entry := m.authenticators[cliKey]
 	fallback := m.refresher
 	m.mu.RUnlock()
-	if ok && auth != nil {
-		return &authenticatorRefresher{auth: auth}
+	if ok && entry != nil && entry.auth != nil {
+		return &authenticatorRefresher{auth: entry.auth}
 	}
 	return fallback
 }
@@ -578,7 +698,7 @@ func (m *Manager) refreshOne(ctx context.Context, cred *credential.Credential, r
 	refreshing := cred.Clone()
 	refreshing.Status = credential.StatusRefreshing
 	refreshing.UpdatedAt = now
-	_ = m.Update(ctx, refreshing)
+	_ = m.UpdateCredential(ctx, refreshing)
 
 	updated, err := refresher.Refresh(ctx, cred)
 	if err != nil {
@@ -587,14 +707,14 @@ func (m *Manager) refreshOne(ctx context.Context, cred *credential.Credential, r
 		failed.Status = credential.StatusError
 		failed.StatusMessage = err.Error()
 		failed.NextRefreshAfter = time.Now().Add(5 * time.Minute)
-		_ = m.Update(ctx, failed)
+		_ = m.UpdateCredential(ctx, failed)
 		return
 	}
 	if updated == nil {
 		// Refresher returned nil: leave credential unchanged.
 		restored := cred.Clone()
 		restored.Status = credential.StatusActive
-		_ = m.Update(ctx, restored)
+		_ = m.UpdateCredential(ctx, restored)
 		return
 	}
 
@@ -602,7 +722,7 @@ func (m *Manager) refreshOne(ctx context.Context, cred *credential.Credential, r
 	if updated.Status == "" || updated.Status == credential.StatusRefreshing {
 		updated.Status = credential.StatusActive
 	}
-	_ = m.Update(ctx, updated)
+	_ = m.UpdateCredential(ctx, updated)
 }
 
 // snapshotAuths returns a snapshot of all credentials for scheduler rebuild.

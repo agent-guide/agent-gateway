@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/google/uuid"
@@ -35,6 +36,7 @@ const (
 
 func init() {
 	caddy.RegisterModule(ClaudeAuthenticator{})
+	manager.RegisterAuthenticatorFactory("claude", NewClaudeAuthenticator)
 }
 
 // claudeTokenResponse represents the token endpoint response from Anthropic.
@@ -75,8 +77,8 @@ func (ClaudeAuthenticator) CaddyModule() caddy.ModuleInfo {
 }
 
 // NewClaudeAuthenticator creates a ClaudeAuthenticator with default settings.
-func NewClaudeAuthenticator() *ClaudeAuthenticator {
-	return &ClaudeAuthenticator{CallbackPort: claudeDefaultCallbackPort}
+func NewClaudeAuthenticator() (manager.Authenticator, error) {
+	return &ClaudeAuthenticator{CallbackPort: claudeDefaultCallbackPort}, nil
 }
 
 // Provision applies default settings after the module is loaded.

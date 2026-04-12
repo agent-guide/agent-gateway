@@ -46,7 +46,7 @@ func TestProviderConfigDefaults(t *testing.T) {
 
 func TestWrapWithAuthManagerHonorsAPIKeyFirst(t *testing.T) {
 	cliauthMgr := manager.NewManager(nil, nil, nil)
-	if err := cliauthMgr.Register(context.Background(), &credential.Credential{
+	if err := cliauthMgr.RegisterCredential(context.Background(), &credential.Credential{
 		ID:       "cred-1",
 		Provider: "openai",
 		Attributes: map[string]string{
@@ -75,7 +75,7 @@ func TestWrapWithAuthManagerHonorsAPIKeyFirst(t *testing.T) {
 func TestWrapWithAuthManagerUsesProviderCredentials(t *testing.T) {
 	cliauthMgr := manager.NewManager(nil, nil, nil)
 	for _, id := range []string{"cred-a", "cred-b"} {
-		if err := cliauthMgr.Register(context.Background(), &credential.Credential{
+		if err := cliauthMgr.RegisterCredential(context.Background(), &credential.Credential{
 			ID:       id,
 			Provider: "openai",
 			Attributes: map[string]string{

@@ -76,9 +76,17 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodPost, Path: "/admin/local_api_keys/{key}/enable", Handler: h.handleEnableLocalAPIKey, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/local_api_keys/{key}/disable", Handler: h.handleDisableLocalAPIKey, RequireAuth: true},
 		{Method: http.MethodDelete, Path: "/admin/local_api_keys/{key}", Handler: h.handleDeleteLocalAPIKey, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/credentials", Handler: h.handleListCredentials, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/credentials/{id}", Handler: h.handleGetCredential, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/credentials/{id}", Handler: h.handleDeleteCredential, RequireAuth: true},
+		// CLI Auth Credentials
+		{Method: http.MethodGet, Path: "/admin/cliauth/credentials", Handler: h.handleListCLIAuthCredentials, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/cliauth/credentials/{credential_id}", Handler: h.handleGetCLIAuthCredential, RequireAuth: true},
+		{Method: http.MethodDelete, Path: "/admin/cliauth/credentials/{credential_id}", Handler: h.handleDeleteCLIAuthCredential, RequireAuth: true},
+
+		// CLI Auth Authenticators
+		{Method: http.MethodGet, Path: "/admin/cliauth/authenticators", Handler: h.handleListCLIAuthAuthenticators, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/cliauth/authenticators/{authenticator_name}/enable", Handler: h.handleEnableCLIAuthAuthenticator, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/cliauth/authenticators/{authenticator_name}/disable", Handler: h.handleDisableCLIAuthAuthenticator, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/cliauth/authenticators/{authenticator_name}/login", Handler: h.handleStartCLIAuthAuthenticatorLogin, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/cliauth/authenticators/{authenticator_name}/login/status", Handler: h.handleGetCLIAuthAuthenticatorLoginStatus, RequireAuth: true},
 
 		// MCP
 		{Method: http.MethodGet, Path: "/admin/mcp/clients", Handler: h.handleListMCPClients, RequireAuth: true},
@@ -102,10 +110,6 @@ func (h *Handler) Routes() []Route {
 
 		// Metrics
 		{Method: http.MethodGet, Path: "/admin/metrics", Handler: h.handleMetrics, RequireAuth: true},
-
-		// CLI Auth
-		{Method: http.MethodPost, Path: "/admin/cliauth/{cliname}", Handler: h.handleCLIAuth, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/cliauth/{cliname}/status", Handler: h.handleCLIAuthStatus, RequireAuth: true},
 
 		// Caddy server management
 		{Method: http.MethodGet, Path: "/admin/caddy/servers", Handler: h.handleListCaddyServers, RequireAuth: true},
@@ -706,32 +710,6 @@ func (h *Handler) handleSetLocalAPIKeyDisabled(w http.ResponseWriter, r *http.Re
 	_ = utils.WriteJSON(w, http.StatusOK, localAPIKeyViewFromKey(manager, updated))
 }
 
-func (h *Handler) handleListCredentials(w http.ResponseWriter, r *http.Request) {
-	if h.cliauthManager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "auth manager not configured")
-		return
-	}
-
-	provider := r.URL.Query().Get("provider")
-	items := h.cliauthManager.List(provider)
-	_ = utils.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
-}
-
-func (h *Handler) handleGetCredential(w http.ResponseWriter, r *http.Request) {
-	if h.cliauthManager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "auth manager not configured")
-		return
-	}
-
-	id := r.PathValue("id")
-	item := h.cliauthManager.Get(id)
-	if item == nil {
-		_ = utils.WriteError(w, http.StatusNotFound, "credential not found")
-		return
-	}
-	_ = utils.WriteJSON(w, http.StatusOK, item)
-}
-
 func (h *Handler) handleListMCPClients(w http.ResponseWriter, r *http.Request) {
 	_ = utils.WriteError(w, http.StatusNotImplemented, "not implemented")
 }
@@ -779,20 +757,6 @@ func (h *Handler) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	_ = utils.WriteError(w, http.StatusNotImplemented, "not implemented")
-}
-
-func (h *Handler) handleDeleteCredential(w http.ResponseWriter, r *http.Request) {
-	if h.cliauthManager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "auth manager not configured")
-		return
-	}
-
-	id := r.PathValue("id")
-	if err := h.cliauthManager.Deregister(r.Context(), id); err != nil {
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	_ = utils.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted", "id": id})
 }
 
 func (h *Handler) providerStore() intf.ProviderConfigStorer {

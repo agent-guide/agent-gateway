@@ -198,7 +198,10 @@ func (a *App) provisionAuthenticators(ctx caddy.Context) error {
 		if !ok {
 			return fmt.Errorf("authenticator module %q does not implement manager.Authenticator", name)
 		}
-		a.cliauthManager.RegisterAuthenticator(name, auth)
+		a.cliauthManager.RegisterAuthenticatorWithOptions(name, auth, manager.RegisterAuthenticatorOptions{
+			Source:   manager.AuthenticatorSourceCaddyfile,
+			ReadOnly: true,
+		})
 	}
 	return nil
 }

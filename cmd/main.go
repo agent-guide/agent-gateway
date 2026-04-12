@@ -13,6 +13,9 @@ import (
 	_ "github.com/agent-guide/caddy-agent-gateway/api/llmapi/openai"
 	_ "github.com/agent-guide/caddy-agent-gateway/gateway"
 
+	// CLI authenticators (register as factory + Caddy modules via init())
+	_ "github.com/agent-guide/caddy-agent-gateway/llm/cliauth/authenticator"
+
 	// LLM Providers (register as factory + Caddy modules via init())
 	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/anthropic"
 	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/gemini"
