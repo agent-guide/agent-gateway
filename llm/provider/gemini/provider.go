@@ -20,7 +20,7 @@ import (
 )
 
 func init() {
-	provider.RegisterProvider("gemini", New)
+	provider.RegisterProviderFactory("gemini", New)
 	caddy.RegisterModule(Provider{})
 }
 

@@ -127,7 +127,7 @@ var (
 
 func registerCountingProviderFactory() {
 	registerCountingProviderOnce.Do(func() {
-		provider.RegisterProvider("test-counting-provider", func(cfg provider.ProviderConfig) (provider.Provider, error) {
+		provider.RegisterProviderFactory("test-counting-provider", func(cfg provider.ProviderConfig) (provider.Provider, error) {
 			countingProviderMu.Lock()
 			defer countingProviderMu.Unlock()
 			countingProviderNextID++

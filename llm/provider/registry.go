@@ -13,8 +13,8 @@ var (
 	factories = map[string]ProviderFactory{}
 )
 
-// RegisterProvider registers a provider factory by name.
-func RegisterProvider(name string, factory ProviderFactory) {
+// RegisterProviderFactory registers a provider factory by name.
+func RegisterProviderFactory(name string, factory ProviderFactory) {
 	mu.Lock()
 	defer mu.Unlock()
 	factories[name] = factory
@@ -31,8 +31,8 @@ func NewProvider(config ProviderConfig) (Provider, error) {
 	return factory(config)
 }
 
-// ListProviders returns the names of all registered providers.
-func ListProviders() []string {
+// ListProviderNames returns the names of all registered providers.
+func ListProviderNames() []string {
 	mu.RLock()
 	defer mu.RUnlock()
 	names := make([]string, 0, len(factories))

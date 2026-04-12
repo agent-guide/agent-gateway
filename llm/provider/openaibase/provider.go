@@ -19,7 +19,7 @@ import (
 //   - Proxy support via config.Network.ProxyURL
 //   - Extra request headers via config.Network.ExtraHeaders
 type Base struct {
-	config provider.ProviderConfig
+	provider.ProviderConfig
 	client *http.Client
 }
 
@@ -38,7 +38,7 @@ func NewBase(config provider.ProviderConfig) *Base {
 		}
 	}
 	return &Base{
-		config: config,
+		ProviderConfig: config,
 		client: &http.Client{
 			Timeout:   config.Network.Timeout(),
 			Transport: transport,
@@ -49,7 +49,7 @@ func NewBase(config provider.ProviderConfig) *Base {
 // ListModels fetches the model list from GET /v1/models.
 func (b *Base) ListModels(ctx context.Context) ([]provider.ModelInfo, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		b.config.BaseURL+"/models", nil)
+		b.BaseURL+"/models", nil)
 	if err != nil {
 		return nil, fmt.Errorf("openaibase: build request: %w", err)
 	}
@@ -81,7 +81,7 @@ func (b *Base) ListModels(ctx context.Context) ([]provider.ModelInfo, error) {
 func (b *Base) Embed(ctx context.Context, req *provider.EmbedRequest) (*provider.EmbedResponse, error) {
 	model := req.Model
 	if model == "" {
-		model = b.config.DefaultModel
+		model = b.DefaultModel
 	}
 
 	embedReq := &EmbedRequest{Model: model, Input: req.Texts}
@@ -91,7 +91,7 @@ func (b *Base) Embed(ctx context.Context, req *provider.EmbedRequest) (*provider
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		b.config.BaseURL+"/embeddings", bytes.NewReader(body))
+		b.BaseURL+"/embeddings", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("openaibase: build embed request: %w", err)
 	}
@@ -132,17 +132,17 @@ func (b *Base) setHeaders(req *http.Request) {
 	if cred, ok := provider.CredentialFromContext(req.Context()); ok {
 		if token, _ := cred.Metadata["access_token"].(string); token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
-			for k, v := range b.config.Network.ExtraHeaders {
+			for k, v := range b.Network.ExtraHeaders {
 				req.Header.Set(k, v)
 			}
 			return
 		}
 	}
 
-	if b.config.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+b.config.APIKey)
+	if b.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+b.APIKey)
 	}
-	for k, v := range b.config.Network.ExtraHeaders {
+	for k, v := range b.Network.ExtraHeaders {
 		req.Header.Set(k, v)
 	}
 }

@@ -20,7 +20,7 @@ import (
 const anthropicVersion = "2023-06-01"
 
 func init() {
-	provider.RegisterProvider("anthropic", New)
+	provider.RegisterProviderFactory("anthropic", New)
 	caddy.RegisterModule(Provider{})
 }
 

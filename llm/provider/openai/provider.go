@@ -17,12 +17,11 @@ import (
 )
 
 func init() {
-	provider.RegisterProvider("openai", New)
+	provider.RegisterProviderFactory("openai", New)
 	caddy.RegisterModule(Provider{})
 }
 
 type Provider struct {
-	provider.ProviderConfig
 	*openaibase.Base
 }
 
@@ -53,10 +52,7 @@ func New(config provider.ProviderConfig) (provider.Provider, error) {
 		}
 	}
 
-	return &Provider{
-		ProviderConfig: config,
-		Base:           openaibase.NewBase(config),
-	}, nil
+	return &Provider{Base: openaibase.NewBase(config)}, nil
 }
 
 func (Provider) CaddyModule() caddy.ModuleInfo {
@@ -67,6 +63,7 @@ func (Provider) CaddyModule() caddy.ModuleInfo {
 }
 
 func (p *Provider) Provision(_ caddy.Context) error {
+	p.ensureBase()
 	if err := provider.ValidateProviderName(&p.ProviderConfig, "openai"); err != nil {
 		return err
 	}
@@ -83,10 +80,12 @@ func (p *Provider) Provision(_ caddy.Context) error {
 }
 
 func (p *Provider) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	p.ensureBase()
 	return provider.UnmarshalCaddyfileConfig(d, &p.ProviderConfig)
 }
 
 func (p *Provider) Generate(ctx context.Context, req *provider.GenerateRequest) (*provider.GenerateResponse, error) {
+	p.ensureBase()
 	return provider.RetryGenerate(p.ProviderConfig.Network, func() (*provider.GenerateResponse, error) {
 		chatModel, messages, opts, err := p.newChatModel(ctx, req)
 		if err != nil {
@@ -101,6 +100,7 @@ func (p *Provider) Generate(ctx context.Context, req *provider.GenerateRequest) 
 }
 
 func (p *Provider) Stream(ctx context.Context, req *provider.GenerateRequest) (*schema.StreamReader[*schema.Message], error) {
+	p.ensureBase()
 	chatModel, messages, opts, err := p.newChatModel(ctx, req)
 	if err != nil {
 		return nil, err
@@ -144,7 +144,14 @@ func (p *Provider) Capabilities() provider.ProviderCapabilities {
 }
 
 func (p *Provider) Config() provider.ProviderConfig {
+	p.ensureBase()
 	return p.ProviderConfig
+}
+
+func (p *Provider) ensureBase() {
+	if p.Base == nil {
+		p.Base = openaibase.NewBase(provider.ProviderConfig{})
+	}
 }
 
 // Interface guards.
