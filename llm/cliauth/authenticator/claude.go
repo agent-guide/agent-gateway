@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/google/uuid"
@@ -36,7 +36,7 @@ const (
 
 func init() {
 	caddy.RegisterModule(ClaudeAuthenticator{})
-	manager.RegisterAuthenticatorFactory("claude", NewClaudeAuthenticator)
+	cliauth.RegisterAuthenticatorFactory("claude", NewClaudeAuthenticator)
 }
 
 // claudeTokenResponse represents the token endpoint response from Anthropic.
@@ -77,7 +77,7 @@ func (ClaudeAuthenticator) CaddyModule() caddy.ModuleInfo {
 }
 
 // NewClaudeAuthenticator creates a ClaudeAuthenticator with default settings.
-func NewClaudeAuthenticator() (manager.Authenticator, error) {
+func NewClaudeAuthenticator() (cliauth.Authenticator, error) {
 	return &ClaudeAuthenticator{CallbackPort: claudeDefaultCallbackPort}, nil
 }
 
@@ -126,7 +126,7 @@ func (a *ClaudeAuthenticator) Provider() string {
 }
 
 // Login initiates the Claude CLI login flow and returns a new Credential on success.
-func (a *ClaudeAuthenticator) Login(ctx context.Context) (*credential.Credential, error) {
+func (a *ClaudeAuthenticator) Login(ctx context.Context) (*cliauth.Credential, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -135,7 +135,7 @@ func (a *ClaudeAuthenticator) Login(ctx context.Context) (*credential.Credential
 
 // RefreshLead refreshes the credential's access token before it expires.
 // Returns nil if no refresh token is present.
-func (a *ClaudeAuthenticator) RefreshLead(ctx context.Context, cred *credential.Credential) (*credential.Credential, error) {
+func (a *ClaudeAuthenticator) RefreshLead(ctx context.Context, cred *cliauth.Credential) (*cliauth.Credential, error) {
 	if cred == nil {
 		return nil, fmt.Errorf("claude: credential is nil")
 	}
@@ -160,7 +160,7 @@ func (a *ClaudeAuthenticator) RefreshLead(ctx context.Context, cred *credential.
 
 // ---- Browser-based OAuth PKCE flow ----
 
-func (a *ClaudeAuthenticator) loginWithBrowser(ctx context.Context) (*credential.Credential, error) {
+func (a *ClaudeAuthenticator) loginWithBrowser(ctx context.Context) (*cliauth.Credential, error) {
 	codeVerifier, codeChallenge, err := generatePKCECodes()
 	if err != nil {
 		return nil, fmt.Errorf("claude: PKCE generation failed: %w", err)
@@ -301,13 +301,15 @@ func (a *ClaudeAuthenticator) refreshTokensWithRetry(ctx context.Context, refres
 
 // ---- Credential builder ----
 
-func (a *ClaudeAuthenticator) buildCredential(tokenResp *claudeTokenResponse) (*credential.Credential, error) {
-	cred := &credential.Credential{
-		ID:         uuid.New().String(),
-		Provider:   a.Provider(),
-		Status:     credential.StatusActive,
-		Metadata:   make(map[string]any),
-		Attributes: make(map[string]string),
+func (a *ClaudeAuthenticator) buildCredential(tokenResp *claudeTokenResponse) (*cliauth.Credential, error) {
+	cred := &cliauth.Credential{
+		Credential: credentialmgr.Credential{
+			ID:         uuid.New().String(),
+			Provider:   a.Provider(),
+			Metadata:   make(map[string]any),
+			Attributes: make(map[string]string),
+		},
+		Status: cliauth.StatusActive,
 	}
 
 	a.applyTokenToMetadata(cred, tokenResp)
@@ -330,7 +332,7 @@ func (a *ClaudeAuthenticator) buildCredential(tokenResp *claudeTokenResponse) (*
 }
 
 // applyTokenToMetadata writes token fields into cred.Metadata.
-func (a *ClaudeAuthenticator) applyTokenToMetadata(cred *credential.Credential, tokenResp *claudeTokenResponse) {
+func (a *ClaudeAuthenticator) applyTokenToMetadata(cred *cliauth.Credential, tokenResp *claudeTokenResponse) {
 	if cred.Metadata == nil {
 		cred.Metadata = make(map[string]any)
 	}

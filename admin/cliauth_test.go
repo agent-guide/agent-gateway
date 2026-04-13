@@ -8,28 +8,28 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type testAuthenticator struct {
 	provider string
-	loginFn  func(context.Context) (*credential.Credential, error)
+	loginFn  func(context.Context) (*cliauth.Credential, error)
 }
 
 func (a *testAuthenticator) Provider() string {
 	return a.provider
 }
 
-func (a *testAuthenticator) Login(ctx context.Context) (*credential.Credential, error) {
+func (a *testAuthenticator) Login(ctx context.Context) (*cliauth.Credential, error) {
 	if a.loginFn != nil {
 		return a.loginFn(ctx)
 	}
-	return &credential.Credential{Provider: a.provider}, nil
+	return &cliauth.Credential{Credential: credentialmgr.Credential{Provider: a.provider}}, nil
 }
 
-func (a *testAuthenticator) RefreshLead(context.Context, *credential.Credential) (*credential.Credential, error) {
+func (a *testAuthenticator) RefreshLead(context.Context, *cliauth.Credential) (*cliauth.Credential, error) {
 	return nil, nil
 }
 
@@ -39,14 +39,17 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	cliauthMgr := manager.NewManager(nil, nil, nil)
+	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	cliauthMgr := cliauth.NewManager(credMgr, nil)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
 		provider: "openai",
-		loginFn: func(context.Context) (*credential.Credential, error) {
-			return &credential.Credential{
-				ID:       "cred-openai-1",
-				Provider: "openai",
-				Label:    "test@example.com",
+		loginFn: func(context.Context) (*cliauth.Credential, error) {
+			return &cliauth.Credential{
+				Credential: credentialmgr.Credential{
+					ID:       "cred-openai-1",
+					Provider: "openai",
+					Label:    "test@example.com",
+				},
 			}, nil
 		},
 	})
@@ -65,7 +68,7 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if cred := cliauthMgr.GetCredential("cred-openai-1"); cred != nil {
+		if cred := cliauthMgr.CredentialManager().GetCredential("cred-openai-1"); cred != nil {
 			if cred.Provider != "openai" {
 				t.Fatalf("unexpected provider: got %q want %q", cred.Provider, "openai")
 			}
@@ -83,7 +86,7 @@ func TestCLIAuthReturnsNotFoundForUnknownCliname(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	handler := NewHandler(newTestAgentGateway(nil, manager.NewManager(nil, nil, nil), nil, nil), nil, "admin", string(passwordHash), nil)
+	handler := NewHandler(newTestAgentGateway(nil, cliauth.NewManager(nil, nil), nil, nil), nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 	req := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/unknown/login", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -102,14 +105,16 @@ func TestCLIAuthStatusReportsCompletion(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	cliauthMgr := manager.NewManager(nil, nil, nil)
+	cliauthMgr := cliauth.NewManager(nil, nil)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
 		provider: "openai",
-		loginFn: func(context.Context) (*credential.Credential, error) {
+		loginFn: func(context.Context) (*cliauth.Credential, error) {
 			time.Sleep(20 * time.Millisecond)
-			return &credential.Credential{
-				ID:       "cred-openai-2",
-				Provider: "openai",
+			return &cliauth.Credential{
+				Credential: credentialmgr.Credential{
+					ID:       "cred-openai-2",
+					Provider: "openai",
+				},
 			}, nil
 		},
 	})
@@ -162,11 +167,11 @@ func TestCLIAuthEnableAndListAuthenticators(t *testing.T) {
 	}
 
 	const authName = "test-admin-authenticator"
-	manager.RegisterAuthenticatorFactory(authName, func() (manager.Authenticator, error) {
+	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
 		return &testAuthenticator{provider: "openai"}, nil
 	})
 
-	cliauthMgr := manager.NewManager(nil, nil, nil)
+	cliauthMgr := cliauth.NewManager(nil, nil)
 	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil), nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -192,7 +197,7 @@ func TestCLIAuthEnableAndListAuthenticators(t *testing.T) {
 	}
 
 	var body struct {
-		Items []manager.AuthenticatorState `json:"items"`
+		Items []cliauth.AuthenticatorState `json:"items"`
 	}
 	if err := json.NewDecoder(listRec.Body).Decode(&body); err != nil {
 		t.Fatalf("decode list response: %v", err)
@@ -214,7 +219,7 @@ func TestCLIAuthDisableRuntimeAuthenticator(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	cliauthMgr := manager.NewManager(nil, nil, nil)
+	cliauthMgr := cliauth.NewManager(nil, nil)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{provider: "openai"})
 
 	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil), nil, "admin", string(passwordHash), nil)
@@ -239,9 +244,9 @@ func TestCLIAuthDisableCaddyfileAuthenticatorReturnsConflict(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	cliauthMgr := manager.NewManager(nil, nil, nil)
-	cliauthMgr.RegisterAuthenticatorWithOptions("codex", &testAuthenticator{provider: "openai"}, manager.RegisterAuthenticatorOptions{
-		Source:   manager.AuthenticatorSourceCaddyfile,
+	cliauthMgr := cliauth.NewManager(nil, nil)
+	cliauthMgr.RegisterAuthenticatorWithOptions("codex", &testAuthenticator{provider: "openai"}, cliauth.RegisterAuthenticatorOptions{
+		Source:   cliauth.AuthenticatorSourceCaddyfile,
 		ReadOnly: true,
 	})
 

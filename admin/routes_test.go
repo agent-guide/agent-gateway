@@ -14,7 +14,7 @@ import (
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
 	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/cloudwego/eino/schema"
 	"golang.org/x/crypto/bcrypt"
@@ -27,7 +27,7 @@ type testConfigStore struct {
 	localAPIKeyStore configstoreintf.LocalAPIKeyStorer
 }
 
-func newTestAgentGateway(configStore configstoreintf.ConfigStorer, cliauthMgr *manager.Manager, staticRoutes []routepkg.Route, staticLocalAPIKeys []localapikeypkg.LocalAPIKey, staticProviders ...map[string]provider.Provider) *gateway.AgentGateway {
+func newTestAgentGateway(configStore configstoreintf.ConfigStorer, cliauthMgr *cliauth.Manager, staticRoutes []routepkg.Route, staticLocalAPIKeys []localapikeypkg.LocalAPIKey, staticProviders ...map[string]provider.Provider) *gateway.AgentGateway {
 	var providers map[string]provider.Provider
 	if len(staticProviders) > 0 {
 		providers = staticProviders[0]

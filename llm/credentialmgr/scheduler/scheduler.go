@@ -1,4 +1,4 @@
-package manager
+package scheduler
 
 import (
 	"context"
@@ -8,9 +8,43 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
 )
+
+// CredentialScheduler manages an in-memory set of credentials and selects
+// the best available one for each request.
+type CredentialScheduler interface {
+	// Pick selects the best available credential for the given provider and model.
+	// tried is an optional set of credential IDs that have already been attempted.
+	Pick(ctx context.Context, provider, model string, tried map[string]struct{}) (*Credential, error)
+
+	// SetStrategy replaces the active selection strategy.
+	SetStrategy(s CredentialSelector)
+
+	// RegisterCredential adds a new credential to the scheduler.
+	RegisterCredential(cred *Credential)
+
+	// UpdateCredential synchronizes updated credential state into the scheduler.
+	UpdateCredential(cred *Credential)
+
+	// DeregisterCredential removes a credential from the scheduler.
+	DeregisterCredential(id string)
+
+	// Rebuild recreates the complete scheduler state from a credential snapshot.
+	Rebuild(creds []*Credential)
+}
+
+// NewScheduler constructs a CredentialScheduler with the given selection strategy.
+// If strategy is nil, RoundRobinSelector is used.
+func NewScheduler(strategy CredentialSelector) CredentialScheduler {
+	if strategy == nil {
+		strategy = &RoundRobinSelector{}
+	}
+	return &authScheduler{
+		strategy:      strategy,
+		providers:     make(map[string]*providerScheduler),
+		credProviders: make(map[string]string),
+	}
+}
 
 // scheduledState describes how a credential participates in a model shard.
 type scheduledState int
@@ -22,24 +56,16 @@ const (
 	scheduledStateDisabled                // intentionally disabled
 )
 
-// authScheduler keeps the incremental per-provider/model scheduling state.
 type authScheduler struct {
 	mu            sync.Mutex
-	strategy      Strategy
+	strategy      CredentialSelector
 	providers     map[string]*providerScheduler
 	credProviders map[string]string // credID -> providerKey
-	mixedCursors  map[string]int
 }
 
 type providerScheduler struct {
-	providerKey string
-	creds       map[string]*scheduledCredMeta
+	creds       map[string]*Credential
 	modelShards map[string]*modelScheduler
-}
-
-type scheduledCredMeta struct {
-	cred     *credential.Credential
-	priority int
 }
 
 type modelScheduler struct {
@@ -51,36 +77,25 @@ type modelScheduler struct {
 }
 
 type scheduledCred struct {
-	meta        *scheduledCredMeta
-	cred        *credential.Credential
+	cred        *Credential
+	priority    int
 	state       scheduledState
 	nextRetryAt time.Time
 }
 
-
-// newAuthScheduler constructs an empty scheduler.
-func newAuthScheduler(strategy Strategy) *authScheduler {
-	return &authScheduler{
-		strategy:      strategy,
-		providers:     make(map[string]*providerScheduler),
-		credProviders: make(map[string]string),
-		mixedCursors:  make(map[string]int),
-	}
-}
-
-// setStrategy updates the active selection strategy.
-func (s *authScheduler) setStrategy(strategy Strategy) {
+func (s *authScheduler) SetStrategy(strategy CredentialSelector) {
 	if s == nil {
 		return
+	}
+	if strategy == nil {
+		strategy = &RoundRobinSelector{}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.strategy = strategy
-	s.mixedCursors = make(map[string]int)
 }
 
-// rebuild recreates the complete scheduler state from a credential snapshot.
-func (s *authScheduler) rebuild(creds []*credential.Credential) {
+func (s *authScheduler) Rebuild(creds []*Credential) {
 	if s == nil {
 		return
 	}
@@ -88,15 +103,21 @@ func (s *authScheduler) rebuild(creds []*credential.Credential) {
 	defer s.mu.Unlock()
 	s.providers = make(map[string]*providerScheduler)
 	s.credProviders = make(map[string]string)
-	s.mixedCursors = make(map[string]int)
 	now := time.Now()
 	for _, cred := range creds {
 		s.upsertLocked(cred, now)
 	}
 }
 
-// upsert incrementally synchronizes one credential into the scheduler.
-func (s *authScheduler) upsert(cred *credential.Credential) {
+func (s *authScheduler) RegisterCredential(cred *Credential) {
+	s.upsert(cred)
+}
+
+func (s *authScheduler) UpdateCredential(cred *Credential) {
+	s.upsert(cred)
+}
+
+func (s *authScheduler) upsert(cred *Credential) {
 	if s == nil {
 		return
 	}
@@ -105,24 +126,22 @@ func (s *authScheduler) upsert(cred *credential.Credential) {
 	s.upsertLocked(cred, time.Now())
 }
 
-// remove deletes one credential from every scheduler shard.
-func (s *authScheduler) remove(credID string) {
+func (s *authScheduler) DeregisterCredential(id string) {
 	if s == nil {
 		return
 	}
-	credID = strings.TrimSpace(credID)
-	if credID == "" {
+	id = strings.TrimSpace(id)
+	if id == "" {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.removeLocked(credID)
+	s.removeLocked(id)
 }
 
-// pick returns the next credential for a provider/model request.
-func (s *authScheduler) pick(_ context.Context, provider, model string, tried map[string]struct{}) (*credential.Credential, error) {
+func (s *authScheduler) Pick(_ context.Context, provider, model string, tried map[string]struct{}) (*Credential, error) {
 	if s == nil {
-		return nil, &credential.Error{Code: "credential_not_found", Message: "no credential available"}
+		return nil, &Error{Code: "credential_not_found", Message: "no credential available"}
 	}
 	providerKey := strings.ToLower(strings.TrimSpace(provider))
 	modelKey := canonicalModelKey(model)
@@ -132,15 +151,15 @@ func (s *authScheduler) pick(_ context.Context, provider, model string, tried ma
 
 	ps := s.providers[providerKey]
 	if ps == nil {
-		return nil, &credential.Error{Code: "credential_not_found", Message: "no credential available"}
+		return nil, &Error{Code: "credential_not_found", Message: "no credential available"}
 	}
 
 	shard := ps.ensureModelLocked(modelKey, time.Now())
 	if shard == nil {
-		return nil, &credential.Error{Code: "credential_not_found", Message: "no credential available"}
+		return nil, &Error{Code: "credential_not_found", Message: "no credential available"}
 	}
 
-	predicate := func(cred *credential.Credential) bool {
+	predicate := func(cred *Credential) bool {
 		if cred == nil {
 			return false
 		}
@@ -158,7 +177,7 @@ func (s *authScheduler) pick(_ context.Context, provider, model string, tried ma
 	return nil, shard.unavailableErrorLocked(provider, model, predicate)
 }
 
-func (s *authScheduler) upsertLocked(cred *credential.Credential, now time.Time) {
+func (s *authScheduler) upsertLocked(cred *Credential, now time.Time) {
 	if cred == nil {
 		return
 	}
@@ -173,12 +192,8 @@ func (s *authScheduler) upsertLocked(cred *credential.Credential, now time.Time)
 			prevPS.removeLocked(credID)
 		}
 	}
-	meta := &scheduledCredMeta{
-		cred:     cred,
-		priority: credentialPriority(cred),
-	}
 	s.credProviders[credID] = providerKey
-	s.ensureProviderLocked(providerKey).upsertLocked(meta, now)
+	s.ensureProviderLocked(providerKey).upsertLocked(cred, now)
 }
 
 func (s *authScheduler) removeLocked(credID string) {
@@ -197,8 +212,7 @@ func (s *authScheduler) ensureProviderLocked(providerKey string) *providerSchedu
 	ps := s.providers[providerKey]
 	if ps == nil {
 		ps = &providerScheduler{
-			providerKey: providerKey,
-			creds:       make(map[string]*scheduledCredMeta),
+			creds:       make(map[string]*Credential),
 			modelShards: make(map[string]*modelScheduler),
 		}
 		s.providers[providerKey] = ps
@@ -206,14 +220,14 @@ func (s *authScheduler) ensureProviderLocked(providerKey string) *providerSchedu
 	return ps
 }
 
-func (p *providerScheduler) upsertLocked(meta *scheduledCredMeta, now time.Time) {
-	if p == nil || meta == nil || meta.cred == nil {
+func (p *providerScheduler) upsertLocked(cred *Credential, now time.Time) {
+	if p == nil || cred == nil {
 		return
 	}
-	p.creds[meta.cred.ID] = meta
-	for modelKey, shard := range p.modelShards {
+	p.creds[cred.ID] = cred
+	for _, shard := range p.modelShards {
 		if shard != nil {
-			shard.upsertEntryLocked(meta, modelKey, now)
+			shard.upsertEntryLocked(cred, now)
 		}
 	}
 }
@@ -244,36 +258,34 @@ func (p *providerScheduler) ensureModelLocked(modelKey string, now time.Time) *m
 		entries:         make(map[string]*scheduledCred),
 		readyByPriority: make(map[int]*ReadyBucket),
 	}
-	for _, meta := range p.creds {
-		if meta != nil {
-			shard.upsertEntryLocked(meta, modelKey, now)
+	for _, cred := range p.creds {
+		if cred != nil {
+			shard.upsertEntryLocked(cred, now)
 		}
 	}
 	p.modelShards[modelKey] = shard
 	return shard
 }
 
-func (m *modelScheduler) upsertEntryLocked(meta *scheduledCredMeta, modelKey string, now time.Time) {
-	if m == nil || meta == nil || meta.cred == nil {
+func (m *modelScheduler) upsertEntryLocked(cred *Credential, now time.Time) {
+	if m == nil || cred == nil {
 		return
 	}
-	entry, ok := m.entries[meta.cred.ID]
+	entry, ok := m.entries[cred.ID]
 	if !ok || entry == nil {
 		entry = &scheduledCred{}
-		m.entries[meta.cred.ID] = entry
+		m.entries[cred.ID] = entry
 	}
+	prevCred := entry.cred
 	prevState := entry.state
 	prevNext := entry.nextRetryAt
-	prevPriority := 0
-	if entry.meta != nil {
-		prevPriority = entry.meta.priority
-	}
+	prevPriority := entry.priority
 
-	entry.meta = meta
-	entry.cred = meta.cred
+	entry.cred = cred
+	entry.priority = credentialPriority(cred)
 	entry.nextRetryAt = time.Time{}
 
-	blocked, reason, next := isCredentialBlockedForModel(meta.cred, modelKey, now)
+	blocked, reason, next := isCredentialBlockedForModel(cred, m.modelKey, now)
 	switch {
 	case !blocked:
 		entry.state = scheduledStateReady
@@ -288,7 +300,7 @@ func (m *modelScheduler) upsertEntryLocked(meta *scheduledCredMeta, modelKey str
 	}
 
 	// Rebuild indexes only when something changed.
-	if ok && prevState == entry.state && prevNext.Equal(entry.nextRetryAt) && prevPriority == meta.priority {
+	if ok && prevCred == cred && prevState == entry.state && prevNext.Equal(entry.nextRetryAt) && prevPriority == entry.priority {
 		return
 	}
 	m.rebuildIndexesLocked()
@@ -336,7 +348,7 @@ func (m *modelScheduler) promoteExpiredLocked(now time.Time) {
 	}
 }
 
-func (m *modelScheduler) pickReadyLocked(strategy Strategy, predicate func(*credential.Credential) bool) *credential.Credential {
+func (m *modelScheduler) pickReadyLocked(strategy CredentialSelector, predicate func(*Credential) bool) *Credential {
 	if m == nil {
 		return nil
 	}
@@ -360,11 +372,10 @@ func (m *modelScheduler) pickReadyLocked(strategy Strategy, predicate func(*cred
 	if !found {
 		return nil
 	}
-
 	return strategy.PickFromBucket(m.readyByPriority[bestPriority], predicate)
 }
 
-func hasMatch(bucket *ReadyBucket, predicate func(*credential.Credential) bool) bool {
+func hasMatch(bucket *ReadyBucket, predicate func(*Credential) bool) bool {
 	for _, cred := range bucket.creds {
 		if predicate == nil || predicate(cred) {
 			return true
@@ -373,7 +384,7 @@ func hasMatch(bucket *ReadyBucket, predicate func(*credential.Credential) bool) 
 	return false
 }
 
-func (m *modelScheduler) unavailableErrorLocked(provider, model string, predicate func(*credential.Credential) bool) error {
+func (m *modelScheduler) unavailableErrorLocked(provider, model string, predicate func(*Credential) bool) error {
 	now := time.Now()
 	total := 0
 	cooldownCount := 0
@@ -392,7 +403,7 @@ func (m *modelScheduler) unavailableErrorLocked(provider, model string, predicat
 		}
 	}
 	if total == 0 {
-		return &credential.Error{Code: "credential_not_found", Message: "no credential available"}
+		return &Error{Code: "credential_not_found", Message: "no credential available"}
 	}
 	if cooldownCount == total && !earliest.IsZero() {
 		resetIn := earliest.Sub(now)
@@ -401,7 +412,7 @@ func (m *modelScheduler) unavailableErrorLocked(provider, model string, predicat
 		}
 		return &cooldownError{model: model, provider: provider, resetIn: formatDuration(resetIn)}
 	}
-	return &credential.Error{Code: "credential_unavailable", Message: "no credential available"}
+	return &Error{Code: "credential_unavailable", Message: "no credential available"}
 }
 
 func formatDuration(d time.Duration) string {
@@ -424,7 +435,7 @@ func (m *modelScheduler) rebuildIndexesLocked() {
 		}
 		switch entry.state {
 		case scheduledStateReady:
-			p := entry.meta.priority
+			p := entry.priority
 			byPriority[p] = append(byPriority[p], entry)
 		case scheduledStateCooldown, scheduledStateBlocked:
 			m.blocked = append(m.blocked, entry)
@@ -433,7 +444,7 @@ func (m *modelScheduler) rebuildIndexesLocked() {
 
 	for priority, entries := range byPriority {
 		sort.Slice(entries, func(i, j int) bool { return entries[i].cred.ID < entries[j].cred.ID })
-		creds := make([]*credential.Credential, len(entries))
+		creds := make([]*Credential, len(entries))
 		for i, e := range entries {
 			creds[i] = e.cred
 		}

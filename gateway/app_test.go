@@ -7,7 +7,7 @@ import (
 
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"github.com/caddyserver/caddy/v2"
 )
 
@@ -79,7 +79,7 @@ func (s *testProvisionLocalAPIKeyStore) Get(_ context.Context, key string) (any,
 }
 
 func TestProvisionAuthenticatorsWithEmptyConfig(t *testing.T) {
-	app := &App{cliauthManager: manager.NewManager(nil, nil, nil)}
+	app := &App{cliauthManager: cliauth.NewManager(nil, nil)}
 
 	if err := app.provisionAuthenticators(caddy.Context{}); err != nil {
 		t.Fatalf("provisionAuthenticators() error = %v", err)

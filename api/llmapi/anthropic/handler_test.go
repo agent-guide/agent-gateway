@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/cloudwego/eino/schema"
 )
@@ -47,10 +47,12 @@ func (e testStatusError) Error() string   { return e.msg }
 func (e testStatusError) StatusCode() int { return e.status }
 
 func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
-	cliauthMgr := manager.NewManager(nil, nil, nil)
-	if err := cliauthMgr.RegisterCredential(context.Background(), &credential.Credential{
+	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	cliauthMgr := cliauth.NewManager(credMgr, nil)
+	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
 		ID:       "cred-anthropic-1",
 		Provider: "anthropic",
+		Source:   credentialmgr.SourceCLIAuth,
 	}); err != nil {
 		t.Fatalf("register credential: %v", err)
 	}
@@ -58,7 +60,7 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 	baseProv := &testProvider{
 		streamErr: testStatusError{msg: "rate limit", status: http.StatusTooManyRequests},
 	}
-	prov := provider.WrapWithAuthManager(baseProv, "anthropic", cliauthMgr)
+	prov := provider.WrapWithCredentialManager(baseProv, "anthropic", credMgr, cliauthMgr)
 	handler := NewHandler(nil)
 
 	body, err := json.Marshal(MessagesRequest{
@@ -91,7 +93,7 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusBadGateway)
 	}
 
-	cred := cliauthMgr.GetCredential("cred-anthropic-1")
+	cred := credMgr.GetCredential("cred-anthropic-1")
 	if cred == nil || !cred.Quota.Exceeded || !cred.Unavailable || cred.NextRetryAfter.IsZero() {
 		t.Fatal("expected credential to be marked unavailable and quota exceeded")
 	}

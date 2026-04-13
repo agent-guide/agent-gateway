@@ -1,11 +1,11 @@
-package manager
+package cliauth
 
 import (
 	"context"
 	"sort"
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 )
 
 type stubAuthenticator struct {
@@ -15,8 +15,8 @@ type stubAuthenticator struct {
 type stubCredentialStore struct {
 	createCalls int
 	updateCalls int
-	lastCreated *credential.Credential
-	lastUpdated *credential.Credential
+	lastCreated *credentialmgr.Credential
+	lastUpdated *credentialmgr.Credential
 }
 
 func (s *stubCredentialStore) ListByProviderName(context.Context, string) ([]any, error) {
@@ -25,7 +25,7 @@ func (s *stubCredentialStore) ListByProviderName(context.Context, string) ([]any
 
 func (s *stubCredentialStore) Create(_ context.Context, _ string, _ string, obj any) (string, error) {
 	s.createCalls++
-	cred, _ := obj.(*credential.Credential)
+	cred, _ := obj.(*credentialmgr.Credential)
 	s.lastCreated = cred
 	if cred == nil {
 		return "", nil
@@ -35,7 +35,7 @@ func (s *stubCredentialStore) Create(_ context.Context, _ string, _ string, obj 
 
 func (s *stubCredentialStore) Update(_ context.Context, _ string, obj any) error {
 	s.updateCalls++
-	cred, _ := obj.(*credential.Credential)
+	cred, _ := obj.(*credentialmgr.Credential)
 	s.lastUpdated = cred
 	return nil
 }
@@ -52,16 +52,16 @@ func (a *stubAuthenticator) Provider() string {
 	return a.provider
 }
 
-func (a *stubAuthenticator) Login(context.Context) (*credential.Credential, error) {
+func (a *stubAuthenticator) Login(context.Context) (*Credential, error) {
 	return nil, nil
 }
 
-func (a *stubAuthenticator) RefreshLead(context.Context, *credential.Credential) (*credential.Credential, error) {
+func (a *stubAuthenticator) RefreshLead(context.Context, *Credential) (*Credential, error) {
 	return nil, nil
 }
 
 func TestRegisterAuthenticatorIndexesProviderKey(t *testing.T) {
-	mgr := NewManager(nil, nil, nil)
+	mgr := NewManager(nil, nil)
 	auth := &stubAuthenticator{provider: "openai"}
 
 	mgr.RegisterAuthenticator("codex", auth)
@@ -85,7 +85,7 @@ func TestRegisterAuthenticatorIndexesProviderKey(t *testing.T) {
 }
 
 func TestDisableAuthenticatorRemovesRuntimeAuthenticator(t *testing.T) {
-	mgr := NewManager(nil, nil, nil)
+	mgr := NewManager(nil, nil)
 	auth := &stubAuthenticator{provider: "openai"}
 
 	mgr.RegisterAuthenticator("codex", auth)
@@ -102,7 +102,7 @@ func TestDisableAuthenticatorRemovesRuntimeAuthenticator(t *testing.T) {
 }
 
 func TestDisableAuthenticatorRejectsReadOnlyAuthenticator(t *testing.T) {
-	mgr := NewManager(nil, nil, nil)
+	mgr := NewManager(nil, nil)
 	auth := &stubAuthenticator{provider: "openai"}
 
 	mgr.RegisterAuthenticatorWithOptions("codex", auth, RegisterAuthenticatorOptions{
@@ -170,7 +170,7 @@ func TestListAuthenticatorStatesMergesFactoriesAndEnabledState(t *testing.T) {
 		return &stubAuthenticator{provider: "anthropic"}, nil
 	})
 
-	mgr := NewManager(nil, nil, nil)
+	mgr := NewManager(nil, nil)
 	mgr.RegisterAuthenticatorWithOptions("codex", &stubAuthenticator{provider: "openai"}, RegisterAuthenticatorOptions{
 		Source:   AuthenticatorSourceCaddyfile,
 		ReadOnly: true,
@@ -190,11 +190,14 @@ func TestListAuthenticatorStatesMergesFactoriesAndEnabledState(t *testing.T) {
 
 func TestRegisterCredentialPersistsWithCreate(t *testing.T) {
 	store := &stubCredentialStore{}
-	mgr := NewManager(store, nil, nil)
+	credMgr := credentialmgr.NewManager(store, nil, nil)
+	mgr := NewManager(credMgr, nil)
 
-	if err := mgr.RegisterCredential(context.Background(), &credential.Credential{
-		ID:       "cred-1",
-		Provider: "openai",
+	if err := mgr.RegisterLoginCredential(context.Background(), &Credential{
+		Credential: credentialmgr.Credential{
+			ID:       "cred-1",
+			Provider: "openai",
+		},
 	}); err != nil {
 		t.Fatalf("RegisterCredential returned error: %v", err)
 	}
@@ -209,11 +212,14 @@ func TestRegisterCredentialPersistsWithCreate(t *testing.T) {
 
 func TestUpdateCredentialPersistsWithUpdate(t *testing.T) {
 	store := &stubCredentialStore{}
-	mgr := NewManager(store, nil, nil)
+	credMgr := credentialmgr.NewManager(store, nil, nil)
+	mgr := NewManager(credMgr, nil)
 
-	if err := mgr.UpdateCredential(context.Background(), &credential.Credential{
-		ID:       "cred-1",
-		Provider: "openai",
+	if err := mgr.UpdateCredential(context.Background(), &Credential{
+		Credential: credentialmgr.Credential{
+			ID:       "cred-1",
+			Provider: "openai",
+		},
 	}); err != nil {
 		t.Fatalf("UpdateCredential returned error: %v", err)
 	}
@@ -223,5 +229,44 @@ func TestUpdateCredentialPersistsWithUpdate(t *testing.T) {
 	}
 	if store.createCalls != 0 {
 		t.Fatalf("Create called %d times, want 0", store.createCalls)
+	}
+}
+
+func TestPickReturnsUpdatedCredentialSnapshot(t *testing.T) {
+	mgr := NewManager(credentialmgr.NewManager(nil, nil, nil), nil)
+	if err := mgr.RegisterLoginCredential(context.Background(), &Credential{
+		Credential: credentialmgr.Credential{
+			ID:       "cred-1",
+			Provider: "openai",
+			Attributes: map[string]string{
+				"api_key": "old-key",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("RegisterCredential returned error: %v", err)
+	}
+
+	if _, err := mgr.Pick(context.Background(), "openai", "gpt-test", nil); err != nil {
+		t.Fatalf("initial Pick returned error: %v", err)
+	}
+
+	if err := mgr.UpdateCredential(context.Background(), &Credential{
+		Credential: credentialmgr.Credential{
+			ID:       "cred-1",
+			Provider: "openai",
+			Attributes: map[string]string{
+				"api_key": "new-key",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("UpdateCredential returned error: %v", err)
+	}
+
+	picked, err := mgr.Pick(context.Background(), "openai", "gpt-test", nil)
+	if err != nil {
+		t.Fatalf("Pick returned error: %v", err)
+	}
+	if got := picked.Attributes["api_key"]; got != "new-key" {
+		t.Fatalf("Pick returned stale credential api key: got %q want new-key", got)
 	}
 }

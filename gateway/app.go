@@ -12,8 +12,8 @@ import (
 	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/configstore/sqlite"
 	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 )
 
@@ -36,7 +36,8 @@ type App struct {
 	LocalAPIKeys []localapikeypkg.LocalAPIKey `json:"local_api_keys,omitempty"`
 
 	logger         *zap.Logger
-	cliauthManager *manager.Manager
+	cliauthManager *cliauth.Manager
+	credentialMgr  *credentialmgr.Manager
 	configStorer   configstoreIntf.ConfigStorer
 	providers      map[string]provider.Provider
 	agentGateway   *AgentGateway
@@ -58,20 +59,24 @@ func (a *App) Provision(ctx caddy.Context) error {
 	if err := a.provisionConfigStore(ctx); err != nil {
 		return fmt.Errorf("init config store: %w", err)
 	}
-	credentialStore, err := a.configStorer.GetCredentialStore(ctx, credential.DecodeCredential)
+	credentialStore, err := a.configStorer.GetCredentialStore(ctx, credentialmgr.DecodeCredential)
 	if err != nil {
 		return fmt.Errorf("get credential store: %w", err)
 	}
 
-	a.cliauthManager = manager.NewManager(credentialStore, nil, nil)
+	a.credentialMgr = credentialmgr.NewManager(credentialStore, nil, nil)
+	a.cliauthManager = cliauth.NewManager(a.credentialMgr, nil)
 	if err := a.provisionProviders(ctx); err != nil {
 		return fmt.Errorf("provision providers: %w", err)
 	}
 	if err := a.provisionAuthenticators(ctx); err != nil {
 		return fmt.Errorf("provision authenticators: %w", err)
 	}
-	if err := a.cliauthManager.Load(ctx); err != nil {
+	if err := a.credentialMgr.Load(ctx); err != nil {
 		return fmt.Errorf("load credentials: %w", err)
+	}
+	if err := a.cliauthManager.Load(ctx); err != nil {
+		return fmt.Errorf("load cliauth credentials: %w", err)
 	}
 
 	if err := a.agentGateway.Bootstrap(ctx, BootstrapOptions{
@@ -80,6 +85,7 @@ func (a *App) Provision(ctx caddy.Context) error {
 		StaticProviders:    a.providers,
 		ConfigStore:        a.configStorer,
 		CLIAuthManager:     a.cliauthManager,
+		CredentialManager:  a.credentialMgr,
 	}); err != nil {
 		return fmt.Errorf("configure agent gateway: %w", err)
 	}
@@ -89,8 +95,13 @@ func (a *App) Provision(ctx caddy.Context) error {
 }
 
 // CLIAuthManager returns the CLI credential manager shared across the gateway.
-func (a *App) CLIAuthManager() *manager.Manager {
+func (a *App) CLIAuthManager() *cliauth.Manager {
 	return a.cliauthManager
+}
+
+// CredentialManager returns the shared upstream credential manager.
+func (a *App) CredentialManager() *credentialmgr.Manager {
+	return a.credentialMgr
 }
 
 // AgentGateway returns the gateway instance owned by this app.
@@ -194,12 +205,12 @@ func (a *App) provisionAuthenticators(ctx caddy.Context) error {
 		return fmt.Errorf("unexpected authenticator module type %T", modules)
 	}
 	for name, mod := range loaded {
-		auth, ok := mod.(manager.Authenticator)
+		auth, ok := mod.(cliauth.Authenticator)
 		if !ok {
-			return fmt.Errorf("authenticator module %q does not implement manager.Authenticator", name)
+			return fmt.Errorf("authenticator module %q does not implement cliauth.Authenticator", name)
 		}
-		a.cliauthManager.RegisterAuthenticatorWithOptions(name, auth, manager.RegisterAuthenticatorOptions{
-			Source:   manager.AuthenticatorSourceCaddyfile,
+		a.cliauthManager.RegisterAuthenticatorWithOptions(name, auth, cliauth.RegisterAuthenticatorOptions{
+			Source:   cliauth.AuthenticatorSourceCaddyfile,
 			ReadOnly: true,
 		})
 	}

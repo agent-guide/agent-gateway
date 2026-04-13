@@ -1,4 +1,4 @@
-package manager
+package cliauth
 
 import (
 	"context"
@@ -7,8 +7,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
 )
 
 // Authenticator handles the CLI login flow for a specific provider.
@@ -17,10 +15,10 @@ type Authenticator interface {
 	// Provider returns the unique provider name this authenticator handles (e.g. "openai", "anthropic").
 	Provider() string
 	// Login initiates the interactive CLI login flow and returns a new Credential on success.
-	Login(ctx context.Context) (*credential.Credential, error)
+	Login(ctx context.Context) (*Credential, error)
 	// RefreshLead attempts to refresh the given credential before it expires.
 	// Returns nil to indicate no refresh is needed; returns an updated Credential on success.
-	RefreshLead(ctx context.Context, cred *credential.Credential) (*credential.Credential, error)
+	RefreshLead(ctx context.Context, cred *Credential) (*Credential, error)
 }
 
 // AuthenticatorFactory creates an Authenticator instance.

@@ -3,7 +3,7 @@ package authenticator
 import (
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 )
@@ -20,8 +20,8 @@ func TestBuiltinAuthenticatorsRegisterAsCaddyModules(t *testing.T) {
 		}
 
 		mod := info.New()
-		if _, ok := mod.(manager.Authenticator); !ok {
-			t.Fatalf("%q does not implement manager.Authenticator", id)
+		if _, ok := mod.(cliauth.Authenticator); !ok {
+			t.Fatalf("%q does not implement cliauth.Authenticator", id)
 		}
 	}
 }

@@ -4,19 +4,33 @@ import (
 	"context"
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/cloudwego/eino/schema"
 )
 
 type testConfigurableProvider struct {
-	cfg      ProviderConfig
-	lastCred *credential.Credential
+	cfg        ProviderConfig
+	errs       []error
+	calls      int
+	lastAPIKey string
+	lastCred   *credentialmgr.Credential
+}
+
+func newTestCLIAuthManager() *cliauth.Manager {
+	return cliauth.NewManager(credentialmgr.NewManager(nil, nil, nil), nil)
 }
 
 func (p *testConfigurableProvider) Generate(ctx context.Context, _ *GenerateRequest) (*GenerateResponse, error) {
-	cred, _ := CredentialFromContext(ctx)
+	apiKey, _, cred := ResolveCredential(ctx, p.cfg)
+	p.lastAPIKey = apiKey
 	p.lastCred = cred
+	if p.calls < len(p.errs) {
+		err := p.errs[p.calls]
+		p.calls++
+		return nil, err
+	}
+	p.calls++
 	return &GenerateResponse{}, nil
 }
 
@@ -44,11 +58,13 @@ func TestProviderConfigDefaults(t *testing.T) {
 	}
 }
 
-func TestWrapWithAuthManagerHonorsAPIKeyFirst(t *testing.T) {
-	cliauthMgr := manager.NewManager(nil, nil, nil)
-	if err := cliauthMgr.RegisterCredential(context.Background(), &credential.Credential{
+func TestWrapWithCredentialManagerHonorsAPIKeyFirst(t *testing.T) {
+	cliauthMgr := newTestCLIAuthManager()
+	credMgr := cliauthMgr.CredentialManager()
+	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
 		ID:       "cred-1",
 		Provider: "openai",
+		Source:   credentialmgr.SourceCLIAuth,
 		Attributes: map[string]string{
 			"api_key": "cred-key",
 		},
@@ -63,21 +79,70 @@ func TestWrapWithAuthManagerHonorsAPIKeyFirst(t *testing.T) {
 			AuthStrategy: AuthStrategyAPIKeyFirst,
 		},
 	}
-	wrapped := WrapWithAuthManager(base, "openai", cliauthMgr)
+	wrapped := WrapWithCredentialManager(base, "openai", credMgr, cliauthMgr)
 	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	if base.lastCred != nil {
-		t.Fatalf("expected no credential override, got %q", base.lastCred.ID)
+	if base.lastCred == nil {
+		t.Fatal("expected static API key credential")
+	}
+	if base.lastCred.ID != "provider-static-api-key:openai" {
+		t.Fatalf("unexpected credential override: got %q", base.lastCred.ID)
+	}
+	if base.lastAPIKey != "static-key" {
+		t.Fatalf("unexpected api key: got %q want static-key", base.lastAPIKey)
 	}
 }
 
-func TestWrapWithAuthManagerUsesProviderCredentials(t *testing.T) {
-	cliauthMgr := manager.NewManager(nil, nil, nil)
+func TestWrapWithCredentialManagerFallsBackAfterStaticAPIKeyQuota(t *testing.T) {
+	cliauthMgr := newTestCLIAuthManager()
+	credMgr := cliauthMgr.CredentialManager()
+	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
+		ID:       "cred-1",
+		Provider: "openai",
+		Source:   credentialmgr.SourceCLIAuth,
+		Attributes: map[string]string{
+			"api_key": "cred-key",
+		},
+	}); err != nil {
+		t.Fatalf("register credential: %v", err)
+	}
+
+	base := &testConfigurableProvider{
+		cfg: ProviderConfig{
+			ProviderName: "openai",
+			APIKey:       "static-key",
+			AuthStrategy: AuthStrategyAPIKeyFirst,
+		},
+		errs: []error{NewStatusError(429, "quota exceeded")},
+	}
+	wrapped := WrapWithCredentialManager(base, "openai", credMgr, cliauthMgr)
+	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{Model: "gpt-test"}); err == nil {
+		t.Fatal("expected first generate to fail")
+	}
+	if base.lastCred == nil || base.lastCred.ID != "provider-static-api-key:openai" {
+		t.Fatalf("expected first call to use static API key, got %+v", base.lastCred)
+	}
+
+	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{Model: "gpt-test"}); err != nil {
+		t.Fatalf("second generate: %v", err)
+	}
+	if base.lastCred == nil || base.lastCred.ID != "cred-1" {
+		t.Fatalf("expected second call to use managed credential, got %+v", base.lastCred)
+	}
+	if base.lastAPIKey != "cred-key" {
+		t.Fatalf("unexpected api key: got %q want cred-key", base.lastAPIKey)
+	}
+}
+
+func TestWrapWithCredentialManagerUsesProviderCredentials(t *testing.T) {
+	cliauthMgr := newTestCLIAuthManager()
+	credMgr := cliauthMgr.CredentialManager()
 	for _, id := range []string{"cred-a", "cred-b"} {
-		if err := cliauthMgr.RegisterCredential(context.Background(), &credential.Credential{
+		if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
 			ID:       id,
 			Provider: "openai",
+			Source:   credentialmgr.SourceCLIAuth,
 			Attributes: map[string]string{
 				"api_key": id + "-key",
 			},
@@ -92,7 +157,7 @@ func TestWrapWithAuthManagerUsesProviderCredentials(t *testing.T) {
 			AuthStrategy: AuthStrategyCredentialFirst,
 		},
 	}
-	wrapped := WrapWithAuthManager(base, "openai", cliauthMgr)
+	wrapped := WrapWithCredentialManager(base, "openai", credMgr, cliauthMgr)
 	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -101,5 +166,41 @@ func TestWrapWithAuthManagerUsesProviderCredentials(t *testing.T) {
 	}
 	if base.lastCred.Provider != "openai" {
 		t.Fatalf("unexpected credential provider: got %q want %q", base.lastCred.Provider, "openai")
+	}
+}
+
+func TestWrapWithCredentialManagerPreservesManagedRoundRobin(t *testing.T) {
+	cliauthMgr := newTestCLIAuthManager()
+	credMgr := cliauthMgr.CredentialManager()
+	for _, id := range []string{"cred-a", "cred-b"} {
+		if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
+			ID:       id,
+			Provider: "openai",
+			Source:   credentialmgr.SourceCLIAuth,
+			Attributes: map[string]string{
+				"api_key": id + "-key",
+			},
+		}); err != nil {
+			t.Fatalf("register credential %s: %v", id, err)
+		}
+	}
+
+	base := &testConfigurableProvider{
+		cfg: ProviderConfig{
+			ProviderName: "openai",
+			AuthStrategy: AuthStrategyCredentialFirst,
+		},
+	}
+	wrapped := WrapWithCredentialManager(base, "openai", credMgr, cliauthMgr)
+	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
+		t.Fatalf("first generate: %v", err)
+	}
+	first := base.lastCred.ID
+	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
+		t.Fatalf("second generate: %v", err)
+	}
+	second := base.lastCred.ID
+	if first != "cred-a" || second != "cred-b" {
+		t.Fatalf("round robin credentials = %q, %q; want cred-a, cred-b", first, second)
 	}
 }

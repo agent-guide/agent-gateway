@@ -76,10 +76,10 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodPost, Path: "/admin/local_api_keys/{key}/enable", Handler: h.handleEnableLocalAPIKey, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/local_api_keys/{key}/disable", Handler: h.handleDisableLocalAPIKey, RequireAuth: true},
 		{Method: http.MethodDelete, Path: "/admin/local_api_keys/{key}", Handler: h.handleDeleteLocalAPIKey, RequireAuth: true},
-		// CLI Auth Credentials
-		{Method: http.MethodGet, Path: "/admin/cliauth/credentials", Handler: h.handleListCLIAuthCredentials, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/cliauth/credentials/{credential_id}", Handler: h.handleGetCLIAuthCredential, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/cliauth/credentials/{credential_id}", Handler: h.handleDeleteCLIAuthCredential, RequireAuth: true},
+		// Credentials (api_key and cliauth)
+		{Method: http.MethodGet, Path: "/admin/credentials", Handler: h.handleListCredentials, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/credentials/{credential_id}", Handler: h.handleGetCredential, RequireAuth: true},
+		{Method: http.MethodDelete, Path: "/admin/credentials/{credential_id}", Handler: h.handleDeleteCredential, RequireAuth: true},
 
 		// CLI Auth Authenticators
 		{Method: http.MethodGet, Path: "/admin/cliauth/authenticators", Handler: h.handleListCLIAuthAuthenticators, RequireAuth: true},

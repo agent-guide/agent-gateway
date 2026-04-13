@@ -6,13 +6,13 @@ import (
 	einomodel "github.com/cloudwego/eino/components/model"
 	einoschema "github.com/cloudwego/eino/schema"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 )
 
 type ChatRequestState struct {
 	APIKey        string
 	BaseURL       string
-	Credential    *credential.Credential
+	Credential    *credentialmgr.Credential
 	ModelName     string
 	Messages      []*einoschema.Message
 	Options       []einomodel.Option

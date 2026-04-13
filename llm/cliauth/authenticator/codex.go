@@ -20,8 +20,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/google/uuid"
@@ -49,7 +49,7 @@ const (
 
 func init() {
 	caddy.RegisterModule(CodexAuthenticator{})
-	manager.RegisterAuthenticatorFactory("codex", NewCodexAuthenticator)
+	cliauth.RegisterAuthenticatorFactory("codex", NewCodexAuthenticator)
 }
 
 // ---- Internal HTTP response types ----
@@ -122,7 +122,7 @@ func (CodexAuthenticator) CaddyModule() caddy.ModuleInfo {
 }
 
 // NewCodexAuthenticator creates a CodexAuthenticator with default settings.
-func NewCodexAuthenticator() (manager.Authenticator, error) {
+func NewCodexAuthenticator() (cliauth.Authenticator, error) {
 	return &CodexAuthenticator{CallbackPort: codexDefaultCallbackPort}, nil
 }
 
@@ -181,7 +181,7 @@ func (a *CodexAuthenticator) Provider() string {
 
 // Login initiates the Codex CLI login flow and returns a new Credential on success.
 // It uses browser-based OAuth PKCE by default; set UseDeviceFlow for headless environments.
-func (a *CodexAuthenticator) Login(ctx context.Context) (*credential.Credential, error) {
+func (a *CodexAuthenticator) Login(ctx context.Context) (*cliauth.Credential, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -193,7 +193,7 @@ func (a *CodexAuthenticator) Login(ctx context.Context) (*credential.Credential,
 
 // RefreshLead refreshes the credential's access token before it expires.
 // Returns nil if no refresh token is present or the credential has no expiry metadata.
-func (a *CodexAuthenticator) RefreshLead(ctx context.Context, cred *credential.Credential) (*credential.Credential, error) {
+func (a *CodexAuthenticator) RefreshLead(ctx context.Context, cred *cliauth.Credential) (*cliauth.Credential, error) {
 	if cred == nil {
 		return nil, fmt.Errorf("codex: credential is nil")
 	}
@@ -218,7 +218,7 @@ func (a *CodexAuthenticator) RefreshLead(ctx context.Context, cred *credential.C
 
 // ---- Browser-based OAuth PKCE flow ----
 
-func (a *CodexAuthenticator) loginWithBrowser(ctx context.Context) (*credential.Credential, error) {
+func (a *CodexAuthenticator) loginWithBrowser(ctx context.Context) (*cliauth.Credential, error) {
 	codeVerifier, codeChallenge, err := generatePKCECodes()
 	if err != nil {
 		return nil, fmt.Errorf("codex: PKCE generation failed: %w", err)
@@ -275,7 +275,7 @@ func (a *CodexAuthenticator) loginWithBrowser(ctx context.Context) (*credential.
 
 // ---- Device flow ----
 
-func (a *CodexAuthenticator) loginWithDeviceFlow(ctx context.Context) (*credential.Credential, error) {
+func (a *CodexAuthenticator) loginWithDeviceFlow(ctx context.Context) (*cliauth.Credential, error) {
 	client := a.httpClient()
 
 	userCodeResp, err := requestDeviceUserCode(ctx, client)
@@ -423,13 +423,15 @@ func (a *CodexAuthenticator) refreshTokensWithRetry(ctx context.Context, refresh
 
 // ---- Credential builder ----
 
-func (a *CodexAuthenticator) buildCredential(tokenResp *codexTokenResponse) (*credential.Credential, error) {
-	cred := &credential.Credential{
-		ID:         uuid.New().String(),
-		Provider:   a.Provider(),
-		Status:     credential.StatusActive,
-		Metadata:   make(map[string]any),
-		Attributes: make(map[string]string),
+func (a *CodexAuthenticator) buildCredential(tokenResp *codexTokenResponse) (*cliauth.Credential, error) {
+	cred := &cliauth.Credential{
+		Credential: credentialmgr.Credential{
+			ID:         uuid.New().String(),
+			Provider:   a.Provider(),
+			Metadata:   make(map[string]any),
+			Attributes: make(map[string]string),
+		},
+		Status: cliauth.StatusActive,
 	}
 
 	a.applyTokenToMetadata(cred, tokenResp)
@@ -455,7 +457,7 @@ func (a *CodexAuthenticator) buildCredential(tokenResp *codexTokenResponse) (*cr
 }
 
 // applyTokenToMetadata writes token fields into cred.Metadata.
-func (a *CodexAuthenticator) applyTokenToMetadata(cred *credential.Credential, tokenResp *codexTokenResponse) {
+func (a *CodexAuthenticator) applyTokenToMetadata(cred *cliauth.Credential, tokenResp *codexTokenResponse) {
 	if cred.Metadata == nil {
 		cred.Metadata = make(map[string]any)
 	}

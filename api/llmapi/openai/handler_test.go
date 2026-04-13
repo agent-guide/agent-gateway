@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/cloudwego/eino/schema"
 )
@@ -64,10 +64,12 @@ func withRouteInfo(req *http.Request) *http.Request {
 }
 
 func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
-	cliauthMgr := manager.NewManager(nil, nil, nil)
-	if err := cliauthMgr.RegisterCredential(context.Background(), &credential.Credential{
+	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	cliauthMgr := cliauth.NewManager(credMgr, nil)
+	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
 		ID:       "cred-openai-1",
 		Provider: "openai",
+		Source:   credentialmgr.SourceCLIAuth,
 	}); err != nil {
 		t.Fatalf("register credential: %v", err)
 	}
@@ -75,7 +77,7 @@ func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 	baseProv := &testProvider{
 		streamErr: testStatusError{msg: "rate limit", status: http.StatusTooManyRequests},
 	}
-	prov := provider.WrapWithAuthManager(baseProv, "openai", cliauthMgr)
+	prov := provider.WrapWithCredentialManager(baseProv, "openai", credMgr, cliauthMgr)
 	handler := newHandler()
 
 	body, err := json.Marshal(ChatCompletionRequest{
@@ -104,7 +106,7 @@ func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusBadGateway)
 	}
 
-	cred := cliauthMgr.GetCredential("cred-openai-1")
+	cred := credMgr.GetCredential("cred-openai-1")
 	if cred == nil {
 		t.Fatal("credential not found after request")
 	}

@@ -15,7 +15,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"google.golang.org/genai"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 )
 
@@ -75,7 +75,7 @@ func (p *Provider) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 
 // buildGenaiClient constructs a genai.Client with the given credentials and network config.
 // This is the single path for creating Gemini API clients in this package.
-func buildGenaiClient(ctx context.Context, apiKey, baseURL string, network provider.NetworkConfig, cred *credential.Credential) (*genai.Client, error) {
+func buildGenaiClient(ctx context.Context, apiKey, baseURL string, network provider.NetworkConfig, cred *credentialmgr.Credential) (*genai.Client, error) {
 	httpClient := provider.BuildHTTPClient(provider.ProviderConfig{Network: network}, nil, cred)
 	timeout := network.Timeout()
 	return genai.NewClient(ctx, &genai.ClientConfig{

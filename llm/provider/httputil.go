@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 )
 
 type credentialKey struct{}
@@ -30,13 +30,13 @@ func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 
 // WithCredential attaches a credential to the context for per-request auth override.
 // The openaibase Base reads this in setHeaders to replace the static APIKey.
-func WithCredential(ctx context.Context, cred *credential.Credential) context.Context {
+func WithCredential(ctx context.Context, cred *credentialmgr.Credential) context.Context {
 	return context.WithValue(ctx, credentialKey{}, cred)
 }
 
 // CredentialFromContext retrieves the per-request credential from the context.
-func CredentialFromContext(ctx context.Context) (*credential.Credential, bool) {
-	cred, ok := ctx.Value(credentialKey{}).(*credential.Credential)
+func CredentialFromContext(ctx context.Context) (*credentialmgr.Credential, bool) {
+	cred, ok := ctx.Value(credentialKey{}).(*credentialmgr.Credential)
 	return cred, ok && cred != nil
 }
 
@@ -65,7 +65,7 @@ func CheckResponse(resp *http.Response) error {
 		fmt.Sprintf("upstream %d: %s", resp.StatusCode, string(body)))
 }
 
-func BuildHTTPClient(config ProviderConfig, extraHeaders map[string]string, cred *credential.Credential) *http.Client {
+func BuildHTTPClient(config ProviderConfig, extraHeaders map[string]string, cred *credentialmgr.Credential) *http.Client {
 	proxyURL := config.Network.ProxyURL
 	if cred != nil && cred.ProxyURL != "" {
 		proxyURL = cred.ProxyURL
@@ -155,7 +155,7 @@ func isRetryable(err error) bool {
 	return true // network errors without status code are retryable
 }
 
-func ResolveCredential(ctx context.Context, config ProviderConfig) (apiKey string, baseURL string, cred *credential.Credential) {
+func ResolveCredential(ctx context.Context, config ProviderConfig) (apiKey string, baseURL string, cred *credentialmgr.Credential) {
 	config.Defaults()
 	apiKey = config.APIKey
 	baseURL = config.BaseURL
@@ -165,9 +165,7 @@ func ResolveCredential(ctx context.Context, config ProviderConfig) (apiKey strin
 		case AuthStrategyAPIKeyOnly:
 			return apiKey, baseURL, nil
 		case AuthStrategyAPIKeyFirst:
-			if strings.TrimSpace(apiKey) == "" {
-				cred = c
-			}
+			cred = c
 		case AuthStrategyCredentialOnly, AuthStrategyCredentialFirst:
 			cred = c
 			apiKey = ""

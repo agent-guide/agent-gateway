@@ -11,7 +11,8 @@ import (
 	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 )
 
@@ -20,7 +21,8 @@ type BootstrapOptions struct {
 	StaticLocalAPIKeys []localapikeypkg.LocalAPIKey
 	StaticProviders    map[string]provider.Provider
 	ConfigStore        configstoreintf.ConfigStorer
-	CLIAuthManager     *manager.Manager
+	CLIAuthManager     *cliauth.Manager
+	CredentialManager  *credentialmgr.Manager
 	Selector           routepkg.RouteTargetSelector
 }
 
@@ -32,7 +34,8 @@ type AgentGateway struct {
 	routeManager       *RouteManager
 	localAPIKeyManager *LocalAPIKeyManager
 	providerManager    *ProviderManager
-	cliauthManager     *manager.Manager
+	cliauthManager     *cliauth.Manager
+	credentialManager  *credentialmgr.Manager
 	Selector           routepkg.RouteTargetSelector
 }
 
@@ -65,6 +68,7 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 		return err
 	}
 	g.cliauthManager = opts.CLIAuthManager
+	g.credentialManager = opts.CredentialManager
 	g.Selector = opts.Selector
 	g.configured = true
 	return nil
@@ -80,6 +84,7 @@ func (g *AgentGateway) Reset() {
 	g.localAPIKeyManager = nil
 	g.providerManager = nil
 	g.cliauthManager = nil
+	g.credentialManager = nil
 	g.Selector = nil
 }
 
@@ -89,10 +94,16 @@ func (g *AgentGateway) ConfigStore() configstoreintf.ConfigStorer {
 	return g.configStore
 }
 
-func (g *AgentGateway) CLIAuthManager() *manager.Manager {
+func (g *AgentGateway) CLIAuthManager() *cliauth.Manager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.cliauthManager
+}
+
+func (g *AgentGateway) CredentialManager() *credentialmgr.Manager {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.credentialManager
 }
 
 func (g *AgentGateway) RouteManager() *RouteManager {
@@ -227,8 +238,9 @@ func (g *AgentGateway) selector() routepkg.RouteTargetSelector {
 func (g *AgentGateway) wrapProvider(prov provider.Provider, providerName string) provider.Provider {
 	g.mu.RLock()
 	cliauthMgr := g.cliauthManager
+	credMgr := g.credentialManager
 	g.mu.RUnlock()
-	return provider.WrapWithAuthManager(prov, providerName, cliauthMgr)
+	return provider.WrapWithCredentialManager(prov, providerName, credMgr, cliauthMgr)
 }
 
 func (g *AgentGateway) configureConfigStore(configStore configstoreintf.ConfigStorer) {

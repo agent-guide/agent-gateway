@@ -8,13 +8,15 @@ import (
 	"github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
 	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"go.uber.org/zap"
 )
 
 // Handler handles Admin API requests under /admin/.
 type Handler struct {
-	cliauthManager     *manager.Manager
+	cliauthManager     *cliauth.Manager
+	credentialManager  *credentialmgr.Manager
 	configStore        intf.ConfigStorer
 	routeManager       *gateway.RouteManager
 	localAPIKeyManager *gateway.LocalAPIKeyManager
@@ -36,13 +38,15 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 		logger = zap.NewNop()
 	}
 
-	var cliauthMgr *manager.Manager
+	var cliauthMgr *cliauth.Manager
+	var credentialMgr *credentialmgr.Manager
 	var configStore intf.ConfigStorer
 	var routeManager *gateway.RouteManager
 	var localAPIKeyManager *gateway.LocalAPIKeyManager
 	var providerManager *gateway.ProviderManager
 	if agentGateway != nil {
 		cliauthMgr = agentGateway.CLIAuthManager()
+		credentialMgr = agentGateway.CredentialManager()
 		configStore = agentGateway.ConfigStore()
 		routeManager = agentGateway.RouteManager()
 		localAPIKeyManager = agentGateway.LocalAPIKeyManager()
@@ -51,6 +55,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 
 	h := &Handler{
 		cliauthManager:     cliauthMgr,
+		credentialManager:  credentialMgr,
 		configStore:        configStore,
 		routeManager:       routeManager,
 		localAPIKeyManager: localAPIKeyManager,

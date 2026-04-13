@@ -7,8 +7,7 @@ import (
 	"time"
 
 	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/configstore/sqlite"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/ollama"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -49,15 +48,15 @@ func (m *testAuthenticatorModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) err
 
 func (testAuthenticatorModule) Provider() string { return "test" }
 
-func (testAuthenticatorModule) Login(context.Context) (*credential.Credential, error) {
+func (testAuthenticatorModule) Login(context.Context) (*cliauth.Credential, error) {
 	return nil, nil
 }
 
-func (testAuthenticatorModule) RefreshLead(context.Context, *credential.Credential) (*credential.Credential, error) {
+func (testAuthenticatorModule) RefreshLead(context.Context, *cliauth.Credential) (*cliauth.Credential, error) {
 	return nil, nil
 }
 
-var _ manager.Authenticator = (*testAuthenticatorModule)(nil)
+var _ cliauth.Authenticator = (*testAuthenticatorModule)(nil)
 
 func TestParseAppFromCaddyfile(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`

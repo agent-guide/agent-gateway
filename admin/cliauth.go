@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/manager"
+	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"go.uber.org/zap"
 )
 
@@ -19,55 +19,6 @@ type cliAuthStatus struct {
 	FinishedAt   *time.Time `json:"finished_at,omitempty"`
 	Error        string     `json:"error,omitempty"`
 	CredentialID string     `json:"credential_id,omitempty"`
-}
-
-func (h *Handler) handleListCLIAuthCredentials(w http.ResponseWriter, r *http.Request) {
-	if h.cliauthManager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "auth manager not configured")
-		return
-	}
-
-	provider := r.URL.Query().Get("provider")
-	items := h.cliauthManager.ListCredential(provider)
-	_ = utils.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
-}
-
-func (h *Handler) handleGetCLIAuthCredential(w http.ResponseWriter, r *http.Request) {
-	if h.cliauthManager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "auth manager not configured")
-		return
-	}
-
-	id := strings.TrimSpace(r.PathValue("credential_id"))
-	if id == "" {
-		_ = utils.WriteError(w, http.StatusBadRequest, "credential_id is required")
-		return
-	}
-
-	item := h.cliauthManager.GetCredential(id)
-	if item == nil {
-		_ = utils.WriteError(w, http.StatusNotFound, "credential not found")
-		return
-	}
-	_ = utils.WriteJSON(w, http.StatusOK, item)
-}
-
-func (h *Handler) handleDeleteCLIAuthCredential(w http.ResponseWriter, r *http.Request) {
-	if h.cliauthManager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "auth manager not configured")
-		return
-	}
-
-	id := strings.TrimSpace(r.PathValue("credential_id"))
-	if id == "" {
-		_ = utils.WriteError(w, http.StatusBadRequest, "credential_id is required")
-		return
-	}
-	if err := h.cliauthManager.DeregisterCredential(r.Context(), id); err != nil {
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	_ = utils.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted", "credential_id": id})
 }
 
 func (h *Handler) handleListCLIAuthAuthenticators(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +67,7 @@ func (h *Handler) handleDisableCLIAuthAuthenticator(w http.ResponseWriter, r *ht
 		return
 	}
 	if err := h.cliauthManager.DisableAuthenticator(name); err != nil {
-		if errors.Is(err, manager.ErrAuthenticatorReadOnly) {
+		if errors.Is(err, cliauth.ErrAuthenticatorReadOnly) {
 			_ = utils.WriteError(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -170,7 +121,7 @@ func (h *Handler) handleStartCLIAuthAuthenticatorLogin(w http.ResponseWriter, r 
 			h.logger.Error("cli login failed", zap.String("cliname", requestedName), zap.Error(err))
 			return
 		}
-		if regErr := h.cliauthManager.RegisterCredential(ctx, cred); regErr != nil {
+		if regErr := h.cliauthManager.RegisterLoginCredential(ctx, cred); regErr != nil {
 			finished.Status = "failed"
 			finished.Error = regErr.Error()
 			h.storeCLIAuthStatus(requestedName, &finished)

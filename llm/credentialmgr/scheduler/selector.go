@@ -1,21 +1,20 @@
-package manager
+package scheduler
 
 import (
+	"fmt"
 	"strings"
 	"time"
-
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth/credential"
 )
 
-// Strategy picks a credential from a pre-filtered, priority-sorted ReadyBucket.
+// CredentialSelector picks a credential from a pre-filtered, priority-sorted ReadyBucket.
 // Implement this interface to provide a custom selection algorithm.
-type Strategy interface {
-	PickFromBucket(bucket *ReadyBucket, predicate func(*credential.Credential) bool) *credential.Credential
+type CredentialSelector interface {
+	PickFromBucket(bucket *ReadyBucket, predicate func(*Credential) bool) *Credential
 }
 
 // ReadyBucket holds credentials at one priority level that are ready for selection.
 type ReadyBucket struct {
-	creds  []*credential.Credential
+	creds  []*Credential
 	cursor int
 }
 
@@ -27,7 +26,7 @@ type RoundRobinSelector struct{}
 type FillFirstSelector struct{}
 
 // PickFromBucket picks the next credential using round-robin within the bucket.
-func (s *RoundRobinSelector) PickFromBucket(bucket *ReadyBucket, predicate func(*credential.Credential) bool) *credential.Credential {
+func (s *RoundRobinSelector) PickFromBucket(bucket *ReadyBucket, predicate func(*Credential) bool) *Credential {
 	n := len(bucket.creds)
 	if n == 0 {
 		return nil
@@ -46,7 +45,7 @@ func (s *RoundRobinSelector) PickFromBucket(bucket *ReadyBucket, predicate func(
 }
 
 // PickFromBucket picks the first matching credential in the bucket.
-func (s *FillFirstSelector) PickFromBucket(bucket *ReadyBucket, predicate func(*credential.Credential) bool) *credential.Credential {
+func (s *FillFirstSelector) PickFromBucket(bucket *ReadyBucket, predicate func(*Credential) bool) *Credential {
 	for _, cred := range bucket.creds {
 		if predicate == nil || predicate(cred) {
 			return cred
@@ -66,7 +65,7 @@ const (
 
 // isCredentialBlockedForModel reports whether a credential is blocked for the given model.
 // Returns (blocked, reason, nextRetry).
-func isCredentialBlockedForModel(cred *credential.Credential, model string, now time.Time) (bool, blockReason, time.Time) {
+func isCredentialBlockedForModel(cred *Credential, model string, now time.Time) (bool, blockReason, time.Time) {
 	if cred == nil {
 		return true, blockReasonOther, time.Time{}
 	}
@@ -78,14 +77,13 @@ func isCredentialBlockedForModel(cred *credential.Credential, model string, now 
 	if model != "" && len(cred.ModelStates) > 0 {
 		state, ok := cred.ModelStates[model]
 		if !ok {
-			// Try without any suffix/variant part.
 			baseModel := canonicalModelKey(model)
 			if baseModel != "" && baseModel != model {
 				state, ok = cred.ModelStates[baseModel]
 			}
 		}
 		if ok && state != nil {
-			if state.Status == credential.StatusDisabled {
+			if state.Disabled {
 				return true, blockReasonDisabled, time.Time{}
 			}
 			if state.Unavailable && !state.NextRetryAfter.IsZero() && state.NextRetryAfter.After(now) {
@@ -128,9 +126,34 @@ func canonicalModelKey(model string) string {
 }
 
 // credentialPriority returns the scheduling priority for a credential.
-func credentialPriority(cred *credential.Credential) int {
+func credentialPriority(cred *Credential) int {
 	if cred == nil {
 		return 0
 	}
 	return cred.Priority()
+}
+
+// cooldownError is returned when all credentials for a model are in cooldown.
+type cooldownError struct {
+	model    string
+	provider string
+	resetIn  string // formatted duration
+}
+
+func (e *cooldownError) Error() string {
+	if e == nil {
+		return ""
+	}
+	msg := fmt.Sprintf("all credentials for model %s are cooling down", e.model)
+	if e.provider != "" {
+		msg += fmt.Sprintf(" via provider %s", e.provider)
+	}
+	if e.resetIn != "" {
+		msg += fmt.Sprintf(", retry after %s", e.resetIn)
+	}
+	return msg
+}
+
+func (e *cooldownError) StatusCode() int {
+	return 429
 }
