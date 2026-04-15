@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/cloudwego/eino/schema"
 )
@@ -15,14 +14,13 @@ import (
 const staticAPIKeyCredentialIDPrefix = "provider-static-api-key:"
 
 type authManagedProvider struct {
-	base           Provider
-	providerName   string
-	cliauthManager *cliauth.Manager
-	credentialMgr  *credentialmgr.Manager
-	config         ProviderConfig
+	base          Provider
+	providerName  string
+	credentialMgr *credentialmgr.Manager
+	config        ProviderConfig
 }
 
-func WrapWithCredentialManager(base Provider, providerName string, credMgr *credentialmgr.Manager, cliauthMgr *cliauth.Manager) Provider {
+func WrapWithCredentialManager(base Provider, providerName string, credMgr *credentialmgr.Manager) Provider {
 	if base == nil || credMgr == nil {
 		return base
 	}
@@ -33,14 +31,13 @@ func WrapWithCredentialManager(base Provider, providerName string, credMgr *cred
 	cfg.Defaults()
 
 	p := &authManagedProvider{
-		base:           base,
-		providerName:   providerName,
-		cliauthManager: cliauthMgr,
-		credentialMgr:  credMgr,
-		config:         cfg,
+		base:          base,
+		providerName:  providerName,
+		credentialMgr: credMgr,
+		config:        cfg,
 	}
 	if cred := newStaticAPIKeyCredential(cfg); cred != nil {
-		_ = p.registerStaticCred(context.Background(), cred)
+		_ = p.credentialMgr.RegisterCredential(context.Background(), cred)
 	}
 	return p
 }
@@ -129,11 +126,11 @@ func (p *authManagedProvider) pickStaticCredential(ctx context.Context, model st
 }
 
 func (p *authManagedProvider) markResult(ctx context.Context, cred *credentialmgr.Credential, model string, err error) {
-	if cred == nil {
+	if cred == nil || p.credentialMgr == nil {
 		return
 	}
 
-	result := cliauth.Result{
+	result := credentialmgr.Result{
 		CredentialID: cred.ID,
 		Provider:     cred.Provider,
 		Model:        model,
@@ -152,36 +149,7 @@ func (p *authManagedProvider) markResult(ctx context.Context, cred *credentialmg
 			Retryable:  httpStatus == http.StatusTooManyRequests || httpStatus >= 500,
 		}
 	}
-	if isStaticAPIKeyCredential(cred) {
-		p.markCredentialResult(ctx, result)
-		return
-	}
-	if p.cliauthManager != nil && cred.Source == credentialmgr.SourceCLIAuth {
-		p.cliauthManager.MarkResult(ctx, result)
-		return
-	}
-	p.markCredentialResult(ctx, result)
-}
-
-func (p *authManagedProvider) markCredentialResult(ctx context.Context, result cliauth.Result) {
-	if p.credentialMgr == nil {
-		return
-	}
-	p.credentialMgr.MarkResult(ctx, credentialmgr.Result{
-		CredentialID: result.CredentialID,
-		Provider:     result.Provider,
-		Model:        result.Model,
-		Success:      result.Success,
-		RetryAfter:   result.RetryAfter,
-		Error:        result.Error,
-	})
-}
-
-func (p *authManagedProvider) registerStaticCred(ctx context.Context, cred *credentialmgr.Credential) error {
-	if p.credentialMgr == nil || cred == nil {
-		return nil
-	}
-	return p.credentialMgr.RegisterCredential(ctx, cred)
+	p.credentialMgr.MarkResult(ctx, result)
 }
 
 func newStaticAPIKeyCredential(cfg ProviderConfig) *credentialmgr.Credential {
@@ -222,8 +190,4 @@ func staticAPIKeyCredentialID(cfg ProviderConfig) string {
 		id = "default"
 	}
 	return staticAPIKeyCredentialIDPrefix + id
-}
-
-func isStaticAPIKeyCredential(cred *credentialmgr.Credential) bool {
-	return cred != nil && strings.HasPrefix(cred.ID, staticAPIKeyCredentialIDPrefix)
 }

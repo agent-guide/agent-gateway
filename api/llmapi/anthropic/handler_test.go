@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/cloudwego/eino/schema"
@@ -48,7 +47,6 @@ func (e testStatusError) StatusCode() int { return e.status }
 
 func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 	credMgr := credentialmgr.NewManager(nil, nil, nil)
-	cliauthMgr := cliauth.NewManager(credMgr, nil)
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
 		ID:       "cred-anthropic-1",
 		Provider: "anthropic",
@@ -60,7 +58,7 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 	baseProv := &testProvider{
 		streamErr: testStatusError{msg: "rate limit", status: http.StatusTooManyRequests},
 	}
-	prov := provider.WrapWithCredentialManager(baseProv, "anthropic", credMgr, cliauthMgr)
+	prov := provider.WrapWithCredentialManager(baseProv, "anthropic", credMgr)
 	handler := NewHandler(nil)
 
 	body, err := json.Marshal(MessagesRequest{

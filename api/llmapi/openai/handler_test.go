@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/cloudwego/eino/schema"
@@ -65,7 +64,6 @@ func withRouteInfo(req *http.Request) *http.Request {
 
 func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 	credMgr := credentialmgr.NewManager(nil, nil, nil)
-	cliauthMgr := cliauth.NewManager(credMgr, nil)
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
 		ID:       "cred-openai-1",
 		Provider: "openai",
@@ -77,7 +75,7 @@ func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 	baseProv := &testProvider{
 		streamErr: testStatusError{msg: "rate limit", status: http.StatusTooManyRequests},
 	}
-	prov := provider.WrapWithCredentialManager(baseProv, "openai", credMgr, cliauthMgr)
+	prov := provider.WrapWithCredentialManager(baseProv, "openai", credMgr)
 	handler := newHandler()
 
 	body, err := json.Marshal(ChatCompletionRequest{

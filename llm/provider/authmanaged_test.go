@@ -79,7 +79,7 @@ func TestWrapWithCredentialManagerHonorsAPIKeyFirst(t *testing.T) {
 			AuthStrategy: AuthStrategyAPIKeyFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, "openai", credMgr, cliauthMgr)
+	wrapped := WrapWithCredentialManager(base, "openai", credMgr)
 	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestWrapWithCredentialManagerFallsBackAfterStaticAPIKeyQuota(t *testing.T) 
 		},
 		errs: []error{NewStatusError(429, "quota exceeded")},
 	}
-	wrapped := WrapWithCredentialManager(base, "openai", credMgr, cliauthMgr)
+	wrapped := WrapWithCredentialManager(base, "openai", credMgr)
 	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{Model: "gpt-test"}); err == nil {
 		t.Fatal("expected first generate to fail")
 	}
@@ -157,7 +157,7 @@ func TestWrapWithCredentialManagerUsesProviderCredentials(t *testing.T) {
 			AuthStrategy: AuthStrategyCredentialFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, "openai", credMgr, cliauthMgr)
+	wrapped := WrapWithCredentialManager(base, "openai", credMgr)
 	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestWrapWithCredentialManagerPreservesManagedRoundRobin(t *testing.T) {
 			AuthStrategy: AuthStrategyCredentialFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, "openai", credMgr, cliauthMgr)
+	wrapped := WrapWithCredentialManager(base, "openai", credMgr)
 	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
 		t.Fatalf("first generate: %v", err)
 	}

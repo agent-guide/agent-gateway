@@ -237,10 +237,9 @@ func (g *AgentGateway) selector() routepkg.RouteTargetSelector {
 
 func (g *AgentGateway) wrapProvider(prov provider.Provider, providerName string) provider.Provider {
 	g.mu.RLock()
-	cliauthMgr := g.cliauthManager
 	credMgr := g.credentialManager
 	g.mu.RUnlock()
-	return provider.WrapWithCredentialManager(prov, providerName, credMgr, cliauthMgr)
+	return provider.WrapWithCredentialManager(prov, providerName, credMgr)
 }
 
 func (g *AgentGateway) configureConfigStore(configStore configstoreintf.ConfigStorer) {
