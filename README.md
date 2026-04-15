@@ -32,7 +32,7 @@ The current codebase is already usable as a route-oriented LLM gateway. It also 
   - Exposes operational endpoints under `/admin/*`
 - `llm/provider/`
   - Shared provider interfaces and provider implementations
-  - Implemented providers: `openai`, `anthropic`, `gemini`, `ollama`, `openrouter`
+  - Implemented providers: `openai`, `anthropic`, `gemini`, `ollama`, `openrouter`, `zhipu`
 - `llm/cliauth/`
   - Credential manager and provider-specific authenticators
   - Implemented authenticators: `codex`, `claude`, `gemini`
@@ -104,6 +104,18 @@ Run it:
 ```bash
 ./caddy-agent-gateway run --config ./Caddyfile
 ```
+
+Test the OpenAI-compatible endpoint with Python:
+
+```bash
+python3 -m pip install openai
+OPENAI_API_KEY=sk-... ./caddy-agent-gateway run --config ./Caddyfile
+python3 examples/test_openai_client.py
+python3 examples/test_openai_client.py --stream
+```
+
+The Python example sends the gateway-local key as `Authorization: Bearer test-key`.
+Override defaults with `AGENT_GATEWAY_BASE_URL`, `AGENT_GATEWAY_API_KEY`, or `AGENT_GATEWAY_MODEL`.
 
 ## Caddyfile Model
 
@@ -194,6 +206,7 @@ Built-in providers:
 - `gemini`
 - `ollama`
 - `openrouter`
+- `zhipu`
 
 All providers implement the shared `provider.Provider` interface. Some providers also implement optional capabilities such as embeddings.
 

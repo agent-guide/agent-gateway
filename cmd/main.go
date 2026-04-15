@@ -22,6 +22,7 @@ import (
 	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/ollama"
 	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/openai"
 	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/openrouter"
+	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/zhipu"
 )
 
 func main() {
