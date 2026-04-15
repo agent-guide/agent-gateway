@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
+	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 )
 
 // RouteSelector chooses an eligible route target for a request.
@@ -27,7 +27,7 @@ func (s DefaultRouteSelector) SelectTarget(r Route, req ResolveRequest) (*RouteT
 		candidates = append(candidates, target)
 	}
 	if len(candidates) == 0 {
-		return nil, utils.NewHTTPError(502, fmt.Sprintf("route %q has no eligible targets", r.ID))
+		return nil, statuserr.New(502, fmt.Sprintf("route %q has no eligible targets", r.ID))
 	}
 
 	var (
@@ -69,7 +69,7 @@ func (s DefaultRouteSelector) SelectTarget(r Route, req ResolveRequest) (*RouteT
 		}
 	}
 
-	return nil, utils.NewHTTPError(502, fmt.Sprintf("route %q has no eligible targets", r.ID))
+	return nil, statuserr.New(502, fmt.Sprintf("route %q has no eligible targets", r.ID))
 
 }
 

@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/api"
-	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
+	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
+	"github.com/agent-guide/caddy-agent-gateway/internal/httplog"
+	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/cloudwego/eino/schema"
@@ -75,9 +77,7 @@ func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*api.PreparedLLMApiRequ
 // ServeLLMApi handles Anthropic-compatible API requests.
 func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provider.Provider, prepared *api.PreparedLLMApiRequest) error {
 	if r.Method != http.MethodPost {
-		_ = utils.WriteLoggedError(h.logger, w, r, http.StatusMethodNotAllowed, "method not allowed", fmt.Errorf("method %s not allowed", r.Method),
-			zap.String("protocol", "anthropic"),
-		)
+		_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "anthropic"}, w, r, http.StatusMethodNotAllowed, "method not allowed", fmt.Errorf("method %s not allowed", r.Method))
 		return nil
 	}
 	if strings.HasSuffix(r.URL.Path, "/count_tokens") {
@@ -98,27 +98,20 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request, prov pr
 		var err error
 		prepared, err = h.PrepareLLMApiRequest(r)
 		if err != nil {
-			_ = utils.WriteLoggedError(h.logger, w, r, utils.StatusCode(err), err.Error(), fmt.Errorf("prepare request: %w", err),
-				zap.String("protocol", "anthropic"),
-			)
+			_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "anthropic"}, w, r, statuserr.StatusCode(err, http.StatusBadGateway), err.Error(), fmt.Errorf("prepare request: %w", err))
 			return
 		}
 		var castOK bool
 		req, castOK = prepared.RawRequest.(*MessagesRequest)
 		if !castOK || req == nil || prepared.GenerateRequest == nil {
-			_ = utils.WriteLoggedError(h.logger, w, r, http.StatusBadRequest, "invalid request", fmt.Errorf("prepare request returned invalid anthropic payload"),
-				zap.String("protocol", "anthropic"),
-			)
+			_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "anthropic"}, w, r, http.StatusBadRequest, "invalid request", fmt.Errorf("prepare request returned invalid anthropic payload"))
 			return
 		}
 	}
 
 	genReq := prepared.GenerateRequest
 	if prov == nil {
-		_ = utils.WriteLoggedError(h.logger, w, r, http.StatusServiceUnavailable, "provider is not configured", fmt.Errorf("provider is not configured"),
-			zap.String("protocol", "anthropic"),
-			zap.String("model", genReq.Model),
-		)
+		_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "anthropic", Model: genReq.Model}, w, r, http.StatusServiceUnavailable, "provider is not configured", fmt.Errorf("provider is not configured"))
 		return
 	}
 
@@ -129,24 +122,18 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request, prov pr
 
 	resp, err := prov.Generate(r.Context(), genReq)
 	if err != nil {
-		_ = utils.WriteLoggedError(h.logger, w, r, http.StatusBadGateway, err.Error(), fmt.Errorf("generate response: %w", err),
-			zap.String("protocol", "anthropic"),
-			zap.String("model", genReq.Model),
-		)
+		_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "anthropic", Model: genReq.Model}, w, r, http.StatusBadGateway, err.Error(), fmt.Errorf("generate response: %w", err))
 		return
 	}
 	conv := &Converter{}
-	_ = utils.WriteJSON(w, http.StatusOK, conv.FromInternal(resp, req.Model))
+	_ = httpjson.Write(w, http.StatusOK, conv.FromInternal(resp, req.Model))
 }
 
 func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provider.Provider, genReq *provider.GenerateRequest, model string) {
 	ctx := r.Context()
 	stream, err := prov.Stream(ctx, genReq)
 	if err != nil {
-		_ = utils.WriteLoggedError(h.logger, w, r, http.StatusBadGateway, err.Error(), fmt.Errorf("start stream: %w", err),
-			zap.String("protocol", "anthropic"),
-			zap.String("model", genReq.Model),
-		)
+		_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "anthropic", Model: genReq.Model}, w, r, http.StatusBadGateway, err.Error(), fmt.Errorf("start stream: %w", err))
 		return
 	}
 	defer stream.Close()
@@ -182,7 +169,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 			break
 		}
 		if err != nil {
-			utils.LogHTTPError(h.logger, "http request failed", r, http.StatusOK, fmt.Errorf("receive stream chunk: %w", err),
+			httplog.Error(h.logger, "http request failed", r, http.StatusOK, fmt.Errorf("receive stream chunk: %w", err),
 				zap.String("protocol", "anthropic"),
 				zap.String("model", genReq.Model),
 			)
@@ -212,7 +199,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 }
 
 func (h *Handler) handleCountTokens(w http.ResponseWriter, r *http.Request) {
-	_ = utils.WriteError(w, http.StatusNotImplemented, "count_tokens is not supported")
+	_ = httpjson.Error(w, http.StatusNotImplemented, "count_tokens is not supported")
 }
 
 // extractText returns the text content from a streaming message chunk.

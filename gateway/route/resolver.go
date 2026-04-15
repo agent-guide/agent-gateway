@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"slices"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
+	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 )
 
 // RouteLoader resolves the latest persisted route definition for a route ID.
@@ -36,13 +36,13 @@ func (r Route) ResolveTarget(req ResolveRequest, selector RouteTargetSelector) (
 func (r Route) ValidateRequestPolicy(req ResolveRequest) error {
 	if req.Model != "" {
 		if len(r.Policy.AllowedModels) > 0 && !slices.Contains(r.Policy.AllowedModels, req.Model) {
-			return utils.NewHTTPError(http.StatusForbidden, fmt.Sprintf("model %q is not allowed on route %q", req.Model, r.ID))
+			return statuserr.New(http.StatusForbidden, fmt.Sprintf("model %q is not allowed on route %q", req.Model, r.ID))
 		}
 	}
 
 	if req.Stream {
 		if r.Policy.AllowStreaming != nil && !*r.Policy.AllowStreaming {
-			return utils.NewHTTPError(http.StatusForbidden, "streaming is disabled on this route")
+			return statuserr.New(http.StatusForbidden, "streaming is disabled on this route")
 		}
 	}
 

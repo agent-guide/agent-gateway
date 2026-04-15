@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
+	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"go.uber.org/zap"
 )
@@ -23,58 +23,58 @@ type cliAuthStatus struct {
 
 func (h *Handler) handleListCLIAuthAuthenticators(w http.ResponseWriter, r *http.Request) {
 	if h.cliauthManager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "auth manager not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "auth manager not configured")
 		return
 	}
 
-	_ = utils.WriteJSON(w, http.StatusOK, map[string]any{"items": h.cliauthManager.ListAuthenticatorStates()})
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": h.cliauthManager.ListAuthenticatorStates()})
 }
 
 func (h *Handler) handleEnableCLIAuthAuthenticator(w http.ResponseWriter, r *http.Request) {
 	if h.cliauthManager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "auth manager not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "auth manager not configured")
 		return
 	}
 
 	name := strings.ToLower(strings.TrimSpace(r.PathValue("authenticator_name")))
 	if name == "" {
-		_ = utils.WriteError(w, http.StatusBadRequest, "authenticator_name is required")
+		_ = httpjson.Error(w, http.StatusBadRequest, "authenticator_name is required")
 		return
 	}
 
 	_, existed := h.cliauthManager.AuthenticatorState(name)
 	state, err := h.cliauthManager.EnableAuthenticator(name)
 	if err != nil {
-		_ = utils.WriteError(w, http.StatusNotFound, err.Error())
+		_ = httpjson.Error(w, http.StatusNotFound, err.Error())
 		return
 	}
 	status := http.StatusCreated
 	if existed {
 		status = http.StatusOK
 	}
-	_ = utils.WriteJSON(w, status, map[string]any{"status": "enabled", "authenticator": state})
+	_ = httpjson.Write(w, status, map[string]any{"status": "enabled", "authenticator": state})
 }
 
 func (h *Handler) handleDisableCLIAuthAuthenticator(w http.ResponseWriter, r *http.Request) {
 	if h.cliauthManager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "auth manager not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "auth manager not configured")
 		return
 	}
 
 	name := strings.ToLower(strings.TrimSpace(r.PathValue("authenticator_name")))
 	if name == "" {
-		_ = utils.WriteError(w, http.StatusBadRequest, "authenticator_name is required")
+		_ = httpjson.Error(w, http.StatusBadRequest, "authenticator_name is required")
 		return
 	}
 	if err := h.cliauthManager.DisableAuthenticator(name); err != nil {
 		if errors.Is(err, cliauth.ErrAuthenticatorReadOnly) {
-			_ = utils.WriteError(w, http.StatusConflict, err.Error())
+			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, map[string]string{"status": "disabled", "authenticator_name": name})
+	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "disabled", "authenticator_name": name})
 }
 
 // handleStartCLIAuthAuthenticatorLogin triggers a provider-specific CLI auth flow asynchronously.
@@ -85,19 +85,19 @@ func (h *Handler) handleDisableCLIAuthAuthenticator(w http.ResponseWriter, r *ht
 // credential is registered with the auth manager.
 func (h *Handler) handleStartCLIAuthAuthenticatorLogin(w http.ResponseWriter, r *http.Request) {
 	if h.cliauthManager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "auth manager not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "auth manager not configured")
 		return
 	}
 
 	requestedName := strings.ToLower(strings.TrimSpace(r.PathValue("authenticator_name")))
 	if requestedName == "" {
-		_ = utils.WriteError(w, http.StatusBadRequest, "authenticator_name is required")
+		_ = httpjson.Error(w, http.StatusBadRequest, "authenticator_name is required")
 		return
 	}
 
 	auth, ok := h.cliauthManager.GetAuthenticator(requestedName)
 	if !ok {
-		_ = utils.WriteError(w, http.StatusNotFound, requestedName+" authenticator not enabled")
+		_ = httpjson.Error(w, http.StatusNotFound, requestedName+" authenticator not enabled")
 		return
 	}
 
@@ -137,7 +137,7 @@ func (h *Handler) handleStartCLIAuthAuthenticatorLogin(w http.ResponseWriter, r 
 			zap.String("credential_id", cred.ID))
 	}()
 
-	_ = utils.WriteJSON(w, http.StatusAccepted, map[string]string{
+	_ = httpjson.Write(w, http.StatusAccepted, map[string]string{
 		"status":             "login_started",
 		"authenticator_name": requestedName,
 		"message":            "CLI login initiated. Complete the provider authentication flow on the server to register the credential.",
@@ -149,21 +149,21 @@ func (h *Handler) handleStartCLIAuthAuthenticatorLogin(w http.ResponseWriter, r 
 func (h *Handler) handleGetCLIAuthAuthenticatorLoginStatus(w http.ResponseWriter, r *http.Request) {
 	cliname := strings.ToLower(strings.TrimSpace(r.PathValue("authenticator_name")))
 	if cliname == "" {
-		_ = utils.WriteError(w, http.StatusBadRequest, "authenticator_name is required")
+		_ = httpjson.Error(w, http.StatusBadRequest, "authenticator_name is required")
 		return
 	}
 
 	val, ok := h.cliAuthSessions.Load(cliname)
 	if !ok {
-		_ = utils.WriteError(w, http.StatusNotFound, "no login session found for "+cliname)
+		_ = httpjson.Error(w, http.StatusNotFound, "no login session found for "+cliname)
 		return
 	}
 	status, ok := val.(cliAuthStatus)
 	if !ok {
-		_ = utils.WriteError(w, http.StatusInternalServerError, "invalid login session state")
+		_ = httpjson.Error(w, http.StatusInternalServerError, "invalid login session state")
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, status)
+	_ = httpjson.Write(w, http.StatusOK, status)
 }
 
 func (h *Handler) storeCLIAuthStatus(cliname string, status *cliAuthStatus) {

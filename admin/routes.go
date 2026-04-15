@@ -10,7 +10,7 @@ import (
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
 	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
-	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
+	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"gorm.io/gorm"
 )
@@ -78,7 +78,9 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodDelete, Path: "/admin/local_api_keys/{key}", Handler: h.handleDeleteLocalAPIKey, RequireAuth: true},
 		// Credentials (api_key and cliauth)
 		{Method: http.MethodGet, Path: "/admin/credentials", Handler: h.handleListCredentials, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/credentials", Handler: h.handleCreateCredential, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/credentials/{credential_id}", Handler: h.handleGetCredential, RequireAuth: true},
+		{Method: http.MethodPut, Path: "/admin/credentials/{credential_id}", Handler: h.handleUpdateCredential, RequireAuth: true},
 		{Method: http.MethodDelete, Path: "/admin/credentials/{credential_id}", Handler: h.handleDeleteCredential, RequireAuth: true},
 
 		// CLI Auth Authenticators
@@ -127,13 +129,13 @@ func (h *Handler) Routes() []Route {
 }
 
 func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
-	_ = utils.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (h *Handler) handleListProviders(w http.ResponseWriter, r *http.Request) {
 	manager := h.providerManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "provider manager is not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "provider manager is not configured")
 		return
 	}
 
@@ -141,48 +143,48 @@ func (h *Handler) handleListProviders(w http.ResponseWriter, r *http.Request) {
 		ProviderName: r.URL.Query().Get("provider_name"),
 	})
 	if err != nil {
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	providers := make([]ProviderView, 0, len(items))
 	for _, cfg := range items {
 		providers = append(providers, providerViewFromConfig(manager, cfg))
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, map[string]any{"items": providers})
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": providers})
 }
 
 func (h *Handler) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 	manager := h.providerManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "provider manager is not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "provider manager is not configured")
 		return
 	}
 
 	var cfg provider.ProviderConfig
-	if err := utils.DecodeJSON(r, &cfg); err != nil {
-		_ = utils.WriteError(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+	if err := httpjson.Decode(r, &cfg); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}
 	if cfg.Id == "" || cfg.ProviderName == "" {
-		_ = utils.WriteError(w, http.StatusBadRequest, "id and provider_name are required")
+		_ = httpjson.Error(w, http.StatusBadRequest, "id and provider_name are required")
 		return
 	}
 	if err := manager.CreateConfig(r.Context(), cfg); err != nil {
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	created, err := manager.GetConfig(r.Context(), cfg.Id)
 	if err != nil {
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusCreated, providerViewFromConfig(manager, created))
+	_ = httpjson.Write(w, http.StatusCreated, providerViewFromConfig(manager, created))
 }
 
 func (h *Handler) handleGetProvider(w http.ResponseWriter, r *http.Request) {
 	manager := h.providerManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "provider manager is not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "provider manager is not configured")
 		return
 	}
 
@@ -190,80 +192,80 @@ func (h *Handler) handleGetProvider(w http.ResponseWriter, r *http.Request) {
 	cfg, err := manager.GetConfig(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, gateway.ErrProviderNotConfigured) {
-			_ = utils.WriteError(w, http.StatusNotFound, "provider not found")
+			_ = httpjson.Error(w, http.StatusNotFound, "provider not found")
 			return
 		}
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, providerViewFromConfig(manager, cfg))
+	_ = httpjson.Write(w, http.StatusOK, providerViewFromConfig(manager, cfg))
 }
 
 func (h *Handler) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	manager := h.providerManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "provider manager is not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "provider manager is not configured")
 		return
 	}
 
 	var cfg provider.ProviderConfig
-	if err := utils.DecodeJSON(r, &cfg); err != nil {
-		_ = utils.WriteError(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+	if err := httpjson.Decode(r, &cfg); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}
 	if cfg.ProviderName == "" {
-		_ = utils.WriteError(w, http.StatusBadRequest, "provider_name is required")
+		_ = httpjson.Error(w, http.StatusBadRequest, "provider_name is required")
 		return
 	}
 
 	id := r.PathValue("id")
 	if cfg.Id != "" && cfg.Id != id {
-		_ = utils.WriteError(w, http.StatusBadRequest, "body id must match path id")
+		_ = httpjson.Error(w, http.StatusBadRequest, "body id must match path id")
 		return
 	}
 	cfg.Id = id
 	if err := manager.UpdateConfig(r.Context(), id, cfg); err != nil {
 		if errors.Is(err, gateway.ErrProviderNotConfigured) || errors.Is(err, gorm.ErrRecordNotFound) {
-			_ = utils.WriteError(w, http.StatusNotFound, "provider not found")
+			_ = httpjson.Error(w, http.StatusNotFound, "provider not found")
 			return
 		}
 		if errors.Is(err, gateway.ErrStaticProviderReadOnly) {
-			_ = utils.WriteError(w, http.StatusConflict, err.Error())
+			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	updatedCfg, err := manager.GetConfig(r.Context(), id)
 	if err != nil {
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, providerViewFromConfig(manager, updatedCfg))
+	_ = httpjson.Write(w, http.StatusOK, providerViewFromConfig(manager, updatedCfg))
 }
 
 func (h *Handler) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 	manager := h.providerManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "provider manager is not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "provider manager is not configured")
 		return
 	}
 
 	id := r.PathValue("id")
 	if err := manager.DeleteConfig(r.Context(), id); err != nil {
 		if errors.Is(err, gateway.ErrStaticProviderReadOnly) {
-			_ = utils.WriteError(w, http.StatusConflict, err.Error())
+			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
 		if errors.Is(err, gateway.ErrProviderNotConfigured) || errors.Is(err, gorm.ErrRecordNotFound) {
-			_ = utils.WriteError(w, http.StatusNotFound, "provider not found")
+			_ = httpjson.Error(w, http.StatusNotFound, "provider not found")
 			return
 		}
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted", "id": id})
+	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "deleted", "id": id})
 }
 
 func (h *Handler) handleEnableProvider(w http.ResponseWriter, r *http.Request) {
@@ -277,7 +279,7 @@ func (h *Handler) handleDisableProvider(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) handleSetProviderDisabled(w http.ResponseWriter, r *http.Request, disabled bool) {
 	manager := h.providerManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "provider manager is not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "provider manager is not configured")
 		return
 	}
 
@@ -285,47 +287,47 @@ func (h *Handler) handleSetProviderDisabled(w http.ResponseWriter, r *http.Reque
 	cfg, err := manager.GetConfig(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, gateway.ErrProviderNotConfigured) {
-			_ = utils.WriteError(w, http.StatusNotFound, "provider not found")
+			_ = httpjson.Error(w, http.StatusNotFound, "provider not found")
 			return
 		}
 		if errors.Is(err, gateway.ErrProviderDisabled) && !disabled {
-			_ = utils.WriteError(w, http.StatusNotFound, "provider not found")
+			_ = httpjson.Error(w, http.StatusNotFound, "provider not found")
 			return
 		}
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	cfg.Disabled = disabled
 
 	if err := manager.UpdateConfig(r.Context(), id, cfg); err != nil {
 		if errors.Is(err, gateway.ErrProviderNotConfigured) || errors.Is(err, gorm.ErrRecordNotFound) {
-			_ = utils.WriteError(w, http.StatusNotFound, "provider not found")
+			_ = httpjson.Error(w, http.StatusNotFound, "provider not found")
 			return
 		}
 		if errors.Is(err, gateway.ErrStaticProviderReadOnly) {
-			_ = utils.WriteError(w, http.StatusConflict, err.Error())
+			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	updatedCfg, err := manager.GetConfig(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, gateway.ErrProviderDisabled) && disabled {
-			_ = utils.WriteJSON(w, http.StatusOK, providerViewFromConfig(manager, cfg))
+			_ = httpjson.Write(w, http.StatusOK, providerViewFromConfig(manager, cfg))
 			return
 		}
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, providerViewFromConfig(manager, updatedCfg))
+	_ = httpjson.Write(w, http.StatusOK, providerViewFromConfig(manager, updatedCfg))
 }
 
 func (h *Handler) handleListRoutes(w http.ResponseWriter, r *http.Request) {
 	manager := h.routeManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "route manager is not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "route manager is not configured")
 		return
 	}
 
@@ -337,37 +339,37 @@ func (h *Handler) handleListRoutes(w http.ResponseWriter, r *http.Request) {
 
 	items, err := manager.List(r.Context(), gateway.RouteListOptions{Tag: tag, TagPrefix: tagPrefix})
 	if err != nil {
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	views := make([]RouteView, 0, len(items))
 	for _, item := range items {
 		views = append(views, routeViewFromRoute(manager, item))
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, map[string]any{"items": views})
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": views})
 }
 
 func (h *Handler) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 	manager := h.routeManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "route manager is not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "route manager is not configured")
 		return
 	}
 
 	var route routepkg.Route
-	if err := utils.DecodeJSON(r, &route); err != nil {
-		_ = utils.WriteError(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+	if err := httpjson.Decode(r, &route); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}
 	if route.ID == "" {
-		_ = utils.WriteError(w, http.StatusBadRequest, "id is required")
+		_ = httpjson.Error(w, http.StatusBadRequest, "id is required")
 		return
 	}
 	if route.Name == "" {
 		route.Name = route.ID
 	}
 	if len(route.Targets) == 0 {
-		_ = utils.WriteError(w, http.StatusBadRequest, "at least one target is required")
+		_ = httpjson.Error(w, http.StatusBadRequest, "at least one target is required")
 		return
 	}
 	route.Policy.Defaults()
@@ -379,44 +381,44 @@ func (h *Handler) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 
 	if err := manager.Create(r.Context(), route, tag); err != nil {
 		if errors.Is(err, gateway.ErrStaticRouteReadOnly) {
-			_ = utils.WriteError(w, http.StatusConflict, err.Error())
+			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusCreated, route)
+	_ = httpjson.Write(w, http.StatusCreated, route)
 }
 
 func (h *Handler) handleGetRoute(w http.ResponseWriter, r *http.Request) {
 	manager := h.routeManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "route manager is not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "route manager is not configured")
 		return
 	}
 
 	item, err := manager.Get(r.Context(), r.PathValue("id"))
 	if err != nil {
 		if errors.Is(err, gateway.ErrRouteNotConfigured) {
-			_ = utils.WriteError(w, http.StatusNotFound, "route not found")
+			_ = httpjson.Error(w, http.StatusNotFound, "route not found")
 			return
 		}
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, routeViewFromRoute(manager, item))
+	_ = httpjson.Write(w, http.StatusOK, routeViewFromRoute(manager, item))
 }
 
 func (h *Handler) handleUpdateRoute(w http.ResponseWriter, r *http.Request) {
 	manager := h.routeManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "route manager is not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "route manager is not configured")
 		return
 	}
 
 	var route routepkg.Route
-	if err := utils.DecodeJSON(r, &route); err != nil {
-		_ = utils.WriteError(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+	if err := httpjson.Decode(r, &route); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}
 	id := r.PathValue("id")
@@ -424,56 +426,56 @@ func (h *Handler) handleUpdateRoute(w http.ResponseWriter, r *http.Request) {
 		route.ID = id
 	}
 	if route.ID != id {
-		_ = utils.WriteError(w, http.StatusBadRequest, "route id in body must match path")
+		_ = httpjson.Error(w, http.StatusBadRequest, "route id in body must match path")
 		return
 	}
 	if route.Name == "" {
 		route.Name = route.ID
 	}
 	if len(route.Targets) == 0 {
-		_ = utils.WriteError(w, http.StatusBadRequest, "at least one target is required")
+		_ = httpjson.Error(w, http.StatusBadRequest, "at least one target is required")
 		return
 	}
 	route.Policy.Defaults()
 
 	if err := manager.Update(r.Context(), id, route); err != nil {
 		if errors.Is(err, gateway.ErrStaticRouteReadOnly) {
-			_ = utils.WriteError(w, http.StatusConflict, err.Error())
+			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			_ = utils.WriteError(w, http.StatusNotFound, "route not found")
+			_ = httpjson.Error(w, http.StatusNotFound, "route not found")
 			return
 		}
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	item, err := manager.Get(r.Context(), id)
 	if err != nil {
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, item)
+	_ = httpjson.Write(w, http.StatusOK, item)
 }
 
 func (h *Handler) handleDeleteRoute(w http.ResponseWriter, r *http.Request) {
 	manager := h.routeManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "route manager is not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "route manager is not configured")
 		return
 	}
 
 	id := r.PathValue("id")
 	if err := manager.Delete(r.Context(), id); err != nil {
 		if errors.Is(err, gateway.ErrStaticRouteReadOnly) {
-			_ = utils.WriteError(w, http.StatusConflict, err.Error())
+			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted", "id": id})
+	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "deleted", "id": id})
 }
 
 func (h *Handler) handleEnableRoute(w http.ResponseWriter, r *http.Request) {
@@ -487,7 +489,7 @@ func (h *Handler) handleDisableRoute(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleSetRouteDisabled(w http.ResponseWriter, r *http.Request, disabled bool) {
 	manager := h.routeManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "route manager is not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "route manager is not configured")
 		return
 	}
 
@@ -495,131 +497,131 @@ func (h *Handler) handleSetRouteDisabled(w http.ResponseWriter, r *http.Request,
 	item, err := manager.Get(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, gateway.ErrRouteNotConfigured) {
-			_ = utils.WriteError(w, http.StatusNotFound, "route not found")
+			_ = httpjson.Error(w, http.StatusNotFound, "route not found")
 			return
 		}
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	item.Disabled = disabled
 
 	if err := manager.Update(r.Context(), id, item); err != nil {
 		if errors.Is(err, gateway.ErrStaticRouteReadOnly) {
-			_ = utils.WriteError(w, http.StatusConflict, err.Error())
+			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			_ = utils.WriteError(w, http.StatusNotFound, "route not found")
+			_ = httpjson.Error(w, http.StatusNotFound, "route not found")
 			return
 		}
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	updated, err := manager.Get(r.Context(), id)
 	if err != nil {
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, routeViewFromRoute(manager, updated))
+	_ = httpjson.Write(w, http.StatusOK, routeViewFromRoute(manager, updated))
 }
 
 func (h *Handler) handleListLocalAPIKeys(w http.ResponseWriter, r *http.Request) {
 	manager := h.localAPIKeyManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "local api key manager not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "local api key manager not configured")
 		return
 	}
 
 	userID := r.URL.Query().Get("user_id")
 	sessionUsername := h.sessionUsername(r)
 	if sessionUsername == "" {
-		_ = utils.WriteError(w, http.StatusForbidden, "forbidden")
+		_ = httpjson.Error(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	if userID != "" && userID != sessionUsername {
-		_ = utils.WriteError(w, http.StatusForbidden, "forbidden")
+		_ = httpjson.Error(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	userID = sessionUsername
 
 	items, err := manager.List(r.Context(), gateway.LocalAPIKeyListOptions{UserID: userID})
 	if err != nil {
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	views := make([]LocalAPIKeyView, 0, len(items))
 	for _, item := range items {
 		views = append(views, localAPIKeyViewFromKey(manager, item))
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, map[string]any{"items": views})
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": views})
 }
 
 func (h *Handler) handleCreateLocalAPIKey(w http.ResponseWriter, r *http.Request) {
 	manager := h.localAPIKeyManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "local api key manager not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "local api key manager not configured")
 		return
 	}
 
 	var key localapikeypkg.LocalAPIKey
-	if err := utils.DecodeJSON(r, &key); err != nil {
-		_ = utils.WriteError(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+	if err := httpjson.Decode(r, &key); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}
 
 	sessionUsername := h.sessionUsername(r)
 	if sessionUsername == "" {
-		_ = utils.WriteError(w, http.StatusForbidden, "forbidden")
+		_ = httpjson.Error(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	if key.UserID != "" && key.UserID != sessionUsername {
-		_ = utils.WriteError(w, http.StatusForbidden, "forbidden")
+		_ = httpjson.Error(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	key.UserID = sessionUsername
 
 	if key.Key == "" {
-		_ = utils.WriteError(w, http.StatusBadRequest, "key is required")
+		_ = httpjson.Error(w, http.StatusBadRequest, "key is required")
 		return
 	}
 
 	if err := manager.Create(r.Context(), key); err != nil {
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusCreated, key)
+	_ = httpjson.Write(w, http.StatusCreated, key)
 }
 
 func (h *Handler) handleGetLocalAPIKey(w http.ResponseWriter, r *http.Request) {
 	manager := h.localAPIKeyManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "local api key manager not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "local api key manager not configured")
 		return
 	}
 
 	item, err := manager.Get(r.Context(), r.PathValue("key"))
 	if err != nil {
 		if errors.Is(err, gateway.ErrLocalAPIKeyNotConfigured) {
-			_ = utils.WriteError(w, http.StatusNotFound, "local api key not found")
+			_ = httpjson.Error(w, http.StatusNotFound, "local api key not found")
 			return
 		}
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, localAPIKeyViewFromKey(manager, item))
+	_ = httpjson.Write(w, http.StatusOK, localAPIKeyViewFromKey(manager, item))
 }
 
 func (h *Handler) handleUpdateLocalAPIKey(w http.ResponseWriter, r *http.Request) {
 	manager := h.localAPIKeyManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "local api key manager not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "local api key manager not configured")
 		return
 	}
 
 	var key localapikeypkg.LocalAPIKey
-	if err := utils.DecodeJSON(r, &key); err != nil {
-		_ = utils.WriteError(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+	if err := httpjson.Decode(r, &key); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}
 	pathKey := r.PathValue("key")
@@ -627,39 +629,39 @@ func (h *Handler) handleUpdateLocalAPIKey(w http.ResponseWriter, r *http.Request
 		key.Key = pathKey
 	}
 	if key.Key != pathKey {
-		_ = utils.WriteError(w, http.StatusBadRequest, "local api key in body must match path")
+		_ = httpjson.Error(w, http.StatusBadRequest, "local api key in body must match path")
 		return
 	}
 
 	if _, err := manager.Get(r.Context(), pathKey); err != nil {
 		if errors.Is(err, gateway.ErrLocalAPIKeyNotConfigured) {
-			_ = utils.WriteError(w, http.StatusNotFound, "local api key not found")
+			_ = httpjson.Error(w, http.StatusNotFound, "local api key not found")
 			return
 		}
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	if err := manager.Update(r.Context(), key.Key, key); err != nil {
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, key)
+	_ = httpjson.Write(w, http.StatusOK, key)
 }
 
 func (h *Handler) handleDeleteLocalAPIKey(w http.ResponseWriter, r *http.Request) {
 	manager := h.localAPIKeyManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "local api key manager not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "local api key manager not configured")
 		return
 	}
 
 	key := r.PathValue("key")
 	if err := manager.Delete(r.Context(), key); err != nil {
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted", "key": key})
+	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "deleted", "key": key})
 }
 
 func (h *Handler) handleEnableLocalAPIKey(w http.ResponseWriter, r *http.Request) {
@@ -673,7 +675,7 @@ func (h *Handler) handleDisableLocalAPIKey(w http.ResponseWriter, r *http.Reques
 func (h *Handler) handleSetLocalAPIKeyDisabled(w http.ResponseWriter, r *http.Request, disabled bool) {
 	manager := h.localAPIKeyManagerForRoutes()
 	if manager == nil {
-		_ = utils.WriteError(w, http.StatusServiceUnavailable, "local api key manager not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "local api key manager not configured")
 		return
 	}
 
@@ -681,82 +683,82 @@ func (h *Handler) handleSetLocalAPIKeyDisabled(w http.ResponseWriter, r *http.Re
 	key, err := manager.Get(r.Context(), keyID)
 	if err != nil {
 		if errors.Is(err, gateway.ErrLocalAPIKeyNotConfigured) {
-			_ = utils.WriteError(w, http.StatusNotFound, "local api key not found")
+			_ = httpjson.Error(w, http.StatusNotFound, "local api key not found")
 			return
 		}
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	key.Disabled = disabled
 
 	if err := manager.Update(r.Context(), keyID, key); err != nil {
 		if errors.Is(err, gateway.ErrStaticLocalAPIKeyReadOnly) {
-			_ = utils.WriteError(w, http.StatusConflict, err.Error())
+			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			_ = utils.WriteError(w, http.StatusNotFound, "local api key not found")
+			_ = httpjson.Error(w, http.StatusNotFound, "local api key not found")
 			return
 		}
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	updated, err := manager.Get(r.Context(), keyID)
 	if err != nil {
-		_ = utils.WriteError(w, http.StatusInternalServerError, err.Error())
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = utils.WriteJSON(w, http.StatusOK, localAPIKeyViewFromKey(manager, updated))
+	_ = httpjson.Write(w, http.StatusOK, localAPIKeyViewFromKey(manager, updated))
 }
 
 func (h *Handler) handleListMCPClients(w http.ResponseWriter, r *http.Request) {
-	_ = utils.WriteError(w, http.StatusNotImplemented, "not implemented")
+	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 func (h *Handler) handleAddMCPClient(w http.ResponseWriter, r *http.Request) {
-	_ = utils.WriteError(w, http.StatusNotImplemented, "not implemented")
+	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 func (h *Handler) handleGetMCPClient(w http.ResponseWriter, r *http.Request) {
-	_ = utils.WriteError(w, http.StatusNotImplemented, "not implemented")
+	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 func (h *Handler) handleUpdateMCPClient(w http.ResponseWriter, r *http.Request) {
-	_ = utils.WriteError(w, http.StatusNotImplemented, "not implemented")
+	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 func (h *Handler) handleRemoveMCPClient(w http.ResponseWriter, r *http.Request) {
-	_ = utils.WriteError(w, http.StatusNotImplemented, "not implemented")
+	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 func (h *Handler) handleListMCPTools(w http.ResponseWriter, r *http.Request) {
-	_ = utils.WriteError(w, http.StatusNotImplemented, "not implemented")
+	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 
 func (h *Handler) handleGetMemoryConfig(w http.ResponseWriter, r *http.Request) {
-	_ = utils.WriteError(w, http.StatusNotImplemented, "not implemented")
+	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 func (h *Handler) handleSetMemoryConfig(w http.ResponseWriter, r *http.Request) {
-	_ = utils.WriteError(w, http.StatusNotImplemented, "not implemented")
+	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 func (h *Handler) handleSearchMemory(w http.ResponseWriter, r *http.Request) {
-	_ = utils.WriteError(w, http.StatusNotImplemented, "not implemented")
+	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 
 func (h *Handler) handleListAgents(w http.ResponseWriter, r *http.Request) {
-	_ = utils.WriteError(w, http.StatusNotImplemented, "not implemented")
+	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 func (h *Handler) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
-	_ = utils.WriteError(w, http.StatusNotImplemented, "not implemented")
+	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 func (h *Handler) handleGetAgent(w http.ResponseWriter, r *http.Request) {
-	_ = utils.WriteError(w, http.StatusNotImplemented, "not implemented")
+	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 func (h *Handler) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
-	_ = utils.WriteError(w, http.StatusNotImplemented, "not implemented")
+	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 func (h *Handler) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
-	_ = utils.WriteError(w, http.StatusNotImplemented, "not implemented")
+	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 
 func (h *Handler) handleMetrics(w http.ResponseWriter, r *http.Request) {
-	_ = utils.WriteError(w, http.StatusNotImplemented, "not implemented")
+	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 
 func (h *Handler) providerStore() intf.ProviderConfigStorer {

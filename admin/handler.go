@@ -7,7 +7,8 @@ import (
 	"github.com/agent-guide/caddy-agent-gateway/admin/caddymgr"
 	"github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
-	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
+	"github.com/agent-guide/caddy-agent-gateway/internal/httpcapture"
+	"github.com/agent-guide/caddy-agent-gateway/internal/httplog"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"go.uber.org/zap"
@@ -79,24 +80,24 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 
 // ServeHTTP dispatches admin API requests, including CORS preflight handling.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	lrw := utils.NewLoggingResponseWriter(w)
+	rr := httpcapture.NewResponseRecorder(w)
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			utils.LogHTTPError(h.logger, "admin request panicked", r, http.StatusInternalServerError, nil, zap.Any("panic", recovered))
-			http.Error(lrw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			httplog.Error(h.logger, "admin request panicked", r, http.StatusInternalServerError, nil, zap.Any("panic", recovered))
+			http.Error(rr, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
-		utils.LogHTTPResponseError(h.logger, "admin request failed", r, lrw)
+		httplog.ResponseError(h.logger, "admin request failed", r, rr)
 	}()
 
 	if origin := r.Header.Get("Origin"); origin != "" {
-		lrw.Header().Set("Access-Control-Allow-Origin", origin)
-		lrw.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		lrw.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-		lrw.Header().Set("Access-Control-Max-Age", "86400")
+		rr.Header().Set("Access-Control-Allow-Origin", origin)
+		rr.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		rr.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+		rr.Header().Set("Access-Control-Max-Age", "86400")
 	}
 	if r.Method == "OPTIONS" {
-		lrw.WriteHeader(http.StatusNoContent)
+		rr.WriteHeader(http.StatusNoContent)
 		return
 	}
-	h.mux.ServeHTTP(lrw, r)
+	h.mux.ServeHTTP(rr, r)
 }

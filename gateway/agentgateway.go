@@ -10,7 +10,7 @@ import (
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
-	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
+	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
@@ -150,15 +150,15 @@ func (g *AgentGateway) ValidateRoute(ctx context.Context, routeID string) error 
 
 func (g *AgentGateway) Resolve(ctx context.Context, routeID string, req routepkg.ResolveRequest) (*ResolvedRequest, error) {
 	if routeID == "" {
-		return nil, utils.NewHTTPError(http.StatusServiceUnavailable, "route id is not configured")
+		return nil, statuserr.New(http.StatusServiceUnavailable, "route id is not configured")
 	}
 
 	r, err := g.LookupRoute(ctx, routeID)
 	if err != nil {
-		return nil, utils.NewHTTPError(http.StatusServiceUnavailable, err.Error())
+		return nil, statuserr.New(http.StatusServiceUnavailable, err.Error())
 	}
 	if r.Disabled {
-		return nil, utils.NewHTTPError(http.StatusForbidden, fmt.Sprintf("route %q is disabled", routeID))
+		return nil, statuserr.New(http.StatusForbidden, fmt.Sprintf("route %q is disabled", routeID))
 	}
 
 	localKey, err := g.resolveLocalAPIKey(ctx, req.HTTPRequest, r)
@@ -172,14 +172,14 @@ func (g *AgentGateway) Resolve(ctx context.Context, routeID string, req routepkg
 
 	resolver := g.providerResolver()
 	if resolver == nil {
-		return nil, utils.NewHTTPError(http.StatusServiceUnavailable, "provider resolver is not configured")
+		return nil, statuserr.New(http.StatusServiceUnavailable, "provider resolver is not configured")
 	}
 	prov, providerName, err := resolver.ResolveProvider(ctx, target.ProviderRef)
 	if err != nil || prov == nil {
 		if errors.Is(err, ErrProviderDisabled) {
-			return nil, utils.NewHTTPError(http.StatusForbidden, fmt.Sprintf("route target provider %q is disabled", target.ProviderRef))
+			return nil, statuserr.New(http.StatusForbidden, fmt.Sprintf("route target provider %q is disabled", target.ProviderRef))
 		}
-		return nil, utils.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("route target provider %q is not configured", target.ProviderRef))
+		return nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("route target provider %q is not configured", target.ProviderRef))
 	}
 	if providerName == "" {
 		providerName = target.ProviderRef
@@ -211,11 +211,11 @@ func (g *AgentGateway) resolveLocalAPIKey(ctx context.Context, httpReq *http.Req
 		return localapikeypkg.ValidateForRoute(r.ID, r.Policy.Auth.RequireLocalAPIKey, nil)
 	}
 	if localAPIKeyManager == nil {
-		return nil, utils.NewHTTPError(http.StatusServiceUnavailable, "local api key manager is not configured")
+		return nil, statuserr.New(http.StatusServiceUnavailable, "local api key manager is not configured")
 	}
 	key, err := localAPIKeyManager.Get(ctx, rawKey)
 	if err != nil {
-		return nil, utils.NewHTTPError(http.StatusUnauthorized, "invalid local api key")
+		return nil, statuserr.New(http.StatusUnauthorized, "invalid local api key")
 	}
 	return localapikeypkg.ValidateForRoute(r.ID, r.Policy.Auth.RequireLocalAPIKey, &key)
 }

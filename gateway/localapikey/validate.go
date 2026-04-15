@@ -6,24 +6,24 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
+	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 )
 
 func ValidateForRoute(routeID string, requireLocalAPIKey bool, key *LocalAPIKey) (*LocalAPIKey, error) {
 	if key == nil {
 		if requireLocalAPIKey {
-			return nil, utils.NewHTTPError(http.StatusUnauthorized, "local api key is required")
+			return nil, statuserr.New(http.StatusUnauthorized, "local api key is required")
 		}
 		return nil, nil
 	}
 	if key.Disabled {
-		return nil, utils.NewHTTPError(http.StatusForbidden, "local api key is disabled")
+		return nil, statuserr.New(http.StatusForbidden, "local api key is disabled")
 	}
 	if !key.ExpiresAt.IsZero() && key.ExpiresAt.Before(time.Now()) {
-		return nil, utils.NewHTTPError(http.StatusForbidden, "local api key is expired")
+		return nil, statuserr.New(http.StatusForbidden, "local api key is expired")
 	}
 	if len(key.AllowedRouteIDs) > 0 && !slices.Contains(key.AllowedRouteIDs, routeID) {
-		return nil, utils.NewHTTPError(http.StatusForbidden, "local api key is not allowed to access this route")
+		return nil, statuserr.New(http.StatusForbidden, "local api key is not allowed to access this route")
 	}
 	return key, nil
 }
@@ -42,4 +42,3 @@ func ExtractAPIKey(r *http.Request) string {
 	}
 	return ""
 }
-
