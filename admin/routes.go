@@ -337,7 +337,7 @@ func (h *Handler) handleListRoutes(w http.ResponseWriter, r *http.Request) {
 		tag = defaultRouteTag
 	}
 
-	items, err := manager.List(r.Context(), gateway.RouteListOptions{Tag: tag, TagPrefix: tagPrefix})
+	items, err := manager.List(r.Context(), routepkg.RouteListOptions{Tag: tag, TagPrefix: tagPrefix})
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -380,7 +380,7 @@ func (h *Handler) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := manager.Create(r.Context(), route, tag); err != nil {
-		if errors.Is(err, gateway.ErrStaticRouteReadOnly) {
+		if errors.Is(err, routepkg.ErrStaticRouteReadOnly) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -399,7 +399,7 @@ func (h *Handler) handleGetRoute(w http.ResponseWriter, r *http.Request) {
 
 	item, err := manager.Get(r.Context(), r.PathValue("id"))
 	if err != nil {
-		if errors.Is(err, gateway.ErrRouteNotConfigured) {
+		if errors.Is(err, routepkg.ErrRouteNotConfigured) {
 			_ = httpjson.Error(w, http.StatusNotFound, "route not found")
 			return
 		}
@@ -439,7 +439,7 @@ func (h *Handler) handleUpdateRoute(w http.ResponseWriter, r *http.Request) {
 	route.Policy.Defaults()
 
 	if err := manager.Update(r.Context(), id, route); err != nil {
-		if errors.Is(err, gateway.ErrStaticRouteReadOnly) {
+		if errors.Is(err, routepkg.ErrStaticRouteReadOnly) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -468,7 +468,7 @@ func (h *Handler) handleDeleteRoute(w http.ResponseWriter, r *http.Request) {
 
 	id := r.PathValue("id")
 	if err := manager.Delete(r.Context(), id); err != nil {
-		if errors.Is(err, gateway.ErrStaticRouteReadOnly) {
+		if errors.Is(err, routepkg.ErrStaticRouteReadOnly) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -496,7 +496,7 @@ func (h *Handler) handleSetRouteDisabled(w http.ResponseWriter, r *http.Request,
 	id := r.PathValue("id")
 	item, err := manager.Get(r.Context(), id)
 	if err != nil {
-		if errors.Is(err, gateway.ErrRouteNotConfigured) {
+		if errors.Is(err, routepkg.ErrRouteNotConfigured) {
 			_ = httpjson.Error(w, http.StatusNotFound, "route not found")
 			return
 		}
@@ -506,7 +506,7 @@ func (h *Handler) handleSetRouteDisabled(w http.ResponseWriter, r *http.Request,
 	item.Disabled = disabled
 
 	if err := manager.Update(r.Context(), id, item); err != nil {
-		if errors.Is(err, gateway.ErrStaticRouteReadOnly) {
+		if errors.Is(err, routepkg.ErrStaticRouteReadOnly) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -798,7 +798,7 @@ func (h *Handler) routeStore() intf.RouteStorer {
 	return store
 }
 
-func (h *Handler) routeManagerForRoutes() *gateway.RouteManager {
+func (h *Handler) routeManagerForRoutes() *routepkg.RouteManager {
 	if h.routeManager != nil {
 		return h.routeManager
 	}
@@ -807,7 +807,7 @@ func (h *Handler) routeManagerForRoutes() *gateway.RouteManager {
 	if store == nil {
 		return nil
 	}
-	return gateway.NewRouteManager(store)
+	return routepkg.NewRouteManager(store)
 }
 
 func (h *Handler) localAPIKeyStore() intf.LocalAPIKeyStorer {
@@ -846,7 +846,7 @@ func localAPIKeyViewFromKey(manager *localapikeypkg.LocalAPIKeyManager, key loca
 	return view
 }
 
-func routeViewFromRoute(manager *gateway.RouteManager, route routepkg.Route) RouteView {
+func routeViewFromRoute(manager *routepkg.RouteManager, route routepkg.Route) RouteView {
 	view := RouteView{
 		Route:    route,
 		Source:   "store",

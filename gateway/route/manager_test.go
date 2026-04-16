@@ -1,4 +1,4 @@
-package gateway
+package route
 
 import (
 	"context"
@@ -6,11 +6,10 @@ import (
 	"testing"
 
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
-	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 )
 
 type testManagedRouteStore struct {
-	items    map[string]*routepkg.Route
+	items    map[string]*Route
 	getCalls int
 }
 
@@ -28,12 +27,12 @@ func (s *testManagedRouteStore) ListByTagPrefix(_ context.Context, _ string) ([]
 }
 
 func (s *testManagedRouteStore) Create(_ context.Context, id string, _ string, obj any) error {
-	route, ok := obj.(*routepkg.Route)
+	route, ok := obj.(*Route)
 	if !ok {
 		return errors.New("unexpected type")
 	}
 	if s.items == nil {
-		s.items = map[string]*routepkg.Route{}
+		s.items = map[string]*Route{}
 	}
 	cloned := *route
 	s.items[id] = &cloned
@@ -64,7 +63,7 @@ func (s *testManagedRouteStore) Get(_ context.Context, id string) (any, error) {
 
 func TestRouteManagerGetCachesDynamicRoute(t *testing.T) {
 	store := &testManagedRouteStore{
-		items: map[string]*routepkg.Route{
+		items: map[string]*Route{
 			"chat-prod": {ID: "chat-prod"},
 		},
 	}
@@ -88,12 +87,12 @@ func TestRouteManagerGetCachesDynamicRoute(t *testing.T) {
 
 func TestRouteManagerGetPrefersStaticRoute(t *testing.T) {
 	store := &testManagedRouteStore{
-		items: map[string]*routepkg.Route{
+		items: map[string]*Route{
 			"chat-prod": {ID: "chat-prod", Name: "dynamic"},
 		},
 	}
 	manager := NewRouteManager(store)
-	manager.InitStaticRoutes([]routepkg.Route{{ID: "chat-prod", Name: "static"}})
+	manager.InitStaticRoutes([]Route{{ID: "chat-prod", Name: "static"}})
 
 	got, err := manager.Get(context.Background(), "chat-prod")
 	if err != nil {
@@ -108,12 +107,12 @@ func TestRouteManagerGetPrefersStaticRoute(t *testing.T) {
 }
 
 func TestRouteManagerCreateUpdateDeleteManageCache(t *testing.T) {
-	store := &testManagedRouteStore{items: map[string]*routepkg.Route{}}
+	store := &testManagedRouteStore{items: map[string]*Route{}}
 	manager := NewRouteManager(store)
 
-	if err := manager.Create(context.Background(), routepkg.Route{
+	if err := manager.Create(context.Background(), Route{
 		ID:      "chat-prod",
-		Targets: []routepkg.RouteTarget{{ProviderRef: "openai"}},
+		Targets: []RouteTarget{{ProviderRef: "openai"}},
 	}, ""); err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
@@ -127,9 +126,9 @@ func TestRouteManagerCreateUpdateDeleteManageCache(t *testing.T) {
 		t.Fatalf("Name = %q, want empty cached value", got.Name)
 	}
 
-	if err := manager.Update(context.Background(), "chat-prod", routepkg.Route{
+	if err := manager.Update(context.Background(), "chat-prod", Route{
 		Name:    "updated",
-		Targets: []routepkg.RouteTarget{{ProviderRef: "anthropic"}},
+		Targets: []RouteTarget{{ProviderRef: "anthropic"}},
 	}); err != nil {
 		t.Fatalf("Update returned error: %v", err)
 	}
@@ -150,10 +149,10 @@ func TestRouteManagerCreateUpdateDeleteManageCache(t *testing.T) {
 }
 
 func TestRouteManagerRejectsStaticRouteMutation(t *testing.T) {
-	manager := NewRouteManager(&testManagedRouteStore{items: map[string]*routepkg.Route{}})
-	manager.InitStaticRoutes([]routepkg.Route{{ID: "chat-prod"}})
+	manager := NewRouteManager(&testManagedRouteStore{items: map[string]*Route{}})
+	manager.InitStaticRoutes([]Route{{ID: "chat-prod"}})
 
-	if err := manager.Update(context.Background(), "chat-prod", routepkg.Route{}); !errors.Is(err, ErrStaticRouteReadOnly) {
+	if err := manager.Update(context.Background(), "chat-prod", Route{}); !errors.Is(err, ErrStaticRouteReadOnly) {
 		t.Fatalf("Update error = %v, want ErrStaticRouteReadOnly", err)
 	}
 	if err := manager.Delete(context.Background(), "chat-prod"); !errors.Is(err, ErrStaticRouteReadOnly) {

@@ -31,7 +31,7 @@ type AgentGateway struct {
 
 	configured         bool
 	configStore        configstoreintf.ConfigStorer
-	routeManager       *RouteManager
+	routeManager       *routepkg.RouteManager
 	localAPIKeyManager *localapikeypkg.LocalAPIKeyManager
 	providerManager    *ProviderManager
 	cliauthManager     *cliauth.Manager
@@ -106,7 +106,7 @@ func (g *AgentGateway) CredentialManager() *credentialmgr.Manager {
 	return g.credentialManager
 }
 
-func (g *AgentGateway) RouteManager() *RouteManager {
+func (g *AgentGateway) RouteManager() *routepkg.RouteManager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.routeManager
@@ -131,7 +131,7 @@ func (g *AgentGateway) LookupRoute(ctx context.Context, routeID string) (routepk
 	}
 	route, err := manager.Get(ctx, routeID)
 	if err != nil {
-		if errors.Is(err, ErrRouteNotConfigured) {
+		if errors.Is(err, routepkg.ErrRouteNotConfigured) {
 			return routepkg.Route{}, fmt.Errorf("route %q is not configured", routeID)
 		}
 		return routepkg.Route{}, err
@@ -266,7 +266,7 @@ func (g *AgentGateway) configureRouteManager(ctx context.Context, configStore co
 			return fmt.Errorf("get route store: %w", err)
 		}
 	}
-	g.routeManager = NewRouteManager(routeStore)
+	g.routeManager = routepkg.NewRouteManager(routeStore)
 	g.routeManager.InitStaticRoutes(staticRoutes)
 
 	return nil

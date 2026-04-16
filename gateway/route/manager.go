@@ -1,4 +1,4 @@
-package gateway
+package route
 
 import (
 	"context"
@@ -7,13 +7,17 @@ import (
 	"sync"
 
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
-	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
+	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 )
 
 var (
 	ErrRouteNotConfigured  = errors.New("route is not configured")
 	ErrStaticRouteReadOnly = errors.New("static route is read-only")
 )
+
+type ProviderResolver interface {
+	ResolveProvider(ctx context.Context, ref string) (provider.Provider, string, error)
+}
 
 type RouteListOptions struct {
 	Tag       string
@@ -23,16 +27,16 @@ type RouteListOptions struct {
 type RouteManager struct {
 	mu sync.RWMutex
 
-	staticRoutes map[string]routepkg.Route
-	dynamicCache map[string]routepkg.Route
+	staticRoutes map[string]Route
+	dynamicCache map[string]Route
 
 	routeStore configstoreintf.RouteStorer
 }
 
 func NewRouteManager(store configstoreintf.RouteStorer) *RouteManager {
 	return &RouteManager{
-		staticRoutes: map[string]routepkg.Route{},
-		dynamicCache: map[string]routepkg.Route{},
+		staticRoutes: map[string]Route{},
+		dynamicCache: map[string]Route{},
 		routeStore:   store,
 	}
 }
@@ -41,15 +45,15 @@ func (m *RouteManager) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.staticRoutes = map[string]routepkg.Route{}
-	m.dynamicCache = map[string]routepkg.Route{}
+	m.staticRoutes = map[string]Route{}
+	m.dynamicCache = map[string]Route{}
 }
 
-func (m *RouteManager) InitStaticRoutes(routes []routepkg.Route) {
+func (m *RouteManager) InitStaticRoutes(routes []Route) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.staticRoutes = make(map[string]routepkg.Route, len(routes))
+	m.staticRoutes = make(map[string]Route, len(routes))
 	for _, r := range routes {
 		if r.ID == "" {
 			continue
@@ -67,9 +71,9 @@ func (m *RouteManager) IsStatic(routeID string) bool {
 	return ok
 }
 
-func (m *RouteManager) Get(ctx context.Context, routeID string) (routepkg.Route, error) {
+func (m *RouteManager) Get(ctx context.Context, routeID string) (Route, error) {
 	if routeID == "" {
-		return routepkg.Route{}, fmt.Errorf("route_id is required")
+		return Route{}, fmt.Errorf("route_id is required")
 	}
 
 	m.mu.RLock()
@@ -88,35 +92,35 @@ func (m *RouteManager) Get(ctx context.Context, routeID string) (routepkg.Route,
 	}
 
 	if store == nil {
-		return routepkg.Route{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
+		return Route{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
 	}
 
 	item, err := store.Get(ctx, routeID)
 	if err != nil {
 		if errors.Is(err, configstoreintf.ErrNotFound) {
-			return routepkg.Route{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
+			return Route{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
 		}
-		return routepkg.Route{}, fmt.Errorf("load route %q: %w", routeID, err)
+		return Route{}, fmt.Errorf("load route %q: %w", routeID, err)
 	}
 
 	route, err := decodeRouteItem(routeID, item)
 	if err != nil {
-		return routepkg.Route{}, err
+		return Route{}, err
 	}
 	m.cacheDynamicRoute(route)
 	return route, nil
 }
 
-func (m *RouteManager) List(ctx context.Context, opts RouteListOptions) ([]routepkg.Route, error) {
+func (m *RouteManager) List(ctx context.Context, opts RouteListOptions) ([]Route, error) {
 	m.mu.RLock()
 	store := m.routeStore
-	staticRoutes := make(map[string]routepkg.Route, len(m.staticRoutes))
+	staticRoutes := make(map[string]Route, len(m.staticRoutes))
 	for id, route := range m.staticRoutes {
 		staticRoutes[id] = route
 	}
 	m.mu.RUnlock()
 
-	out := make(map[string]routepkg.Route, len(staticRoutes))
+	out := make(map[string]Route, len(staticRoutes))
 	if shouldIncludeStaticRoutes(opts) {
 		for id, route := range staticRoutes {
 			out[id] = route
@@ -140,7 +144,7 @@ func (m *RouteManager) List(ctx context.Context, opts RouteListOptions) ([]route
 		return nil, err
 	}
 
-	cached := make(map[string]routepkg.Route, len(items))
+	cached := make(map[string]Route, len(items))
 	for _, item := range items {
 		route, err := decodeRouteItem("", item)
 		if err != nil {
@@ -155,7 +159,7 @@ func (m *RouteManager) List(ctx context.Context, opts RouteListOptions) ([]route
 	return mapRoutes(out), nil
 }
 
-func (m *RouteManager) Create(ctx context.Context, route routepkg.Route, tag string) error {
+func (m *RouteManager) Create(ctx context.Context, route Route, tag string) error {
 	if route.ID == "" {
 		return fmt.Errorf("route id is required")
 	}
@@ -179,7 +183,7 @@ func (m *RouteManager) Create(ctx context.Context, route routepkg.Route, tag str
 	return nil
 }
 
-func (m *RouteManager) Update(ctx context.Context, routeID string, route routepkg.Route) error {
+func (m *RouteManager) Update(ctx context.Context, routeID string, route Route) error {
 	if routeID == "" {
 		return fmt.Errorf("route id is required")
 	}
@@ -258,7 +262,7 @@ func (m *RouteManager) ensureWritable(routeID string) error {
 	return nil
 }
 
-func (m *RouteManager) cacheDynamicRoute(route routepkg.Route) {
+func (m *RouteManager) cacheDynamicRoute(route Route) {
 	if route.ID == "" {
 		return
 	}
@@ -267,12 +271,12 @@ func (m *RouteManager) cacheDynamicRoute(route routepkg.Route) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.dynamicCache == nil {
-		m.dynamicCache = map[string]routepkg.Route{}
+		m.dynamicCache = map[string]Route{}
 	}
 	m.dynamicCache[route.ID] = route
 }
 
-func (m *RouteManager) cacheDynamicRoutes(routes map[string]routepkg.Route) {
+func (m *RouteManager) cacheDynamicRoutes(routes map[string]Route) {
 	if len(routes) == 0 {
 		return
 	}
@@ -280,7 +284,7 @@ func (m *RouteManager) cacheDynamicRoutes(routes map[string]routepkg.Route) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.dynamicCache == nil {
-		m.dynamicCache = map[string]routepkg.Route{}
+		m.dynamicCache = map[string]Route{}
 	}
 	for id, route := range routes {
 		route.Normalize()
@@ -288,13 +292,13 @@ func (m *RouteManager) cacheDynamicRoutes(routes map[string]routepkg.Route) {
 	}
 }
 
-func decodeRouteItem(routeID string, item any) (routepkg.Route, error) {
-	route, ok := item.(*routepkg.Route)
+func decodeRouteItem(routeID string, item any) (Route, error) {
+	route, ok := item.(*Route)
 	if !ok || route == nil || route.ID == "" {
 		if routeID == "" {
 			routeID = "<unknown>"
 		}
-		return routepkg.Route{}, fmt.Errorf("route %q has unexpected type %T", routeID, item)
+		return Route{}, fmt.Errorf("route %q has unexpected type %T", routeID, item)
 	}
 
 	cloned := *route
@@ -309,8 +313,8 @@ func shouldIncludeStaticRoutes(opts RouteListOptions) bool {
 	return opts.Tag == ""
 }
 
-func mapRoutes(routes map[string]routepkg.Route) []routepkg.Route {
-	out := make([]routepkg.Route, 0, len(routes))
+func mapRoutes(routes map[string]Route) []Route {
+	out := make([]Route, 0, len(routes))
 	for _, route := range routes {
 		out = append(out, route)
 	}
