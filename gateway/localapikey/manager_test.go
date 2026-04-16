@@ -1,4 +1,4 @@
-package gateway
+package localapikey
 
 import (
 	"context"
@@ -6,11 +6,10 @@ import (
 	"testing"
 
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
-	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 )
 
 type testManagedLocalAPIKeyStore struct {
-	items    map[string]*localapikeypkg.LocalAPIKey
+	items    map[string]*LocalAPIKey
 	getCalls int
 }
 
@@ -27,12 +26,12 @@ func (s *testManagedLocalAPIKeyStore) ListByUserID(_ context.Context, userID str
 }
 
 func (s *testManagedLocalAPIKeyStore) Create(_ context.Context, key string, _ string, obj any) error {
-	item, ok := obj.(*localapikeypkg.LocalAPIKey)
+	item, ok := obj.(*LocalAPIKey)
 	if !ok {
 		return errors.New("unexpected type")
 	}
 	if s.items == nil {
-		s.items = map[string]*localapikeypkg.LocalAPIKey{}
+		s.items = map[string]*LocalAPIKey{}
 	}
 	cloned := *item
 	s.items[key] = &cloned
@@ -63,7 +62,7 @@ func (s *testManagedLocalAPIKeyStore) Get(_ context.Context, key string) (any, e
 
 func TestLocalAPIKeyManagerGetCachesDynamicKey(t *testing.T) {
 	store := &testManagedLocalAPIKeyStore{
-		items: map[string]*localapikeypkg.LocalAPIKey{
+		items: map[string]*LocalAPIKey{
 			"lk-test": {Key: "lk-test", UserID: "admin"},
 		},
 	}
@@ -87,12 +86,12 @@ func TestLocalAPIKeyManagerGetCachesDynamicKey(t *testing.T) {
 
 func TestLocalAPIKeyManagerGetPrefersStaticKey(t *testing.T) {
 	store := &testManagedLocalAPIKeyStore{
-		items: map[string]*localapikeypkg.LocalAPIKey{
+		items: map[string]*LocalAPIKey{
 			"lk-test": {Key: "lk-test", Name: "dynamic"},
 		},
 	}
 	manager := NewLocalAPIKeyManager(store)
-	manager.InitStaticKeys([]localapikeypkg.LocalAPIKey{{Key: "lk-test", Name: "static"}})
+	manager.InitStaticKeys([]LocalAPIKey{{Key: "lk-test", Name: "static"}})
 
 	got, err := manager.Get(context.Background(), "lk-test")
 	if err != nil {
@@ -107,10 +106,10 @@ func TestLocalAPIKeyManagerGetPrefersStaticKey(t *testing.T) {
 }
 
 func TestLocalAPIKeyManagerCreateUpdateDeleteManageCache(t *testing.T) {
-	store := &testManagedLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}}
+	store := &testManagedLocalAPIKeyStore{items: map[string]*LocalAPIKey{}}
 	manager := NewLocalAPIKeyManager(store)
 
-	if err := manager.Create(context.Background(), localapikeypkg.LocalAPIKey{
+	if err := manager.Create(context.Background(), LocalAPIKey{
 		Key:    "lk-test",
 		UserID: "admin",
 		Name:   "created",
@@ -127,7 +126,7 @@ func TestLocalAPIKeyManagerCreateUpdateDeleteManageCache(t *testing.T) {
 		t.Fatalf("Name = %q, want created", got.Name)
 	}
 
-	if err := manager.Update(context.Background(), "lk-test", localapikeypkg.LocalAPIKey{
+	if err := manager.Update(context.Background(), "lk-test", LocalAPIKey{
 		UserID: "admin",
 		Name:   "updated",
 	}); err != nil {
@@ -150,10 +149,10 @@ func TestLocalAPIKeyManagerCreateUpdateDeleteManageCache(t *testing.T) {
 }
 
 func TestLocalAPIKeyManagerRejectsStaticKeyMutation(t *testing.T) {
-	manager := NewLocalAPIKeyManager(&testManagedLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}})
-	manager.InitStaticKeys([]localapikeypkg.LocalAPIKey{{Key: "lk-test"}})
+	manager := NewLocalAPIKeyManager(&testManagedLocalAPIKeyStore{items: map[string]*LocalAPIKey{}})
+	manager.InitStaticKeys([]LocalAPIKey{{Key: "lk-test"}})
 
-	if err := manager.Update(context.Background(), "lk-test", localapikeypkg.LocalAPIKey{}); !errors.Is(err, ErrStaticLocalAPIKeyReadOnly) {
+	if err := manager.Update(context.Background(), "lk-test", LocalAPIKey{}); !errors.Is(err, ErrStaticLocalAPIKeyReadOnly) {
 		t.Fatalf("Update error = %v, want ErrStaticLocalAPIKeyReadOnly", err)
 	}
 	if err := manager.Delete(context.Background(), "lk-test"); !errors.Is(err, ErrStaticLocalAPIKeyReadOnly) {

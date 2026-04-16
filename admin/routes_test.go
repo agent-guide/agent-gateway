@@ -371,7 +371,7 @@ func TestLocalAPIKeyGetMarksStaticKeyAsReadOnly(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	localAPIKeyManager := gateway.NewLocalAPIKeyManager(&testLocalAPIKeyStore{
+	localAPIKeyManager := localapikeypkg.NewLocalAPIKeyManager(&testLocalAPIKeyStore{
 		items: map[string]*localapikeypkg.LocalAPIKey{
 			"lk-static": {Key: "lk-static", UserID: "admin", Name: "dynamic copy"},
 		},

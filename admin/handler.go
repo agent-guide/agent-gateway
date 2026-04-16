@@ -7,6 +7,7 @@ import (
 	"github.com/agent-guide/caddy-agent-gateway/admin/caddymgr"
 	"github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
+	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpcapture"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httplog"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
@@ -20,7 +21,7 @@ type Handler struct {
 	credentialManager  *credentialmgr.Manager
 	configStore        intf.ConfigStorer
 	routeManager       *gateway.RouteManager
-	localAPIKeyManager *gateway.LocalAPIKeyManager
+	localAPIKeyManager *localapikeypkg.LocalAPIKeyManager
 	providerManager    *gateway.ProviderManager
 	caddyManager       *caddymgr.CaddyManager
 	mux                *http.ServeMux
@@ -43,7 +44,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 	var credentialMgr *credentialmgr.Manager
 	var configStore intf.ConfigStorer
 	var routeManager *gateway.RouteManager
-	var localAPIKeyManager *gateway.LocalAPIKeyManager
+	var localAPIKeyManager *localapikeypkg.LocalAPIKeyManager
 	var providerManager *gateway.ProviderManager
 	if agentGateway != nil {
 		cliauthMgr = agentGateway.CLIAuthManager()

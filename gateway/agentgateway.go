@@ -32,7 +32,7 @@ type AgentGateway struct {
 	configured         bool
 	configStore        configstoreintf.ConfigStorer
 	routeManager       *RouteManager
-	localAPIKeyManager *LocalAPIKeyManager
+	localAPIKeyManager *localapikeypkg.LocalAPIKeyManager
 	providerManager    *ProviderManager
 	cliauthManager     *cliauth.Manager
 	credentialManager  *credentialmgr.Manager
@@ -112,7 +112,7 @@ func (g *AgentGateway) RouteManager() *RouteManager {
 	return g.routeManager
 }
 
-func (g *AgentGateway) LocalAPIKeyManager() *LocalAPIKeyManager {
+func (g *AgentGateway) LocalAPIKeyManager() *localapikeypkg.LocalAPIKeyManager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.localAPIKeyManager
@@ -165,6 +165,7 @@ func (g *AgentGateway) Resolve(ctx context.Context, routeID string, req routepkg
 	if err != nil {
 		return nil, err
 	}
+
 	target, err := r.ResolveTarget(req, g.selector())
 	if err != nil {
 		return nil, err
@@ -206,18 +207,24 @@ func (g *AgentGateway) resolveLocalAPIKey(ctx context.Context, httpReq *http.Req
 	g.mu.RLock()
 	localAPIKeyManager := g.localAPIKeyManager
 	g.mu.RUnlock()
-	rawKey := localapikeypkg.ExtractAPIKey(httpReq)
-	if rawKey == "" {
-		return localapikeypkg.ValidateForRoute(r.ID, r.Policy.Auth.RequireLocalAPIKey, nil)
-	}
 	if localAPIKeyManager == nil {
 		return nil, statuserr.New(http.StatusServiceUnavailable, "local api key manager is not configured")
 	}
-	key, err := localAPIKeyManager.Get(ctx, rawKey)
+
+	localKey, err := localAPIKeyManager.Resolve(ctx, httpReq)
+	if err == localapikeypkg.ErrLocalAPIKeyNotCarried {
+		if r.Policy.Auth.RequireLocalAPIKey {
+			return nil, statuserr.New(http.StatusUnauthorized, "local api key is required")
+		}
+		return nil, nil
+	}
 	if err != nil {
 		return nil, statuserr.New(http.StatusUnauthorized, "invalid local api key")
 	}
-	return localapikeypkg.ValidateForRoute(r.ID, r.Policy.Auth.RequireLocalAPIKey, &key)
+	if err := localKey.ValidateForRoute(r.ID); err != nil {
+		return nil, err
+	}
+	return &localKey, nil
 }
 
 func (g *AgentGateway) providerResolver() ProviderResolver {
@@ -279,7 +286,7 @@ func (g *AgentGateway) configureLocalAPIKeyManager(ctx context.Context, configSt
 		}
 	}
 
-	g.localAPIKeyManager = NewLocalAPIKeyManager(localAPIKeyStore)
+	g.localAPIKeyManager = localapikeypkg.NewLocalAPIKeyManager(localAPIKeyStore)
 	g.localAPIKeyManager.InitStaticKeys(staticLocalAPIKeys)
 	return nil
 }

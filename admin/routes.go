@@ -545,7 +545,7 @@ func (h *Handler) handleListLocalAPIKeys(w http.ResponseWriter, r *http.Request)
 	}
 	userID = sessionUsername
 
-	items, err := manager.List(r.Context(), gateway.LocalAPIKeyListOptions{UserID: userID})
+	items, err := manager.List(r.Context(), localapikeypkg.LocalAPIKeyListOptions{UserID: userID})
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -602,7 +602,7 @@ func (h *Handler) handleGetLocalAPIKey(w http.ResponseWriter, r *http.Request) {
 
 	item, err := manager.Get(r.Context(), r.PathValue("key"))
 	if err != nil {
-		if errors.Is(err, gateway.ErrLocalAPIKeyNotConfigured) {
+		if errors.Is(err, localapikeypkg.ErrLocalAPIKeyNotConfigured) {
 			_ = httpjson.Error(w, http.StatusNotFound, "local api key not found")
 			return
 		}
@@ -634,7 +634,7 @@ func (h *Handler) handleUpdateLocalAPIKey(w http.ResponseWriter, r *http.Request
 	}
 
 	if _, err := manager.Get(r.Context(), pathKey); err != nil {
-		if errors.Is(err, gateway.ErrLocalAPIKeyNotConfigured) {
+		if errors.Is(err, localapikeypkg.ErrLocalAPIKeyNotConfigured) {
 			_ = httpjson.Error(w, http.StatusNotFound, "local api key not found")
 			return
 		}
@@ -682,7 +682,7 @@ func (h *Handler) handleSetLocalAPIKeyDisabled(w http.ResponseWriter, r *http.Re
 	keyID := r.PathValue("key")
 	key, err := manager.Get(r.Context(), keyID)
 	if err != nil {
-		if errors.Is(err, gateway.ErrLocalAPIKeyNotConfigured) {
+		if errors.Is(err, localapikeypkg.ErrLocalAPIKeyNotConfigured) {
 			_ = httpjson.Error(w, http.StatusNotFound, "local api key not found")
 			return
 		}
@@ -692,7 +692,7 @@ func (h *Handler) handleSetLocalAPIKeyDisabled(w http.ResponseWriter, r *http.Re
 	key.Disabled = disabled
 
 	if err := manager.Update(r.Context(), keyID, key); err != nil {
-		if errors.Is(err, gateway.ErrStaticLocalAPIKeyReadOnly) {
+		if errors.Is(err, localapikeypkg.ErrStaticLocalAPIKeyReadOnly) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -821,7 +821,7 @@ func (h *Handler) localAPIKeyStore() intf.LocalAPIKeyStorer {
 	return store
 }
 
-func (h *Handler) localAPIKeyManagerForRoutes() *gateway.LocalAPIKeyManager {
+func (h *Handler) localAPIKeyManagerForRoutes() *localapikeypkg.LocalAPIKeyManager {
 	if h.localAPIKeyManager != nil {
 		return h.localAPIKeyManager
 	}
@@ -830,10 +830,10 @@ func (h *Handler) localAPIKeyManagerForRoutes() *gateway.LocalAPIKeyManager {
 	if store == nil {
 		return nil
 	}
-	return gateway.NewLocalAPIKeyManager(store)
+	return localapikeypkg.NewLocalAPIKeyManager(store)
 }
 
-func localAPIKeyViewFromKey(manager *gateway.LocalAPIKeyManager, key localapikeypkg.LocalAPIKey) LocalAPIKeyView {
+func localAPIKeyViewFromKey(manager *localapikeypkg.LocalAPIKeyManager, key localapikeypkg.LocalAPIKey) LocalAPIKeyView {
 	view := LocalAPIKeyView{
 		LocalAPIKey: key,
 		Source:      "store",

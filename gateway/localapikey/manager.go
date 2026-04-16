@@ -1,16 +1,17 @@
-package gateway
+package localapikey
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
-	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 )
 
 var (
+	ErrLocalAPIKeyNotCarried     = errors.New("local api key is not carried")
 	ErrLocalAPIKeyNotConfigured  = errors.New("local api key is not configured")
 	ErrStaticLocalAPIKeyReadOnly = errors.New("static local api key is read-only")
 )
@@ -22,16 +23,16 @@ type LocalAPIKeyListOptions struct {
 type LocalAPIKeyManager struct {
 	mu sync.RWMutex
 
-	staticKeys   map[string]localapikeypkg.LocalAPIKey
-	dynamicCache map[string]localapikeypkg.LocalAPIKey
+	staticKeys   map[string]LocalAPIKey
+	dynamicCache map[string]LocalAPIKey
 
 	store configstoreintf.LocalAPIKeyStorer
 }
 
 func NewLocalAPIKeyManager(store configstoreintf.LocalAPIKeyStorer) *LocalAPIKeyManager {
 	return &LocalAPIKeyManager{
-		staticKeys:   map[string]localapikeypkg.LocalAPIKey{},
-		dynamicCache: map[string]localapikeypkg.LocalAPIKey{},
+		staticKeys:   map[string]LocalAPIKey{},
+		dynamicCache: map[string]LocalAPIKey{},
 		store:        store,
 	}
 }
@@ -40,15 +41,15 @@ func (m *LocalAPIKeyManager) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.staticKeys = map[string]localapikeypkg.LocalAPIKey{}
-	m.dynamicCache = map[string]localapikeypkg.LocalAPIKey{}
+	m.staticKeys = map[string]LocalAPIKey{}
+	m.dynamicCache = map[string]LocalAPIKey{}
 }
 
-func (m *LocalAPIKeyManager) InitStaticKeys(keys []localapikeypkg.LocalAPIKey) {
+func (m *LocalAPIKeyManager) InitStaticKeys(keys []LocalAPIKey) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.staticKeys = make(map[string]localapikeypkg.LocalAPIKey, len(keys))
+	m.staticKeys = make(map[string]LocalAPIKey, len(keys))
 	for _, key := range keys {
 		if key.Key == "" {
 			continue
@@ -65,9 +66,21 @@ func (m *LocalAPIKeyManager) IsStatic(key string) bool {
 	return ok
 }
 
-func (m *LocalAPIKeyManager) Get(ctx context.Context, key string) (localapikeypkg.LocalAPIKey, error) {
+func (m *LocalAPIKeyManager) Resolve(ctx context.Context, httpReq *http.Request) (LocalAPIKey, error) {
+	rawKey := ExtractAPIKey(httpReq)
+	if rawKey == "" {
+		return LocalAPIKey{}, ErrLocalAPIKeyNotCarried
+	}
+	key, err := m.Get(ctx, rawKey)
+	if err != nil {
+		return LocalAPIKey{}, err
+	}
+	return key, nil
+}
+
+func (m *LocalAPIKeyManager) Get(ctx context.Context, key string) (LocalAPIKey, error) {
 	if key == "" {
-		return localapikeypkg.LocalAPIKey{}, fmt.Errorf("key is required")
+		return LocalAPIKey{}, ErrLocalAPIKeyNotCarried
 	}
 
 	m.mu.RLock()
@@ -86,35 +99,35 @@ func (m *LocalAPIKeyManager) Get(ctx context.Context, key string) (localapikeypk
 	}
 
 	if store == nil {
-		return localapikeypkg.LocalAPIKey{}, fmt.Errorf("%w: %q", ErrLocalAPIKeyNotConfigured, key)
+		return LocalAPIKey{}, fmt.Errorf("%w: %q", ErrLocalAPIKeyNotConfigured, key)
 	}
 
 	item, err := store.Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, configstoreintf.ErrNotFound) {
-			return localapikeypkg.LocalAPIKey{}, fmt.Errorf("%w: %q", ErrLocalAPIKeyNotConfigured, key)
+			return LocalAPIKey{}, fmt.Errorf("%w: %q", ErrLocalAPIKeyNotConfigured, key)
 		}
-		return localapikeypkg.LocalAPIKey{}, fmt.Errorf("load local api key %q: %w", key, err)
+		return LocalAPIKey{}, fmt.Errorf("load local api key %q: %w", key, err)
 	}
 
 	localKey, err := decodeLocalAPIKeyItem(key, item)
 	if err != nil {
-		return localapikeypkg.LocalAPIKey{}, err
+		return LocalAPIKey{}, err
 	}
 	m.cacheDynamicKey(localKey)
 	return localKey, nil
 }
 
-func (m *LocalAPIKeyManager) List(ctx context.Context, opts LocalAPIKeyListOptions) ([]localapikeypkg.LocalAPIKey, error) {
+func (m *LocalAPIKeyManager) List(ctx context.Context, opts LocalAPIKeyListOptions) ([]LocalAPIKey, error) {
 	m.mu.RLock()
 	store := m.store
-	staticKeys := make(map[string]localapikeypkg.LocalAPIKey, len(m.staticKeys))
+	staticKeys := make(map[string]LocalAPIKey, len(m.staticKeys))
 	for key, item := range m.staticKeys {
 		staticKeys[key] = item
 	}
 	m.mu.RUnlock()
 
-	out := make(map[string]localapikeypkg.LocalAPIKey, len(staticKeys))
+	out := make(map[string]LocalAPIKey, len(staticKeys))
 	for key, item := range staticKeys {
 		if opts.UserID != "" && item.UserID != opts.UserID {
 			continue
@@ -131,7 +144,7 @@ func (m *LocalAPIKeyManager) List(ctx context.Context, opts LocalAPIKeyListOptio
 		return nil, err
 	}
 
-	cached := make(map[string]localapikeypkg.LocalAPIKey, len(items))
+	cached := make(map[string]LocalAPIKey, len(items))
 	for _, item := range items {
 		localKey, err := decodeLocalAPIKeyItem("", item)
 		if err != nil {
@@ -146,7 +159,7 @@ func (m *LocalAPIKeyManager) List(ctx context.Context, opts LocalAPIKeyListOptio
 	return mapLocalAPIKeys(out), nil
 }
 
-func (m *LocalAPIKeyManager) Create(ctx context.Context, key localapikeypkg.LocalAPIKey) error {
+func (m *LocalAPIKeyManager) Create(ctx context.Context, key LocalAPIKey) error {
 	if key.Key == "" {
 		return fmt.Errorf("key is required")
 	}
@@ -168,7 +181,7 @@ func (m *LocalAPIKeyManager) Create(ctx context.Context, key localapikeypkg.Loca
 	return nil
 }
 
-func (m *LocalAPIKeyManager) Update(ctx context.Context, keyID string, key localapikeypkg.LocalAPIKey) error {
+func (m *LocalAPIKeyManager) Update(ctx context.Context, keyID string, key LocalAPIKey) error {
 	if keyID == "" {
 		return fmt.Errorf("key is required")
 	}
@@ -226,7 +239,7 @@ func (m *LocalAPIKeyManager) ensureWritable(key string) error {
 	return nil
 }
 
-func (m *LocalAPIKeyManager) cacheDynamicKey(key localapikeypkg.LocalAPIKey) {
+func (m *LocalAPIKeyManager) cacheDynamicKey(key LocalAPIKey) {
 	if key.Key == "" {
 		return
 	}
@@ -234,12 +247,12 @@ func (m *LocalAPIKeyManager) cacheDynamicKey(key localapikeypkg.LocalAPIKey) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.dynamicCache == nil {
-		m.dynamicCache = map[string]localapikeypkg.LocalAPIKey{}
+		m.dynamicCache = map[string]LocalAPIKey{}
 	}
 	m.dynamicCache[key.Key] = key
 }
 
-func (m *LocalAPIKeyManager) cacheDynamicKeys(keys map[string]localapikeypkg.LocalAPIKey) {
+func (m *LocalAPIKeyManager) cacheDynamicKeys(keys map[string]LocalAPIKey) {
 	if len(keys) == 0 {
 		return
 	}
@@ -247,28 +260,28 @@ func (m *LocalAPIKeyManager) cacheDynamicKeys(keys map[string]localapikeypkg.Loc
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.dynamicCache == nil {
-		m.dynamicCache = map[string]localapikeypkg.LocalAPIKey{}
+		m.dynamicCache = map[string]LocalAPIKey{}
 	}
 	for id, key := range keys {
 		m.dynamicCache[id] = key
 	}
 }
 
-func decodeLocalAPIKeyItem(keyID string, item any) (localapikeypkg.LocalAPIKey, error) {
-	localKey, ok := item.(*localapikeypkg.LocalAPIKey)
+func decodeLocalAPIKeyItem(keyID string, item any) (LocalAPIKey, error) {
+	localKey, ok := item.(*LocalAPIKey)
 	if !ok || localKey == nil || localKey.Key == "" {
 		if keyID == "" {
 			keyID = "<unknown>"
 		}
-		return localapikeypkg.LocalAPIKey{}, fmt.Errorf("local api key %q has unexpected type %T", keyID, item)
+		return LocalAPIKey{}, fmt.Errorf("local api key %q has unexpected type %T", keyID, item)
 	}
 
 	cloned := *localKey
 	return cloned, nil
 }
 
-func mapLocalAPIKeys(keys map[string]localapikeypkg.LocalAPIKey) []localapikeypkg.LocalAPIKey {
-	out := make([]localapikeypkg.LocalAPIKey, 0, len(keys))
+func mapLocalAPIKeys(keys map[string]LocalAPIKey) []LocalAPIKey {
+	out := make([]LocalAPIKey, 0, len(keys))
 	for _, key := range keys {
 		out = append(out, key)
 	}
