@@ -150,7 +150,6 @@ The runtime is centered on the global `agent_gateway` block.
 
 Static routes currently support these subdirectives:
 
-- `route_name <name>`
 - `require_local_api_key [true|false]`
 - `allowed_model <model> [more-models...]`
 - `target <provider> [weight]`

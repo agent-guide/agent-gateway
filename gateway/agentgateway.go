@@ -17,7 +17,7 @@ import (
 )
 
 type BootstrapOptions struct {
-	StaticRoutes       []routepkg.Route
+	StaticRoutes       []routepkg.AgentRoute
 	StaticLocalAPIKeys []localapikeypkg.LocalAPIKey
 	StaticProviders    map[string]provider.Provider
 	ConfigStore        configstoreintf.ConfigStorer
@@ -31,7 +31,7 @@ type AgentGateway struct {
 
 	configured         bool
 	configStore        configstoreintf.ConfigStorer
-	routeManager       *routepkg.RouteManager
+	routeManager       *routepkg.AgentRouteManager
 	localAPIKeyManager *localapikeypkg.LocalAPIKeyManager
 	providerManager    *ProviderManager
 	cliauthManager     *cliauth.Manager
@@ -41,7 +41,7 @@ type AgentGateway struct {
 
 // ResolvedRequest contains the route, consumer, and provider selected for a request.
 type ResolvedRequest struct {
-	Route        routepkg.Route
+	Route        routepkg.AgentRoute
 	LocalAPIKey  *localapikeypkg.LocalAPIKey
 	ProviderName string
 	Provider     provider.Provider
@@ -58,7 +58,7 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	defer g.mu.Unlock()
 
 	g.configureConfigStore(opts.ConfigStore)
-	if err := g.configureRouteManager(ctx, opts.ConfigStore, opts.StaticRoutes); err != nil {
+	if err := g.configureAgentRouteManager(ctx, opts.ConfigStore, opts.StaticRoutes); err != nil {
 		return err
 	}
 	if err := g.configureLocalAPIKeyManager(ctx, opts.ConfigStore, opts.StaticLocalAPIKeys); err != nil {
@@ -106,7 +106,7 @@ func (g *AgentGateway) CredentialManager() *credentialmgr.Manager {
 	return g.credentialManager
 }
 
-func (g *AgentGateway) RouteManager() *routepkg.RouteManager {
+func (g *AgentGateway) AgentRouteManager() *routepkg.AgentRouteManager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.routeManager
@@ -124,24 +124,24 @@ func (g *AgentGateway) ProviderManager() *ProviderManager {
 	return g.providerManager
 }
 
-func (g *AgentGateway) LookupRoute(ctx context.Context, routeID string) (routepkg.Route, error) {
-	manager := g.RouteManager()
+func (g *AgentGateway) LookupRoute(ctx context.Context, routeID string) (routepkg.AgentRoute, error) {
+	manager := g.AgentRouteManager()
 	if manager == nil {
-		return routepkg.Route{}, fmt.Errorf("route manager is not configured")
+		return routepkg.AgentRoute{}, fmt.Errorf("route manager is not configured")
 	}
 	route, err := manager.Get(ctx, routeID)
 	if err != nil {
 		if errors.Is(err, routepkg.ErrRouteNotConfigured) {
-			return routepkg.Route{}, fmt.Errorf("route %q is not configured", routeID)
+			return routepkg.AgentRoute{}, fmt.Errorf("route %q is not configured", routeID)
 		}
-		return routepkg.Route{}, err
+		return routepkg.AgentRoute{}, err
 	}
 	return route, nil
 }
 
 func (g *AgentGateway) ValidateRoute(ctx context.Context, routeID string) error {
 	resolver := g.providerResolver()
-	manager := g.RouteManager()
+	manager := g.AgentRouteManager()
 	if manager == nil {
 		return fmt.Errorf("route manager is not configured")
 	}
@@ -203,7 +203,7 @@ func (g *AgentGateway) ResolveProvider(ctx context.Context, routeID string, req 
 	return resolved.Provider, nil
 }
 
-func (g *AgentGateway) resolveLocalAPIKey(ctx context.Context, httpReq *http.Request, r routepkg.Route) (*localapikeypkg.LocalAPIKey, error) {
+func (g *AgentGateway) resolveLocalAPIKey(ctx context.Context, httpReq *http.Request, r routepkg.AgentRoute) (*localapikeypkg.LocalAPIKey, error) {
 	g.mu.RLock()
 	localAPIKeyManager := g.localAPIKeyManager
 	g.mu.RUnlock()
@@ -253,7 +253,7 @@ func (g *AgentGateway) configureConfigStore(configStore configstoreintf.ConfigSt
 	g.configStore = configStore
 }
 
-func (g *AgentGateway) configureRouteManager(ctx context.Context, configStore configstoreintf.ConfigStorer, staticRoutes []routepkg.Route) error {
+func (g *AgentGateway) configureAgentRouteManager(ctx context.Context, configStore configstoreintf.ConfigStorer, staticRoutes []routepkg.AgentRoute) error {
 	if g.routeManager != nil {
 		return fmt.Errorf("route manager is not nil")
 	}
@@ -266,7 +266,7 @@ func (g *AgentGateway) configureRouteManager(ctx context.Context, configStore co
 			return fmt.Errorf("get route store: %w", err)
 		}
 	}
-	g.routeManager = routepkg.NewRouteManager(routeStore)
+	g.routeManager = routepkg.NewAgentRouteManager(routeStore)
 	g.routeManager.InitStaticRoutes(staticRoutes)
 
 	return nil

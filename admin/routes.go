@@ -24,7 +24,7 @@ type LocalAPIKeyView struct {
 }
 
 type RouteView struct {
-	routepkg.Route
+	routepkg.AgentRoute
 	Source   string `json:"source"`
 	ReadOnly bool   `json:"read_only"`
 }
@@ -356,7 +356,7 @@ func (h *Handler) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var route routepkg.Route
+	var route routepkg.AgentRoute
 	if err := httpjson.Decode(r, &route); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
@@ -364,9 +364,6 @@ func (h *Handler) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 	if route.ID == "" {
 		_ = httpjson.Error(w, http.StatusBadRequest, "id is required")
 		return
-	}
-	if route.Name == "" {
-		route.Name = route.ID
 	}
 	if len(route.Targets) == 0 {
 		_ = httpjson.Error(w, http.StatusBadRequest, "at least one target is required")
@@ -416,7 +413,7 @@ func (h *Handler) handleUpdateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var route routepkg.Route
+	var route routepkg.AgentRoute
 	if err := httpjson.Decode(r, &route); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
@@ -428,9 +425,6 @@ func (h *Handler) handleUpdateRoute(w http.ResponseWriter, r *http.Request) {
 	if route.ID != id {
 		_ = httpjson.Error(w, http.StatusBadRequest, "route id in body must match path")
 		return
-	}
-	if route.Name == "" {
-		route.Name = route.ID
 	}
 	if len(route.Targets) == 0 {
 		_ = httpjson.Error(w, http.StatusBadRequest, "at least one target is required")
@@ -798,7 +792,7 @@ func (h *Handler) routeStore() intf.RouteStorer {
 	return store
 }
 
-func (h *Handler) routeManagerForRoutes() *routepkg.RouteManager {
+func (h *Handler) routeManagerForRoutes() *routepkg.AgentRouteManager {
 	if h.routeManager != nil {
 		return h.routeManager
 	}
@@ -807,7 +801,7 @@ func (h *Handler) routeManagerForRoutes() *routepkg.RouteManager {
 	if store == nil {
 		return nil
 	}
-	return routepkg.NewRouteManager(store)
+	return routepkg.NewAgentRouteManager(store)
 }
 
 func (h *Handler) localAPIKeyStore() intf.LocalAPIKeyStorer {
@@ -846,11 +840,11 @@ func localAPIKeyViewFromKey(manager *localapikeypkg.LocalAPIKeyManager, key loca
 	return view
 }
 
-func routeViewFromRoute(manager *routepkg.RouteManager, route routepkg.Route) RouteView {
+func routeViewFromRoute(manager *routepkg.AgentRouteManager, route routepkg.AgentRoute) RouteView {
 	view := RouteView{
-		Route:    route,
-		Source:   "store",
-		ReadOnly: false,
+		AgentRoute: route,
+		Source:     "store",
+		ReadOnly:   false,
 	}
 	if manager != nil && manager.IsStatic(route.ID) {
 		view.Source = "caddyfile"

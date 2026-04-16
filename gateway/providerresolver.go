@@ -238,7 +238,7 @@ func (m *ProviderManager) DeleteConfig(ctx context.Context, ref string) error {
 // For dynamic (store-backed) providers, the store is consulted on every call to detect
 // config changes at runtime. If the config fingerprint has not changed since the last
 // call, the cached provider instance is reused to avoid re-establishing connections.
-// This is intentionally different from RouteManager/LocalAPIKeyManager, which skip the
+// This is intentionally different from AgentRouteManager/LocalAPIKeyManager, which skip the
 // store on cache hit, because provider config changes (API keys, base URLs) must take
 // effect without a gateway restart.
 func (m *ProviderManager) ResolveProvider(ctx context.Context, ref string) (provider.Provider, string, error) {

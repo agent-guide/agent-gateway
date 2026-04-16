@@ -24,9 +24,8 @@ func TestRouteStoreTagColumn(t *testing.T) {
 		t.Fatalf("new route store: %v", err)
 	}
 
-	want := &route.Route{
-		ID:   "chat-prod",
-		Name: "chat-prod",
+	want := &route.AgentRoute{
+		ID: "chat-prod",
 		Targets: []route.RouteTarget{{
 			ProviderRef: "openai",
 			Mode:        route.TargetModeWeighted,
@@ -51,9 +50,9 @@ func TestRouteStoreTagColumn(t *testing.T) {
 		t.Fatalf("get route: %v", err)
 	}
 
-	got, ok := gotAny.(*route.Route)
+	got, ok := gotAny.(*route.AgentRoute)
 	if !ok {
-		t.Fatalf("get route type = %T, want *route.Route", gotAny)
+		t.Fatalf("get route type = %T, want *route.AgentRoute", gotAny)
 	}
 	if got.ID != want.ID {
 		t.Fatalf("get route id = %q, want %q", got.ID, want.ID)
@@ -85,9 +84,8 @@ func TestRouteStoreCreateRejectsDuplicateID(t *testing.T) {
 		t.Fatalf("new route store: %v", err)
 	}
 
-	item := &route.Route{
-		ID:   "chat-prod",
-		Name: "chat-prod",
+	item := &route.AgentRoute{
+		ID: "chat-prod",
 		Targets: []route.RouteTarget{{
 			ProviderRef: "openai",
 			Mode:        route.TargetModeWeighted,
@@ -118,9 +116,8 @@ func TestRouteStoreUpdateRejectsMissingID(t *testing.T) {
 		t.Fatalf("new route store: %v", err)
 	}
 
-	err = store.Update(ctx, "missing", &route.Route{
-		ID:   "missing",
-		Name: "missing",
+	err = store.Update(ctx, "missing", &route.AgentRoute{
+		ID: "missing",
 		Targets: []route.RouteTarget{{
 			ProviderRef: "openai",
 			Mode:        route.TargetModeWeighted,

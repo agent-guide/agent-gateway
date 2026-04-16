@@ -1,7 +1,7 @@
 package route
 
 // Normalize fills runtime defaults on a route value before it is used by the gateway.
-func (r *Route) Normalize() {
+func (r *AgentRoute) Normalize() {
 	if r == nil {
 		return
 	}

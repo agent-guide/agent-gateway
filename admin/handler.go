@@ -21,7 +21,7 @@ type Handler struct {
 	cliauthManager     *cliauth.Manager
 	credentialManager  *credentialmgr.Manager
 	configStore        intf.ConfigStorer
-	routeManager       *routepkg.RouteManager
+	routeManager       *routepkg.AgentRouteManager
 	localAPIKeyManager *localapikeypkg.LocalAPIKeyManager
 	providerManager    *gateway.ProviderManager
 	caddyManager       *caddymgr.CaddyManager
@@ -44,14 +44,14 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 	var cliauthMgr *cliauth.Manager
 	var credentialMgr *credentialmgr.Manager
 	var configStore intf.ConfigStorer
-	var routeManager *routepkg.RouteManager
+	var routeManager *routepkg.AgentRouteManager
 	var localAPIKeyManager *localapikeypkg.LocalAPIKeyManager
 	var providerManager *gateway.ProviderManager
 	if agentGateway != nil {
 		cliauthMgr = agentGateway.CLIAuthManager()
 		credentialMgr = agentGateway.CredentialManager()
 		configStore = agentGateway.ConfigStore()
-		routeManager = agentGateway.RouteManager()
+		routeManager = agentGateway.AgentRouteManager()
 		localAPIKeyManager = agentGateway.LocalAPIKeyManager()
 		providerManager = agentGateway.ProviderManager()
 	}

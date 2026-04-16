@@ -1,7 +1,6 @@
 package route
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"slices"
@@ -10,7 +9,7 @@ import (
 )
 
 // RouteLoader resolves the latest persisted route definition for a route ID.
-type RouteLoader func(ctx context.Context, routeID string) (*Route, error)
+// type RouteLoader func(ctx context.Context, routeID string) (*AgentRoute, error)
 
 // ResolveRequest captures the request attributes required for route resolution.
 type ResolveRequest struct {
@@ -20,7 +19,7 @@ type ResolveRequest struct {
 }
 
 // ResolveTarget validates route policy and selects an eligible target for the request.
-func (r Route) ResolveTarget(req ResolveRequest, selector RouteTargetSelector) (*RouteTarget, error) {
+func (r AgentRoute) ResolveTarget(req ResolveRequest, selector RouteTargetSelector) (*RouteTarget, error) {
 	r.Normalize()
 
 	if err := r.ValidateRequestPolicy(req); err != nil {
@@ -33,7 +32,7 @@ func (r Route) ResolveTarget(req ResolveRequest, selector RouteTargetSelector) (
 }
 
 // ValidateRequestPolicy validates the request against route-level policy.
-func (r Route) ValidateRequestPolicy(req ResolveRequest) error {
+func (r AgentRoute) ValidateRequestPolicy(req ResolveRequest) error {
 	if req.Model != "" {
 		if len(r.Policy.AllowedModels) > 0 && !slices.Contains(r.Policy.AllowedModels, req.Model) {
 			return statuserr.New(http.StatusForbidden, fmt.Sprintf("model %q is not allowed on route %q", req.Model, r.ID))

@@ -15,7 +15,7 @@ type fixedSelector struct {
 	target routepkg.RouteTarget
 }
 
-func (s fixedSelector) SelectTarget(routepkg.Route, routepkg.ResolveRequest) (*routepkg.RouteTarget, error) {
+func (s fixedSelector) SelectTarget(routepkg.AgentRoute, routepkg.ResolveRequest) (*routepkg.RouteTarget, error) {
 	target := s.target
 	return &target, nil
 }
@@ -43,7 +43,7 @@ func (testProvider) Config() provider.ProviderConfig {
 }
 
 func TestResolverUsesCustomSelector(t *testing.T) {
-	route := routepkg.Route{
+	route := routepkg.AgentRoute{
 		ID: "chat-prod",
 		Targets: []routepkg.RouteTarget{
 			{ProviderRef: "openai", Mode: routepkg.TargetModeWeighted, Weight: 1},
@@ -52,7 +52,7 @@ func TestResolverUsesCustomSelector(t *testing.T) {
 	}
 	gw := NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
-		StaticRoutes: []routepkg.Route{route},
+		StaticRoutes: []routepkg.AgentRoute{route},
 		StaticProviders: map[string]provider.Provider{
 			"openrouter": testProvider{},
 		},
@@ -77,7 +77,7 @@ func TestResolverUsesCustomSelector(t *testing.T) {
 func TestLookupRouteNormalizesRoutePolicy(t *testing.T) {
 	gw := NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
-		StaticRoutes: []routepkg.Route{{ID: "chat-prod"}},
+		StaticRoutes: []routepkg.AgentRoute{{ID: "chat-prod"}},
 	}); err != nil {
 		t.Fatalf("Bootstrap returned error: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestLookupRouteNormalizesRoutePolicy(t *testing.T) {
 func TestValidateRouteRejectsRouteWithoutEnabledTargets(t *testing.T) {
 	gw := NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
-		StaticRoutes: []routepkg.Route{{
+		StaticRoutes: []routepkg.AgentRoute{{
 			ID:      "chat-prod",
 			Targets: []routepkg.RouteTarget{{ProviderRef: "openai", Disabled: true}},
 		}},
@@ -116,7 +116,7 @@ func TestValidateRouteRejectsRouteWithoutEnabledTargets(t *testing.T) {
 func TestResolveRejectsDisabledRoute(t *testing.T) {
 	gw := NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
-		StaticRoutes: []routepkg.Route{{
+		StaticRoutes: []routepkg.AgentRoute{{
 			ID:       "chat-prod",
 			Disabled: true,
 			Targets:  []routepkg.RouteTarget{{ProviderRef: "openai"}},

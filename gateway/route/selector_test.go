@@ -6,7 +6,7 @@ import (
 
 func TestDefaultRouteSelectorUsesPolicyStrategyAndFallback(t *testing.T) {
 	selector := DefaultRouteSelector{}
-	route := Route{
+	route := AgentRoute{
 		ID: "chat-prod",
 		Targets: []RouteTarget{
 			{ProviderRef: "weighted", Mode: TargetModeWeighted, Weight: 1},

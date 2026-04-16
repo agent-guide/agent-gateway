@@ -220,7 +220,6 @@ The parser currently supports:
 
 Static route parsing is intentionally small right now. Supported route subdirectives are:
 
-- `route_name`
 - `require_local_api_key`
 - `allowed_model`
 - `target <provider> [weight]`
@@ -248,7 +247,7 @@ That is one of the core architectural decisions in the project.
 
 ### 6.1 Route Object
 
-The primary routing abstraction is `gateway/route.Route`.
+The primary routing configuration is `gateway/route.AgentRoute`.
 
 Important fields include:
 

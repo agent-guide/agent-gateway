@@ -3,7 +3,7 @@ package route
 import "fmt"
 
 // ValidateDefinition checks static route definition correctness without external dependencies.
-func (r Route) ValidateDefinition() error {
+func (r AgentRoute) ValidateDefinition() error {
 	if r.ID == "" {
 		return fmt.Errorf("route_id is required")
 	}
@@ -26,7 +26,7 @@ func (r Route) ValidateDefinition() error {
 }
 
 // ProviderRefs returns unique enabled provider references declared by the route.
-func (r Route) ProviderRefs() []string {
+func (r AgentRoute) ProviderRefs() []string {
 	refs := make([]string, 0, len(r.Targets))
 	seen := make(map[string]struct{}, len(r.Targets))
 	for _, target := range r.Targets {

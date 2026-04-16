@@ -21,11 +21,10 @@ const (
 	RouteSelectionStrategyConditional RouteSelectionStrategy = "conditional"
 )
 
-// Route is the primary gateway entrypoint abstraction exposed to agent clients.
-// A route owns request matching, target selection metadata, and default policy.
-type Route struct {
+// AgentRoute is the primary gateway route configuration exposed to agent clients.
+// A route config owns request matching, target selection metadata, and default policy.
+type AgentRoute struct {
 	ID          string        `json:"id"`
-	Name        string        `json:"name"`
 	Description string        `json:"description,omitempty"`
 	Disabled    bool          `json:"disabled"`
 	Match       RouteMatch    `json:"match"`

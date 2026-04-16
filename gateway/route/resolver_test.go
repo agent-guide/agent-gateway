@@ -6,13 +6,13 @@ type fixedTestSelector struct {
 	target RouteTarget
 }
 
-func (s fixedTestSelector) SelectTarget(Route, ResolveRequest) (*RouteTarget, error) {
+func (s fixedTestSelector) SelectTarget(AgentRoute, ResolveRequest) (*RouteTarget, error) {
 	target := s.target
 	return &target, nil
 }
 
 func TestValidateRequestPolicyRejectsDisallowedModelOnRoute(t *testing.T) {
-	r := Route{
+	r := AgentRoute{
 		ID: "chat-prod",
 		Policy: RoutePolicy{
 			AllowedModels: []string{"gpt-4.1"},
@@ -28,7 +28,7 @@ func TestValidateRequestPolicyRejectsDisallowedModelOnRoute(t *testing.T) {
 
 func TestValidateRequestPolicyRejectsStreamingDisabledOnRoute(t *testing.T) {
 	disabled := false
-	r := Route{
+	r := AgentRoute{
 		ID: "chat-prod",
 		Policy: RoutePolicy{
 			AllowStreaming: &disabled,
@@ -43,7 +43,7 @@ func TestValidateRequestPolicyRejectsStreamingDisabledOnRoute(t *testing.T) {
 }
 
 func TestResolveTargetValidatesPolicyBeforeSelecting(t *testing.T) {
-	_, err := (Route{
+	_, err := (AgentRoute{
 		ID: "chat-prod",
 		Policy: RoutePolicy{
 			AllowedModels: []string{"gpt-4.1"},
@@ -57,7 +57,7 @@ func TestResolveTargetValidatesPolicyBeforeSelecting(t *testing.T) {
 }
 
 func TestResolveTargetUsesDefaultSelectorWhenNil(t *testing.T) {
-	target, err := (Route{
+	target, err := (AgentRoute{
 		ID: "chat-prod",
 		Targets: []RouteTarget{
 			{ProviderRef: "openai"},
@@ -72,14 +72,14 @@ func TestResolveTargetUsesDefaultSelectorWhenNil(t *testing.T) {
 }
 
 func TestValidateDefinitionRejectsEmptyRouteID(t *testing.T) {
-	err := (Route{}).ValidateDefinition()
+	err := (AgentRoute{}).ValidateDefinition()
 	if err == nil {
 		t.Fatal("ValidateDefinition returned nil error, want route id rejection")
 	}
 }
 
 func TestValidateDefinitionRejectsEnabledTargetWithoutProviderRef(t *testing.T) {
-	err := (Route{
+	err := (AgentRoute{
 		ID: "chat-prod",
 		Targets: []RouteTarget{
 			{},
@@ -91,7 +91,7 @@ func TestValidateDefinitionRejectsEnabledTargetWithoutProviderRef(t *testing.T) 
 }
 
 func TestProviderRefsReturnsUniqueEnabledRefs(t *testing.T) {
-	refs := (Route{
+	refs := (AgentRoute{
 		ID: "chat-prod",
 		Targets: []RouteTarget{
 			{ProviderRef: "openai"},

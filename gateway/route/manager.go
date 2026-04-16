@@ -24,36 +24,36 @@ type RouteListOptions struct {
 	TagPrefix string
 }
 
-type RouteManager struct {
+type AgentRouteManager struct {
 	mu sync.RWMutex
 
-	staticRoutes map[string]Route
-	dynamicCache map[string]Route
+	staticRoutes map[string]AgentRoute
+	dynamicCache map[string]AgentRoute
 
 	routeStore configstoreintf.RouteStorer
 }
 
-func NewRouteManager(store configstoreintf.RouteStorer) *RouteManager {
-	return &RouteManager{
-		staticRoutes: map[string]Route{},
-		dynamicCache: map[string]Route{},
+func NewAgentRouteManager(store configstoreintf.RouteStorer) *AgentRouteManager {
+	return &AgentRouteManager{
+		staticRoutes: map[string]AgentRoute{},
+		dynamicCache: map[string]AgentRoute{},
 		routeStore:   store,
 	}
 }
 
-func (m *RouteManager) Reset() {
+func (m *AgentRouteManager) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.staticRoutes = map[string]Route{}
-	m.dynamicCache = map[string]Route{}
+	m.staticRoutes = map[string]AgentRoute{}
+	m.dynamicCache = map[string]AgentRoute{}
 }
 
-func (m *RouteManager) InitStaticRoutes(routes []Route) {
+func (m *AgentRouteManager) InitStaticRoutes(routes []AgentRoute) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.staticRoutes = make(map[string]Route, len(routes))
+	m.staticRoutes = make(map[string]AgentRoute, len(routes))
 	for _, r := range routes {
 		if r.ID == "" {
 			continue
@@ -63,7 +63,7 @@ func (m *RouteManager) InitStaticRoutes(routes []Route) {
 	}
 }
 
-func (m *RouteManager) IsStatic(routeID string) bool {
+func (m *AgentRouteManager) IsStatic(routeID string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -71,9 +71,9 @@ func (m *RouteManager) IsStatic(routeID string) bool {
 	return ok
 }
 
-func (m *RouteManager) Get(ctx context.Context, routeID string) (Route, error) {
+func (m *AgentRouteManager) Get(ctx context.Context, routeID string) (AgentRoute, error) {
 	if routeID == "" {
-		return Route{}, fmt.Errorf("route_id is required")
+		return AgentRoute{}, fmt.Errorf("route_id is required")
 	}
 
 	m.mu.RLock()
@@ -92,35 +92,35 @@ func (m *RouteManager) Get(ctx context.Context, routeID string) (Route, error) {
 	}
 
 	if store == nil {
-		return Route{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
+		return AgentRoute{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
 	}
 
 	item, err := store.Get(ctx, routeID)
 	if err != nil {
 		if errors.Is(err, configstoreintf.ErrNotFound) {
-			return Route{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
+			return AgentRoute{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
 		}
-		return Route{}, fmt.Errorf("load route %q: %w", routeID, err)
+		return AgentRoute{}, fmt.Errorf("load route %q: %w", routeID, err)
 	}
 
 	route, err := decodeRouteItem(routeID, item)
 	if err != nil {
-		return Route{}, err
+		return AgentRoute{}, err
 	}
 	m.cacheDynamicRoute(route)
 	return route, nil
 }
 
-func (m *RouteManager) List(ctx context.Context, opts RouteListOptions) ([]Route, error) {
+func (m *AgentRouteManager) List(ctx context.Context, opts RouteListOptions) ([]AgentRoute, error) {
 	m.mu.RLock()
 	store := m.routeStore
-	staticRoutes := make(map[string]Route, len(m.staticRoutes))
+	staticRoutes := make(map[string]AgentRoute, len(m.staticRoutes))
 	for id, route := range m.staticRoutes {
 		staticRoutes[id] = route
 	}
 	m.mu.RUnlock()
 
-	out := make(map[string]Route, len(staticRoutes))
+	out := make(map[string]AgentRoute, len(staticRoutes))
 	if shouldIncludeStaticRoutes(opts) {
 		for id, route := range staticRoutes {
 			out[id] = route
@@ -144,7 +144,7 @@ func (m *RouteManager) List(ctx context.Context, opts RouteListOptions) ([]Route
 		return nil, err
 	}
 
-	cached := make(map[string]Route, len(items))
+	cached := make(map[string]AgentRoute, len(items))
 	for _, item := range items {
 		route, err := decodeRouteItem("", item)
 		if err != nil {
@@ -159,7 +159,7 @@ func (m *RouteManager) List(ctx context.Context, opts RouteListOptions) ([]Route
 	return mapRoutes(out), nil
 }
 
-func (m *RouteManager) Create(ctx context.Context, route Route, tag string) error {
+func (m *AgentRouteManager) Create(ctx context.Context, route AgentRoute, tag string) error {
 	if route.ID == "" {
 		return fmt.Errorf("route id is required")
 	}
@@ -183,7 +183,7 @@ func (m *RouteManager) Create(ctx context.Context, route Route, tag string) erro
 	return nil
 }
 
-func (m *RouteManager) Update(ctx context.Context, routeID string, route Route) error {
+func (m *AgentRouteManager) Update(ctx context.Context, routeID string, route AgentRoute) error {
 	if routeID == "" {
 		return fmt.Errorf("route id is required")
 	}
@@ -208,7 +208,7 @@ func (m *RouteManager) Update(ctx context.Context, routeID string, route Route) 
 	return nil
 }
 
-func (m *RouteManager) Delete(ctx context.Context, routeID string) error {
+func (m *AgentRouteManager) Delete(ctx context.Context, routeID string) error {
 	if routeID == "" {
 		return fmt.Errorf("route id is required")
 	}
@@ -232,7 +232,7 @@ func (m *RouteManager) Delete(ctx context.Context, routeID string) error {
 	return nil
 }
 
-func (m *RouteManager) Validate(ctx context.Context, routeID string, resolver ProviderResolver) error {
+func (m *AgentRouteManager) Validate(ctx context.Context, routeID string, resolver ProviderResolver) error {
 	route, err := m.Get(ctx, routeID)
 	if err != nil {
 		return err
@@ -252,7 +252,7 @@ func (m *RouteManager) Validate(ctx context.Context, routeID string, resolver Pr
 	return nil
 }
 
-func (m *RouteManager) ensureWritable(routeID string) error {
+func (m *AgentRouteManager) ensureWritable(routeID string) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -262,7 +262,7 @@ func (m *RouteManager) ensureWritable(routeID string) error {
 	return nil
 }
 
-func (m *RouteManager) cacheDynamicRoute(route Route) {
+func (m *AgentRouteManager) cacheDynamicRoute(route AgentRoute) {
 	if route.ID == "" {
 		return
 	}
@@ -271,12 +271,12 @@ func (m *RouteManager) cacheDynamicRoute(route Route) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.dynamicCache == nil {
-		m.dynamicCache = map[string]Route{}
+		m.dynamicCache = map[string]AgentRoute{}
 	}
 	m.dynamicCache[route.ID] = route
 }
 
-func (m *RouteManager) cacheDynamicRoutes(routes map[string]Route) {
+func (m *AgentRouteManager) cacheDynamicRoutes(routes map[string]AgentRoute) {
 	if len(routes) == 0 {
 		return
 	}
@@ -284,7 +284,7 @@ func (m *RouteManager) cacheDynamicRoutes(routes map[string]Route) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.dynamicCache == nil {
-		m.dynamicCache = map[string]Route{}
+		m.dynamicCache = map[string]AgentRoute{}
 	}
 	for id, route := range routes {
 		route.Normalize()
@@ -292,13 +292,13 @@ func (m *RouteManager) cacheDynamicRoutes(routes map[string]Route) {
 	}
 }
 
-func decodeRouteItem(routeID string, item any) (Route, error) {
-	route, ok := item.(*Route)
+func decodeRouteItem(routeID string, item any) (AgentRoute, error) {
+	route, ok := item.(*AgentRoute)
 	if !ok || route == nil || route.ID == "" {
 		if routeID == "" {
 			routeID = "<unknown>"
 		}
-		return Route{}, fmt.Errorf("route %q has unexpected type %T", routeID, item)
+		return AgentRoute{}, fmt.Errorf("route %q has unexpected type %T", routeID, item)
 	}
 
 	cloned := *route
@@ -313,8 +313,8 @@ func shouldIncludeStaticRoutes(opts RouteListOptions) bool {
 	return opts.Tag == ""
 }
 
-func mapRoutes(routes map[string]Route) []Route {
-	out := make([]Route, 0, len(routes))
+func mapRoutes(routes map[string]AgentRoute) []AgentRoute {
+	out := make([]AgentRoute, 0, len(routes))
 	for _, route := range routes {
 		out = append(out, route)
 	}

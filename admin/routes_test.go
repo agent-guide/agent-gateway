@@ -27,7 +27,7 @@ type testConfigStore struct {
 	localAPIKeyStore configstoreintf.LocalAPIKeyStorer
 }
 
-func newTestAgentGateway(configStore configstoreintf.ConfigStorer, cliauthMgr *cliauth.Manager, staticRoutes []routepkg.Route, staticLocalAPIKeys []localapikeypkg.LocalAPIKey, staticProviders ...map[string]provider.Provider) *gateway.AgentGateway {
+func newTestAgentGateway(configStore configstoreintf.ConfigStorer, cliauthMgr *cliauth.Manager, staticRoutes []routepkg.AgentRoute, staticLocalAPIKeys []localapikeypkg.LocalAPIKey, staticProviders ...map[string]provider.Provider) *gateway.AgentGateway {
 	var providers map[string]provider.Provider
 	if len(staticProviders) > 0 {
 		providers = staticProviders[0]
@@ -62,7 +62,7 @@ func (s *testConfigStore) GetRouteStore(context.Context, configstoreintf.ConfigO
 }
 
 type testRouteStore struct {
-	items map[string]*routepkg.Route
+	items map[string]*routepkg.AgentRoute
 	tags  map[string]string
 }
 
@@ -89,12 +89,12 @@ func (s *testRouteStore) ListByTagPrefix(_ context.Context, tagPrefix string) ([
 }
 
 func (s *testRouteStore) Create(_ context.Context, id string, tag string, obj any) error {
-	r, ok := obj.(*routepkg.Route)
+	r, ok := obj.(*routepkg.AgentRoute)
 	if !ok {
 		return errors.New("unexpected type")
 	}
 	if s.items == nil {
-		s.items = map[string]*routepkg.Route{}
+		s.items = map[string]*routepkg.AgentRoute{}
 	}
 	if s.tags == nil {
 		s.tags = map[string]string{}
@@ -265,13 +265,12 @@ func TestRouteCRUD(t *testing.T) {
 	}
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		routeStore: &testRouteStore{items: map[string]*routepkg.Route{}},
+		routeStore: &testRouteStore{items: map[string]*routepkg.AgentRoute{}},
 	}, nil, nil, nil, nil), nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	createBody, err := json.Marshal(routepkg.Route{
-		ID:   "chat-prod",
-		Name: "chat-prod",
+	createBody, err := json.Marshal(routepkg.AgentRoute{
+		ID: "chat-prod",
 		Targets: []routepkg.RouteTarget{{
 			ProviderRef: "openai",
 			Mode:        routepkg.TargetModeWeighted,
@@ -572,7 +571,7 @@ func TestRouteEnableDisable(t *testing.T) {
 	}
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		routeStore: &testRouteStore{items: map[string]*routepkg.Route{
+		routeStore: &testRouteStore{items: map[string]*routepkg.AgentRoute{
 			"chat-prod": {
 				ID: "chat-prod",
 				Targets: []routepkg.RouteTarget{{
@@ -832,24 +831,22 @@ func TestListLocalAPIKeysRejectsMismatchedSessionUserID(t *testing.T) {
 	}
 }
 
-func TestRouteGetPrefersStaticRouteManager(t *testing.T) {
+func TestRouteGetPrefersStaticAgentRouteManager(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
 	store := &testRouteStore{
-		items: map[string]*routepkg.Route{
+		items: map[string]*routepkg.AgentRoute{
 			"chat-prod": {
 				ID:      "chat-prod",
-				Name:    "dynamic",
 				Targets: []routepkg.RouteTarget{{ProviderRef: "openai"}},
 			},
 		},
 	}
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, []routepkg.Route{{
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, []routepkg.AgentRoute{{
 		ID:      "chat-prod",
-		Name:    "static",
 		Targets: []routepkg.RouteTarget{{ProviderRef: "anthropic"}},
 	}}, nil, nil), nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
@@ -867,8 +864,8 @@ func TestRouteGetPrefersStaticRouteManager(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode route: %v", err)
 	}
-	if got.Name != "static" {
-		t.Fatalf("route name = %q, want static", got.Name)
+	if got.ID != "chat-prod" {
+		t.Fatalf("route id = %q, want chat-prod", got.ID)
 	}
 	if got.Source != "caddyfile" || !got.ReadOnly {
 		t.Fatalf("unexpected route metadata: %#v", got)
@@ -882,17 +879,15 @@ func TestRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 	}
 
 	store := &testRouteStore{
-		items: map[string]*routepkg.Route{
+		items: map[string]*routepkg.AgentRoute{
 			"chat-dynamic": {
 				ID:      "chat-dynamic",
-				Name:    "dynamic",
 				Targets: []routepkg.RouteTarget{{ProviderRef: "openai"}},
 			},
 		},
 	}
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, []routepkg.Route{{
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, []routepkg.AgentRoute{{
 		ID:      "chat-static",
-		Name:    "static",
 		Targets: []routepkg.RouteTarget{{ProviderRef: "anthropic"}},
 	}}, nil, nil), nil, "admin", string(passwordHash), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
