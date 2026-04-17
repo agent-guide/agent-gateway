@@ -1,167 +1,271 @@
 # caddy-agent-gateway
 
-`caddy-agent-gateway` is a Caddy-native AI gateway for agent and LLM workloads. It runs as a custom Caddy build, exposes compatible LLM HTTP APIs, centralizes provider access and credential management, and persists gateway configuration in SQLite by default.
+`caddy-agent-gateway` is a Caddy-native AI gateway for LLM and agent workloads. It is built as a custom Caddy binary and provides:
 
-The current codebase is already usable as a route-oriented LLM gateway. It also contains the early runtime scaffolding for MCP, memory, and agent orchestration, but those parts are not fully wired into request execution yet.
+- OpenAI-compatible and Anthropic-compatible HTTP APIs
+- route-based dispatch to upstream providers
+- static Caddyfile configuration plus SQLite-backed dynamic configuration
+- admin APIs for providers, routes, local API keys, upstream credentials, CLI auth, and Caddy server management
+- early MCP, memory, metrics, and agent endpoint scaffolding
 
-## What Exists Today
+The request path today is centered on LLM routing. MCP, memory, metrics, and agent Admin API routes are registered, but they currently return `501 not implemented`.
 
-- A Caddy app module named `agent_gateway`
+## Current Modules
+
+- Caddy app: `agent_gateway`
 - HTTP handlers:
   - `agent_route_dispatcher`
   - `agent_gateway_admin`
-- Dispatcher LLM API modules:
+- Dispatcher LLM APIs:
   - `openai`
   - `anthropic`
-- Provider modules under `llm.providers.*`
-- Authenticator modules under `llm.authenticators.*`
-- SQLite-backed config storage for providers, routes, credentials, and local API keys
-- Route-based target selection with weighted targets and route policy defaults
-- Admin API CRUD for providers, routes, local API keys, and stored credentials
-- Async CLI login flows for Codex/OpenAI, Claude, and Gemini authenticators
+- Provider modules:
+  - `openai`
+  - `anthropic`
+  - `gemini`
+  - `ollama`
+  - `openrouter`
+  - `zhipu`
+- CLI auth authenticators:
+  - `codex`
+  - `claude`
+  - `gemini`
+- Config store:
+  - `sqlite`
 
-## Current Module Layout
+## Repository Layout
 
-- `gateway/`
-  - Owns the `agent_gateway` Caddy app
-  - Loads providers, authenticators, config store, and static routes
-  - Builds runtime dependencies such as route loading, provider resolution, and local API key lookup
-- `api/`
-  - Registers `agent_route_dispatcher`
-  - Includes OpenAI-compatible and Anthropic-compatible `agent_route_dispatcher.llm_apis.*` protocol handlers
-- `admin/`
-  - Registers `agent_gateway_admin`
-  - Exposes operational endpoints under `/admin/*`
-- `llm/provider/`
-  - Shared provider interfaces and provider implementations
-  - Implemented providers: `openai`, `anthropic`, `gemini`, `ollama`, `openrouter`, `zhipu`
-- `llm/cliauth/`
-  - Credential manager and provider-specific authenticators
-  - Implemented authenticators: `codex`, `claude`, `gemini`
-- `configstore/sqlite/`
-  - Default persisted config backend
-- `llm/mcp/`, `llm/memory/`, `llm/agent/`
-  - Early interfaces and partial implementations for future runtime integration
-- `web/`
-  - Separate web UI work-in-progress, not yet the primary control plane
+- `cmd/` - custom Caddy entrypoint and module imports
+- `gateway/` - `agent_gateway` app, runtime managers, route selection, provider resolution, local API key validation
+- `api/` - `agent_route_dispatcher` and protocol handlers
+- `admin/` - `agent_gateway_admin`, Admin API routes, session auth, Caddy management proxy
+- `llm/provider/` - provider interface and built-in provider implementations
+- `llm/cliauth/` - CLI login authenticators and manager
+- `llm/credentialmgr/` - upstream credential registration and scheduling state
+- `configstore/sqlite/` - SQLite-backed persisted configuration
+- `llm/mcp/`, `llm/memory/`, `llm/agent/` - early integration scaffolding
 
 ## Build
-
-Build the custom Caddy binary directly:
 
 ```bash
 go build -o caddy-agent-gateway ./cmd/main.go
 ```
 
-Or use the existing Make target:
+or:
 
 ```bash
 make build
 ```
 
-The binary links the gateway app, admin handler, API handlers, and the built-in provider modules.
+The binary includes Caddy standard modules, the gateway app, the admin handler, LLM API handlers, built-in providers, and CLI authenticators.
 
 ## Quick Start
 
-Minimal `Caddyfile`:
+Create a minimal `Caddyfile`:
 
 ```caddy
 {
-    admin localhost:2019
+	admin localhost:2019
 
-    agent_gateway {
-        provider openai {
-            api_key {$OPENAI_API_KEY}
-            default_model gpt-4.1
-        }
+	agent_gateway {
+		config_store sqlite {
+			path ./data/configstore.db
+		}
 
-        config_store sqlite {
-            path ./data/configstore.db
-        }
+		provider openai {
+			api_key {$OPENAI_API_KEY}
+			default_model gpt-4.1
+		}
 
-        route openai-chat {
-            llm_api openai
-            path_prefix /
-            require_local_api_key
-            allowed_model gpt-4.1
-            allowed_model gpt-4.1-mini
-            target openai
-        }
-    }
+		localapikey test-key {
+			user_id local-test
+			name "Local test key"
+			allowed_route openai-chat
+		}
+
+		route openai-chat {
+			llm_api openai
+			path_prefix /
+			require_local_api_key
+			allowed_model gpt-4.1
+			target openai
+		}
+	}
 }
 
-:8082 {
-    agent_route_dispatcher {
-        llm_api openai
-        llm_api anthropic
-    }
-
-    route /admin/* {
-        agent_gateway_admin
-    }
+http://127.0.0.1:8082 {
+	agent_route_dispatcher {
+		llm_api openai
+		llm_api anthropic
+	}
 }
 ```
 
-Run it:
+Run the gateway:
 
 ```bash
-./caddy-agent-gateway run --config ./Caddyfile
+OPENAI_API_KEY=sk-... ./caddy-agent-gateway run --config ./Caddyfile
 ```
 
-Test the OpenAI-compatible endpoint with Python:
+Call the OpenAI-compatible endpoint:
+
+```bash
+curl http://127.0.0.1:8082/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer test-key' \
+  -d '{
+    "model": "gpt-4.1",
+    "messages": [{"role": "user", "content": "hello"}]
+  }'
+```
+
+The local gateway API key may be sent as either `x-api-key: <key>` or `Authorization: Bearer <key>`.
+
+The Python OpenAI SDK example uses `http://127.0.0.1:8082/v1`, `test-key`, and `gpt-4.1` by default:
 
 ```bash
 python3 -m pip install openai
-OPENAI_API_KEY=sk-... ./caddy-agent-gateway run --config ./Caddyfile
 python3 examples/test_openai_client.py
 python3 examples/test_openai_client.py --stream
 ```
 
-The Python example sends the gateway-local key as `Authorization: Bearer test-key`.
-Override defaults with `AGENT_GATEWAY_BASE_URL`, `AGENT_GATEWAY_API_KEY`, or `AGENT_GATEWAY_MODEL`.
+Override example defaults with `AGENT_GATEWAY_BASE_URL`, `AGENT_GATEWAY_API_KEY`, `AGENT_GATEWAY_MODEL`, or CLI flags.
 
-## Caddyfile Model
+## Admin API Setup
 
-The runtime is centered on the global `agent_gateway` block.
+Admin routes are mounted with `agent_gateway_admin`. Protected Admin API routes require:
+
+1. an `admin_user`
+2. an `admin_password_hash` bcrypt hash
+3. a session token from `POST /admin/auth/login`
+
+Example:
 
 ```caddy
-{
-    agent_gateway {
-        provider <name> { ... }
-        config_store sqlite { ... }
-        authenticator <name> { ... }
-        localapikey <key> { ... }
-        route <route-id> { ... }
-    }
+http://127.0.0.1:8081 {
+	route /admin/* {
+		agent_gateway_admin {
+			admin_user admin
+			admin_password_hash <bcrypt-hash>
+			caddy_admin_addr http://localhost:2019
+		}
+	}
 }
 ```
 
-### Supported Global Subdirectives
+Generate the bcrypt hash with Caddy:
 
-- `provider <name> { ... }`
-  - Loads a provider module from `llm.providers.<name>`
-- `config_store sqlite { ... }`
-  - Configures the default SQLite-backed config store
-- `authenticator <name> { ... }`
-  - Loads an authenticator from `llm.authenticators.<name>`
-- `localapikey <key> { ... }`
-  - Declares a static local API key and syncs it into the configured local API key store during startup
-- `route <route-id> { ... }`
-  - Declares a static gateway route
+```bash
+./caddy-agent-gateway hash-password --plaintext 'your-password'
+```
 
-### Current Static Route Syntax
+Log in:
 
-Static routes currently support these subdirectives:
+```bash
+TOKEN=$(
+  curl -s -X POST http://127.0.0.1:8081/admin/auth/login \
+    -H 'Content-Type: application/json' \
+    -d '{"username":"admin","password":"your-password"}' |
+    jq -r '.token'
+)
+```
 
+Admin sessions are in memory. Restarting the service invalidates existing tokens.
+
+## Caddyfile Configuration
+
+The gateway is configured in the global `agent_gateway` block:
+
+```caddy
+{
+	agent_gateway {
+		config_store sqlite { ... }
+		provider <name> { ... }
+		authenticator <name> { ... }
+		localapikey <key> { ... }
+		route <route-id> { ... }
+	}
+}
+```
+
+### Config Store
+
+```caddy
+config_store sqlite {
+	path ./data/configstore.db
+}
+```
+
+If `path` is omitted, the store defaults to Caddy's app data directory under `caddy-agent-gateway/configstore.db`.
+
+### Providers
+
+Common provider settings:
+
+```caddy
+provider openai {
+	api_key {$OPENAI_API_KEY}
+	base_url https://api.openai.com/v1
+	default_model gpt-4.1
+	timeout_seconds 120
+	max_retries 3
+	retry_delay_seconds 1
+	proxy_url http://127.0.0.1:7890
+	header X-Custom value
+	option organization org_...
+}
+```
+
+Provider-specific notes:
+
+- `openai` defaults to `https://api.openai.com/v1`.
+- `zhipu` defaults to `https://open.bigmodel.cn/api/anthropic` and speaks through Zhipu BigModel's Anthropic-compatible API.
+- `ollama` can be used without an API key.
+- `option` values are parsed as strings in the Caddyfile.
+
+### Routes
+
+Static route syntax:
+
+```caddy
+route openai-chat {
+	llm_api openai
+	host api.example.com
+	path_prefix /v1
+	method POST
+	require_local_api_key
+	allowed_model gpt-4.1 gpt-4.1-mini
+	target openai 1
+}
+```
+
+Supported route subdirectives:
+
+- `llm_api <openai|anthropic>`
+- `host <host>`
+- `path_prefix <prefix>`
+- `method <method> [more-methods...]`
 - `require_local_api_key [true|false]`
 - `allowed_model <model> [more-models...]`
-- `target <provider> [weight]`
+- `target <provider-ref> [weight]`
 
-`target` entries are currently parsed as weighted targets. More advanced target conditions and policies exist in Go types and Admin API payloads, but the Caddyfile parser does not expose all of them yet.
+Static Caddyfile targets are weighted targets. The Go route model and Admin API also contain fields for failover, conditional targets, selection strategy, retry, fallback, quota, and rate limits, but not every field is exposed in Caddyfile syntax.
 
-### Static Local API Key Syntax
+### Local API Keys
 
-Static local API keys currently support these subdirectives:
+```caddy
+localapikey test-key {
+	user_id local-test
+	name "Local test key"
+	description "Used by local examples"
+	disabled false
+	allowed_route openai-chat
+	status_message "active"
+	expires_at 2027-01-01T00:00:00Z
+}
+```
+
+Supported subdirectives:
 
 - `user_id <user>`
 - `name <display-name>`
@@ -171,167 +275,216 @@ Static local API keys currently support these subdirectives:
 - `status_message <text>`
 - `expires_at <rfc3339>`
 
-Example:
+If `allowed_route` is omitted, the key can be used on any route that requires local key authentication.
 
-```caddy
-{
-    agent_gateway {
-        localapikey key1 {
-            user_id admin
-            name "Primary local key"
-            allowed_route openai-chat
-        }
-    }
-}
-```
+## Runtime Request Flow
 
-## Request Flow
+1. `agent_route_dispatcher` receives the HTTP request.
+2. The dispatcher finds the best matching route by host, path prefix, and method.
+3. The matched route's `llm_api` selects the protocol handler.
+4. The route manager lists static routes plus persisted routes from SQLite, caching persisted routes as it loads them.
+5. If required, the local API key is extracted from `x-api-key` or `Authorization: Bearer`.
+6. The protocol handler converts the request into the internal provider request.
+7. The route target selector chooses an upstream provider.
+8. The provider sends the upstream request and the protocol handler translates the response.
 
-For a normal API call:
+Supported request endpoints today:
 
-1. The HTTP handler selected by `agent_route_dispatcher` receives the request.
-2. The dispatcher matches the request against `AgentRoute.match` by host, path prefix, and method, preferring the most specific path prefix.
-3. The dispatcher strips the matched route path prefix and selects the route's `llm_api` protocol handler.
-4. The gateway uses the matched route definition from the config store when available, otherwise from static app config.
-5. If the route requires a local API key, the gateway validates the caller key.
-6. The compatible API handler converts the request into the internal provider request format.
-7. The gateway resolves the target provider.
-8. The provider executes the upstream call and returns the translated response.
+- OpenAI-compatible:
+  - `POST /v1/chat/completions`
+  - `/v1/models` and `/v1/embeddings` are recognized by the path matcher, but the serving path is not fully implemented for those APIs yet.
+- Anthropic-compatible:
+  - `POST /v1/messages`
+  - `POST /v1/messages/count_tokens` returns `501 not implemented`.
 
-This means route and provider definitions managed through the Admin API can take effect without rebuilding the whole Caddy config.
+## Dynamic Configuration
 
-## Providers
+Configuration comes from two places:
 
-Built-in providers:
+- static Caddyfile config under `agent_gateway`
+- persisted SQLite records managed through the Admin API
 
-- `openai`
-- `anthropic`
-- `gemini`
-- `ollama`
-- `openrouter`
-- `zhipu`
+Static providers, routes, local API keys, and authenticators are loaded during provisioning. Persisted provider, route, credential, and local API key records can be changed through the Admin API without rebuilding the Caddy binary.
 
-All providers implement the shared `provider.Provider` interface. Some providers also implement optional capabilities such as embeddings.
-
-Custom providers can be added by shipping a Caddy module under `llm.providers.<name>` that implements the shared provider interfaces and is linked into the final Caddy build.
-
-## Authentication and Credentials
-
-There are two different credential layers in the project:
-
-- Upstream provider credentials
-  - Managed by the auth manager
-  - Used when the gateway talks to OpenAI, Anthropic, Gemini, and other providers
-- Local gateway API keys
-  - Stored as `LocalAPIKey`
-  - Used by agent clients to authenticate to the gateway itself
-
-Built-in authenticators:
-
-- `codex`
-- `claude`
-- `gemini`
-
-If no `authenticator` block is declared, no CLI login flow is enabled.
+Static records are exposed through Admin API list/read responses with source/read-only metadata where applicable. Attempts to mutate static providers or routes return conflict errors.
 
 ## Admin API
 
-The admin surface is mounted through `agent_gateway_admin` and currently includes:
+All endpoints below are under the path where `agent_gateway_admin` is mounted. Except for health and login, they require `Authorization: Bearer $TOKEN`.
+
+### Public and Session
 
 - `GET /admin/health`
-- Provider CRUD:
-  - `GET /admin/providers`
-  - `POST /admin/providers`
-  - `GET /admin/providers/{id}`
-  - `PUT /admin/providers/{id}`
-  - `DELETE /admin/providers/{id}`
-- Route CRUD:
-  - `GET /admin/routes`
-  - `POST /admin/routes`
-  - `GET /admin/routes/{id}`
-  - `PUT /admin/routes/{id}`
-  - `DELETE /admin/routes/{id}`
-- Local API key CRUD:
-  - `GET /admin/local_api_keys`
-  - `POST /admin/local_api_keys`
-  - `GET /admin/local_api_keys/{key}`
-  - `PUT /admin/local_api_keys/{key}`
-  - `DELETE /admin/local_api_keys/{key}`
-- CLI auth credentials:
-  - `GET /admin/cliauth/credentials`
-  - `GET /admin/cliauth/credentials/{credential_id}`
-  - `DELETE /admin/cliauth/credentials/{credential_id}`
-- CLI auth authenticators:
-  - `GET /admin/cliauth/authenticators`
-  - `POST /admin/cliauth/authenticators/{authenticator_name}/enable`
-  - `POST /admin/cliauth/authenticators/{authenticator_name}/disable`
-  - `POST /admin/cliauth/authenticators/{authenticator_name}/login`
-  - `GET /admin/cliauth/authenticators/{authenticator_name}/login/status`
+- `POST /admin/auth/login`
+- `POST /admin/auth/logout`
+- `GET /admin/auth/me`
 
-The route table also includes MCP, memory, agent, and metrics endpoints, but those handlers currently return `501 not implemented`.
+### Providers
 
-## Admin API Examples
+- `GET /admin/providers`
+- `POST /admin/providers`
+- `GET /admin/providers/{id}`
+- `PUT /admin/providers/{id}`
+- `POST /admin/providers/{id}/enable`
+- `POST /admin/providers/{id}/disable`
+- `DELETE /admin/providers/{id}`
 
-Login and capture a session token:
+Create a provider:
 
 ```bash
-TOKEN=$(
-  curl -s -X POST http://localhost:8082/admin/auth/login \
-    -H 'Content-Type: application/json' \
-    -d '{
-      "username": "admin",
-      "password": "your-password"
-    }' | jq -r '.token'
-)
-```
-
-Create a provider record:
-
-```bash
-curl -X POST http://localhost:8082/admin/providers \
+curl -X POST http://127.0.0.1:8081/admin/providers \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
-    "id": "openrouter",
+    "id": "openrouter-main",
     "provider_name": "openrouter",
+    "api_key": "sk-or-...",
     "base_url": "https://openrouter.ai/api/v1",
-    "default_model": "openai/gpt-4o-mini"
+    "default_model": "openai/gpt-4o-mini",
+    "network": {
+      "timeout_seconds": 120,
+      "max_retries": 3
+    }
   }'
 ```
 
-List providers:
+### Routes
+
+- `GET /admin/routes`
+- `POST /admin/routes`
+- `GET /admin/routes/{id}`
+- `PUT /admin/routes/{id}`
+- `POST /admin/routes/{id}/enable`
+- `POST /admin/routes/{id}/disable`
+- `DELETE /admin/routes/{id}`
+
+Create a route:
 
 ```bash
-curl http://localhost:8082/admin/providers \
-  -H "Authorization: Bearer $TOKEN"
+curl -X POST http://127.0.0.1:8081/admin/routes \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "id": "chat-prod",
+    "llm_api": "openai",
+    "match": {
+      "path_prefix": "/",
+      "methods": ["POST"]
+    },
+    "targets": [
+      {
+        "provider_ref": "openrouter-main",
+        "mode": "weighted",
+        "weight": 1
+      }
+    ],
+    "policy": {
+      "auth": {
+        "require_local_api_key": true
+      },
+      "allowed_models": ["openai/gpt-4o-mini"]
+    }
+  }'
 ```
 
-Admin sessions are stored in memory. If the service restarts, previously issued
-tokens become invalid and callers must log in again to obtain a fresh token.
+### Local API Keys
 
-## Caddy Admin API
+- `GET /admin/local_api_keys`
+- `POST /admin/local_api_keys`
+- `GET /admin/local_api_keys/{key}`
+- `PUT /admin/local_api_keys/{key}`
+- `POST /admin/local_api_keys/{key}/enable`
+- `POST /admin/local_api_keys/{key}/disable`
+- `DELETE /admin/local_api_keys/{key}`
 
-The backend also exposes authenticated Caddy management endpoints under `/admin/caddy/`.
+Create a local gateway API key:
 
-All endpoints in this section:
+```bash
+curl -X POST http://127.0.0.1:8081/admin/local_api_keys \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "key": "lk-demo",
+    "user_id": "demo-user",
+    "name": "demo key",
+    "allowed_route_ids": ["chat-prod"]
+  }'
+```
 
-- require `Authorization: Bearer <token>`
-- return JSON
-- return errors in the shape `{ "error": "..." }`
-- return `503` with `{"error":"caddy manager not configured"}` when the admin handler was not provisioned with a Caddy manager
+### Upstream Credentials
 
-These endpoints are implemented in:
+- `GET /admin/credentials`
+- `POST /admin/credentials`
+- `GET /admin/credentials/{credential_id}`
+- `PUT /admin/credentials/{credential_id}`
+- `DELETE /admin/credentials/{credential_id}`
 
-- `admin/routes.go`
-- `admin/caddy_handlers.go`
-- `admin/caddymgr/types.go`
-- `admin/caddymgr/manager.go`
+Create an API-key credential:
 
-### Data Shapes
+```bash
+curl -X POST http://127.0.0.1:8081/admin/credentials \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "provider": "openai",
+    "label": "primary",
+    "attributes": {
+      "api_key": "sk-...",
+      "base_url": "https://api.openai.com/v1",
+      "priority": "10"
+    }
+  }'
+```
 
-#### Server request
+### CLI Auth
 
-Used by `POST /admin/caddy/servers` and `PUT /admin/caddy/servers/{id}`.
+- `GET /admin/cliauth/authenticators`
+- `POST /admin/cliauth/authenticators/{authenticator_name}/enable`
+- `POST /admin/cliauth/authenticators/{authenticator_name}/disable`
+- `POST /admin/cliauth/authenticators/{authenticator_name}/login`
+- `GET /admin/cliauth/authenticators/{authenticator_name}/login/status`
+
+CLI auth login runs asynchronously on the server. The login endpoint returns `202 Accepted`; poll the status endpoint for completion.
+
+### Registered but Not Implemented
+
+These endpoints currently return `501 not implemented`:
+
+- MCP:
+  - `GET /admin/mcp/clients`
+  - `POST /admin/mcp/clients`
+  - `GET /admin/mcp/clients/{id}`
+  - `PUT /admin/mcp/clients/{id}`
+  - `DELETE /admin/mcp/clients/{id}`
+  - `GET /admin/mcp/clients/{id}/tools`
+- Memory:
+  - `GET /admin/memory/config`
+  - `PUT /admin/memory/config`
+  - `GET /admin/memory/search`
+- Agents:
+  - `GET /admin/agents`
+  - `POST /admin/agents`
+  - `GET /admin/agents/{id}`
+  - `PUT /admin/agents/{id}`
+  - `DELETE /admin/agents/{id}`
+- Metrics:
+  - `GET /admin/metrics`
+
+## Caddy Server Management API
+
+The admin handler also exposes Caddy server management endpoints under `/admin/caddy/`. These endpoints call Caddy's admin API, defaulting to `http://localhost:2019`; override it with `caddy_admin_addr`.
+
+- `GET /admin/caddy/servers`
+- `POST /admin/caddy/servers`
+- `GET /admin/caddy/servers/{id}`
+- `PUT /admin/caddy/servers/{id}`
+- `DELETE /admin/caddy/servers/{id}`
+- `GET /admin/caddy/servers/{id}/routes`
+- `POST /admin/caddy/servers/{id}/routes`
+- `PUT /admin/caddy/servers/{id}/routes/{routeId}`
+- `DELETE /admin/caddy/servers/{id}/routes/{routeId}`
+
+Server request:
 
 ```json
 {
@@ -347,79 +500,13 @@ Used by `POST /admin/caddy/servers` and `PUT /admin/caddy/servers/{id}`.
 
 Notes:
 
-- `id` is required on create
-- `listen` must contain at least one address
-- on update, the backend uses the path parameter as the server ID
-- `tls.auto=true` enables automatic HTTPS via ACME
-- `cert_file` and `key_file` are accepted in the payload shape, but the current manager does not translate manual certificate configuration into Caddy's `tls` app
+- `id` is required on create.
+- `listen` must contain at least one address.
+- `tls.auto=true` enables automatic HTTPS through Caddy.
+- `cert_file` and `key_file` are accepted by the request shape, but manual certificate translation is not fully wired into the current manager.
+- servers discovered from the loaded Caddy config may be marked `readonly`; readonly servers cannot be mutated through these endpoints.
 
-#### Server response
-
-```json
-{
-  "id": "public",
-  "listen": [":443"],
-  "routes": [
-    {
-      "id": "llm-api",
-      "order": 0,
-      "match": {
-        "paths": ["/v1/*"],
-        "hosts": ["api.example.com"]
-      },
-      "handlers": [
-        {
-          "type": "openai",
-          "route_id": "default"
-        }
-      ]
-    }
-  ],
-  "readonly": true,
-  "source": "system",
-  "public_url": "https://127.0.0.1:443/"
-}
-```
-
-Notes:
-
-- `readonly=true` means the server is treated as system-managed and cannot be mutated through these endpoints
-- `source` is currently set to `"system"` only for readonly servers
-- `public_url` is currently populated only for readonly servers
-
-#### Route request
-
-Used by `POST /admin/caddy/servers/{id}/routes` and `PUT /admin/caddy/servers/{id}/routes/{routeId}`.
-
-```json
-{
-  "id": "llm-api",
-  "order": 0,
-  "match": {
-    "paths": ["/v1/*"],
-    "hosts": ["api.example.com"]
-  },
-  "handler": {
-    "type": "openai",
-    "route_id": "default",
-    "upstream": "127.0.0.1:8080",
-    "root": "/srv/www"
-  }
-}
-```
-
-Notes:
-
-- `id` is required on create
-- on update, the backend uses the `{routeId}` path parameter as the route ID
-- `order` controls insert position only on create; update keeps the existing position
-- handler-specific fields:
-  - `type: "openai"` or `"anthropic"` uses `route_id`
-  - `type: "reverse_proxy"` uses `upstream`
-  - `type: "file_server"` uses `root`
-  - `type: "admin"` maps to the Caddy handler `agent_gateway_admin`
-
-#### Route response
+Route request:
 
 ```json
 {
@@ -431,184 +518,39 @@ Notes:
   },
   "handlers": [
     {
-      "type": "openai",
-      "route_id": "default"
+      "type": "agent_route_dispatcher",
+      "apis": ["openai", "anthropic"]
     }
   ]
 }
 ```
 
-Notes:
+Supported route handler types:
 
-- `handlers` contains all handlers found in the underlying Caddy route
-- Web-UI-managed routes currently have exactly one handler
-- Caddyfile-defined routes may surface multiple handlers
-- routes defined in the Caddyfile may have an empty `id`; those are effectively read-only from this API
+- `agent_route_dispatcher` - uses `apis`, for example `["openai", "anthropic"]`
+- `reverse_proxy` - uses `upstream`
+- `file_server` - uses `root`
+- `admin` - maps to `agent_gateway_admin`
 
-### Server Endpoints
-
-#### `GET /admin/caddy/servers`
-
-Lists all HTTP servers currently registered in Caddy.
-
-Response:
-
-```json
-{
-  "items": [
-    {
-      "id": "public",
-      "listen": [":443"],
-      "routes": [],
-      "readonly": true,
-      "source": "system",
-      "public_url": "https://127.0.0.1:443/"
-    }
-  ]
-}
-```
-
-#### `POST /admin/caddy/servers`
-
-Creates a new HTTP server.
-
-Success:
-
-- `201 Created` with a `ServerResponse` body
-
-Common failures:
-
-- `400` for invalid JSON
-- `500` for validation or Caddy admin errors such as missing `id`, empty `listen`, duplicate server ID, or unreachable Caddy admin API
-
-Example:
+Create a server:
 
 ```bash
-curl -X POST http://localhost:8082/admin/caddy/servers \
+curl -X POST http://127.0.0.1:8081/admin/caddy/servers \
   -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
+  -H 'Content-Type: application/json' \
   -d '{
     "id": "public",
-    "listen": [":443"],
+    "listen": [":8443"],
     "tls": { "auto": true }
   }'
 ```
 
-#### `GET /admin/caddy/servers/{id}`
-
-Returns a single server by ID.
-
-Success:
-
-- `200 OK` with a `ServerResponse` body
-
-Common failures:
-
-- `404` when the server does not exist
-
-#### `PUT /admin/caddy/servers/{id}`
-
-Updates `listen` and `tls` on an existing server while preserving current routes.
-
-Success:
-
-- `200 OK` with the updated `ServerResponse`
-
-Common failures:
-
-- `400` for invalid JSON
-- `403` when the target server is readonly
-- `404` when the server does not exist
-- `500` for validation or Caddy admin errors
-
-Example:
+Add a route:
 
 ```bash
-curl -X PUT http://localhost:8082/admin/caddy/servers/public \
+curl -X POST http://127.0.0.1:8081/admin/caddy/servers/public/routes \
   -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "listen": [":443", ":8443"],
-    "tls": { "auto": true }
-  }'
-```
-
-#### `DELETE /admin/caddy/servers/{id}`
-
-Deletes a server.
-
-Success:
-
-```json
-{
-  "status": "deleted",
-  "id": "public"
-}
-```
-
-Common failures:
-
-- `403` when the target server is readonly
-- `404` when the server does not exist
-
-### Route Endpoints
-
-#### `GET /admin/caddy/servers/{id}/routes`
-
-Lists all routes for the specified server.
-
-Response:
-
-```json
-{
-  "items": [
-    {
-      "id": "llm-api",
-      "order": 0,
-      "match": {
-        "paths": ["/v1/*"]
-      },
-      "handlers": [
-        {
-          "type": "openai",
-          "route_id": "default"
-        }
-      ]
-    }
-  ]
-}
-```
-
-Notes:
-
-- returns both Web-UI-managed routes and routes discovered from the Caddyfile
-- Caddyfile routes may have empty `id`
-
-Common failures:
-
-- `404` when the server does not exist
-
-#### `POST /admin/caddy/servers/{id}/routes`
-
-Adds a route to a server.
-
-Success:
-
-- `201 Created` with the newly added `RouteResponse`
-
-Common failures:
-
-- `400` for invalid JSON
-- `403` when the target server is readonly
-- `404` when the server does not exist
-- `500` for validation or Caddy admin errors such as empty route ID or duplicate route ID
-
-Example:
-
-```bash
-curl -X POST http://localhost:8082/admin/caddy/servers/public/routes \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
+  -H 'Content-Type: application/json' \
   -d '{
     "id": "llm-api",
     "order": 0,
@@ -616,141 +558,34 @@ curl -X POST http://localhost:8082/admin/caddy/servers/public/routes \
       "paths": ["/v1/*"],
       "hosts": ["api.example.com"]
     },
-    "handler": {
-      "type": "openai",
-      "route_id": "default"
-    }
+    "handlers": [
+      {
+        "type": "agent_route_dispatcher",
+        "apis": ["openai", "anthropic"]
+      }
+    ]
   }'
 ```
-
-#### `PUT /admin/caddy/servers/{id}/routes/{routeId}`
-
-Updates an existing route in place.
-
-Success:
-
-- `200 OK` with the updated `RouteResponse`
-
-Common failures:
-
-- `400` for invalid JSON
-- `403` when the target server is readonly
-- `404` when the route does not exist
-- `500` for Caddy admin errors
-
-Example:
-
-```bash
-curl -X PUT http://localhost:8082/admin/caddy/servers/public/routes/llm-api \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "order": 0,
-    "match": {
-      "paths": ["/v2/*"]
-    },
-    "handler": {
-      "type": "reverse_proxy",
-      "upstream": "127.0.0.1:8080"
-    }
-  }'
-```
-
-#### `DELETE /admin/caddy/servers/{id}/routes/{routeId}`
-
-Deletes a route from a server.
-
-Success:
-
-```json
-{
-  "status": "deleted",
-  "id": "llm-api"
-}
-```
-
-Common failures:
-
-- `403` when the target server is readonly
-- `404` when the route does not exist
-
-Create a route record:
-
-```bash
-curl -X POST http://localhost:8082/admin/routes \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "id": "chat-prod",
-    "llm_api": "openai",
-    "match": {
-      "path_prefix": "/",
-      "methods": ["POST"]
-    },
-    "targets": [
-      { "provider_ref": "openrouter", "mode": "weighted", "weight": 1 }
-    ],
-    "policy": {
-      "auth": { "require_local_api_key": true },
-      "allowed_models": ["gpt-4o-mini"]
-    }
-  }'
-```
-
-Create a local API key:
-
-```bash
-curl -X POST http://localhost:8082/admin/local_api_keys \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "key": "lk-demo",
-    "name": "demo key",
-    "allowed_route_ids": ["chat-prod"]
-  }'
-```
-
-Call the gateway:
-
-```bash
-curl http://localhost:8082/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -H 'x-api-key: lk-demo' \
-  -d '{
-    "model": "gpt-4o-mini",
-    "messages": [{"role": "user", "content": "hello"}]
-  }'
-```
-
-## Dynamic vs Static Configuration
-
-There are two configuration sources:
-
-- Static Caddyfile config under `agent_gateway`
-- Persisted config in the SQLite config store
-
-At runtime:
-
-- Static providers are loaded during app provisioning.
-- Persisted provider records can be resolved dynamically by ID.
-- Static routes are registered at startup.
-- If a handler specifies `route_id`, the gateway attempts to reload the latest persisted route definition for that ID on each request.
-
-That design lets operators keep the Caddy app stable while changing route and provider records through the Admin API.
 
 ## Current Limits
 
-These parts are real but incomplete:
+- LLM routing is the primary working path.
+- OpenAI chat completions and Anthropic messages are implemented for normal and streaming requests.
+- Anthropic token counting returns `501`.
+- OpenAI embeddings are not fully wired through the API handler.
+- MCP, memory, metrics, and agent Admin API routes are placeholders.
+- Memory backends and embedding adapters contain interfaces and stubs, but are not production-ready request-path features.
+- The Caddy server management API supports practical server and route edits, but not every Caddy HTTP app feature is represented in its simplified request model.
 
-- MCP transport packages and manager scaffolding exist, but Admin API integration is not implemented
-- Memory interfaces and adapters exist, but request-path integration is partial
-- Agent orchestration exists as an early loop around provider calls, but tool execution and memory integration are still TODOs
-- The web dashboard exists as a separate Next.js app, but it is not yet the canonical operational surface
+## Useful Commands
 
-## Roadmap Direction
+```bash
+go test ./...
+go test ./admin ./gateway ./api
+go test ./llm/provider/...
+```
 
-The repository is trending toward a fuller AI gateway that can:
-
-- expose stable, provider-agnostic APIs for agent runtimes,
-- centralize both gateway-side and upstream-side auth,
-- integrate MCP and memory into gateway-managed execution,
-- support richer routing policy and provider failover,
-- and expose a complete operational control plane over Admin API and web UI.
+```bash
+./caddy-agent-gateway adapt --config ./Caddyfile
+./caddy-agent-gateway run --config ./Caddyfile
+```
