@@ -29,8 +29,9 @@ var allowedPrefixes = []string{
 // admin HTTP endpoint; no persistent storage is needed because Caddy
 // persists config itself when "persist" is enabled in the admin block.
 type CaddyManager struct {
-	adminAddr string // e.g. "http://localhost:2019"
-	client    *http.Client
+	adminAddr         string // e.g. "http://localhost:2019"
+	client            *http.Client
+	readOnlyServerIDs map[string]struct{}
 }
 
 // New creates a CaddyManager that communicates with the Caddy admin API at adminAddr.
@@ -42,6 +43,22 @@ func New(adminAddr string) *CaddyManager {
 	return &CaddyManager{
 		adminAddr: adminAddr,
 		client:    &http.Client{Timeout: 10 * time.Second},
+	}
+}
+
+// SetReadOnlyServerIDs marks existing Caddy-managed servers as immutable through
+// this manager. It is intended for servers loaded from the static Caddy config.
+func (m *CaddyManager) SetReadOnlyServerIDs(ids []string) {
+	if len(ids) == 0 {
+		m.readOnlyServerIDs = nil
+		return
+	}
+	m.readOnlyServerIDs = make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		m.readOnlyServerIDs[id] = struct{}{}
 	}
 }
 
@@ -87,6 +104,9 @@ func (m *CaddyManager) CreateServer(ctx context.Context, req *ServerRequest) err
 	}
 	if len(req.Listen) == 0 {
 		return fmt.Errorf("at least one listen address is required")
+	}
+	if m.isReadOnlyServerID(req.ID) {
+		return fmt.Errorf("server %q is managed by Caddyfile config and is read-only: %w", req.ID, ErrReadOnly)
 	}
 	srv := m.toCaddyServer(req, nil)
 	return m.caddyPUT(ctx, "/apps/http/servers/"+req.ID, srv)
@@ -349,14 +369,17 @@ func (m *CaddyManager) toCaddyHandler(h HandlerConf) caddyHandler {
 }
 
 func (m *CaddyManager) fromCaddyServer(id string, srv *caddyServer) *ServerResponse {
-	readonly := m.isProtectedServer(srv)
+	readonly := m.isProtectedServer(id, srv)
 	resp := &ServerResponse{
 		ID:       id,
 		Listen:   srv.Listen,
 		ReadOnly: readonly,
 	}
 	if readonly {
-		resp.Source = "system"
+		resp.Source = "caddyfile"
+		if !m.isReadOnlyServerID(id) {
+			resp.Source = "system"
+		}
 		resp.PublicURL = deriveServerPublicURL(srv.Listen, srv.TLS != nil)
 	}
 	for i, r := range srv.Routes {
@@ -521,8 +544,8 @@ func (m *CaddyManager) ensureServerMutable(ctx context.Context, serverID string)
 	if err != nil {
 		return err
 	}
-	if m.isProtectedServer(srv) {
-		return fmt.Errorf("server %q is managed by system config and is read-only: %w", serverID, ErrReadOnly)
+	if m.isProtectedServer(serverID, srv) {
+		return fmt.Errorf("server %q is managed by Caddyfile/system config and is read-only: %w", serverID, ErrReadOnly)
 	}
 	return nil
 }
@@ -548,9 +571,12 @@ func (m *CaddyManager) getRawServer(ctx context.Context, serverID string) (*cadd
 	return &srv, nil
 }
 
-func (m *CaddyManager) isProtectedServer(srv *caddyServer) bool {
+func (m *CaddyManager) isProtectedServer(id string, srv *caddyServer) bool {
 	if srv == nil {
 		return false
+	}
+	if m.isReadOnlyServerID(id) {
+		return true
 	}
 	for _, route := range srv.Routes {
 		if routeContainsAdminHandler(route) {
@@ -558,6 +584,14 @@ func (m *CaddyManager) isProtectedServer(srv *caddyServer) bool {
 		}
 	}
 	return false
+}
+
+func (m *CaddyManager) isReadOnlyServerID(id string) bool {
+	if m == nil || id == "" || len(m.readOnlyServerIDs) == 0 {
+		return false
+	}
+	_, ok := m.readOnlyServerIDs[id]
+	return ok
 }
 
 func routeContainsAdminHandler(route caddyRoute) bool {

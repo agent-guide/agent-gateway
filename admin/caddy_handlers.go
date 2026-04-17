@@ -57,6 +57,10 @@ func (h *Handler) handleCreateCaddyServer(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := h.caddyManager.CreateServer(r.Context(), &req); err != nil {
+		if errors.Is(err, caddymgr.ErrReadOnly) {
+			_ = httpjson.Error(w, http.StatusForbidden, err.Error())
+			return
+		}
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}

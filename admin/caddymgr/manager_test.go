@@ -1,6 +1,12 @@
 package caddymgr
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 func TestFromCaddyRouteExtractsNestedSubrouteHandlers(t *testing.T) {
 	mgr := New("")
@@ -146,6 +152,98 @@ func TestFromCaddyServerMarksAdminServerReadOnly(t *testing.T) {
 	}
 	if got, want := resp.PublicURL, "http://127.0.0.1:8081/"; got != want {
 		t.Fatalf("public_url = %q, want %q", got, want)
+	}
+}
+
+func TestFromCaddyServerMarksConfiguredServerReadOnly(t *testing.T) {
+	mgr := New("")
+	mgr.SetReadOnlyServerIDs([]string{"srv1"})
+
+	resp := mgr.fromCaddyServer("srv1", &caddyServer{
+		Listen: []string{"127.0.0.1:8082"},
+		Routes: []caddyRoute{
+			{
+				Handle: []caddyHandler{
+					{
+						"handler": "agent_route_dispatcher",
+						"api_handlers": map[string]any{
+							"openai": map[string]any{},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if !resp.ReadOnly {
+		t.Fatalf("readonly = %v, want true", resp.ReadOnly)
+	}
+	if got, want := resp.Source, "caddyfile"; got != want {
+		t.Fatalf("source = %q, want %q", got, want)
+	}
+	if got, want := resp.PublicURL, "http://127.0.0.1:8082/"; got != want {
+		t.Fatalf("public_url = %q, want %q", got, want)
+	}
+}
+
+func TestConfiguredServerRejectsUpdateAndDelete(t *testing.T) {
+	writeCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeCalls++
+			t.Errorf("unexpected write request: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "unexpected write", http.StatusInternalServerError)
+			return
+		}
+		if r.URL.Path != "/config/apps/http/servers/srv1" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"listen":["127.0.0.1:8082"],"routes":[{"handle":[{"handler":"agent_route_dispatcher"}]}]}`))
+	}))
+	defer srv.Close()
+
+	mgr := New(srv.URL)
+	mgr.SetReadOnlyServerIDs([]string{"srv1"})
+
+	err := mgr.UpdateServer(context.Background(), &ServerRequest{
+		ID:     "srv1",
+		Listen: []string{"127.0.0.1:8083"},
+	})
+	if !errors.Is(err, ErrReadOnly) {
+		t.Fatalf("UpdateServer error = %v, want ErrReadOnly", err)
+	}
+
+	err = mgr.DeleteServer(context.Background(), "srv1")
+	if !errors.Is(err, ErrReadOnly) {
+		t.Fatalf("DeleteServer error = %v, want ErrReadOnly", err)
+	}
+	if writeCalls != 0 {
+		t.Fatalf("writeCalls = %d, want 0", writeCalls)
+	}
+}
+
+func TestConfiguredServerRejectsCreateWithSameID(t *testing.T) {
+	writeCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeCalls++
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	mgr := New(srv.URL)
+	mgr.SetReadOnlyServerIDs([]string{"srv1"})
+
+	err := mgr.CreateServer(context.Background(), &ServerRequest{
+		ID:     "srv1",
+		Listen: []string{"127.0.0.1:8083"},
+	})
+	if !errors.Is(err, ErrReadOnly) {
+		t.Fatalf("CreateServer error = %v, want ErrReadOnly", err)
+	}
+	if writeCalls != 0 {
+		t.Fatalf("writeCalls = %d, want 0", writeCalls)
 	}
 }
 
