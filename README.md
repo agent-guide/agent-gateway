@@ -147,7 +147,6 @@ http://127.0.0.1:8081 {
 		agent_gateway_admin {
 			admin_user admin
 			admin_password_hash <bcrypt-hash>
-			caddy_admin_addr http://localhost:2019
 		}
 	}
 }
@@ -470,102 +469,13 @@ These endpoints currently return `501 not implemented`:
 - Metrics:
   - `GET /admin/metrics`
 
-## Caddy Server Management API
+## Caddy Server Management
 
-The admin handler also exposes Caddy server management endpoints under `/admin/caddy/`. These endpoints call Caddy's admin API, defaulting to `http://localhost:2019`; override it with `caddy_admin_addr`.
-
-- `GET /admin/caddy/servers`
-- `POST /admin/caddy/servers`
-- `GET /admin/caddy/servers/{id}`
-- `PUT /admin/caddy/servers/{id}`
-- `DELETE /admin/caddy/servers/{id}`
-- `GET /admin/caddy/servers/{id}/routes`
-- `POST /admin/caddy/servers/{id}/routes`
-- `PUT /admin/caddy/servers/{id}/routes/{routeId}`
-- `DELETE /admin/caddy/servers/{id}/routes/{routeId}`
-
-Server request:
-
-```json
-{
-  "id": "public",
-  "listen": [":443"],
-  "tls": {
-    "auto": true,
-    "cert_file": "/path/to/cert.pem",
-    "key_file": "/path/to/key.pem"
-  }
-}
-```
-
-Notes:
-
-- `id` is required on create.
-- `listen` must contain at least one address.
-- `tls.auto=true` enables automatic HTTPS through Caddy.
-- `cert_file` and `key_file` are accepted by the request shape, but manual certificate translation is not fully wired into the current manager.
-- servers discovered from the loaded Caddy config may be marked `readonly`; readonly servers cannot be mutated through these endpoints.
-
-Route request:
-
-```json
-{
-  "id": "llm-api",
-  "order": 0,
-  "match": {
-    "paths": ["/v1/*"],
-    "hosts": ["api.example.com"]
-  },
-  "handlers": [
-    {
-      "type": "agent_route_dispatcher",
-      "apis": ["openai", "anthropic"]
-    }
-  ]
-}
-```
-
-Supported route handler types:
-
-- `agent_route_dispatcher` - uses `apis`, for example `["openai", "anthropic"]`
-- `reverse_proxy` - uses `upstream`
-- `file_server` - uses `root`
-- `admin` - maps to `agent_gateway_admin`
-
-Create a server:
-
-```bash
-curl -X POST http://127.0.0.1:8081/admin/caddy/servers \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "id": "public",
-    "listen": [":8443"],
-    "tls": { "auto": true }
-  }'
-```
-
-Add a route:
-
-```bash
-curl -X POST http://127.0.0.1:8081/admin/caddy/servers/public/routes \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "id": "llm-api",
-    "order": 0,
-    "match": {
-      "paths": ["/v1/*"],
-      "hosts": ["api.example.com"]
-    },
-    "handlers": [
-      {
-        "type": "agent_route_dispatcher",
-        "apis": ["openai", "anthropic"]
-      }
-    ]
-  }'
-```
+The gateway admin handler does not expose Caddy server management endpoints.
+Run the standalone `caddymgr` service for `/admin/caddy/*` operations and point
+the Web UI at that service. `caddymgr` keeps its own frontend session and proxies
+non-Caddy `/admin/*` calls back to this gateway, so Caddy reloads do not force
+the frontend to log in again.
 
 ## Current Limits
 
@@ -575,7 +485,7 @@ curl -X POST http://127.0.0.1:8081/admin/caddy/servers/public/routes \
 - OpenAI embeddings are not fully wired through the API handler.
 - MCP, memory, metrics, and agent Admin API routes are placeholders.
 - Memory backends and embedding adapters contain interfaces and stubs, but are not production-ready request-path features.
-- The Caddy server management API supports practical server and route edits, but not every Caddy HTTP app feature is represented in its simplified request model.
+- Caddy server management is handled by the standalone `caddymgr` service, not this gateway module.
 
 ## Useful Commands
 

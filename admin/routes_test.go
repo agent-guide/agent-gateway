@@ -266,7 +266,7 @@ func TestRouteCRUD(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testRouteStore{items: map[string]*routepkg.AgentRoute{}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash), nil)
+	}, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	createBody, err := json.Marshal(routepkg.AgentRoute{
@@ -321,7 +321,7 @@ func TestLocalAPIKeyCRUD(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash), nil)
+	}, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body, err := json.Marshal(localapikeypkg.LocalAPIKey{
@@ -391,7 +391,7 @@ func TestLocalAPIKeyGetMarksStaticKeyAsReadOnly(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("bootstrap gateway: %v", err)
 	}
-	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash), nil)
+	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/local_api_keys/lk-static", nil)
@@ -433,7 +433,7 @@ func TestLocalAPIKeyListMarksStaticKeysAsReadOnly(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("bootstrap gateway: %v", err)
 	}
-	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash), nil)
+	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/local_api_keys", nil)
@@ -475,7 +475,7 @@ func TestProviderCRUD(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash), nil)
+	}, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body, err := json.Marshal(provider.ProviderConfig{
@@ -529,7 +529,7 @@ func TestProviderEnableDisable(t *testing.T) {
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
 			"openai-main": {Id: "openai-main", ProviderName: "openai"},
 		}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash), nil)
+	}, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	disableReq := httptest.NewRequest(http.MethodPost, "/admin/providers/openai-main/disable", nil)
@@ -580,7 +580,7 @@ func TestRouteEnableDisable(t *testing.T) {
 				}},
 			},
 		}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash), nil)
+	}, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	disableReq := httptest.NewRequest(http.MethodPost, "/admin/routes/chat-prod/disable", nil)
@@ -626,7 +626,7 @@ func TestLocalAPIKeyEnableDisable(t *testing.T) {
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{
 			"lk-test": {Key: "lk-test", UserID: "admin"},
 		}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash), nil)
+	}, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	disableReq := httptest.NewRequest(http.MethodPost, "/admin/local_api_keys/lk-test/disable", nil)
@@ -674,7 +674,7 @@ func TestProviderGetMarksStaticProviderAsReadOnly(t *testing.T) {
 		}},
 	}, nil, nil, nil, map[string]provider.Provider{
 		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderName: "openai", BaseURL: "https://static.example"}},
-	}), nil, "admin", string(passwordHash), nil)
+	}), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/providers/openai-main", nil)
@@ -710,7 +710,7 @@ func TestProviderListMarksStaticProvidersAsReadOnly(t *testing.T) {
 		}},
 	}, nil, nil, nil, map[string]provider.Provider{
 		"anthropic-static": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "anthropic-static", ProviderName: "anthropic"}},
-	}), nil, "admin", string(passwordHash), nil)
+	}), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
@@ -754,7 +754,7 @@ func TestProviderDeleteRejectsStaticProvider(t *testing.T) {
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
 	}, nil, nil, nil, map[string]provider.Provider{
 		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderName: "openai"}},
-	}), nil, "admin", string(passwordHash), nil)
+	}), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodDelete, "/admin/providers/openai-main", nil)
@@ -770,7 +770,7 @@ func TestProviderDeleteRejectsStaticProvider(t *testing.T) {
 func TestProtectedRouteRejectsRequestsWhenAdminAuthIsNotConfigured(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
-	}, nil, nil, nil, nil), nil, "", "", nil)
+	}, nil, nil, nil), nil, "", "")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/local_api_keys", nil)
 	rec := httptest.NewRecorder()
@@ -788,7 +788,7 @@ func TestCreateLocalAPIKeyRejectsMismatchedSessionUserID(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash), nil)
+	}, nil, nil, nil), nil, "admin", string(passwordHash))
 
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -819,7 +819,7 @@ func TestListLocalAPIKeysRejectsMismatchedSessionUserID(t *testing.T) {
 		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{
 			"lk-test": {Key: "lk-test", UserID: "admin"},
 		}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash), nil)
+	}, nil, nil, nil), nil, "admin", string(passwordHash))
 
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -849,7 +849,7 @@ func TestRouteGetPrefersStaticAgentRouteManager(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, []routepkg.AgentRoute{{
 		ID:      "chat-prod",
 		Targets: []routepkg.RouteTarget{{ProviderRef: "anthropic"}},
-	}}, nil, nil), nil, "admin", string(passwordHash), nil)
+	}}, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/routes/chat-prod", nil)
@@ -890,7 +890,7 @@ func TestRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, []routepkg.AgentRoute{{
 		ID:      "chat-static",
 		Targets: []routepkg.RouteTarget{{ProviderRef: "anthropic"}},
-	}}, nil, nil), nil, "admin", string(passwordHash), nil)
+	}}, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/routes", nil)

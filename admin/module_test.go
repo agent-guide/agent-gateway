@@ -5,7 +5,6 @@ import (
 
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
-	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 )
 
 func TestAgentGatewayAdminHandlerModuleID(t *testing.T) {
@@ -37,27 +36,5 @@ func TestParseAgentGatewayAdminFromCaddyfile(t *testing.T) {
 	}
 	if adminHandler.AdminPasswordHash != "bcrypt-hash" {
 		t.Fatalf("admin password hash = %q, want %q", adminHandler.AdminPasswordHash, "bcrypt-hash")
-	}
-}
-
-func TestCaddyfileServerHeuristicDoesNotMatchAPIServerID(t *testing.T) {
-	if isCaddyfileGeneratedServerID("agentgw0") {
-		t.Fatal("agentgw0 should not be treated as a Caddyfile-generated server ID")
-	}
-	if !isCaddyfileGeneratedServerID("srv1") {
-		t.Fatal("srv1 should be treated as a Caddyfile-generated server ID")
-	}
-}
-
-func TestCaddyfileRouteHeuristicUsesUngroupedRoutes(t *testing.T) {
-	if hasCaddyfileRoutes(&caddyhttp.Server{
-		Routes: caddyhttp.RouteList{{Group: "agentgw-route"}},
-	}) {
-		t.Fatal("grouped API-managed routes should not be treated as Caddyfile routes")
-	}
-	if !hasCaddyfileRoutes(&caddyhttp.Server{
-		Routes: caddyhttp.RouteList{{}},
-	}) {
-		t.Fatal("ungrouped routes should be treated as Caddyfile routes")
 	}
 }

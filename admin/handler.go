@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/agent-guide/caddy-agent-gateway/admin/caddymgr"
 	"github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
 	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
@@ -24,7 +23,6 @@ type Handler struct {
 	routeManager       *routepkg.AgentRouteManager
 	localAPIKeyManager *localapikeypkg.LocalAPIKeyManager
 	providerManager    *gateway.ProviderManager
-	caddyManager       *caddymgr.CaddyManager
 	mux                *http.ServeMux
 	logger             *zap.Logger
 	cliAuthSessions    sync.Map // cliname -> cliAuthStatus
@@ -34,9 +32,8 @@ type Handler struct {
 }
 
 // NewHandler constructs an admin Handler.
-// caddyMgr may be nil; caddy server management endpoints will return 503 in that case.
 // logger may be nil (a no-op logger is used in that case).
-func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUser, adminPasswordHash string, caddyMgr *caddymgr.CaddyManager) *Handler {
+func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUser, adminPasswordHash string) *Handler {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -63,7 +60,6 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 		routeManager:       routeManager,
 		localAPIKeyManager: localAPIKeyManager,
 		providerManager:    providerManager,
-		caddyManager:       caddyMgr,
 		logger:             logger,
 		sessions:           newSessionStore(),
 		adminUsername:      adminUser,

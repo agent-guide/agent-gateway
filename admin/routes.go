@@ -112,19 +112,6 @@ func (h *Handler) Routes() []Route {
 
 		// Metrics
 		{Method: http.MethodGet, Path: "/admin/metrics", Handler: h.handleMetrics, RequireAuth: true},
-
-		// Caddy server management
-		{Method: http.MethodGet, Path: "/admin/caddy/servers", Handler: h.handleListCaddyServers, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/caddy/servers", Handler: h.handleCreateCaddyServer, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/caddy/servers/{id}", Handler: h.handleGetCaddyServer, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/caddy/servers/{id}", Handler: h.handleUpdateCaddyServer, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/caddy/servers/{id}", Handler: h.handleDeleteCaddyServer, RequireAuth: true},
-
-		// Caddy route management (within a server)
-		{Method: http.MethodGet, Path: "/admin/caddy/servers/{id}/routes", Handler: h.handleListCaddyRoutes, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/caddy/servers/{id}/routes", Handler: h.handleAddCaddyRoute, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/caddy/servers/{id}/routes/{routeId}", Handler: h.handleUpdateCaddyRoute, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/caddy/servers/{id}/routes/{routeId}", Handler: h.handleDeleteCaddyRoute, RequireAuth: true},
 	}
 }
 
