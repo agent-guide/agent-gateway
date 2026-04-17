@@ -1,7 +1,10 @@
 # Caddy Agent Gateway
 # Caddy App module ID: "agent_gateway"
 # HTTP handler module IDs:
-# - "http.handlers.llm_api" with child handlers "http.handlers.llm_api.openai" / "http.handlers.llm_api.anthropic" (Caddyfile directive: "llm_api")
+# - "http.handlers.agent_route_dispatcher" (Caddyfile directive: "agent_route_dispatcher")
+# Dispatcher LLM API module IDs:
+# - "agent_route_dispatcher.llm_apis.openai"
+# - "agent_route_dispatcher.llm_apis.anthropic"
 # - "http.handlers.agent_gateway_admin" (Caddyfile directive: "agent_gateway_admin")
 
 {
@@ -18,7 +21,7 @@
 		}
 
 		provider zhipu {
-			api_key 087df3f931004aa79f5eb276506dc8bb.HFmkopkgESQ1dxbA
+			api_key {$ZHIPU_API_KEY}
 			base_url https://open.bigmodel.cn/api/anthropic
 			default_model glm-4.7
 			option debug_request true
@@ -28,16 +31,21 @@
 			user_id local-test
 			name "Local Python test key"
 			allowed_route openai-chat
+			allowed_route zhipu-chat
 		}
 
-		route openai-chat {
+		route openai-to-zhipu-chat {
+			llm_api openai
+			path_prefix /myopenaiprefix
 			require_local_api_key
-			allowed_model gpt-4.1
-			allowed_model gpt-4.1-mini
-			target openai
+			allowed_model glm-4.7
+			allowed_model glm-5.1
+			target zhipu
 		}
 
-		route zhipu-chat {
+		route anthropic-to-zhipu-chat {
+			llm_api anthropic
+			path_prefix /myanthropicprefix
 			require_local_api_key
 			allowed_model glm-4.7
 			target zhipu
@@ -62,9 +70,8 @@ http://127.0.0.1:8082 {
 	}
 
 	# LLM API routes
-	route /v1/* {
-		llm_api openai {
-			llm_route_id zhipu-chat
-		}
+	agent_route_dispatcher {
+		llm_api openai
+		llm_api anthropic
 	}
 }

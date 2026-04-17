@@ -1,6 +1,6 @@
 # Legacy example
 # This file uses the older llm_router syntax and is kept only as historical reference.
-# Prefer the route-oriented llm_api + target configuration shown in README.md.
+# Prefer the agent_route_dispatcher + route target configuration shown in README.md.
 
 localhost:8082 {
 	route /v1/* {

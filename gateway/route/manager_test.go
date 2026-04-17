@@ -3,6 +3,8 @@ package route
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
@@ -157,5 +159,68 @@ func TestAgentRouteManagerRejectsStaticRouteMutation(t *testing.T) {
 	}
 	if err := manager.Delete(context.Background(), "chat-prod"); !errors.Is(err, ErrStaticRouteReadOnly) {
 		t.Fatalf("Delete error = %v, want ErrStaticRouteReadOnly", err)
+	}
+}
+
+func TestAgentRouteManagerMatchPrefersMoreSpecificPath(t *testing.T) {
+	manager := NewAgentRouteManager(&testManagedRouteStore{items: map[string]*AgentRoute{
+		"root": {
+			ID:     "root",
+			LLMAPI: "openai",
+			Match:  RouteMatch{PathPrefix: "/"},
+		},
+		"tenant": {
+			ID:     "tenant",
+			LLMAPI: "anthropic",
+			Match:  RouteMatch{Host: "api.example.test", PathPrefix: "/tenant", Methods: []string{http.MethodPost}},
+		},
+	}})
+
+	req := httptest.NewRequest(http.MethodPost, "http://api.example.test/tenant/v1/messages", nil)
+	got, ok, err := manager.Match(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Match returned error: %v", err)
+	}
+	if !ok {
+		t.Fatal("Match returned ok=false")
+	}
+	if got.ID != "tenant" {
+		t.Fatalf("matched route = %q, want tenant", got.ID)
+	}
+}
+
+func TestAgentRouteManagerMatchRejectsMethod(t *testing.T) {
+	manager := NewAgentRouteManager(nil)
+	manager.InitStaticRoutes([]AgentRoute{{
+		ID:    "post-only",
+		Match: RouteMatch{PathPrefix: "/v1", Methods: []string{http.MethodPost}},
+	}})
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.test/v1/chat/completions", nil)
+	if _, ok, err := manager.Match(context.Background(), req); err != nil {
+		t.Fatalf("Match returned error: %v", err)
+	} else if ok {
+		t.Fatal("Match returned ok=true, want false")
+	}
+}
+
+func TestAgentRouteManagerMatchReturnsDisabledRoute(t *testing.T) {
+	manager := NewAgentRouteManager(nil)
+	manager.InitStaticRoutes([]AgentRoute{{
+		ID:       "disabled",
+		Disabled: true,
+		Match:    RouteMatch{PathPrefix: "/v1"},
+	}})
+
+	req := httptest.NewRequest(http.MethodPost, "http://example.test/v1/chat/completions", nil)
+	got, ok, err := manager.Match(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Match returned error: %v", err)
+	}
+	if !ok {
+		t.Fatal("Match returned ok=false")
+	}
+	if got.ID != "disabled" {
+		t.Fatalf("matched route = %q, want disabled", got.ID)
 	}
 }

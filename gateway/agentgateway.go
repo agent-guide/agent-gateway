@@ -39,14 +39,6 @@ type AgentGateway struct {
 	Selector           routepkg.RouteTargetSelector
 }
 
-// ResolvedRequest contains the route, consumer, and provider selected for a request.
-type ResolvedRequest struct {
-	Route        routepkg.AgentRoute
-	LocalAPIKey  *localapikeypkg.LocalAPIKey
-	ProviderName string
-	Provider     provider.Provider
-}
-
 func NewAgentGateway() *AgentGateway {
 	return &AgentGateway{
 		configured: false,
@@ -148,62 +140,64 @@ func (g *AgentGateway) ValidateRoute(ctx context.Context, routeID string) error 
 	return manager.Validate(ctx, routeID, resolver)
 }
 
-func (g *AgentGateway) Resolve(ctx context.Context, routeID string, req routepkg.ResolveRequest) (*ResolvedRequest, error) {
-	if routeID == "" {
-		return nil, statuserr.New(http.StatusServiceUnavailable, "route id is not configured")
+func (g *AgentGateway) ResolveRoute(ctx context.Context, r *http.Request) (routepkg.AgentRoute, error) {
+	routeManager := g.AgentRouteManager()
+	if routeManager == nil {
+		return routepkg.AgentRoute{}, statuserr.New(http.StatusServiceUnavailable, "route manager is not configured")
 	}
-
-	r, err := g.LookupRoute(ctx, routeID)
+	route, ok, err := routeManager.Match(ctx, r)
 	if err != nil {
-		return nil, statuserr.New(http.StatusServiceUnavailable, err.Error())
+		return routepkg.AgentRoute{}, statuserr.New(http.StatusInternalServerError, fmt.Sprintf("match route: %v", err))
 	}
-	if r.Disabled {
-		return nil, statuserr.New(http.StatusForbidden, fmt.Sprintf("route %q is disabled", routeID))
+	if !ok {
+		return routepkg.AgentRoute{}, nil
+	}
+	if err := route.ValidateDefinition(); err != nil {
+		return routepkg.AgentRoute{}, statuserr.New(http.StatusServiceUnavailable, err.Error())
+	}
+	if route.Disabled {
+		return routepkg.AgentRoute{}, statuserr.New(http.StatusForbidden, fmt.Sprintf("route %q is disabled", route.ID))
+	}
+	return route, nil
+}
+
+func (g *AgentGateway) ResolveProviderRef(route routepkg.AgentRoute, resolveReq routepkg.ResolveRequest) (string, error) {
+	if err := route.ValidateRequestPolicy(resolveReq); err != nil {
+		return "", err
 	}
 
-	localKey, err := g.resolveLocalAPIKey(ctx, req.HTTPRequest, r)
+	selector := g.selector()
+	target, err := selector.SelectTarget(route, resolveReq)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-
-	target, err := r.ResolveTarget(req, g.selector())
-	if err != nil {
-		return nil, err
+	if target == nil || target.ProviderRef == "" {
+		return "", statuserr.New(http.StatusBadGateway, fmt.Sprintf("route %q has no eligible targets", route.ID))
 	}
+	return target.ProviderRef, nil
+}
 
+func (g *AgentGateway) ResolveProvider(ctx context.Context, providerRef string) (provider.Provider, error) {
 	resolver := g.providerResolver()
 	if resolver == nil {
 		return nil, statuserr.New(http.StatusServiceUnavailable, "provider resolver is not configured")
 	}
-	prov, providerName, err := resolver.ResolveProvider(ctx, target.ProviderRef)
+	prov, providerName, err := resolver.ResolveProvider(ctx, providerRef)
 	if err != nil || prov == nil {
 		if errors.Is(err, ErrProviderDisabled) {
-			return nil, statuserr.New(http.StatusForbidden, fmt.Sprintf("route target provider %q is disabled", target.ProviderRef))
+			return nil, statuserr.New(http.StatusForbidden, fmt.Sprintf("route target provider %q is disabled", providerRef))
 		}
-		return nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("route target provider %q is not configured", target.ProviderRef))
+		return nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("route target provider %q is not configured", providerRef))
 	}
 	if providerName == "" {
-		providerName = target.ProviderRef
+		providerName = providerRef
 	}
 	prov = g.wrapProvider(prov, providerName)
 
-	return &ResolvedRequest{
-		Route:        r,
-		LocalAPIKey:  localKey,
-		ProviderName: providerName,
-		Provider:     prov,
-	}, nil
+	return prov, nil
 }
 
-func (g *AgentGateway) ResolveProvider(ctx context.Context, routeID string, req routepkg.ResolveRequest) (provider.Provider, error) {
-	resolved, err := g.Resolve(ctx, routeID, req)
-	if err != nil {
-		return nil, err
-	}
-	return resolved.Provider, nil
-}
-
-func (g *AgentGateway) resolveLocalAPIKey(ctx context.Context, httpReq *http.Request, r routepkg.AgentRoute) (*localapikeypkg.LocalAPIKey, error) {
+func (g *AgentGateway) ResolveLocalAPIKey(ctx context.Context, httpReq *http.Request, r routepkg.AgentRoute) (*localapikeypkg.LocalAPIKey, error) {
 	g.mu.RLock()
 	localAPIKeyManager := g.localAPIKeyManager
 	g.mu.RUnlock()

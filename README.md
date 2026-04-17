@@ -8,9 +8,11 @@ The current codebase is already usable as a route-oriented LLM gateway. It also 
 
 - A Caddy app module named `agent_gateway`
 - HTTP handlers:
-  - `llm_api openai`
-  - `llm_api anthropic`
+  - `agent_route_dispatcher`
   - `agent_gateway_admin`
+- Dispatcher LLM API modules:
+  - `openai`
+  - `anthropic`
 - Provider modules under `llm.providers.*`
 - Authenticator modules under `llm.authenticators.*`
 - SQLite-backed config storage for providers, routes, credentials, and local API keys
@@ -25,8 +27,8 @@ The current codebase is already usable as a route-oriented LLM gateway. It also 
   - Loads providers, authenticators, config store, and static routes
   - Builds runtime dependencies such as route loading, provider resolution, and local API key lookup
 - `api/`
-  - Registers `llm_api`
-  - Includes the parent `http.handlers.llm_api` middleware plus OpenAI-compatible and Anthropic-compatible child handlers
+  - Registers `agent_route_dispatcher`
+  - Includes OpenAI-compatible and Anthropic-compatible `agent_route_dispatcher.llm_apis.*` protocol handlers
 - `admin/`
   - Registers `agent_gateway_admin`
   - Exposes operational endpoints under `/admin/*`
@@ -78,6 +80,8 @@ Minimal `Caddyfile`:
         }
 
         route openai-chat {
+            llm_api openai
+            path_prefix /
             require_local_api_key
             allowed_model gpt-4.1
             allowed_model gpt-4.1-mini
@@ -87,10 +91,9 @@ Minimal `Caddyfile`:
 }
 
 :8082 {
-    route /v1/* {
-        llm_api openai {
-            llm_route_id openai-chat
-        }
+    agent_route_dispatcher {
+        llm_api openai
+        llm_api anthropic
     }
 
     route /admin/* {
@@ -186,13 +189,14 @@ Example:
 
 For a normal API call:
 
-1. The HTTP handler selected by `llm_api` receives the request.
-2. The handler resolves `llm_route_id`.
-3. The gateway loads the route definition from the config store when available, otherwise from static app config.
-4. If the route requires a local API key, the gateway validates the caller key.
-5. The gateway resolves the target provider.
+1. The HTTP handler selected by `agent_route_dispatcher` receives the request.
+2. The dispatcher matches the request against `AgentRoute.match` by host, path prefix, and method, preferring the most specific path prefix.
+3. The dispatcher strips the matched route path prefix and selects the route's `llm_api` protocol handler.
+4. The gateway uses the matched route definition from the config store when available, otherwise from static app config.
+5. If the route requires a local API key, the gateway validates the caller key.
 6. The compatible API handler converts the request into the internal provider request format.
-7. The provider executes the upstream call and returns the translated response.
+7. The gateway resolves the target provider.
+8. The provider executes the upstream call and returns the translated response.
 
 This means route and provider definitions managed through the Admin API can take effect without rebuilding the whole Caddy config.
 
@@ -677,7 +681,11 @@ curl -X POST http://localhost:8082/admin/routes \
   -H 'Content-Type: application/json' \
   -d '{
     "id": "chat-prod",
-    "name": "chat-prod",
+    "llm_api": "openai",
+    "match": {
+      "path_prefix": "/",
+      "methods": ["POST"]
+    },
     "targets": [
       { "provider_ref": "openrouter", "mode": "weighted", "weight": 1 }
     ],

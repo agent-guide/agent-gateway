@@ -54,10 +54,10 @@ type MatchConf struct {
 // HandlerConf describes which handler to mount and its key parameters.
 // The Type field selects the handler; other fields are type-specific.
 type HandlerConf struct {
-	// Type is one of: "openai", "anthropic", "admin", "reverse_proxy", "file_server".
+	// Type is one of: "agent_route_dispatcher", "admin", "reverse_proxy", "file_server".
 	Type string `json:"type"`
-	// RouteID binds an openai/anthropic handler to a gateway route.
-	RouteID string `json:"route_id,omitempty"`
+	// APIs lists the LLM API dialects loaded by agent_route_dispatcher.
+	APIs []string `json:"apis,omitempty"`
 	// Upstream is the dial address for a reverse_proxy handler (e.g. "10.0.0.1:8080").
 	Upstream string `json:"upstream,omitempty"`
 	// Root is the file system root for a file_server handler.

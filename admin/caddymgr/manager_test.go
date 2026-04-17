@@ -16,18 +16,11 @@ func TestFromCaddyRouteExtractsNestedSubrouteHandlers(t *testing.T) {
 					map[string]any{
 						"handle": []any{
 							map[string]any{
-								"handler":      "llm_api",
-								"llm_route_id": "openai-chat",
-								"api_handler":  map[string]any{"handler": "openai"},
-							},
-						},
-					},
-					map[string]any{
-						"handle": []any{
-							map[string]any{
-								"handler":      "llm_api",
-								"llm_route_id": "openai-chat",
-								"api_handler":  map[string]any{"handler": "anthropic"},
+								"handler": "agent_route_dispatcher",
+								"api_handlers": map[string]any{
+									"openai":    map[string]any{},
+									"anthropic": map[string]any{},
+								},
 							},
 						},
 					},
@@ -36,14 +29,11 @@ func TestFromCaddyRouteExtractsNestedSubrouteHandlers(t *testing.T) {
 		},
 	})
 
-	if got, want := len(resp.Handlers), 2; got != want {
+	if got, want := len(resp.Handlers), 1; got != want {
 		t.Fatalf("handlers len = %d, want %d", got, want)
 	}
-	if got := resp.Handlers[0]; got.Type != "openai" || got.RouteID != "openai-chat" {
-		t.Fatalf("first handler = %+v, want openai/openai-chat", got)
-	}
-	if got := resp.Handlers[1]; got.Type != "anthropic" || got.RouteID != "openai-chat" {
-		t.Fatalf("second handler = %+v, want anthropic/openai-chat", got)
+	if got := resp.Handlers[0]; got.Type != "agent_route_dispatcher" || len(got.APIs) != 2 || got.APIs[0] != "anthropic" || got.APIs[1] != "openai" {
+		t.Fatalf("handler = %+v, want dispatcher with anthropic/openai", got)
 	}
 	if got, want := len(resp.Match.Paths), 1; got != want || resp.Match.Paths[0] != "/v1/*" {
 		t.Fatalf("match paths = %+v, want [/v1/*]", resp.Match.Paths)
@@ -82,9 +72,10 @@ func TestFromCaddyRouteCombinesOuterHostAndNestedPath(t *testing.T) {
 						},
 						"handle": []any{
 							map[string]any{
-								"handler":      "llm_api",
-								"llm_route_id": "openai-chat",
-								"api_handler":  map[string]any{"handler": "openai"},
+								"handler": "agent_route_dispatcher",
+								"api_handlers": map[string]any{
+									"openai": map[string]any{},
+								},
 							},
 						},
 					},
@@ -111,9 +102,10 @@ func TestFromCaddyRouteCollectsAllMatcherEntries(t *testing.T) {
 		},
 		Handle: []caddyHandler{
 			{
-				"handler":      "llm_api",
-				"llm_route_id": "openai-chat",
-				"api_handler":  map[string]any{"handler": "openai"},
+				"handler": "agent_route_dispatcher",
+				"api_handlers": map[string]any{
+					"openai": map[string]any{},
+				},
 			},
 		},
 	})

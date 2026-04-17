@@ -2,15 +2,6 @@ package route
 
 import "testing"
 
-type fixedTestSelector struct {
-	target RouteTarget
-}
-
-func (s fixedTestSelector) SelectTarget(AgentRoute, ResolveRequest) (*RouteTarget, error) {
-	target := s.target
-	return &target, nil
-}
-
 func TestValidateRequestPolicyRejectsDisallowedModelOnRoute(t *testing.T) {
 	r := AgentRoute{
 		ID: "chat-prod",
@@ -42,35 +33,6 @@ func TestValidateRequestPolicyRejectsStreamingDisabledOnRoute(t *testing.T) {
 	}
 }
 
-func TestResolveTargetValidatesPolicyBeforeSelecting(t *testing.T) {
-	_, err := (AgentRoute{
-		ID: "chat-prod",
-		Policy: RoutePolicy{
-			AllowedModels: []string{"gpt-4.1"},
-		},
-	}).ResolveTarget(ResolveRequest{
-		Model: "gpt-4o-mini",
-	}, fixedTestSelector{target: RouteTarget{ProviderRef: "openai"}})
-	if err == nil {
-		t.Fatal("ResolveTarget returned nil error, want model rejection")
-	}
-}
-
-func TestResolveTargetUsesDefaultSelectorWhenNil(t *testing.T) {
-	target, err := (AgentRoute{
-		ID: "chat-prod",
-		Targets: []RouteTarget{
-			{ProviderRef: "openai"},
-		},
-	}).ResolveTarget(ResolveRequest{}, nil)
-	if err != nil {
-		t.Fatalf("ResolveTarget returned error: %v", err)
-	}
-	if target == nil || target.ProviderRef != "openai" {
-		t.Fatalf("unexpected target: %#v", target)
-	}
-}
-
 func TestValidateDefinitionRejectsEmptyRouteID(t *testing.T) {
 	err := (AgentRoute{}).ValidateDefinition()
 	if err == nil {
@@ -80,13 +42,24 @@ func TestValidateDefinitionRejectsEmptyRouteID(t *testing.T) {
 
 func TestValidateDefinitionRejectsEnabledTargetWithoutProviderRef(t *testing.T) {
 	err := (AgentRoute{
-		ID: "chat-prod",
+		ID:     "chat-prod",
+		LLMAPI: "openai",
 		Targets: []RouteTarget{
 			{},
 		},
 	}).ValidateDefinition()
 	if err == nil {
 		t.Fatal("ValidateDefinition returned nil error, want provider_ref rejection")
+	}
+}
+
+func TestValidateDefinitionRejectsMissingLLMAPI(t *testing.T) {
+	err := (AgentRoute{
+		ID:      "chat-prod",
+		Targets: []RouteTarget{{ProviderRef: "openai"}},
+	}).ValidateDefinition()
+	if err == nil {
+		t.Fatal("ValidateDefinition returned nil error, want llm_api rejection")
 	}
 }
 

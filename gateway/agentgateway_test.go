@@ -20,6 +20,15 @@ func (s fixedSelector) SelectTarget(routepkg.AgentRoute, routepkg.ResolveRequest
 	return &target, nil
 }
 
+type countingSelector struct {
+	calls int
+}
+
+func (s *countingSelector) SelectTarget(routepkg.AgentRoute, routepkg.ResolveRequest) (*routepkg.RouteTarget, error) {
+	s.calls++
+	return &routepkg.RouteTarget{ProviderRef: "openai"}, nil
+}
+
 type testProvider struct{}
 
 func (testProvider) Generate(context.Context, *provider.GenerateRequest) (*provider.GenerateResponse, error) {
@@ -44,7 +53,9 @@ func (testProvider) Config() provider.ProviderConfig {
 
 func TestResolverUsesCustomSelector(t *testing.T) {
 	route := routepkg.AgentRoute{
-		ID: "chat-prod",
+		ID:     "chat-prod",
+		LLMAPI: "openai",
+		Match:  routepkg.RouteMatch{PathPrefix: "/v1"},
 		Targets: []routepkg.RouteTarget{
 			{ProviderRef: "openai", Mode: routepkg.TargetModeWeighted, Weight: 1},
 			{ProviderRef: "openrouter", Mode: routepkg.TargetModeWeighted, Weight: 1},
@@ -62,15 +73,51 @@ func TestResolverUsesCustomSelector(t *testing.T) {
 	}
 
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
-	resolved, err := gw.Resolve(context.Background(), route.ID, routepkg.ResolveRequest{
-		HTTPRequest: req,
-		Model:       "gpt-4o-mini",
+	resolvedRoute, err := gw.ResolveRoute(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ResolveRoute returned error: %v", err)
+	}
+	providerRef, err := gw.ResolveProviderRef(resolvedRoute, routepkg.ResolveRequest{
+		Model: "gpt-4o-mini",
 	})
 	if err != nil {
-		t.Fatalf("Resolve returned error: %v", err)
+		t.Fatalf("ResolveProviderRef returned error: %v", err)
 	}
-	if resolved.ProviderName != "openrouter" {
-		t.Fatalf("unexpected provider: got %q want %q", resolved.ProviderName, "openrouter")
+	if providerRef != "openrouter" {
+		t.Fatalf("unexpected provider ref: got %q want %q", providerRef, "openrouter")
+	}
+	prov, err := gw.ResolveProvider(context.Background(), providerRef)
+	if err != nil {
+		t.Fatalf("ResolveProvider returned error: %v", err)
+	}
+	if prov == nil {
+		t.Fatal("ResolveProvider returned nil provider")
+	}
+}
+
+func TestResolveProviderRefValidatesPolicyBeforeSelecting(t *testing.T) {
+	selector := &countingSelector{}
+	gw := NewAgentGateway()
+	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
+		Selector: selector,
+	}); err != nil {
+		t.Fatalf("Bootstrap returned error: %v", err)
+	}
+
+	_, err := gw.ResolveProviderRef(routepkg.AgentRoute{
+		ID: "chat-prod",
+		Policy: routepkg.RoutePolicy{
+			AllowedModels: []string{"gpt-4.1"},
+		},
+		Targets: []routepkg.RouteTarget{{ProviderRef: "openai"}},
+	}, routepkg.ResolveRequest{
+		Model: "gpt-4o-mini",
+	})
+	if err == nil {
+		t.Fatal("ResolveProviderRef returned nil error, want model rejection")
+	}
+	if selector.calls != 0 {
+		t.Fatalf("selector calls = %d, want 0", selector.calls)
 	}
 }
 
@@ -119,6 +166,8 @@ func TestResolveRejectsDisabledRoute(t *testing.T) {
 		StaticRoutes: []routepkg.AgentRoute{{
 			ID:       "chat-prod",
 			Disabled: true,
+			LLMAPI:   "openai",
+			Match:    routepkg.RouteMatch{PathPrefix: "/v1"},
 			Targets:  []routepkg.RouteTarget{{ProviderRef: "openai"}},
 		}},
 		StaticProviders: map[string]provider.Provider{
@@ -129,10 +178,8 @@ func TestResolveRejectsDisabledRoute(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	_, err := gw.Resolve(context.Background(), "chat-prod", routepkg.ResolveRequest{
-		HTTPRequest: req,
-	})
+	_, err := gw.ResolveRoute(context.Background(), req)
 	if err == nil {
-		t.Fatal("Resolve returned nil error, want disabled route rejection")
+		t.Fatal("ResolveRoute returned nil error, want disabled route rejection")
 	}
 }

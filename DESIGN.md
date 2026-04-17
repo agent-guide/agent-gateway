@@ -24,10 +24,11 @@ Client
   |
   v
 HTTP handlers
-  - http.handlers.llm_api
-  - http.handlers.llm_api.openai
-  - http.handlers.llm_api.anthropic
+  - http.handlers.agent_route_dispatcher
   - http.handlers.agent_gateway_admin
+Dispatcher LLM API modules
+  - agent_route_dispatcher.llm_apis.openai
+  - agent_route_dispatcher.llm_apis.anthropic
   |
   v
 agent_gateway Caddy app
@@ -71,20 +72,21 @@ This is the key design choice in the project: the HTTP handlers are intentionall
 
 ### 4.2 `api/`: Compatible LLM Ingress
 
-The `api/` package registers the `llm_api` Caddyfile directive. That directive currently accepts:
+The `api/` package registers the `agent_route_dispatcher` Caddyfile directive. That directive currently accepts dispatcher-local LLM API protocol modules:
 
 ```caddy
-llm_api <dialect> {
-    llm_route_id <route-id>
+agent_route_dispatcher {
+    llm_api openai
+    llm_api anthropic
 }
 ```
 
-The parent HTTP handler is `http.handlers.llm_api`, and it loads a child dialect handler from:
+The HTTP handler is `http.handlers.agent_route_dispatcher`, and it loads protocol handlers from:
 
-- `http.handlers.llm_api.openai`
-- `http.handlers.llm_api.anthropic`
+- `agent_route_dispatcher.llm_apis.openai`
+- `agent_route_dispatcher.llm_apis.anthropic`
 
-The handler does not define route policy inline. Instead, it binds to an `llm_route_id`, then asks the shared gateway runtime to resolve the route and target provider.
+The dispatcher does not define route policy inline. Instead, it asks the shared gateway route manager to match the HTTP request against `AgentRoute.match`, strips the matched route path prefix, selects the route's `llm_api`, and resolves the matched route and target provider.
 
 This separation is deliberate:
 
@@ -290,9 +292,10 @@ The standard request path is:
 
 ```text
 HTTP request
-  -> llm_api.<dialect>
-  -> resolve route_id
-  -> load route definition
+  -> agent_route_dispatcher
+  -> match AgentRoute by host/path prefix/method
+  -> strip matched path prefix
+  -> select route llm_api protocol handler
   -> validate local API key if required
   -> resolve target provider
   -> convert request into provider.Generate/Stream input

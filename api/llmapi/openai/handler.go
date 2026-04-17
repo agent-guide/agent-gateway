@@ -31,7 +31,7 @@ func init() {
 // CaddyModule returns the Caddy module information.
 func (Handler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "http.handlers.llm_api.openai",
+		ID:  "agent_route_dispatcher.llm_apis.openai",
 		New: func() caddy.Module { return new(Handler) },
 	}
 }

@@ -27,6 +27,7 @@ type AgentRoute struct {
 	ID          string        `json:"id"`
 	Description string        `json:"description,omitempty"`
 	Disabled    bool          `json:"disabled"`
+	LLMAPI      string        `json:"llm_api,omitempty"`
 	Match       RouteMatch    `json:"match"`
 	Targets     []RouteTarget `json:"targets"`
 	Policy      RoutePolicy   `json:"policy"`

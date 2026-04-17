@@ -370,6 +370,10 @@ func (h *Handler) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	route.Policy.Defaults()
+	if err := route.ValidateDefinition(); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	tag := r.URL.Query().Get("tag")
 	if tag == "" {
@@ -431,6 +435,10 @@ func (h *Handler) handleUpdateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	route.Policy.Defaults()
+	if err := route.ValidateDefinition(); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	if err := manager.Update(r.Context(), id, route); err != nil {
 		if errors.Is(err, routepkg.ErrStaticRouteReadOnly) {

@@ -1,11 +1,20 @@
 package route
 
-import "fmt"
+import (
+	"fmt"
+	"net/http"
+	"slices"
+
+	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
+)
 
 // ValidateDefinition checks static route definition correctness without external dependencies.
 func (r AgentRoute) ValidateDefinition() error {
 	if r.ID == "" {
 		return fmt.Errorf("route_id is required")
+	}
+	if r.LLMAPI == "" {
+		return fmt.Errorf("route %q llm_api is required", r.ID)
 	}
 
 	hasEligibleTarget := false
@@ -40,4 +49,38 @@ func (r AgentRoute) ProviderRefs() []string {
 		refs = append(refs, target.ProviderRef)
 	}
 	return refs
+}
+
+// ResolveRequest captures the request attributes required for route resolution.
+type ResolveRequest struct {
+	Model  string
+	Stream bool
+}
+
+// ValidateRequestPolicy validates the request against route-level policy.
+func (r AgentRoute) ValidateRequestPolicy(req ResolveRequest) error {
+	if req.Model != "" {
+		if len(r.Policy.AllowedModels) > 0 && !slices.Contains(r.Policy.AllowedModels, req.Model) {
+			return statuserr.New(http.StatusForbidden, fmt.Sprintf("model %q is not allowed on route %q", req.Model, r.ID))
+		}
+	}
+
+	if req.Stream {
+		if r.Policy.AllowStreaming != nil && !*r.Policy.AllowStreaming {
+			return statuserr.New(http.StatusForbidden, "streaming is disabled on this route")
+		}
+	}
+
+	return nil
+}
+
+// matchesConditions checks whether a target's conditions are satisfied by the request.
+func matchesConditions(conditions TargetConditions, req ResolveRequest) bool {
+	if len(conditions.Models) > 0 && req.Model != "" && !slices.Contains(conditions.Models, req.Model) {
+		return false
+	}
+	if conditions.RequireStreaming != nil && *conditions.RequireStreaming != req.Stream {
+		return false
+	}
+	return true
 }

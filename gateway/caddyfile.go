@@ -251,6 +251,28 @@ func parseRouteSegment(d *caddyfile.Dispenser) (routepkg.AgentRoute, error) {
 		name := seg.Val()
 		args := seg.RemainingArgsRaw()
 		switch name {
+		case "llm_api":
+			if len(args) != 1 {
+				return routepkg.AgentRoute{}, seg.ArgErr()
+			}
+			route.LLMAPI = strings.Trim(args[0], "\"`")
+		case "host":
+			if len(args) != 1 {
+				return routepkg.AgentRoute{}, seg.ArgErr()
+			}
+			route.Match.Host = strings.Trim(args[0], "\"`")
+		case "path_prefix":
+			if len(args) != 1 {
+				return routepkg.AgentRoute{}, seg.ArgErr()
+			}
+			route.Match.PathPrefix = strings.Trim(args[0], "\"`")
+		case "method":
+			if len(args) == 0 {
+				return routepkg.AgentRoute{}, seg.ArgErr()
+			}
+			for _, arg := range args {
+				route.Match.Methods = append(route.Match.Methods, strings.Trim(arg, "\"`"))
+			}
 		case "require_local_api_key":
 			if len(args) == 0 {
 				route.Policy.Auth.RequireLocalAPIKey = true

@@ -83,6 +83,10 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 		}
 
 		route openai-chat {
+			llm_api openai
+			host api.example.test
+			path_prefix /tenant-a
+			method POST
 			require_local_api_key
 			allowed_model gpt-4.1
 			target ollama
@@ -159,6 +163,15 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	route := app.Routes[0]
 	if route.ID != "openai-chat" {
 		t.Fatalf("route id = %q, want openai-chat", route.ID)
+	}
+	if route.LLMAPI != "openai" {
+		t.Fatalf("route llm_api = %q, want openai", route.LLMAPI)
+	}
+	if route.Match.Host != "api.example.test" || route.Match.PathPrefix != "/tenant-a" {
+		t.Fatalf("route match = %#v", route.Match)
+	}
+	if len(route.Match.Methods) != 1 || route.Match.Methods[0] != "POST" {
+		t.Fatalf("route methods = %#v", route.Match.Methods)
 	}
 	if !route.Policy.Auth.RequireLocalAPIKey {
 		t.Fatal("expected route require_local_api_key to be true")

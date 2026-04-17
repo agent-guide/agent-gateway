@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -314,11 +315,17 @@ func (m *CaddyManager) toCaddyRoute(req *RouteRequest) caddyRoute {
 // toCaddyHandler translates our simple HandlerConf into Caddy's handler JSON.
 func (m *CaddyManager) toCaddyHandler(h HandlerConf) caddyHandler {
 	switch h.Type {
-	case "openai", "anthropic":
+	case "agent_route_dispatcher":
+		apiHandlers := map[string]any{}
+		for _, apiName := range h.APIs {
+			if apiName == "" {
+				continue
+			}
+			apiHandlers[apiName] = map[string]any{}
+		}
 		return caddyHandler{
-			"handler":      "llm_api",
-			"llm_route_id": h.RouteID,
-			"api_handler":  map[string]any{"handler": h.Type},
+			"handler":      "agent_route_dispatcher",
+			"api_handlers": apiHandlers,
 		}
 	case "admin":
 		return caddyHandler{
@@ -482,16 +489,15 @@ func (m *CaddyManager) extractHandlersFromHandler(h caddyHandler) []HandlerConf 
 func (m *CaddyManager) fromCaddyHandler(h caddyHandler) HandlerConf {
 	handlerType, _ := h["handler"].(string)
 	switch handlerType {
-	case "llm_api":
-		routeID, _ := h["llm_route_id"].(string)
-		subType := ""
-		if apiHandler, ok := h["api_handler"].(map[string]any); ok {
-			subType, _ = apiHandler["handler"].(string)
+	case "agent_route_dispatcher":
+		apis := []string{}
+		if apiHandlers, ok := h["api_handlers"].(map[string]any); ok {
+			for apiName := range apiHandlers {
+				apis = append(apis, apiName)
+			}
 		}
-		if subType == "" {
-			subType = "openai"
-		}
-		return HandlerConf{Type: subType, RouteID: routeID}
+		slices.Sort(apis)
+		return HandlerConf{Type: "agent_route_dispatcher", APIs: apis}
 	case "agent_gateway_admin":
 		return HandlerConf{Type: "admin"}
 	case "reverse_proxy":

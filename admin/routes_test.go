@@ -270,7 +270,8 @@ func TestRouteCRUD(t *testing.T) {
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	createBody, err := json.Marshal(routepkg.AgentRoute{
-		ID: "chat-prod",
+		ID:     "chat-prod",
+		LLMAPI: "openai",
 		Targets: []routepkg.RouteTarget{{
 			ProviderRef: "openai",
 			Mode:        routepkg.TargetModeWeighted,
