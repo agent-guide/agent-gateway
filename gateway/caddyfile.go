@@ -65,12 +65,29 @@ func parseApp(d *caddyfile.Dispenser, existingVal any) (any, error) {
 }
 
 func parseProvider(d *caddyfile.Dispenser, app *App) error {
-	if !d.NextArg() {
+	segment := d.NextSegment()
+	scan := caddyfile.NewDispenser(segment)
+	if !scan.Next() {
+		return d.Err("expected provider directive")
+	}
+	if !scan.NextArg() {
+		return scan.ArgErr()
+	}
+	providerID := scan.Val()
+	if scan.NextArg() {
+		return scan.ArgErr()
+	}
+	providerName, err := providerNameFromSegment(scan)
+	if err != nil {
+		return err
+	}
+
+	unmarshal := caddyfile.NewDispenser(segment)
+	if !unmarshal.Next() || !unmarshal.NextArg() {
 		return d.ArgErr()
 	}
-	name := d.Val()
-	modID := "llm.providers." + name
-	unm, err := caddyfile.UnmarshalModule(d, modID)
+	modID := "llm.providers." + providerName
+	unm, err := caddyfile.UnmarshalModule(unmarshal, modID)
 	if err != nil {
 		return err
 	}
@@ -78,8 +95,34 @@ func parseProvider(d *caddyfile.Dispenser, app *App) error {
 	if app.ProvidersRaw == nil {
 		app.ProvidersRaw = make(map[string]json.RawMessage)
 	}
-	app.ProvidersRaw[name] = caddyconfig.JSON(unm, nil)
+	if _, exists := app.ProvidersRaw[providerID]; exists {
+		return d.Errf("duplicate provider %q", providerID)
+	}
+	app.ProvidersRaw[providerID] = caddyconfig.JSON(unm, nil)
 	return nil
+}
+
+func providerNameFromSegment(d *caddyfile.Dispenser) (string, error) {
+	var providerName string
+	for d.NextBlock(0) {
+		if d.Val() != "provider_name" {
+			continue
+		}
+		if providerName != "" {
+			return "", d.Err("provider_name already configured")
+		}
+		if !d.NextArg() {
+			return "", d.ArgErr()
+		}
+		providerName = d.Val()
+		if d.NextArg() {
+			return "", d.ArgErr()
+		}
+	}
+	if providerName == "" {
+		return "", d.Err("provider_name is required")
+	}
+	return providerName, nil
 }
 
 func parseConfigStore(d *caddyfile.Dispenser, app *App) error {

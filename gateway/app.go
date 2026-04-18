@@ -25,7 +25,7 @@ func init() {
 // It manages providers, MCP clients, memory stores, and configuration.
 type App struct {
 	// Providers lists the configured LLM providers.
-	ProvidersRaw caddy.ModuleMap `json:"providers,omitempty" caddy:"namespace=llm.providers"`
+	ProvidersRaw caddy.ModuleMap `json:"providers,omitempty" caddy:"namespace=llm.providers inline_key=provider_name"`
 	// Authenticators configures CLI credential authenticators under the llm.authenticators namespace.
 	AuthenticatorsRaw caddy.ModuleMap `json:"authenticators,omitempty" caddy:"namespace=llm.authenticators"`
 	// ConfigStore configures persistent admin/auth state storage.

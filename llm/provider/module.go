@@ -17,8 +17,16 @@ type Module interface {
 // UnmarshalCaddyfileConfig parses common provider settings from a Caddyfile block.
 func UnmarshalCaddyfileConfig(d *caddyfile.Dispenser, cfg *ProviderConfig) error {
 	for d.Next() {
+		if cfg.Id == "" {
+			cfg.Id = d.Val()
+		}
 		for d.NextBlock(0) {
 			switch d.Val() {
+			case "provider_name":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				cfg.ProviderName = d.Val()
 			case "api_key":
 				if !d.NextArg() {
 					return d.ArgErr()

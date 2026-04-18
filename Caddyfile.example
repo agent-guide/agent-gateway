@@ -15,12 +15,14 @@
 			path ./data/configstore.db
 		}
 
-		provider openai {
+		provider openai-main {
+			provider_name openai
 			api_key {$OPENAI_API_KEY}
 			default_model gpt-4.1
 		}
 
-		provider zhipu {
+		provider zhipu-main {
+			provider_name zhipu
 			api_key {$ZHIPU_API_KEY}
 			base_url https://open.bigmodel.cn/api/anthropic
 			default_model glm-4.7
@@ -40,7 +42,7 @@
 			require_local_api_key
 			allowed_model glm-4.7
 			allowed_model glm-5.1
-			target zhipu
+			target zhipu-main
 		}
 
 		route anthropic-to-zhipu-chat {
@@ -48,7 +50,7 @@
 			path_prefix /myanthropicprefix
 			require_local_api_key
 			allowed_model glm-4.7
-			target zhipu
+			target zhipu-main
 		}
 	}
 }

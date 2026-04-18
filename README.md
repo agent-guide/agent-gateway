@@ -72,7 +72,8 @@ Create a minimal `Caddyfile`:
 			path ./data/configstore.db
 		}
 
-		provider openai {
+		provider openai-main {
+			provider_name openai
 			api_key {$OPENAI_API_KEY}
 			default_model gpt-4.1
 		}
@@ -88,7 +89,7 @@ Create a minimal `Caddyfile`:
 			path_prefix /
 			require_local_api_key
 			allowed_model gpt-4.1
-			target openai
+			target openai-main
 		}
 	}
 }
@@ -179,7 +180,7 @@ The gateway is configured in the global `agent_gateway` block:
 {
 	agent_gateway {
 		config_store sqlite { ... }
-		provider <name> { ... }
+		provider <provider-id> { ... }
 		authenticator <name> { ... }
 		localapikey <key> { ... }
 		route <route-id> { ... }
@@ -202,7 +203,8 @@ If `path` is omitted, the store defaults to Caddy's app data directory under `ca
 Common provider settings:
 
 ```caddy
-provider openai {
+provider openai-main {
+	provider_name openai
 	api_key {$OPENAI_API_KEY}
 	base_url https://api.openai.com/v1
 	default_model gpt-4.1
@@ -234,7 +236,7 @@ route openai-chat {
 	method POST
 	require_local_api_key
 	allowed_model gpt-4.1 gpt-4.1-mini
-	target openai 1
+	target openai-main 1
 }
 ```
 

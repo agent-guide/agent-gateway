@@ -205,7 +205,10 @@ Static configuration lives in the global `agent_gateway` Caddyfile block:
 ```caddy
 {
     agent_gateway {
-        provider openai { ... }
+        provider openai-main {
+            provider_name openai
+            ...
+        }
         config_store sqlite { ... }
         authenticator codex { ... }
         route chat { ... }
@@ -215,7 +218,7 @@ Static configuration lives in the global `agent_gateway` Caddyfile block:
 
 The parser currently supports:
 
-- `provider <name>`
+- `provider <provider-id>`
 - `config_store <name>`
 - `authenticator <name>`
 - `route <id>`
