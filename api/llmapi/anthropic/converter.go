@@ -1,6 +1,8 @@
 package anthropic
 
 import (
+	"encoding/json"
+
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
@@ -106,8 +108,31 @@ type MessagesRequest struct {
 }
 
 type MessageItem struct {
-	Role    string         `json:"role"`
-	Content []ContentBlock `json:"content"`
+	Role    string        `json:"role"`
+	Content MessageContent `json:"content"`
+}
+
+// MessageContent holds the content of a message. Per the Anthropic API spec,
+// content may be either a plain string or an array of content blocks.
+type MessageContent []ContentBlock
+
+// UnmarshalJSON accepts both a JSON string and a JSON array of content blocks.
+func (mc *MessageContent) UnmarshalJSON(data []byte) error {
+	// Try array first (most common from SDK >= 0.20).
+	var blocks []ContentBlock
+	if err := json.Unmarshal(data, &blocks); err == nil {
+		*mc = blocks
+		return nil
+	}
+	// Fall back to plain string (SDK may send this for simple user messages).
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	if s != "" {
+		*mc = []ContentBlock{{Type: "text", Text: s}}
+	}
+	return nil
 }
 
 type ContentBlock struct {
