@@ -15,12 +15,6 @@
 			path ./data/configstore.db
 		}
 
-		provider openai-main {
-			provider_name openai
-			api_key {$OPENAI_API_KEY}
-			default_model gpt-4.1
-		}
-
 		provider zhipu-main {
 			provider_name zhipu
 			api_key {$ZHIPU_API_KEY}
@@ -32,20 +26,10 @@
 		localapikey test-key {
 			user_id local-test
 			name "Local Python test key"
-			allowed_route openai-chat
-			allowed_route zhipu-chat
+			allowed_route anthropic-chat
 		}
 
-		route openai-to-zhipu-chat {
-			llm_api openai
-			path_prefix /myopenaiprefix
-			require_local_api_key
-			allowed_model glm-4.7
-			allowed_model glm-5.1
-			target zhipu-main
-		}
-
-		route anthropic-to-zhipu-chat {
+		route anthropic-chat {
 			llm_api anthropic
 			path_prefix /myanthropicprefix
 			require_local_api_key
