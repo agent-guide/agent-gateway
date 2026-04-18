@@ -59,7 +59,7 @@ def main() -> int:
     request = {
         "model": args.model,
         "messages": messages,
-        "max_tokens": 128,
+        "max_tokens": 4096,
         "temperature": 0.2,
     }
 

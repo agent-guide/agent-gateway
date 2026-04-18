@@ -58,7 +58,7 @@ def main() -> int:
     # the array format regardless of the SDK version in use.
     kwargs: dict = {
         "model": args.model,
-        "max_tokens": 128,
+        "max_tokens": 8172,
         "messages": [{"role": "user", "content": [{"type": "text", "text": args.prompt}]}],
     }
     if args.system:

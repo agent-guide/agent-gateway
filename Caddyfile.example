@@ -24,9 +24,9 @@
 		provider zhipu-main {
 			provider_name zhipu
 			api_key {$ZHIPU_API_KEY}
-			base_url https://open.bigmodel.cn/api/anthropic
+			base_url https://open.bigmodel.cn/api/paas/v4
 			default_model glm-4.7
-			option debug_request true
+			option thinking_type disabled
 		}
 
 		localapikey test-key {

@@ -220,7 +220,8 @@ provider openai-main {
 Provider-specific notes:
 
 - `openai` defaults to `https://api.openai.com/v1`.
-- `zhipu` defaults to `https://open.bigmodel.cn/api/anthropic` and speaks through Zhipu BigModel's Anthropic-compatible API.
+- `zhipu` defaults to `https://open.bigmodel.cn/api/paas/v4` and speaks through Zhipu BigModel's OpenAI-compatible API.
+- `zhipu` accepts `option thinking_type <disabled|enabled|none>`; the provider default is `disabled` to keep standard OpenAI clients receiving visible `message.content`.
 - `ollama` can be used without an API key.
 - `option` values are parsed as strings in the Caddyfile.
 
