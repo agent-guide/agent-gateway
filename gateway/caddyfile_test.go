@@ -90,7 +90,7 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 			method POST
 			require_local_api_key
 			allowed_model gpt-4.1
-			target local-ollama
+			target provider local-ollama
 		}
 	}
 	`)
@@ -227,16 +227,30 @@ func TestParseAppRejectsDuplicateRouteID(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`
 	agent_gateway {
 		route openai-chat {
-			target ollama
+			target provider ollama
 		}
 		route openai-chat {
-			target openai
+			target provider openai
 		}
 	}
 	`)
 
 	if _, err := parseApp(d, nil); err == nil {
 		t.Fatal("expected duplicate route to fail")
+	}
+}
+
+func TestParseAppRejectsLegacyRouteTargetSyntax(t *testing.T) {
+	d := caddyfile.NewTestDispenser(`
+	agent_gateway {
+		route openai-chat {
+			target ollama
+		}
+	}
+	`)
+
+	if _, err := parseApp(d, nil); err == nil {
+		t.Fatal("expected legacy route target syntax to fail")
 	}
 }
 

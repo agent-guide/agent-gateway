@@ -44,7 +44,7 @@
 			allowed_model glm-4.7
 			allowed_model glm-5.1
 			allowed_model deepseek-chat
-			target deepseek-simulated-openai
+			target provider deepseek-simulated-openai
 		}
 	}
 }

@@ -34,7 +34,7 @@
 			path_prefix /myanthropicprefix
 			require_local_api_key
 			allowed_model glm-4.7
-			target zhipu-main
+			target provider zhipu-main
 		}
 	}
 }

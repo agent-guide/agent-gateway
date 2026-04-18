@@ -90,7 +90,7 @@ Create a minimal `Caddyfile`:
 			path_prefix /
 			require_local_api_key
 			allowed_model gpt-4.1
-			target openai-main
+			target provider openai-main
 		}
 	}
 }
@@ -240,7 +240,7 @@ route openai-chat {
 	method POST
 	require_local_api_key
 	allowed_model gpt-4.1 gpt-4.1-mini
-	target openai-main 1
+	target provider openai-main 1
 }
 ```
 
@@ -252,7 +252,7 @@ Supported route subdirectives:
 - `method <method> [more-methods...]`
 - `require_local_api_key [true|false]`
 - `allowed_model <model> [more-models...]`
-- `target <provider-ref> [weight]`
+- `target provider <provider-ref> [weight]`
 
 Static Caddyfile targets are weighted targets. The Go route model and Admin API also contain fields for failover, conditional targets, selection strategy, retry, fallback, quota, and rate limits, but not every field is exposed in Caddyfile syntax.
 

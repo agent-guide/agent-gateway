@@ -337,18 +337,18 @@ func parseRouteSegment(d *caddyfile.Dispenser) (routepkg.AgentRoute, error) {
 				route.Policy.AllowedModels = append(route.Policy.AllowedModels, strings.Trim(arg, "\"`"))
 			}
 		case "target":
-			if len(args) == 0 || len(args) > 2 {
+			if len(args) < 2 || len(args) > 3 || strings.Trim(args[0], "\"`") != "provider" {
 				return routepkg.AgentRoute{}, seg.ArgErr()
 			}
 			target := routepkg.RouteTarget{
-				ProviderRef: strings.Trim(args[0], "\"`"),
+				ProviderRef: strings.Trim(args[1], "\"`"),
 				Mode:        routepkg.TargetModeWeighted,
 				Weight:      1,
 			}
-			if len(args) == 2 {
-				weight, err := strconv.Atoi(strings.Trim(args[1], "\"`"))
+			if len(args) == 3 {
+				weight, err := strconv.Atoi(strings.Trim(args[2], "\"`"))
 				if err != nil {
-					return routepkg.AgentRoute{}, seg.Errf("invalid target weight: %s", args[1])
+					return routepkg.AgentRoute{}, seg.Errf("invalid target weight: %s", args[2])
 				}
 				target.Weight = weight
 			}

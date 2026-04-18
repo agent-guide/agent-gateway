@@ -42,7 +42,7 @@
 			path_prefix /myopenaiprefix
 			require_local_api_key
 			allowed_model deepseek-chat
-			target deepseek-main
+			target provider deepseek-main
 		}
 
 		route zhipu-anthropic-chat {
@@ -50,7 +50,7 @@
 			path_prefix /myanthropicprefix
 			require_local_api_key
 			allowed_model glm-4.7
-			target zhipu-main
+			target provider zhipu-main
 		}
 	}
 }
