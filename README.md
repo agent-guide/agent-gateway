@@ -25,6 +25,7 @@ The request path today is centered on LLM routing. MCP, memory, metrics, and age
   - `gemini`
   - `ollama`
   - `openrouter`
+  - `deepseek`
   - `zhipu`
 - CLI auth authenticators:
   - `codex`
@@ -220,6 +221,8 @@ provider openai-main {
 Provider-specific notes:
 
 - `openai` defaults to `https://api.openai.com/v1`.
+- `deepseek` defaults to `https://api.deepseek.com` and uses eino-ext's DeepSeek model implementation.
+- `deepseek` accepts `option path <path>`, `option response_format_type <text|json_object>`, and DeepSeek chat tuning options such as `max_tokens`, `temperature`, `top_p`, `presence_penalty`, `frequency_penalty`, `log_probs`, and `top_log_probs`.
 - `zhipu` defaults to `https://open.bigmodel.cn/api/paas/v4` and speaks through Zhipu BigModel's OpenAI-compatible API.
 - `zhipu` accepts `option thinking_type <disabled|enabled|none>`; the provider default is `disabled` to keep standard OpenAI clients receiving visible `message.content`.
 - `ollama` can be used without an API key.

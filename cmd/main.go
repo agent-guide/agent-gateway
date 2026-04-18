@@ -18,6 +18,7 @@ import (
 
 	// LLM Providers (register as factory + Caddy modules via init())
 	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/anthropic"
+	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/deepseek"
 	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/gemini"
 	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/ollama"
 	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/openai"

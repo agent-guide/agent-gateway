@@ -15,35 +15,36 @@
 			path ./data/configstore.db
 		}
 
-		provider zhipu-main {
-			provider_name zhipu
+		provider zhipu-simulated-openai {
+			provider_name openai
 			api_key {$ZHIPU_API_KEY}
 			base_url https://open.bigmodel.cn/api/paas/v4
 			default_model glm-4.7
-			option thinking_type disabled
+			option debug_request true
+		}
+
+		provider deepseek-simulated-openai {
+			provider_name openai
+			api_key {$DEEPSEEK_API_KEY}
+			base_url https://api.deepseek.com
+			default_model deepseek-chat
+			option debug_request true
 		}
 
 		localapikey test-key {
 			user_id local-test
 			name "Local Python test key"
-			allowed_route zhipu-openai-chat
-			allowed_route zhipu-anthropic-chat
+			allowed_route anthropic-chat
 		}
 
-		route zhipu-openai-chat {
-			llm_api openai
-			path_prefix /myopenaiprefix
-			require_local_api_key
-			allowed_model glm-4.7
-			target zhipu-main
-		}
-
-		route zhipu-anthropic-chat {
+		route anthropic-chat {
 			llm_api anthropic
 			path_prefix /myanthropicprefix
 			require_local_api_key
 			allowed_model glm-4.7
-			target zhipu-main
+			allowed_model glm-5.1
+			allowed_model deepseek-chat
+			target deepseek-simulated-openai
 		}
 	}
 }
