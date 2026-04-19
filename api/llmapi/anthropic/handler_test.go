@@ -45,6 +45,15 @@ type testStatusError struct {
 func (e testStatusError) Error() string   { return e.msg }
 func (e testStatusError) StatusCode() int { return e.status }
 
+func TestMatchLLMApiIncludesCountTokens(t *testing.T) {
+	handler := NewHandler(nil)
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
+
+	if !handler.MatchLLMApi(req) {
+		t.Fatal("MatchLLMApi returned false for /v1/messages/count_tokens")
+	}
+}
+
 func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 	credMgr := credentialmgr.NewManager(nil, nil, nil)
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{

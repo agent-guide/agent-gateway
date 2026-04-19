@@ -116,30 +116,6 @@ func (g *AgentGateway) ProviderManager() *ProviderManager {
 	return g.providerManager
 }
 
-func (g *AgentGateway) LookupRoute(ctx context.Context, routeID string) (routepkg.AgentRoute, error) {
-	manager := g.AgentRouteManager()
-	if manager == nil {
-		return routepkg.AgentRoute{}, fmt.Errorf("route manager is not configured")
-	}
-	route, err := manager.Get(ctx, routeID)
-	if err != nil {
-		if errors.Is(err, routepkg.ErrRouteNotConfigured) {
-			return routepkg.AgentRoute{}, fmt.Errorf("route %q is not configured", routeID)
-		}
-		return routepkg.AgentRoute{}, err
-	}
-	return route, nil
-}
-
-func (g *AgentGateway) ValidateRoute(ctx context.Context, routeID string) error {
-	resolver := g.providerResolver()
-	manager := g.AgentRouteManager()
-	if manager == nil {
-		return fmt.Errorf("route manager is not configured")
-	}
-	return manager.Validate(ctx, routeID, resolver)
-}
-
 func (g *AgentGateway) ResolveRoute(ctx context.Context, r *http.Request) (routepkg.AgentRoute, error) {
 	routeManager := g.AgentRouteManager()
 	if routeManager == nil {
@@ -161,13 +137,13 @@ func (g *AgentGateway) ResolveRoute(ctx context.Context, r *http.Request) (route
 	return route, nil
 }
 
-func (g *AgentGateway) ResolveProviderRef(route routepkg.AgentRoute, resolveReq routepkg.ResolveRequest) (string, error) {
-	if err := route.ValidateRequestPolicy(resolveReq); err != nil {
+func (g *AgentGateway) resolveProviderRef(route routepkg.AgentRoute, routeResolveReq routepkg.RouteResolveRequest) (string, error) {
+	if err := route.ValidateRequestPolicy(routeResolveReq); err != nil {
 		return "", err
 	}
 
 	selector := g.selector()
-	target, err := selector.SelectTarget(route, resolveReq)
+	target, err := selector.SelectTarget(route, routeResolveReq)
 	if err != nil {
 		return "", err
 	}
@@ -177,11 +153,17 @@ func (g *AgentGateway) ResolveProviderRef(route routepkg.AgentRoute, resolveReq 
 	return target.ProviderRef, nil
 }
 
-func (g *AgentGateway) ResolveProvider(ctx context.Context, providerRef string) (provider.Provider, error) {
+func (g *AgentGateway) ResolveProvider(ctx context.Context, route routepkg.AgentRoute, routeResolveReq routepkg.RouteResolveRequest) (provider.Provider, error) {
 	resolver := g.providerResolver()
 	if resolver == nil {
 		return nil, statuserr.New(http.StatusServiceUnavailable, "provider resolver is not configured")
 	}
+
+	providerRef, err := g.resolveProviderRef(route, routeResolveReq)
+	if err != nil {
+		return nil, err
+	}
+
 	prov, providerName, err := resolver.ResolveProvider(ctx, providerRef)
 	if err != nil || prov == nil {
 		if errors.Is(err, ErrProviderDisabled) {
@@ -198,6 +180,14 @@ func (g *AgentGateway) ResolveProvider(ctx context.Context, providerRef string) 
 }
 
 func (g *AgentGateway) ResolveLocalAPIKey(ctx context.Context, httpReq *http.Request, r routepkg.AgentRoute) (*localapikeypkg.LocalAPIKey, error) {
+	rawKey := localapikeypkg.ExtractAPIKey(httpReq)
+	if rawKey == "" {
+		if r.Policy.Auth.RequireLocalAPIKey {
+			return nil, statuserr.New(http.StatusUnauthorized, "local api key is required")
+		}
+		return nil, nil
+	}
+
 	g.mu.RLock()
 	localAPIKeyManager := g.localAPIKeyManager
 	g.mu.RUnlock()
@@ -205,13 +195,7 @@ func (g *AgentGateway) ResolveLocalAPIKey(ctx context.Context, httpReq *http.Req
 		return nil, statuserr.New(http.StatusServiceUnavailable, "local api key manager is not configured")
 	}
 
-	localKey, err := localAPIKeyManager.Resolve(ctx, httpReq)
-	if err == localapikeypkg.ErrLocalAPIKeyNotCarried {
-		if r.Policy.Auth.RequireLocalAPIKey {
-			return nil, statuserr.New(http.StatusUnauthorized, "local api key is required")
-		}
-		return nil, nil
-	}
+	localKey, err := localAPIKeyManager.Get(ctx, rawKey)
 	if err != nil {
 		return nil, statuserr.New(http.StatusUnauthorized, "invalid local api key")
 	}

@@ -18,7 +18,7 @@ func TestDefaultRouteSelectorUsesPolicyStrategyAndFallback(t *testing.T) {
 		},
 	}
 
-	target, err := selector.SelectTarget(route, ResolveRequest{})
+	target, err := selector.SelectTarget(route, RouteResolveRequest{})
 	if err != nil {
 		t.Fatalf("SelectTarget returned error: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestDefaultRouteSelectorUsesPolicyStrategyAndFallback(t *testing.T) {
 	}
 
 	route.Policy.Selection.Strategy = RouteSelectionStrategyConditional
-	target, err = selector.SelectTarget(route, ResolveRequest{})
+	target, err = selector.SelectTarget(route, RouteResolveRequest{})
 	if err != nil {
 		t.Fatalf("SelectTarget with fallback returned error: %v", err)
 	}

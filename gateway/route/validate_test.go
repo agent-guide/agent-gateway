@@ -9,7 +9,7 @@ func TestValidateRequestPolicyRejectsDisallowedModelOnRoute(t *testing.T) {
 			AllowedModels: []string{"gpt-4.1"},
 		},
 	}
-	err := r.ValidateRequestPolicy(ResolveRequest{
+	err := r.ValidateRequestPolicy(RouteResolveRequest{
 		Model: "gpt-4o-mini",
 	})
 	if err == nil {
@@ -25,7 +25,7 @@ func TestValidateRequestPolicyRejectsStreamingDisabledOnRoute(t *testing.T) {
 			AllowStreaming: &disabled,
 		},
 	}
-	err := r.ValidateRequestPolicy(ResolveRequest{
+	err := r.ValidateRequestPolicy(RouteResolveRequest{
 		Stream: true,
 	})
 	if err == nil {

@@ -51,14 +51,8 @@ func (r AgentRoute) ProviderRefs() []string {
 	return refs
 }
 
-// ResolveRequest captures the request attributes required for route resolution.
-type ResolveRequest struct {
-	Model  string
-	Stream bool
-}
-
 // ValidateRequestPolicy validates the request against route-level policy.
-func (r AgentRoute) ValidateRequestPolicy(req ResolveRequest) error {
+func (r AgentRoute) ValidateRequestPolicy(req RouteResolveRequest) error {
 	if req.Model != "" {
 		if len(r.Policy.AllowedModels) > 0 && !slices.Contains(r.Policy.AllowedModels, req.Model) {
 			return statuserr.New(http.StatusForbidden, fmt.Sprintf("model %q is not allowed on route %q", req.Model, r.ID))
@@ -75,7 +69,7 @@ func (r AgentRoute) ValidateRequestPolicy(req ResolveRequest) error {
 }
 
 // matchesConditions checks whether a target's conditions are satisfied by the request.
-func matchesConditions(conditions TargetConditions, req ResolveRequest) bool {
+func matchesConditions(conditions TargetConditions, req RouteResolveRequest) bool {
 	if len(conditions.Models) > 0 && req.Model != "" && !slices.Contains(conditions.Models, req.Model) {
 		return false
 	}

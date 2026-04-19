@@ -9,13 +9,13 @@ import (
 
 // RouteSelector chooses an eligible route target for a request.
 type RouteTargetSelector interface {
-	SelectTarget(route AgentRoute, req ResolveRequest) (*RouteTarget, error)
+	SelectTarget(route AgentRoute, req RouteResolveRequest) (*RouteTarget, error)
 }
 
 // DefaultRouteSelector implements the current built-in weighted/failover target selection.
 type DefaultRouteSelector struct{}
 
-func (s DefaultRouteSelector) SelectTarget(r AgentRoute, req ResolveRequest) (*RouteTarget, error) {
+func (s DefaultRouteSelector) SelectTarget(r AgentRoute, req RouteResolveRequest) (*RouteTarget, error) {
 	candidates := make([]RouteTarget, 0, len(r.Targets))
 	for _, target := range r.Targets {
 		if target.Disabled || target.ProviderRef == "" {

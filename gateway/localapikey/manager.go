@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"sync"
 
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
@@ -66,18 +65,6 @@ func (m *LocalAPIKeyManager) IsStatic(key string) bool {
 	return ok
 }
 
-func (m *LocalAPIKeyManager) Resolve(ctx context.Context, httpReq *http.Request) (LocalAPIKey, error) {
-	rawKey := ExtractAPIKey(httpReq)
-	if rawKey == "" {
-		return LocalAPIKey{}, ErrLocalAPIKeyNotCarried
-	}
-	key, err := m.Get(ctx, rawKey)
-	if err != nil {
-		return LocalAPIKey{}, err
-	}
-	return key, nil
-}
-
 func (m *LocalAPIKeyManager) Get(ctx context.Context, key string) (LocalAPIKey, error) {
 	if key == "" {
 		return LocalAPIKey{}, ErrLocalAPIKeyNotCarried
@@ -99,13 +86,13 @@ func (m *LocalAPIKeyManager) Get(ctx context.Context, key string) (LocalAPIKey, 
 	}
 
 	if store == nil {
-		return LocalAPIKey{}, fmt.Errorf("%w: %q", ErrLocalAPIKeyNotConfigured, key)
+		return LocalAPIKey{}, ErrLocalAPIKeyNotConfigured
 	}
 
 	item, err := store.Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, configstoreintf.ErrNotFound) {
-			return LocalAPIKey{}, fmt.Errorf("%w: %q", ErrLocalAPIKeyNotConfigured, key)
+			return LocalAPIKey{}, ErrLocalAPIKeyNotConfigured
 		}
 		return LocalAPIKey{}, fmt.Errorf("load local api key %q: %w", key, err)
 	}

@@ -62,6 +62,26 @@ func withRouteInfo(req *http.Request) *http.Request {
 	return req
 }
 
+func TestMatchLLMApiRequiresVersionedOpenAIPath(t *testing.T) {
+	handler := newHandler()
+	for _, path := range []string{"/v1/chat/completions", "/v1/models", "/v1/embeddings"} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		if !handler.MatchLLMApi(req) {
+			t.Fatalf("MatchLLMApi(%q) = false, want true", path)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/tenant/chat/completions", nil)
+	if handler.MatchLLMApi(req) {
+		t.Fatal("MatchLLMApi matched unversioned suffix path")
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/models/extra", nil)
+	if handler.MatchLLMApi(req) {
+		t.Fatal("MatchLLMApi matched non-endpoint path")
+	}
+}
+
 func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 	credMgr := credentialmgr.NewManager(nil, nil, nil)
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{

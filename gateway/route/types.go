@@ -1,6 +1,8 @@
 package route
 
-import "time"
+import (
+	"time"
+)
 
 // TargetMode describes how a route target participates in routing.
 type TargetMode string
@@ -20,6 +22,12 @@ const (
 	RouteSelectionStrategyFailover    RouteSelectionStrategy = "failover"
 	RouteSelectionStrategyConditional RouteSelectionStrategy = "conditional"
 )
+
+// RouteResolveRequest captures the request attributes required for route resolution.
+type RouteResolveRequest struct {
+	Model  string
+	Stream bool
+}
 
 // AgentRoute is the primary gateway route configuration exposed to agent clients.
 // A route config owns request matching, target selection metadata, and default policy.

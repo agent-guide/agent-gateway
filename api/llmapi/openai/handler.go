@@ -6,13 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/api"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httplog"
-	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/cloudwego/eino/schema"
@@ -51,9 +49,9 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 }
 
 func (h *Handler) MatchLLMApi(r *http.Request) bool {
-	return strings.HasPrefix(r.URL.Path, "/v1/chat/completions") ||
-		strings.HasPrefix(r.URL.Path, "/v1/models") ||
-		strings.HasPrefix(r.URL.Path, "/v1/embeddings")
+	return r.URL.Path == "/v1/chat/completions" || r.URL.Path == "/chat/completions" ||
+		r.URL.Path == "/v1/models" || r.URL.Path == "/models" ||
+		r.URL.Path == "/v1/embeddings" || r.URL.Path == "/embeddings"
 }
 
 func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*api.PreparedLLMApiRequest, error) {
@@ -89,18 +87,8 @@ func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provi
 		req, ok = prepared.RawRequest.(*ChatCompletionRequest)
 	}
 	if !ok || req == nil || prepared == nil || prepared.GenerateRequest == nil {
-		var err error
-		prepared, err = h.PrepareLLMApiRequest(r)
-		if err != nil {
-			_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "openai"}, w, r, statuserr.StatusCode(err, http.StatusBadGateway), err.Error(), fmt.Errorf("prepare request: %w", err))
-			return nil
-		}
-		var castOK bool
-		req, castOK = prepared.RawRequest.(*ChatCompletionRequest)
-		if !castOK || req == nil || prepared.GenerateRequest == nil {
-			_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "openai"}, w, r, http.StatusBadRequest, "invalid request", fmt.Errorf("prepare request returned invalid openai payload"))
-			return nil
-		}
+		_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "openai"}, w, r, http.StatusBadRequest, "invalid request", fmt.Errorf("prepare request returned invalid openai payload"))
+		return nil
 	}
 
 	genReq := prepared.GenerateRequest

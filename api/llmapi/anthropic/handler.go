@@ -51,7 +51,7 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 }
 
 func (h *Handler) MatchLLMApi(r *http.Request) bool {
-	return strings.HasPrefix(r.URL.Path, "/v1/messages")
+	return r.URL.Path == "/v1/messages" || r.URL.Path == "/v1/messages/count_tokens"
 }
 
 func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*api.PreparedLLMApiRequest, error) {
@@ -80,6 +80,7 @@ func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provi
 		_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "anthropic"}, w, r, http.StatusMethodNotAllowed, "method not allowed", fmt.Errorf("method %s not allowed", r.Method))
 		return nil
 	}
+
 	if strings.HasSuffix(r.URL.Path, "/count_tokens") {
 		h.handleCountTokens(w, r)
 		return nil

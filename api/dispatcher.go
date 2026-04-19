@@ -111,13 +111,8 @@ func (h AgentRouteDispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		return WriteError(h.logger, apiHandler.Name(), route.ID, "", w, rewritten, fmt.Errorf("llm api handler returned nil generate request"), "prepare request")
 	}
 
-	resolveReq := routeResolveRequest(prepared)
-	providerRef, err := h.gateway.ResolveProviderRef(route, resolveReq)
-	if err != nil {
-		return WriteError(h.logger, apiHandler.Name(), route.ID, prepared.GenerateRequest.Model, w, rewritten, err, "resolve provider ref")
-	}
-
-	prov, err := h.gateway.ResolveProvider(rewritten.Context(), providerRef)
+	routeResolveReq := routeResolveRequest(prepared)
+	prov, err := h.gateway.ResolveProvider(rewritten.Context(), route, routeResolveReq)
 	if err != nil {
 		return WriteError(h.logger, apiHandler.Name(), route.ID, prepared.GenerateRequest.Model, w, rewritten, err, "resolve provider")
 	}
@@ -144,7 +139,7 @@ func rewriteRoutePath(r *http.Request, prefix string) *http.Request {
 	return rewritten
 }
 
-func routeResolveRequest(prepared *PreparedLLMApiRequest) routepkg.ResolveRequest {
+func routeResolveRequest(prepared *PreparedLLMApiRequest) routepkg.RouteResolveRequest {
 	model := ""
 	stream := false
 	if prepared != nil {
@@ -153,7 +148,7 @@ func routeResolveRequest(prepared *PreparedLLMApiRequest) routepkg.ResolveReques
 			model = prepared.GenerateRequest.Model
 		}
 	}
-	return routepkg.ResolveRequest{
+	return routepkg.RouteResolveRequest{
 		Model:  model,
 		Stream: stream,
 	}
