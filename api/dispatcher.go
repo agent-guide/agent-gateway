@@ -85,6 +85,9 @@ func (h AgentRouteDispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 	}
 
 	apiName := strings.TrimSpace(route.LLMAPI)
+	if enabled, ok := IsLLMApiHandlerNameEnabled(apiName); ok && !enabled {
+		return WriteLoggedError(h.logger, ErrorContext{RouteID: route.ID}, w, r, http.StatusServiceUnavailable, "route llm_api is disabled", fmt.Errorf("%w: %s", ErrLLMApiHandlerNameDisabled, apiName))
+	}
 	apiHandler := h.apiHandlers[apiName]
 	if apiHandler == nil {
 		return WriteLoggedError(h.logger, ErrorContext{RouteID: route.ID}, w, r, http.StatusServiceUnavailable, "route llm_api is not configured", fmt.Errorf("route %q llm_api %q is not configured", route.ID, apiName))

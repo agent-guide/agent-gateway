@@ -93,6 +93,45 @@ func TestAgentRouteDispatcherDefersLocalAPIKeyUntilLLMApiMatch(t *testing.T) {
 	}
 }
 
+func TestAgentRouteDispatcherRejectsDisabledLLMApiHandlerName(t *testing.T) {
+	const handlerName = "test-disabled-llm-api-handler"
+	RegisterLLMApiHandlerName(handlerName)
+	if err := DisableLLMApiHandlerName(handlerName); err != nil {
+		t.Fatalf("disable llm api handler name: %v", err)
+	}
+	defer func() {
+		if err := EnableLLMApiHandlerName(handlerName); err != nil {
+			t.Fatalf("restore llm api handler name: %v", err)
+		}
+	}()
+
+	gw := gateway.NewAgentGateway()
+	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
+		StaticRoutes: []routepkg.AgentRoute{{
+			ID:      "disabled-api-route",
+			LLMAPI:  handlerName,
+			Match:   routepkg.RouteMatch{PathPrefix: "/"},
+			Targets: []routepkg.RouteTarget{{ProviderRef: "openai"}},
+		}},
+	}); err != nil {
+		t.Fatalf("Bootstrap returned error: %v", err)
+	}
+
+	dispatcher := AgentRouteDispatcher{
+		apiHandlers: map[string]LLMApiHandler{handlerName: stubLLMApiHandler{}},
+		gateway:     gw,
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	if err := dispatcher.ServeHTTP(rec, req, &nextHandler{}); err != nil {
+		t.Fatalf("ServeHTTP returned error: %v", err)
+	}
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+}
+
 func TestRewriteRoutePathStripsMatchedPrefix(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/tenant/v1/chat/completions", nil)
 	rewritten := rewriteRoutePath(req, "/tenant")

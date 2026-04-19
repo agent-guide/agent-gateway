@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	apipkg "github.com/agent-guide/caddy-agent-gateway/api"
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
 	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
@@ -637,6 +638,80 @@ func TestProviderNameListEnableDisable(t *testing.T) {
 		t.Fatalf("decode enabled provider name: %v", err)
 	}
 	if enabled.Status != "enabled" || enabled.ProviderName != providerName || !enabled.Enabled {
+		t.Fatalf("unexpected enable response: %#v", enabled)
+	}
+}
+
+func TestLLMApiHandlerNameListEnableDisable(t *testing.T) {
+	const handlerName = "test-admin-llm-api-handler"
+	apipkg.RegisterLLMApiHandlerName(handlerName)
+	defer func() {
+		if err := apipkg.EnableLLMApiHandlerName(handlerName); err != nil {
+			t.Fatalf("restore llm api handler name: %v", err)
+		}
+	}()
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(nil, nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	disableReq := httptest.NewRequest(http.MethodPost, "/admin/llm_api_handler_names/"+handlerName+"/disable", nil)
+	disableReq.Header.Set("Authorization", "Bearer "+token)
+	disableRec := httptest.NewRecorder()
+	handler.ServeHTTP(disableRec, disableReq)
+	if disableRec.Code != http.StatusOK {
+		t.Fatalf("disable status = %d, want %d", disableRec.Code, http.StatusOK)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/llm_api_handler_names", nil)
+	listReq.Header.Set("Authorization", "Bearer "+token)
+	listRec := httptest.NewRecorder()
+	handler.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want %d", listRec.Code, http.StatusOK)
+	}
+
+	var listed struct {
+		Items []LLMApiHandlerNameView `json:"items"`
+	}
+	if err := json.NewDecoder(listRec.Body).Decode(&listed); err != nil {
+		t.Fatalf("decode llm api handler names: %v", err)
+	}
+	found := false
+	for _, item := range listed.Items {
+		if item.LLMApiHandlerName != handlerName {
+			continue
+		}
+		found = true
+		if item.Enabled {
+			t.Fatal("llm api handler name enabled = true, want false")
+		}
+	}
+	if !found {
+		t.Fatalf("llm api handler name %q not listed", handlerName)
+	}
+
+	enableReq := httptest.NewRequest(http.MethodPost, "/admin/llm_api_handler_names/"+handlerName+"/enable", nil)
+	enableReq.Header.Set("Authorization", "Bearer "+token)
+	enableRec := httptest.NewRecorder()
+	handler.ServeHTTP(enableRec, enableReq)
+	if enableRec.Code != http.StatusOK {
+		t.Fatalf("enable status = %d, want %d", enableRec.Code, http.StatusOK)
+	}
+
+	var enabled struct {
+		Status            string `json:"status"`
+		LLMApiHandlerName string `json:"llm_api_handler_name"`
+		Enabled           bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(enableRec.Body).Decode(&enabled); err != nil {
+		t.Fatalf("decode enabled llm api handler name: %v", err)
+	}
+	if enabled.Status != "enabled" || enabled.LLMApiHandlerName != handlerName || !enabled.Enabled {
 		t.Fatalf("unexpected enable response: %#v", enabled)
 	}
 }

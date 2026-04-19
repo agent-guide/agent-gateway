@@ -23,6 +23,7 @@ type Handler struct {
 }
 
 func init() {
+	api.RegisterLLMApiHandlerName("openai")
 	caddy.RegisterModule(Handler{})
 }
 
