@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
@@ -35,6 +36,11 @@ type ProviderView struct {
 	ReadOnly bool   `json:"read_only"`
 }
 
+type ProviderNameView struct {
+	ProviderName string `json:"provider_name"`
+	Enabled      bool   `json:"enabled"`
+}
+
 // Route defines an admin API route.
 type Route struct {
 	Method      string
@@ -53,6 +59,11 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodPost, Path: "/admin/auth/login", Handler: h.handleLogin},
 		{Method: http.MethodPost, Path: "/admin/auth/logout", Handler: h.handleLogout, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/auth/me", Handler: h.handleMe, RequireAuth: true},
+
+		// Provider names
+		{Method: http.MethodGet, Path: "/admin/provider_names", Handler: h.handleListProviderNames, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/provider_names/{provider_name}/enable", Handler: h.handleEnableProviderName, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/provider_names/{provider_name}/disable", Handler: h.handleDisableProviderName, RequireAuth: true},
 
 		// Providers
 		{Method: http.MethodGet, Path: "/admin/providers", Handler: h.handleListProviders, RequireAuth: true},
@@ -138,6 +149,59 @@ func (h *Handler) handleListProviders(w http.ResponseWriter, r *http.Request) {
 		providers = append(providers, providerViewFromConfig(manager, cfg))
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": providers})
+}
+
+func (h *Handler) handleListProviderNames(w http.ResponseWriter, r *http.Request) {
+	names := provider.ListProviderNames()
+	items := make([]ProviderNameView, 0, len(names))
+	for _, name := range names {
+		enabled, ok := provider.IsProviderNameEnabled(name)
+		if !ok {
+			continue
+		}
+		items = append(items, ProviderNameView{
+			ProviderName: name,
+			Enabled:      enabled,
+		})
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (h *Handler) handleEnableProviderName(w http.ResponseWriter, r *http.Request) {
+	h.handleSetProviderNameEnabled(w, r, true)
+}
+
+func (h *Handler) handleDisableProviderName(w http.ResponseWriter, r *http.Request) {
+	h.handleSetProviderNameEnabled(w, r, false)
+}
+
+func (h *Handler) handleSetProviderNameEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
+	name := strings.ToLower(strings.TrimSpace(r.PathValue("provider_name")))
+	if name == "" {
+		_ = httpjson.Error(w, http.StatusBadRequest, "provider_name is required")
+		return
+	}
+
+	var err error
+	if enabled {
+		err = provider.EnableProviderName(name)
+	} else {
+		err = provider.DisableProviderName(name)
+	}
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	status := "disabled"
+	if enabled {
+		status = "enabled"
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{
+		"status":        status,
+		"provider_name": name,
+		"enabled":       enabled,
+	})
 }
 
 func (h *Handler) handleCreateProvider(w http.ResponseWriter, r *http.Request) {

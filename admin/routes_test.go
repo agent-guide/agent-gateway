@@ -565,6 +565,82 @@ func TestProviderEnableDisable(t *testing.T) {
 	}
 }
 
+func TestProviderNameListEnableDisable(t *testing.T) {
+	const providerName = "test-admin-provider-name"
+	provider.RegisterProviderFactory(providerName, func(cfg provider.ProviderConfig) (provider.Provider, error) {
+		return &stubAdminProvider{cfg: cfg}, nil
+	})
+	defer func() {
+		if err := provider.EnableProviderName(providerName); err != nil {
+			t.Fatalf("restore provider name: %v", err)
+		}
+	}()
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(nil, nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	disableReq := httptest.NewRequest(http.MethodPost, "/admin/provider_names/"+providerName+"/disable", nil)
+	disableReq.Header.Set("Authorization", "Bearer "+token)
+	disableRec := httptest.NewRecorder()
+	handler.ServeHTTP(disableRec, disableReq)
+	if disableRec.Code != http.StatusOK {
+		t.Fatalf("disable status = %d, want %d", disableRec.Code, http.StatusOK)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/provider_names", nil)
+	listReq.Header.Set("Authorization", "Bearer "+token)
+	listRec := httptest.NewRecorder()
+	handler.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want %d", listRec.Code, http.StatusOK)
+	}
+
+	var listed struct {
+		Items []ProviderNameView `json:"items"`
+	}
+	if err := json.NewDecoder(listRec.Body).Decode(&listed); err != nil {
+		t.Fatalf("decode provider names: %v", err)
+	}
+	found := false
+	for _, item := range listed.Items {
+		if item.ProviderName != providerName {
+			continue
+		}
+		found = true
+		if item.Enabled {
+			t.Fatal("provider name enabled = true, want false")
+		}
+	}
+	if !found {
+		t.Fatalf("provider name %q not listed", providerName)
+	}
+
+	enableReq := httptest.NewRequest(http.MethodPost, "/admin/provider_names/"+providerName+"/enable", nil)
+	enableReq.Header.Set("Authorization", "Bearer "+token)
+	enableRec := httptest.NewRecorder()
+	handler.ServeHTTP(enableRec, enableReq)
+	if enableRec.Code != http.StatusOK {
+		t.Fatalf("enable status = %d, want %d", enableRec.Code, http.StatusOK)
+	}
+
+	var enabled struct {
+		Status       string `json:"status"`
+		ProviderName string `json:"provider_name"`
+		Enabled      bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(enableRec.Body).Decode(&enabled); err != nil {
+		t.Fatalf("decode enabled provider name: %v", err)
+	}
+	if enabled.Status != "enabled" || enabled.ProviderName != providerName || !enabled.Enabled {
+		t.Fatalf("unexpected enable response: %#v", enabled)
+	}
+}
+
 func TestRouteEnableDisable(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {

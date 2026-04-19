@@ -326,6 +326,9 @@ All endpoints below are under the path where `agent_gateway_admin` is mounted. E
 
 ### Providers
 
+- `GET /admin/provider_names`
+- `POST /admin/provider_names/{provider_name}/enable`
+- `POST /admin/provider_names/{provider_name}/disable`
 - `GET /admin/providers`
 - `POST /admin/providers`
 - `GET /admin/providers/{id}`
