@@ -1,4 +1,4 @@
-package localapikey
+package virtualkey
 
 import (
 	"context"
@@ -8,12 +8,12 @@ import (
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 )
 
-type testManagedLocalAPIKeyStore struct {
-	items    map[string]*LocalAPIKey
+type testManagedVirtualKeyStore struct {
+	items    map[string]*VirtualKey
 	getCalls int
 }
 
-func (s *testManagedLocalAPIKeyStore) ListByUserID(_ context.Context, userID string) ([]any, error) {
+func (s *testManagedVirtualKeyStore) ListByUserID(_ context.Context, userID string) ([]any, error) {
 	out := make([]any, 0, len(s.items))
 	for _, item := range s.items {
 		if userID != "" && item.UserID != userID {
@@ -25,32 +25,32 @@ func (s *testManagedLocalAPIKeyStore) ListByUserID(_ context.Context, userID str
 	return out, nil
 }
 
-func (s *testManagedLocalAPIKeyStore) Create(_ context.Context, key string, _ string, obj any) error {
-	item, ok := obj.(*LocalAPIKey)
+func (s *testManagedVirtualKeyStore) Create(_ context.Context, key string, _ string, obj any) error {
+	item, ok := obj.(*VirtualKey)
 	if !ok {
 		return errors.New("unexpected type")
 	}
 	if s.items == nil {
-		s.items = map[string]*LocalAPIKey{}
+		s.items = map[string]*VirtualKey{}
 	}
 	cloned := *item
 	s.items[key] = &cloned
 	return nil
 }
 
-func (s *testManagedLocalAPIKeyStore) Update(_ context.Context, key string, obj any) error {
+func (s *testManagedVirtualKeyStore) Update(_ context.Context, key string, obj any) error {
 	if _, ok := s.items[key]; !ok {
 		return configstoreintf.ErrNotFound
 	}
 	return s.Create(context.Background(), key, "", obj)
 }
 
-func (s *testManagedLocalAPIKeyStore) Delete(_ context.Context, key string) error {
+func (s *testManagedVirtualKeyStore) Delete(_ context.Context, key string) error {
 	delete(s.items, key)
 	return nil
 }
 
-func (s *testManagedLocalAPIKeyStore) Get(_ context.Context, key string) (any, error) {
+func (s *testManagedVirtualKeyStore) Get(_ context.Context, key string) (any, error) {
 	s.getCalls++
 	item, ok := s.items[key]
 	if !ok {
@@ -60,13 +60,13 @@ func (s *testManagedLocalAPIKeyStore) Get(_ context.Context, key string) (any, e
 	return &cloned, nil
 }
 
-func TestLocalAPIKeyManagerGetCachesDynamicKey(t *testing.T) {
-	store := &testManagedLocalAPIKeyStore{
-		items: map[string]*LocalAPIKey{
+func TestVirtualKeyManagerGetCachesDynamicKey(t *testing.T) {
+	store := &testManagedVirtualKeyStore{
+		items: map[string]*VirtualKey{
 			"lk-test": {Key: "lk-test", UserID: "admin"},
 		},
 	}
-	manager := NewLocalAPIKeyManager(store)
+	manager := NewVirtualKeyManager(store)
 
 	got, err := manager.Get(context.Background(), "lk-test")
 	if err != nil {
@@ -84,14 +84,14 @@ func TestLocalAPIKeyManagerGetCachesDynamicKey(t *testing.T) {
 	}
 }
 
-func TestLocalAPIKeyManagerGetPrefersStaticKey(t *testing.T) {
-	store := &testManagedLocalAPIKeyStore{
-		items: map[string]*LocalAPIKey{
+func TestVirtualKeyManagerGetPrefersStaticKey(t *testing.T) {
+	store := &testManagedVirtualKeyStore{
+		items: map[string]*VirtualKey{
 			"lk-test": {Key: "lk-test", Name: "dynamic"},
 		},
 	}
-	manager := NewLocalAPIKeyManager(store)
-	manager.InitStaticKeys([]LocalAPIKey{{Key: "lk-test", Name: "static"}})
+	manager := NewVirtualKeyManager(store)
+	manager.InitStaticKeys([]VirtualKey{{Key: "lk-test", Name: "static"}})
 
 	got, err := manager.Get(context.Background(), "lk-test")
 	if err != nil {
@@ -105,11 +105,11 @@ func TestLocalAPIKeyManagerGetPrefersStaticKey(t *testing.T) {
 	}
 }
 
-func TestLocalAPIKeyManagerCreateUpdateDeleteManageCache(t *testing.T) {
-	store := &testManagedLocalAPIKeyStore{items: map[string]*LocalAPIKey{}}
-	manager := NewLocalAPIKeyManager(store)
+func TestVirtualKeyManagerCreateUpdateDeleteManageCache(t *testing.T) {
+	store := &testManagedVirtualKeyStore{items: map[string]*VirtualKey{}}
+	manager := NewVirtualKeyManager(store)
 
-	if err := manager.Create(context.Background(), LocalAPIKey{
+	if err := manager.Create(context.Background(), VirtualKey{
 		Key:    "lk-test",
 		UserID: "admin",
 		Name:   "created",
@@ -126,7 +126,7 @@ func TestLocalAPIKeyManagerCreateUpdateDeleteManageCache(t *testing.T) {
 		t.Fatalf("Name = %q, want created", got.Name)
 	}
 
-	if err := manager.Update(context.Background(), "lk-test", LocalAPIKey{
+	if err := manager.Update(context.Background(), "lk-test", VirtualKey{
 		UserID: "admin",
 		Name:   "updated",
 	}); err != nil {
@@ -143,19 +143,19 @@ func TestLocalAPIKeyManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	if err := manager.Delete(context.Background(), "lk-test"); err != nil {
 		t.Fatalf("Delete returned error: %v", err)
 	}
-	if _, err := manager.Get(context.Background(), "lk-test"); !errors.Is(err, ErrLocalAPIKeyNotConfigured) {
-		t.Fatalf("Get after delete error = %v, want ErrLocalAPIKeyNotConfigured", err)
+	if _, err := manager.Get(context.Background(), "lk-test"); !errors.Is(err, ErrVirtualKeyNotConfigured) {
+		t.Fatalf("Get after delete error = %v, want ErrVirtualKeyNotConfigured", err)
 	}
 }
 
-func TestLocalAPIKeyManagerRejectsStaticKeyMutation(t *testing.T) {
-	manager := NewLocalAPIKeyManager(&testManagedLocalAPIKeyStore{items: map[string]*LocalAPIKey{}})
-	manager.InitStaticKeys([]LocalAPIKey{{Key: "lk-test"}})
+func TestVirtualKeyManagerRejectsStaticKeyMutation(t *testing.T) {
+	manager := NewVirtualKeyManager(&testManagedVirtualKeyStore{items: map[string]*VirtualKey{}})
+	manager.InitStaticKeys([]VirtualKey{{Key: "lk-test"}})
 
-	if err := manager.Update(context.Background(), "lk-test", LocalAPIKey{}); !errors.Is(err, ErrStaticLocalAPIKeyReadOnly) {
-		t.Fatalf("Update error = %v, want ErrStaticLocalAPIKeyReadOnly", err)
+	if err := manager.Update(context.Background(), "lk-test", VirtualKey{}); !errors.Is(err, ErrStaticVirtualKeyReadOnly) {
+		t.Fatalf("Update error = %v, want ErrStaticVirtualKeyReadOnly", err)
 	}
-	if err := manager.Delete(context.Background(), "lk-test"); !errors.Is(err, ErrStaticLocalAPIKeyReadOnly) {
-		t.Fatalf("Delete error = %v, want ErrStaticLocalAPIKeyReadOnly", err)
+	if err := manager.Delete(context.Background(), "lk-test"); !errors.Is(err, ErrStaticVirtualKeyReadOnly) {
+		t.Fatalf("Delete error = %v, want ErrStaticVirtualKeyReadOnly", err)
 	}
 }

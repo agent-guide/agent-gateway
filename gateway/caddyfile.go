@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
+	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -49,8 +49,8 @@ func parseApp(d *caddyfile.Dispenser, existingVal any) (any, error) {
 			if err := parseRoute(d, app); err != nil {
 				return nil, err
 			}
-		case "localapikey":
-			if err := parseLocalAPIKey(d, app); err != nil {
+		case "virtualkey":
+			if err := parseVirtualKey(d, app); err != nil {
 				return nil, err
 			}
 		default:
@@ -178,33 +178,33 @@ func parseRoute(d *caddyfile.Dispenser, app *App) error {
 	return nil
 }
 
-func parseLocalAPIKey(d *caddyfile.Dispenser, app *App) error {
-	key, err := parseLocalAPIKeySegment(d)
+func parseVirtualKey(d *caddyfile.Dispenser, app *App) error {
+	key, err := parseVirtualKeySegment(d)
 	if err != nil {
 		return err
 	}
 
-	for _, declared := range app.LocalAPIKeys {
+	for _, declared := range app.VirtualKeys {
 		if declared.Key == key.Key {
-			return d.Errf("duplicate localapikey %q", key.Key)
+			return d.Errf("duplicate virtualkey %q", key.Key)
 		}
 	}
-	app.LocalAPIKeys = append(app.LocalAPIKeys, key)
+	app.VirtualKeys = append(app.VirtualKeys, key)
 	return nil
 }
 
-func parseLocalAPIKeySegment(d *caddyfile.Dispenser) (localapikeypkg.LocalAPIKey, error) {
+func parseVirtualKeySegment(d *caddyfile.Dispenser) (virtualkeypkg.VirtualKey, error) {
 	seg := d.NewFromNextSegment()
 	if !seg.Next() {
-		return localapikeypkg.LocalAPIKey{}, d.Err("expected localapikey directive")
+		return virtualkeypkg.VirtualKey{}, d.Err("expected virtualkey directive")
 	}
 
 	args := seg.RemainingArgsRaw()
 	if len(args) != 1 {
-		return localapikeypkg.LocalAPIKey{}, seg.ArgErr()
+		return virtualkeypkg.VirtualKey{}, seg.ArgErr()
 	}
 
-	key := localapikeypkg.LocalAPIKey{
+	key := virtualkeypkg.VirtualKey{
 		Key: strings.Trim(args[0], "\"`"),
 	}
 
@@ -214,17 +214,17 @@ func parseLocalAPIKeySegment(d *caddyfile.Dispenser) (localapikeypkg.LocalAPIKey
 		switch name {
 		case "user_id":
 			if len(args) != 1 {
-				return localapikeypkg.LocalAPIKey{}, seg.ArgErr()
+				return virtualkeypkg.VirtualKey{}, seg.ArgErr()
 			}
 			key.UserID = strings.Trim(args[0], "\"`")
 		case "name":
 			if len(args) != 1 {
-				return localapikeypkg.LocalAPIKey{}, seg.ArgErr()
+				return virtualkeypkg.VirtualKey{}, seg.ArgErr()
 			}
 			key.Name = strings.Trim(args[0], "\"`")
 		case "description":
 			if len(args) != 1 {
-				return localapikeypkg.LocalAPIKey{}, seg.ArgErr()
+				return virtualkeypkg.VirtualKey{}, seg.ArgErr()
 			}
 			key.Description = strings.Trim(args[0], "\"`")
 		case "disabled":
@@ -233,36 +233,36 @@ func parseLocalAPIKeySegment(d *caddyfile.Dispenser) (localapikeypkg.LocalAPIKey
 				continue
 			}
 			if len(args) != 1 {
-				return localapikeypkg.LocalAPIKey{}, seg.ArgErr()
+				return virtualkeypkg.VirtualKey{}, seg.ArgErr()
 			}
 			v, err := strconv.ParseBool(strings.Trim(args[0], "\"`"))
 			if err != nil {
-				return localapikeypkg.LocalAPIKey{}, seg.Errf("invalid disabled value: %s", args[0])
+				return virtualkeypkg.VirtualKey{}, seg.Errf("invalid disabled value: %s", args[0])
 			}
 			key.Disabled = v
 		case "allowed_route":
 			if len(args) == 0 {
-				return localapikeypkg.LocalAPIKey{}, seg.ArgErr()
+				return virtualkeypkg.VirtualKey{}, seg.ArgErr()
 			}
 			for _, arg := range args {
 				key.AllowedRouteIDs = append(key.AllowedRouteIDs, strings.Trim(arg, "\"`"))
 			}
 		case "status_message":
 			if len(args) != 1 {
-				return localapikeypkg.LocalAPIKey{}, seg.ArgErr()
+				return virtualkeypkg.VirtualKey{}, seg.ArgErr()
 			}
 			key.StatusMessage = strings.Trim(args[0], "\"`")
 		case "expires_at":
 			if len(args) != 1 {
-				return localapikeypkg.LocalAPIKey{}, seg.ArgErr()
+				return virtualkeypkg.VirtualKey{}, seg.ArgErr()
 			}
 			expiresAt, err := time.Parse(time.RFC3339, strings.Trim(args[0], "\"`"))
 			if err != nil {
-				return localapikeypkg.LocalAPIKey{}, seg.Errf("invalid expires_at value: %s", args[0])
+				return virtualkeypkg.VirtualKey{}, seg.Errf("invalid expires_at value: %s", args[0])
 			}
 			key.ExpiresAt = expiresAt
 		default:
-			return localapikeypkg.LocalAPIKey{}, seg.Errf("unknown subdirective: %s", name)
+			return virtualkeypkg.VirtualKey{}, seg.Errf("unknown subdirective: %s", name)
 		}
 	}
 
@@ -316,9 +316,9 @@ func parseRouteSegment(d *caddyfile.Dispenser) (routepkg.AgentRoute, error) {
 			for _, arg := range args {
 				route.Match.Methods = append(route.Match.Methods, strings.Trim(arg, "\"`"))
 			}
-		case "require_local_api_key":
+		case "require_virtual_key":
 			if len(args) == 0 {
-				route.Policy.Auth.RequireLocalAPIKey = true
+				route.Policy.Auth.RequireVirtualKey = true
 				continue
 			}
 			if len(args) != 1 {
@@ -326,9 +326,9 @@ func parseRouteSegment(d *caddyfile.Dispenser) (routepkg.AgentRoute, error) {
 			}
 			v, err := strconv.ParseBool(strings.Trim(args[0], "\"`"))
 			if err != nil {
-				return routepkg.AgentRoute{}, seg.Errf("invalid require_local_api_key value: %s", args[0])
+				return routepkg.AgentRoute{}, seg.Errf("invalid require_virtual_key value: %s", args[0])
 			}
-			route.Policy.Auth.RequireLocalAPIKey = v
+			route.Policy.Auth.RequireVirtualKey = v
 		case "allowed_model":
 			if len(args) == 0 {
 				return routepkg.AgentRoute{}, seg.ArgErr()

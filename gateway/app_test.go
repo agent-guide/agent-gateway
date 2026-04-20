@@ -6,17 +6,17 @@ import (
 	"testing"
 
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
-	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
+	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"github.com/caddyserver/caddy/v2"
 )
 
-type testProvisionLocalAPIKeyStore struct {
-	items map[string]*localapikeypkg.LocalAPIKey
+type testProvisionVirtualKeyStore struct {
+	items map[string]*virtualkeypkg.VirtualKey
 }
 
 type testAppConfigStore struct {
-	localAPIKeyStore configstoreintf.LocalAPIKeyStorer
+	virtualKeyStore configstoreintf.VirtualKeyStorer
 }
 
 func (s testAppConfigStore) GetCredentialStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.CredentialStorer, error) {
@@ -27,38 +27,38 @@ func (s testAppConfigStore) GetProviderConfigStore(context.Context, configstorei
 	return nil, nil
 }
 
-func (s testAppConfigStore) GetLocalAPIKeyStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.LocalAPIKeyStorer, error) {
-	return s.localAPIKeyStore, nil
+func (s testAppConfigStore) GetVirtualKeyStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.VirtualKeyStorer, error) {
+	return s.virtualKeyStore, nil
 }
 
 func (s testAppConfigStore) GetRouteStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.RouteStorer, error) {
 	return nil, nil
 }
 
-func (s *testProvisionLocalAPIKeyStore) ListByUserID(context.Context, string) ([]any, error) {
+func (s *testProvisionVirtualKeyStore) ListByUserID(context.Context, string) ([]any, error) {
 	return nil, nil
 }
 
-func (s *testProvisionLocalAPIKeyStore) Create(_ context.Context, key string, _ string, obj any) error {
-	item, ok := obj.(*localapikeypkg.LocalAPIKey)
+func (s *testProvisionVirtualKeyStore) Create(_ context.Context, key string, _ string, obj any) error {
+	item, ok := obj.(*virtualkeypkg.VirtualKey)
 	if !ok {
 		return errors.New("unexpected type")
 	}
 	if s.items == nil {
-		s.items = map[string]*localapikeypkg.LocalAPIKey{}
+		s.items = map[string]*virtualkeypkg.VirtualKey{}
 	}
 	cloned := *item
 	s.items[key] = &cloned
 	return nil
 }
 
-func (s *testProvisionLocalAPIKeyStore) Update(_ context.Context, key string, obj any) error {
-	item, ok := obj.(*localapikeypkg.LocalAPIKey)
+func (s *testProvisionVirtualKeyStore) Update(_ context.Context, key string, obj any) error {
+	item, ok := obj.(*virtualkeypkg.VirtualKey)
 	if !ok {
 		return errors.New("unexpected type")
 	}
 	if s.items == nil {
-		s.items = map[string]*localapikeypkg.LocalAPIKey{}
+		s.items = map[string]*virtualkeypkg.VirtualKey{}
 	}
 	if _, exists := s.items[key]; !exists {
 		return configstoreintf.ErrNotFound
@@ -68,9 +68,9 @@ func (s *testProvisionLocalAPIKeyStore) Update(_ context.Context, key string, ob
 	return nil
 }
 
-func (s *testProvisionLocalAPIKeyStore) Delete(context.Context, string) error { return nil }
+func (s *testProvisionVirtualKeyStore) Delete(context.Context, string) error { return nil }
 
-func (s *testProvisionLocalAPIKeyStore) Get(_ context.Context, key string) (any, error) {
+func (s *testProvisionVirtualKeyStore) Get(_ context.Context, key string) (any, error) {
 	item, ok := s.items[key]
 	if !ok {
 		return nil, configstoreintf.ErrNotFound

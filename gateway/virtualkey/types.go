@@ -1,9 +1,9 @@
-package localapikey
+package virtualkey
 
 import "time"
 
-// LocalAPIKey represents a gateway consumer identity, not an upstream provider credential.
-type LocalAPIKey struct {
+// VirtualKey represents a gateway consumer identity, not an upstream provider credential.
+type VirtualKey struct {
 	Key         string `json:"key"`
 	UserID      string `json:"user_id,omitempty"`
 	Name        string `json:"name,omitempty"`

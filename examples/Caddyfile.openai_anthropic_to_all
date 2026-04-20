@@ -30,7 +30,7 @@
 			default_model deepseek-chat
 		}
 
-		localapikey test-key {
+		virtualkey test-key {
 			user_id local-test
 			name "Local Python test key"
 			allowed_route zhipu-openai-chat
@@ -40,7 +40,7 @@
 		route zhipu-openai-chat {
 			llm_api openai
 			path_prefix /myopenaiprefix
-			require_local_api_key
+			require_virtual_key
 			allowed_model deepseek-chat
 			target provider deepseek-main
 		}
@@ -48,7 +48,7 @@
 		route zhipu-anthropic-chat {
 			llm_api anthropic
 			path_prefix /myanthropicprefix
-			require_local_api_key
+			require_virtual_key
 			allowed_model glm-4.7
 			target provider zhipu-main
 		}

@@ -75,9 +75,9 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 			foo bar
 		}
 
-		localapikey key1 {
+		virtualkey key1 {
 			user_id admin
-			name "Primary local key"
+			name "Primary virtual key"
 			description "configured from caddyfile"
 			allowed_route openai-chat
 			expires_at 2030-01-02T03:04:05Z
@@ -88,7 +88,7 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 			host api.example.test
 			path_prefix /tenant-a
 			method POST
-			require_local_api_key
+			require_virtual_key
 			allowed_model gpt-4.1
 			target provider local-ollama
 		}
@@ -155,8 +155,8 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	if len(app.Routes) != 1 {
 		t.Fatalf("route count = %d, want 1", len(app.Routes))
 	}
-	if len(app.LocalAPIKeys) != 1 {
-		t.Fatalf("local api key count = %d, want 1", len(app.LocalAPIKeys))
+	if len(app.VirtualKeys) != 1 {
+		t.Fatalf("virtual key count = %d, want 1", len(app.VirtualKeys))
 	}
 
 	var codex struct {
@@ -182,8 +182,8 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	if len(route.Match.Methods) != 1 || route.Match.Methods[0] != "POST" {
 		t.Fatalf("route methods = %#v", route.Match.Methods)
 	}
-	if !route.Policy.Auth.RequireLocalAPIKey {
-		t.Fatal("expected route require_local_api_key to be true")
+	if !route.Policy.Auth.RequireVirtualKey {
+		t.Fatal("expected route require_virtual_key to be true")
 	}
 	if len(route.Policy.AllowedModels) != 1 || route.Policy.AllowedModels[0] != "gpt-4.1" {
 		t.Fatalf("route allowed_models = %#v", route.Policy.AllowedModels)
@@ -192,22 +192,22 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 		t.Fatalf("route targets = %#v", route.Targets)
 	}
 
-	key := app.LocalAPIKeys[0]
+	key := app.VirtualKeys[0]
 	if key.Key != "key1" {
-		t.Fatalf("local api key = %q, want key1", key.Key)
+		t.Fatalf("virtual key = %q, want key1", key.Key)
 	}
 	if key.UserID != "admin" {
-		t.Fatalf("local api key user_id = %q, want admin", key.UserID)
+		t.Fatalf("virtual key user_id = %q, want admin", key.UserID)
 	}
-	if key.Name != "Primary local key" {
-		t.Fatalf("local api key name = %q", key.Name)
+	if key.Name != "Primary virtual key" {
+		t.Fatalf("virtual key name = %q", key.Name)
 	}
 	if len(key.AllowedRouteIDs) != 1 || key.AllowedRouteIDs[0] != "openai-chat" {
-		t.Fatalf("local api key allowed routes = %#v", key.AllowedRouteIDs)
+		t.Fatalf("virtual key allowed routes = %#v", key.AllowedRouteIDs)
 	}
 	wantExpiresAt := time.Date(2030, time.January, 2, 3, 4, 5, 0, time.UTC)
 	if !key.ExpiresAt.Equal(wantExpiresAt) {
-		t.Fatalf("local api key expires_at = %v, want %v", key.ExpiresAt, wantExpiresAt)
+		t.Fatalf("virtual key expires_at = %v, want %v", key.ExpiresAt, wantExpiresAt)
 	}
 }
 
@@ -254,37 +254,37 @@ func TestParseAppRejectsLegacyRouteTargetSyntax(t *testing.T) {
 	}
 }
 
-func TestParseAppRejectsDuplicateLocalAPIKey(t *testing.T) {
+func TestParseAppRejectsDuplicateVirtualKey(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`
 	agent_gateway {
-		localapikey key1 {}
-		localapikey key1 {}
+		virtualkey key1 {}
+		virtualkey key1 {}
 	}
 	`)
 
 	if _, err := parseApp(d, nil); err == nil {
-		t.Fatal("expected duplicate localapikey to fail")
+		t.Fatal("expected duplicate virtualkey to fail")
 	}
 }
 
-func TestParseLocalAPIKeySegmentAcceptsEmptyBlock(t *testing.T) {
+func TestParseVirtualKeySegmentAcceptsEmptyBlock(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`
-	localapikey key1 {
+	virtualkey key1 {
 	}
 	`)
 
 	if !d.Next() {
-		t.Fatal("expected localapikey directive")
+		t.Fatal("expected virtualkey directive")
 	}
-	key, err := parseLocalAPIKeySegment(d)
+	key, err := parseVirtualKeySegment(d)
 	if err != nil {
-		t.Fatalf("parseLocalAPIKeySegment() error = %v", err)
+		t.Fatalf("parseVirtualKeySegment() error = %v", err)
 	}
 
 	if key.Key != "key1" {
-		t.Fatalf("local api key = %q, want key1", key.Key)
+		t.Fatalf("virtual key = %q, want key1", key.Key)
 	}
 	if key.UserID != "" || key.Name != "" || key.Description != "" || key.Disabled || len(key.AllowedRouteIDs) != 0 || key.StatusMessage != "" || !key.ExpiresAt.IsZero() {
-		t.Fatalf("unexpected local api key defaults: %#v", key)
+		t.Fatalf("unexpected virtual key defaults: %#v", key)
 	}
 }

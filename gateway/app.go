@@ -10,8 +10,8 @@ import (
 
 	configstoreIntf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/configstore/sqlite"
-	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
+	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
@@ -32,8 +32,8 @@ type App struct {
 	ConfigStoreRaw caddy.ModuleMap `json:"config_store,omitempty" caddy:"namespace=agent_gateway.config_stores"`
 	// Routes lists statically configured gateway routes from the Caddyfile app block.
 	Routes []routepkg.AgentRoute `json:"routes,omitempty"`
-	// LocalAPIKeys lists statically configured gateway consumer API keys from the Caddyfile app block.
-	LocalAPIKeys []localapikeypkg.LocalAPIKey `json:"local_api_keys,omitempty"`
+	// VirtualKeys lists statically configured gateway consumer API keys from the Caddyfile app block.
+	VirtualKeys []virtualkeypkg.VirtualKey `json:"virtual_keys,omitempty"`
 
 	logger         *zap.Logger
 	cliauthManager *cliauth.Manager
@@ -80,12 +80,12 @@ func (a *App) Provision(ctx caddy.Context) error {
 	}
 
 	if err := a.agentGateway.Bootstrap(ctx, BootstrapOptions{
-		StaticRoutes:       a.Routes,
-		StaticLocalAPIKeys: a.LocalAPIKeys,
-		StaticProviders:    a.providers,
-		ConfigStore:        a.configStorer,
-		CLIAuthManager:     a.cliauthManager,
-		CredentialManager:  a.credentialMgr,
+		StaticRoutes:      a.Routes,
+		StaticVirtualKeys: a.VirtualKeys,
+		StaticProviders:   a.providers,
+		ConfigStore:       a.configStorer,
+		CLIAuthManager:    a.cliauthManager,
+		CredentialManager: a.credentialMgr,
 	}); err != nil {
 		return fmt.Errorf("configure agent gateway: %w", err)
 	}

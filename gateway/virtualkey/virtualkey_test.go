@@ -1,4 +1,4 @@
-package localapikey
+package virtualkey
 
 import (
 	"net/http"

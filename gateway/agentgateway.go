@@ -8,8 +8,8 @@ import (
 	"sync"
 
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
-	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
+	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
@@ -17,26 +17,26 @@ import (
 )
 
 type BootstrapOptions struct {
-	StaticRoutes       []routepkg.AgentRoute
-	StaticLocalAPIKeys []localapikeypkg.LocalAPIKey
-	StaticProviders    map[string]provider.Provider
-	ConfigStore        configstoreintf.ConfigStorer
-	CLIAuthManager     *cliauth.Manager
-	CredentialManager  *credentialmgr.Manager
-	Selector           routepkg.RouteTargetSelector
+	StaticRoutes      []routepkg.AgentRoute
+	StaticVirtualKeys []virtualkeypkg.VirtualKey
+	StaticProviders   map[string]provider.Provider
+	ConfigStore       configstoreintf.ConfigStorer
+	CLIAuthManager    *cliauth.Manager
+	CredentialManager *credentialmgr.Manager
+	Selector          routepkg.RouteTargetSelector
 }
 
 type AgentGateway struct {
 	mu sync.RWMutex
 
-	configured         bool
-	configStore        configstoreintf.ConfigStorer
-	routeManager       *routepkg.AgentRouteManager
-	localAPIKeyManager *localapikeypkg.LocalAPIKeyManager
-	providerManager    *ProviderManager
-	cliauthManager     *cliauth.Manager
-	credentialManager  *credentialmgr.Manager
-	Selector           routepkg.RouteTargetSelector
+	configured        bool
+	configStore       configstoreintf.ConfigStorer
+	routeManager      *routepkg.AgentRouteManager
+	virtualKeyManager *virtualkeypkg.VirtualKeyManager
+	providerManager   *ProviderManager
+	cliauthManager    *cliauth.Manager
+	credentialManager *credentialmgr.Manager
+	Selector          routepkg.RouteTargetSelector
 }
 
 func NewAgentGateway() *AgentGateway {
@@ -53,7 +53,7 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	if err := g.configureAgentRouteManager(ctx, opts.ConfigStore, opts.StaticRoutes); err != nil {
 		return err
 	}
-	if err := g.configureLocalAPIKeyManager(ctx, opts.ConfigStore, opts.StaticLocalAPIKeys); err != nil {
+	if err := g.configureVirtualKeyManager(ctx, opts.ConfigStore, opts.StaticVirtualKeys); err != nil {
 		return err
 	}
 	if err := g.configureProviderResolver(ctx, opts.ConfigStore, opts.StaticProviders); err != nil {
@@ -73,7 +73,7 @@ func (g *AgentGateway) Reset() {
 	g.configured = false
 	g.configStore = nil
 	g.routeManager = nil
-	g.localAPIKeyManager = nil
+	g.virtualKeyManager = nil
 	g.providerManager = nil
 	g.cliauthManager = nil
 	g.credentialManager = nil
@@ -104,10 +104,10 @@ func (g *AgentGateway) AgentRouteManager() *routepkg.AgentRouteManager {
 	return g.routeManager
 }
 
-func (g *AgentGateway) LocalAPIKeyManager() *localapikeypkg.LocalAPIKeyManager {
+func (g *AgentGateway) VirtualKeyManager() *virtualkeypkg.VirtualKeyManager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	return g.localAPIKeyManager
+	return g.virtualKeyManager
 }
 
 func (g *AgentGateway) ProviderManager() *ProviderManager {
@@ -179,30 +179,30 @@ func (g *AgentGateway) ResolveProvider(ctx context.Context, route routepkg.Agent
 	return prov, nil
 }
 
-func (g *AgentGateway) ResolveLocalAPIKey(ctx context.Context, httpReq *http.Request, r routepkg.AgentRoute) (*localapikeypkg.LocalAPIKey, error) {
-	rawKey := localapikeypkg.ExtractAPIKey(httpReq)
+func (g *AgentGateway) ResolveVirtualKey(ctx context.Context, httpReq *http.Request, r routepkg.AgentRoute) (*virtualkeypkg.VirtualKey, error) {
+	rawKey := virtualkeypkg.ExtractAPIKey(httpReq)
 	if rawKey == "" {
-		if r.Policy.Auth.RequireLocalAPIKey {
-			return nil, statuserr.New(http.StatusUnauthorized, "local api key is required")
+		if r.Policy.Auth.RequireVirtualKey {
+			return nil, statuserr.New(http.StatusUnauthorized, "virtual key is required")
 		}
 		return nil, nil
 	}
 
 	g.mu.RLock()
-	localAPIKeyManager := g.localAPIKeyManager
+	virtualKeyManager := g.virtualKeyManager
 	g.mu.RUnlock()
-	if localAPIKeyManager == nil {
-		return nil, statuserr.New(http.StatusServiceUnavailable, "local api key manager is not configured")
+	if virtualKeyManager == nil {
+		return nil, statuserr.New(http.StatusServiceUnavailable, "virtual key manager is not configured")
 	}
 
-	localKey, err := localAPIKeyManager.Get(ctx, rawKey)
+	virtualKey, err := virtualKeyManager.Get(ctx, rawKey)
 	if err != nil {
-		return nil, statuserr.New(http.StatusUnauthorized, "invalid local api key")
+		return nil, statuserr.New(http.StatusUnauthorized, "invalid virtual key")
 	}
-	if err := localKey.ValidateForRoute(r.ID); err != nil {
+	if err := virtualKey.ValidateForRoute(r.ID); err != nil {
 		return nil, err
 	}
-	return &localKey, nil
+	return &virtualKey, nil
 }
 
 func (g *AgentGateway) providerResolver() ProviderResolver {
@@ -250,22 +250,22 @@ func (g *AgentGateway) configureAgentRouteManager(ctx context.Context, configSto
 	return nil
 }
 
-func (g *AgentGateway) configureLocalAPIKeyManager(ctx context.Context, configStore configstoreintf.ConfigStorer, staticLocalAPIKeys []localapikeypkg.LocalAPIKey) error {
-	if g.localAPIKeyManager != nil {
-		return fmt.Errorf("local api key manager is not nil")
+func (g *AgentGateway) configureVirtualKeyManager(ctx context.Context, configStore configstoreintf.ConfigStorer, staticVirtualKeys []virtualkeypkg.VirtualKey) error {
+	if g.virtualKeyManager != nil {
+		return fmt.Errorf("virtual key manager is not nil")
 	}
 
-	var localAPIKeyStore configstoreintf.LocalAPIKeyStorer
+	var virtualKeyStore configstoreintf.VirtualKeyStorer
 	if configStore != nil {
 		var err error
-		localAPIKeyStore, err = configStore.GetLocalAPIKeyStore(ctx, localapikeypkg.DecodeStoredLocalAPIKey)
+		virtualKeyStore, err = configStore.GetVirtualKeyStore(ctx, virtualkeypkg.DecodeStoredVirtualKey)
 		if err != nil {
-			return fmt.Errorf("get local api key store: %w", err)
+			return fmt.Errorf("get virtual key store: %w", err)
 		}
 	}
 
-	g.localAPIKeyManager = localapikeypkg.NewLocalAPIKeyManager(localAPIKeyStore)
-	g.localAPIKeyManager.InitStaticKeys(staticLocalAPIKeys)
+	g.virtualKeyManager = virtualkeypkg.NewVirtualKeyManager(virtualKeyStore)
+	g.virtualKeyManager.InitStaticKeys(staticVirtualKeys)
 	return nil
 }
 

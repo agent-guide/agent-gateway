@@ -6,8 +6,8 @@ import (
 
 	"github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
-	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
+	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpcapture"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httplog"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
@@ -17,18 +17,18 @@ import (
 
 // Handler handles Admin API requests under /admin/.
 type Handler struct {
-	cliauthManager     *cliauth.Manager
-	credentialManager  *credentialmgr.Manager
-	configStore        intf.ConfigStorer
-	routeManager       *routepkg.AgentRouteManager
-	localAPIKeyManager *localapikeypkg.LocalAPIKeyManager
-	providerManager    *gateway.ProviderManager
-	mux                *http.ServeMux
-	logger             *zap.Logger
-	cliAuthSessions    sync.Map // cliname -> cliAuthStatus
-	sessions           *sessionStore
-	adminUsername      string
-	adminPasswordHash  string
+	cliauthManager    *cliauth.Manager
+	credentialManager *credentialmgr.Manager
+	configStore       intf.ConfigStorer
+	routeManager      *routepkg.AgentRouteManager
+	virtualKeyManager *virtualkeypkg.VirtualKeyManager
+	providerManager   *gateway.ProviderManager
+	mux               *http.ServeMux
+	logger            *zap.Logger
+	cliAuthSessions   sync.Map // cliname -> cliAuthStatus
+	sessions          *sessionStore
+	adminUsername     string
+	adminPasswordHash string
 }
 
 // NewHandler constructs an admin Handler.
@@ -42,28 +42,28 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 	var credentialMgr *credentialmgr.Manager
 	var configStore intf.ConfigStorer
 	var routeManager *routepkg.AgentRouteManager
-	var localAPIKeyManager *localapikeypkg.LocalAPIKeyManager
+	var virtualKeyManager *virtualkeypkg.VirtualKeyManager
 	var providerManager *gateway.ProviderManager
 	if agentGateway != nil {
 		cliauthMgr = agentGateway.CLIAuthManager()
 		credentialMgr = agentGateway.CredentialManager()
 		configStore = agentGateway.ConfigStore()
 		routeManager = agentGateway.AgentRouteManager()
-		localAPIKeyManager = agentGateway.LocalAPIKeyManager()
+		virtualKeyManager = agentGateway.VirtualKeyManager()
 		providerManager = agentGateway.ProviderManager()
 	}
 
 	h := &Handler{
-		cliauthManager:     cliauthMgr,
-		credentialManager:  credentialMgr,
-		configStore:        configStore,
-		routeManager:       routeManager,
-		localAPIKeyManager: localAPIKeyManager,
-		providerManager:    providerManager,
-		logger:             logger,
-		sessions:           newSessionStore(),
-		adminUsername:      adminUser,
-		adminPasswordHash:  adminPasswordHash,
+		cliauthManager:    cliauthMgr,
+		credentialManager: credentialMgr,
+		configStore:       configStore,
+		routeManager:      routeManager,
+		virtualKeyManager: virtualKeyManager,
+		providerManager:   providerManager,
+		logger:            logger,
+		sessions:          newSessionStore(),
+		adminUsername:     adminUser,
+		adminPasswordHash: adminPasswordHash,
 	}
 	h.mux = http.NewServeMux()
 	for _, route := range h.Routes() {

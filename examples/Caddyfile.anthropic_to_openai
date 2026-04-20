@@ -31,7 +31,7 @@
 			option debug_request true
 		}
 
-		localapikey test-key {
+		virtualkey test-key {
 			user_id local-test
 			name "Local Python test key"
 			allowed_route anthropic-chat
@@ -40,7 +40,7 @@
 		route anthropic-chat {
 			llm_api anthropic
 			path_prefix /myanthropicprefix
-			require_local_api_key
+			require_virtual_key
 			allowed_model glm-4.7
 			allowed_model glm-5.1
 			allowed_model deepseek-chat

@@ -37,7 +37,7 @@ agent_gateway Caddy app
   - config store loading
   - route registry / route loader
   - provider resolver
-  - local API key lookup
+  - virtual key lookup
   - auth manager
   |
   v
@@ -103,7 +103,7 @@ Today it exposes working endpoints for:
 - health
 - provider CRUD
 - route CRUD
-- local API key CRUD
+- virtual key CRUD
 - credential list/get/delete
 - async CLI login and login status
 
@@ -169,7 +169,7 @@ It persists:
 
 - provider configs
 - route definitions
-- local API keys
+- virtual keys
 - upstream provider credentials
 
 SQLite is the only storage backend that is provisioned end-to-end today.
@@ -225,7 +225,7 @@ The parser currently supports:
 
 Static route parsing is intentionally small right now. Supported route subdirectives are:
 
-- `require_local_api_key`
+- `require_virtual_key`
 - `allowed_model`
 - `target provider <provider-ref> [weight]`
 
@@ -237,7 +237,7 @@ The config store also holds:
 
 - provider records keyed by ID and tag
 - route objects keyed by ID
-- local API key objects keyed by key string
+- virtual key objects keyed by key string
 
 When an API handler receives a request for a given `route_id`, the runtime can reload the latest stored route definition for that ID. Provider references can also resolve through persisted provider config.
 
@@ -268,7 +268,7 @@ The richer route model already supports ideas such as:
 - route-level auth
 - allowed model restrictions
 - timeout, retry, fallback, quota, and rate-limit policy
-- caller-specific policy overrides through `LocalAPIKey`
+- caller-specific policy overrides through `VirtualKey`
 
 Only part of this model is enforced today, but the shape of the runtime data model is already defined.
 
@@ -278,7 +278,7 @@ At startup, the gateway app builds:
 
 - a route loader
 - a provider resolver
-- a local API key store binding
+- a virtual key store binding
 
 Provider resolution currently combines:
 
@@ -299,7 +299,7 @@ HTTP request
   -> match AgentRoute by host/path prefix/method
   -> strip matched path prefix
   -> select route llm_api protocol handler
-  -> validate local API key if required
+  -> validate virtual key if required
   -> resolve target provider
   -> convert request into provider.Generate/Stream input
   -> call upstream provider
@@ -351,7 +351,7 @@ The following are implemented enough to be production-shape code, even if still 
 - SQLite config persistence
 - provider CRUD
 - route CRUD
-- local API key CRUD
+- virtual key CRUD
 - credential inspection and deletion
 - CLI login orchestration
 - OpenAI-compatible and Anthropic-compatible ingress handlers

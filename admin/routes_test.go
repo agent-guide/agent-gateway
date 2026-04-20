@@ -13,8 +13,8 @@ import (
 	apipkg "github.com/agent-guide/caddy-agent-gateway/api"
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
-	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
+	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/cloudwego/eino/schema"
@@ -23,23 +23,23 @@ import (
 )
 
 type testConfigStore struct {
-	providerStore    configstoreintf.ProviderConfigStorer
-	routeStore       configstoreintf.RouteStorer
-	localAPIKeyStore configstoreintf.LocalAPIKeyStorer
+	providerStore   configstoreintf.ProviderConfigStorer
+	routeStore      configstoreintf.RouteStorer
+	virtualKeyStore configstoreintf.VirtualKeyStorer
 }
 
-func newTestAgentGateway(configStore configstoreintf.ConfigStorer, cliauthMgr *cliauth.Manager, staticRoutes []routepkg.AgentRoute, staticLocalAPIKeys []localapikeypkg.LocalAPIKey, staticProviders ...map[string]provider.Provider) *gateway.AgentGateway {
+func newTestAgentGateway(configStore configstoreintf.ConfigStorer, cliauthMgr *cliauth.Manager, staticRoutes []routepkg.AgentRoute, staticVirtualKeys []virtualkeypkg.VirtualKey, staticProviders ...map[string]provider.Provider) *gateway.AgentGateway {
 	var providers map[string]provider.Provider
 	if len(staticProviders) > 0 {
 		providers = staticProviders[0]
 	}
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
-		ConfigStore:        configStore,
-		StaticRoutes:       staticRoutes,
-		StaticLocalAPIKeys: staticLocalAPIKeys,
-		StaticProviders:    providers,
-		CLIAuthManager:     cliauthMgr,
+		ConfigStore:       configStore,
+		StaticRoutes:      staticRoutes,
+		StaticVirtualKeys: staticVirtualKeys,
+		StaticProviders:   providers,
+		CLIAuthManager:    cliauthMgr,
 	}); err != nil {
 		panic(err)
 	}
@@ -54,8 +54,8 @@ func (s *testConfigStore) GetProviderConfigStore(context.Context, configstoreint
 	return s.providerStore, nil
 }
 
-func (s *testConfigStore) GetLocalAPIKeyStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.LocalAPIKeyStorer, error) {
-	return s.localAPIKeyStore, nil
+func (s *testConfigStore) GetVirtualKeyStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.VirtualKeyStorer, error) {
+	return s.virtualKeyStore, nil
 }
 
 func (s *testConfigStore) GetRouteStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.RouteStorer, error) {
@@ -127,8 +127,8 @@ func (s *testRouteStore) Get(_ context.Context, id string) (any, error) {
 	return item, nil
 }
 
-type testLocalAPIKeyStore struct {
-	items map[string]*localapikeypkg.LocalAPIKey
+type testVirtualKeyStore struct {
+	items map[string]*virtualkeypkg.VirtualKey
 }
 
 type testProviderConfigStore struct {
@@ -215,7 +215,7 @@ func (p *stubAdminProvider) Config() provider.ProviderConfig {
 	return p.cfg
 }
 
-func (s *testLocalAPIKeyStore) ListByUserID(_ context.Context, userID string) ([]any, error) {
+func (s *testVirtualKeyStore) ListByUserID(_ context.Context, userID string) ([]any, error) {
 	out := make([]any, 0, len(s.items))
 	for _, item := range s.items {
 		if userID != "" && item.UserID != userID {
@@ -226,32 +226,32 @@ func (s *testLocalAPIKeyStore) ListByUserID(_ context.Context, userID string) ([
 	return out, nil
 }
 
-func (s *testLocalAPIKeyStore) Create(_ context.Context, key string, _ string, obj any) error {
-	item, ok := obj.(*localapikeypkg.LocalAPIKey)
+func (s *testVirtualKeyStore) Create(_ context.Context, key string, _ string, obj any) error {
+	item, ok := obj.(*virtualkeypkg.VirtualKey)
 	if !ok {
 		return errors.New("unexpected type")
 	}
 	if s.items == nil {
-		s.items = map[string]*localapikeypkg.LocalAPIKey{}
+		s.items = map[string]*virtualkeypkg.VirtualKey{}
 	}
 	cloned := *item
 	s.items[key] = &cloned
 	return nil
 }
 
-func (s *testLocalAPIKeyStore) Update(ctx context.Context, key string, obj any) error {
+func (s *testVirtualKeyStore) Update(ctx context.Context, key string, obj any) error {
 	if _, ok := s.items[key]; !ok {
 		return gorm.ErrRecordNotFound
 	}
 	return s.Create(ctx, key, "", obj)
 }
 
-func (s *testLocalAPIKeyStore) Delete(_ context.Context, key string) error {
+func (s *testVirtualKeyStore) Delete(_ context.Context, key string) error {
 	delete(s.items, key)
 	return nil
 }
 
-func (s *testLocalAPIKeyStore) Get(_ context.Context, key string) (any, error) {
+func (s *testVirtualKeyStore) Get(_ context.Context, key string) (any, error) {
 	item, ok := s.items[key]
 	if !ok {
 		return nil, gorm.ErrRecordNotFound
@@ -314,28 +314,28 @@ func TestRouteCRUD(t *testing.T) {
 	}
 }
 
-func TestLocalAPIKeyCRUD(t *testing.T) {
+func TestVirtualKeyCRUD(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
+		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{}},
 	}, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	body, err := json.Marshal(localapikeypkg.LocalAPIKey{
+	body, err := json.Marshal(virtualkeypkg.VirtualKey{
 		Key:             "lk-test",
 		UserID:          "admin",
 		Name:            "test key",
 		AllowedRouteIDs: []string{"chat-prod"},
 	})
 	if err != nil {
-		t.Fatalf("marshal local api key: %v", err)
+		t.Fatalf("marshal virtual key: %v", err)
 	}
 
-	createReq := httptest.NewRequest(http.MethodPost, "/admin/local_api_keys", bytes.NewReader(body))
+	createReq := httptest.NewRequest(http.MethodPost, "/admin/virtual_keys", bytes.NewReader(body))
 	createReq.Header.Set("Authorization", "Bearer "+token)
 	createRec := httptest.NewRecorder()
 	handler.ServeHTTP(createRec, createReq)
@@ -343,7 +343,7 @@ func TestLocalAPIKeyCRUD(t *testing.T) {
 		t.Fatalf("unexpected create status: got %d want %d", createRec.Code, http.StatusCreated)
 	}
 
-	getReq := httptest.NewRequest(http.MethodGet, "/admin/local_api_keys/lk-test", nil)
+	getReq := httptest.NewRequest(http.MethodGet, "/admin/virtual_keys/lk-test", nil)
 	getReq.Header.Set("Authorization", "Bearer "+token)
 	getRec := httptest.NewRecorder()
 	handler.ServeHTTP(getRec, getReq)
@@ -351,42 +351,42 @@ func TestLocalAPIKeyCRUD(t *testing.T) {
 		t.Fatalf("unexpected get status: got %d want %d", getRec.Code, http.StatusOK)
 	}
 
-	var got LocalAPIKeyView
+	var got VirtualKeyView
 	if err := json.NewDecoder(getRec.Body).Decode(&got); err != nil {
-		t.Fatalf("decode local api key: %v", err)
+		t.Fatalf("decode virtual key: %v", err)
 	}
 	if got.Key != "lk-test" {
-		t.Fatalf("unexpected local api key: got %q want %q", got.Key, "lk-test")
+		t.Fatalf("unexpected virtual key: got %q want %q", got.Key, "lk-test")
 	}
 	if len(got.AllowedRouteIDs) != 1 || got.AllowedRouteIDs[0] != "chat-prod" {
 		t.Fatalf("unexpected allowed routes: %#v", got.AllowedRouteIDs)
 	}
 	if got.Source != "store" || got.ReadOnly {
-		t.Fatalf("unexpected local api key metadata: %#v", got)
+		t.Fatalf("unexpected virtual key metadata: %#v", got)
 	}
 }
 
-func TestLocalAPIKeyGetMarksStaticKeyAsReadOnly(t *testing.T) {
+func TestVirtualKeyGetMarksStaticKeyAsReadOnly(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	localAPIKeyManager := localapikeypkg.NewLocalAPIKeyManager(&testLocalAPIKeyStore{
-		items: map[string]*localapikeypkg.LocalAPIKey{
+	virtualKeyManager := virtualkeypkg.NewVirtualKeyManager(&testVirtualKeyStore{
+		items: map[string]*virtualkeypkg.VirtualKey{
 			"lk-static": {Key: "lk-static", UserID: "admin", Name: "dynamic copy"},
 		},
 	})
-	localAPIKeyManager.InitStaticKeys([]localapikeypkg.LocalAPIKey{
+	virtualKeyManager.InitStaticKeys([]virtualkeypkg.VirtualKey{
 		{Key: "lk-static", UserID: "admin", Name: "static key"},
 	})
 
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
 		ConfigStore: &testConfigStore{
-			localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
+			virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{}},
 		},
-		StaticLocalAPIKeys: []localapikeypkg.LocalAPIKey{
+		StaticVirtualKeys: []virtualkeypkg.VirtualKey{
 			{Key: "lk-static", UserID: "admin", Name: "static key"},
 		},
 	}); err != nil {
@@ -395,7 +395,7 @@ func TestLocalAPIKeyGetMarksStaticKeyAsReadOnly(t *testing.T) {
 	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/local_api_keys/lk-static", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/virtual_keys/lk-static", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -404,31 +404,31 @@ func TestLocalAPIKeyGetMarksStaticKeyAsReadOnly(t *testing.T) {
 		t.Fatalf("unexpected get status: got %d want %d", rec.Code, http.StatusOK)
 	}
 
-	var got LocalAPIKeyView
+	var got VirtualKeyView
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
-		t.Fatalf("decode local api key: %v", err)
+		t.Fatalf("decode virtual key: %v", err)
 	}
 	if got.Name != "static key" {
 		t.Fatalf("name = %q, want static key", got.Name)
 	}
 	if got.Source != "caddyfile" || !got.ReadOnly {
-		t.Fatalf("unexpected local api key metadata: %#v", got)
+		t.Fatalf("unexpected virtual key metadata: %#v", got)
 	}
 }
 
-func TestLocalAPIKeyListMarksStaticKeysAsReadOnly(t *testing.T) {
+func TestVirtualKeyListMarksStaticKeysAsReadOnly(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	store := &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{
+	store := &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{
 		"lk-dynamic": {Key: "lk-dynamic", UserID: "admin", Name: "dynamic key"},
 	}}
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
-		ConfigStore: &testConfigStore{localAPIKeyStore: store},
-		StaticLocalAPIKeys: []localapikeypkg.LocalAPIKey{
+		ConfigStore: &testConfigStore{virtualKeyStore: store},
+		StaticVirtualKeys: []virtualkeypkg.VirtualKey{
 			{Key: "lk-static", UserID: "admin", Name: "static key"},
 		},
 	}); err != nil {
@@ -437,7 +437,7 @@ func TestLocalAPIKeyListMarksStaticKeysAsReadOnly(t *testing.T) {
 	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/local_api_keys", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/virtual_keys", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -447,24 +447,24 @@ func TestLocalAPIKeyListMarksStaticKeysAsReadOnly(t *testing.T) {
 	}
 
 	var got struct {
-		Items []LocalAPIKeyView `json:"items"`
+		Items []VirtualKeyView `json:"items"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
-		t.Fatalf("decode local api keys: %v", err)
+		t.Fatalf("decode virtual keys: %v", err)
 	}
 	if len(got.Items) != 2 {
 		t.Fatalf("item count = %d, want 2", len(got.Items))
 	}
 
-	byKey := map[string]LocalAPIKeyView{}
+	byKey := map[string]VirtualKeyView{}
 	for _, item := range got.Items {
 		byKey[item.Key] = item
 	}
 	if byKey["lk-static"].Source != "caddyfile" || !byKey["lk-static"].ReadOnly {
-		t.Fatalf("unexpected static local api key metadata: %#v", byKey["lk-static"])
+		t.Fatalf("unexpected static virtual key metadata: %#v", byKey["lk-static"])
 	}
 	if byKey["lk-dynamic"].Source != "store" || byKey["lk-dynamic"].ReadOnly {
-		t.Fatalf("unexpected dynamic local api key metadata: %#v", byKey["lk-dynamic"])
+		t.Fatalf("unexpected dynamic virtual key metadata: %#v", byKey["lk-dynamic"])
 	}
 }
 
@@ -767,20 +767,20 @@ func TestRouteEnableDisable(t *testing.T) {
 	}
 }
 
-func TestLocalAPIKeyEnableDisable(t *testing.T) {
+func TestVirtualKeyEnableDisable(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{
+		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{
 			"lk-test": {Key: "lk-test", UserID: "admin"},
 		}},
 	}, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	disableReq := httptest.NewRequest(http.MethodPost, "/admin/local_api_keys/lk-test/disable", nil)
+	disableReq := httptest.NewRequest(http.MethodPost, "/admin/virtual_keys/lk-test/disable", nil)
 	disableReq.Header.Set("Authorization", "Bearer "+token)
 	disableRec := httptest.NewRecorder()
 	handler.ServeHTTP(disableRec, disableReq)
@@ -788,15 +788,15 @@ func TestLocalAPIKeyEnableDisable(t *testing.T) {
 		t.Fatalf("disable status = %d, want %d", disableRec.Code, http.StatusOK)
 	}
 
-	var disabled LocalAPIKeyView
+	var disabled VirtualKeyView
 	if err := json.NewDecoder(disableRec.Body).Decode(&disabled); err != nil {
-		t.Fatalf("decode disabled local api key: %v", err)
+		t.Fatalf("decode disabled virtual key: %v", err)
 	}
 	if !disabled.Disabled {
-		t.Fatal("local api key disabled = false, want true")
+		t.Fatal("virtual key disabled = false, want true")
 	}
 
-	enableReq := httptest.NewRequest(http.MethodPost, "/admin/local_api_keys/lk-test/enable", nil)
+	enableReq := httptest.NewRequest(http.MethodPost, "/admin/virtual_keys/lk-test/enable", nil)
 	enableReq.Header.Set("Authorization", "Bearer "+token)
 	enableRec := httptest.NewRecorder()
 	handler.ServeHTTP(enableRec, enableReq)
@@ -804,12 +804,12 @@ func TestLocalAPIKeyEnableDisable(t *testing.T) {
 		t.Fatalf("enable status = %d, want %d", enableRec.Code, http.StatusOK)
 	}
 
-	var enabled LocalAPIKeyView
+	var enabled VirtualKeyView
 	if err := json.NewDecoder(enableRec.Body).Decode(&enabled); err != nil {
-		t.Fatalf("decode enabled local api key: %v", err)
+		t.Fatalf("decode enabled virtual key: %v", err)
 	}
 	if enabled.Disabled {
-		t.Fatal("local api key disabled = true, want false")
+		t.Fatal("virtual key disabled = true, want false")
 	}
 }
 
@@ -920,10 +920,10 @@ func TestProviderDeleteRejectsStaticProvider(t *testing.T) {
 
 func TestProtectedRouteRejectsRequestsWhenAdminAuthIsNotConfigured(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
+		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{}},
 	}, nil, nil, nil), nil, "", "")
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/local_api_keys", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/virtual_keys", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
@@ -931,27 +931,27 @@ func TestProtectedRouteRejectsRequestsWhenAdminAuthIsNotConfigured(t *testing.T)
 	}
 }
 
-func TestCreateLocalAPIKeyRejectsMismatchedSessionUserID(t *testing.T) {
+func TestCreateVirtualKeyRejectsMismatchedSessionUserID(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{}},
+		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{}},
 	}, nil, nil, nil), nil, "admin", string(passwordHash))
 
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	body, err := json.Marshal(localapikeypkg.LocalAPIKey{
+	body, err := json.Marshal(virtualkeypkg.VirtualKey{
 		Key:    "lk-test",
 		UserID: "someone-else",
 	})
 	if err != nil {
-		t.Fatalf("marshal local api key: %v", err)
+		t.Fatalf("marshal virtual key: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/admin/local_api_keys", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/admin/virtual_keys", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -960,21 +960,21 @@ func TestCreateLocalAPIKeyRejectsMismatchedSessionUserID(t *testing.T) {
 	}
 }
 
-func TestListLocalAPIKeysRejectsMismatchedSessionUserID(t *testing.T) {
+func TestListVirtualKeysRejectsMismatchedSessionUserID(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		localAPIKeyStore: &testLocalAPIKeyStore{items: map[string]*localapikeypkg.LocalAPIKey{
+		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{
 			"lk-test": {Key: "lk-test", UserID: "admin"},
 		}},
 	}, nil, nil, nil), nil, "admin", string(passwordHash))
 
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/local_api_keys?user_id=someone-else", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/virtual_keys?user_id=someone-else", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)

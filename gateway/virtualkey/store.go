@@ -1,10 +1,10 @@
-package localapikey
+package virtualkey
 
 import "encoding/json"
 
-// DecodeStoredLocalAPIKey decodes local API key records.
-func DecodeStoredLocalAPIKey(data []byte) (any, error) {
-	var key LocalAPIKey
+// DecodeStoredVirtualKey decodes virtual key records.
+func DecodeStoredVirtualKey(data []byte) (any, error) {
+	var key VirtualKey
 	if err := json.Unmarshal(data, &key); err != nil {
 		return nil, err
 	}

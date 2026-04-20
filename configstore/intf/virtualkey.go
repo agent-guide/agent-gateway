@@ -2,7 +2,7 @@ package intf
 
 import "context"
 
-type LocalAPIKeyStorer interface {
+type VirtualKeyStorer interface {
 	ListByUserID(ctx context.Context, userID string) ([]any, error)
 
 	Create(ctx context.Context, key string, userID string, obj any) error

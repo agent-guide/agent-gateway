@@ -10,8 +10,8 @@ import (
 	apipkg "github.com/agent-guide/caddy-agent-gateway/api"
 	"github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
-	localapikeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/localapikey"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
+	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"gorm.io/gorm"
@@ -19,8 +19,8 @@ import (
 
 const defaultRouteTag = ""
 
-type LocalAPIKeyView struct {
-	localapikeypkg.LocalAPIKey
+type VirtualKeyView struct {
+	virtualkeypkg.VirtualKey
 	Source   string `json:"source"`
 	ReadOnly bool   `json:"read_only"`
 }
@@ -91,13 +91,13 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodPost, Path: "/admin/routes/{id}/enable", Handler: h.handleEnableRoute, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/routes/{id}/disable", Handler: h.handleDisableRoute, RequireAuth: true},
 		{Method: http.MethodDelete, Path: "/admin/routes/{id}", Handler: h.handleDeleteRoute, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/local_api_keys", Handler: h.handleListLocalAPIKeys, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/local_api_keys", Handler: h.handleCreateLocalAPIKey, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/local_api_keys/{key}", Handler: h.handleGetLocalAPIKey, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/local_api_keys/{key}", Handler: h.handleUpdateLocalAPIKey, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/local_api_keys/{key}/enable", Handler: h.handleEnableLocalAPIKey, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/local_api_keys/{key}/disable", Handler: h.handleDisableLocalAPIKey, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/local_api_keys/{key}", Handler: h.handleDeleteLocalAPIKey, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/virtual_keys", Handler: h.handleListVirtualKeys, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/virtual_keys", Handler: h.handleCreateVirtualKey, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/virtual_keys/{key}", Handler: h.handleGetVirtualKey, RequireAuth: true},
+		{Method: http.MethodPut, Path: "/admin/virtual_keys/{key}", Handler: h.handleUpdateVirtualKey, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/virtual_keys/{key}/enable", Handler: h.handleEnableVirtualKey, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/virtual_keys/{key}/disable", Handler: h.handleDisableVirtualKey, RequireAuth: true},
+		{Method: http.MethodDelete, Path: "/admin/virtual_keys/{key}", Handler: h.handleDeleteVirtualKey, RequireAuth: true},
 		// Credentials (api_key and cliauth)
 		{Method: http.MethodGet, Path: "/admin/credentials", Handler: h.handleListCredentials, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/credentials", Handler: h.handleCreateCredential, RequireAuth: true},
@@ -643,10 +643,10 @@ func (h *Handler) handleSetRouteDisabled(w http.ResponseWriter, r *http.Request,
 	_ = httpjson.Write(w, http.StatusOK, routeViewFromRoute(manager, updated))
 }
 
-func (h *Handler) handleListLocalAPIKeys(w http.ResponseWriter, r *http.Request) {
-	manager := h.localAPIKeyManagerForRoutes()
+func (h *Handler) handleListVirtualKeys(w http.ResponseWriter, r *http.Request) {
+	manager := h.virtualKeyManagerForRoutes()
 	if manager == nil {
-		_ = httpjson.Error(w, http.StatusServiceUnavailable, "local api key manager not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "virtual key manager not configured")
 		return
 	}
 
@@ -662,26 +662,26 @@ func (h *Handler) handleListLocalAPIKeys(w http.ResponseWriter, r *http.Request)
 	}
 	userID = sessionUsername
 
-	items, err := manager.List(r.Context(), localapikeypkg.LocalAPIKeyListOptions{UserID: userID})
+	items, err := manager.List(r.Context(), virtualkeypkg.VirtualKeyListOptions{UserID: userID})
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	views := make([]LocalAPIKeyView, 0, len(items))
+	views := make([]VirtualKeyView, 0, len(items))
 	for _, item := range items {
-		views = append(views, localAPIKeyViewFromKey(manager, item))
+		views = append(views, virtualKeyViewFromKey(manager, item))
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": views})
 }
 
-func (h *Handler) handleCreateLocalAPIKey(w http.ResponseWriter, r *http.Request) {
-	manager := h.localAPIKeyManagerForRoutes()
+func (h *Handler) handleCreateVirtualKey(w http.ResponseWriter, r *http.Request) {
+	manager := h.virtualKeyManagerForRoutes()
 	if manager == nil {
-		_ = httpjson.Error(w, http.StatusServiceUnavailable, "local api key manager not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "virtual key manager not configured")
 		return
 	}
 
-	var key localapikeypkg.LocalAPIKey
+	var key virtualkeypkg.VirtualKey
 	if err := httpjson.Decode(r, &key); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
@@ -710,33 +710,33 @@ func (h *Handler) handleCreateLocalAPIKey(w http.ResponseWriter, r *http.Request
 	_ = httpjson.Write(w, http.StatusCreated, key)
 }
 
-func (h *Handler) handleGetLocalAPIKey(w http.ResponseWriter, r *http.Request) {
-	manager := h.localAPIKeyManagerForRoutes()
+func (h *Handler) handleGetVirtualKey(w http.ResponseWriter, r *http.Request) {
+	manager := h.virtualKeyManagerForRoutes()
 	if manager == nil {
-		_ = httpjson.Error(w, http.StatusServiceUnavailable, "local api key manager not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "virtual key manager not configured")
 		return
 	}
 
 	item, err := manager.Get(r.Context(), r.PathValue("key"))
 	if err != nil {
-		if errors.Is(err, localapikeypkg.ErrLocalAPIKeyNotConfigured) {
-			_ = httpjson.Error(w, http.StatusNotFound, "local api key not found")
+		if errors.Is(err, virtualkeypkg.ErrVirtualKeyNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "virtual key not found")
 			return
 		}
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = httpjson.Write(w, http.StatusOK, localAPIKeyViewFromKey(manager, item))
+	_ = httpjson.Write(w, http.StatusOK, virtualKeyViewFromKey(manager, item))
 }
 
-func (h *Handler) handleUpdateLocalAPIKey(w http.ResponseWriter, r *http.Request) {
-	manager := h.localAPIKeyManagerForRoutes()
+func (h *Handler) handleUpdateVirtualKey(w http.ResponseWriter, r *http.Request) {
+	manager := h.virtualKeyManagerForRoutes()
 	if manager == nil {
-		_ = httpjson.Error(w, http.StatusServiceUnavailable, "local api key manager not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "virtual key manager not configured")
 		return
 	}
 
-	var key localapikeypkg.LocalAPIKey
+	var key virtualkeypkg.VirtualKey
 	if err := httpjson.Decode(r, &key); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
@@ -746,13 +746,13 @@ func (h *Handler) handleUpdateLocalAPIKey(w http.ResponseWriter, r *http.Request
 		key.Key = pathKey
 	}
 	if key.Key != pathKey {
-		_ = httpjson.Error(w, http.StatusBadRequest, "local api key in body must match path")
+		_ = httpjson.Error(w, http.StatusBadRequest, "virtual key in body must match path")
 		return
 	}
 
 	if _, err := manager.Get(r.Context(), pathKey); err != nil {
-		if errors.Is(err, localapikeypkg.ErrLocalAPIKeyNotConfigured) {
-			_ = httpjson.Error(w, http.StatusNotFound, "local api key not found")
+		if errors.Is(err, virtualkeypkg.ErrVirtualKeyNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "virtual key not found")
 			return
 		}
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
@@ -766,10 +766,10 @@ func (h *Handler) handleUpdateLocalAPIKey(w http.ResponseWriter, r *http.Request
 	_ = httpjson.Write(w, http.StatusOK, key)
 }
 
-func (h *Handler) handleDeleteLocalAPIKey(w http.ResponseWriter, r *http.Request) {
-	manager := h.localAPIKeyManagerForRoutes()
+func (h *Handler) handleDeleteVirtualKey(w http.ResponseWriter, r *http.Request) {
+	manager := h.virtualKeyManagerForRoutes()
 	if manager == nil {
-		_ = httpjson.Error(w, http.StatusServiceUnavailable, "local api key manager not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "virtual key manager not configured")
 		return
 	}
 
@@ -781,26 +781,26 @@ func (h *Handler) handleDeleteLocalAPIKey(w http.ResponseWriter, r *http.Request
 	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "deleted", "key": key})
 }
 
-func (h *Handler) handleEnableLocalAPIKey(w http.ResponseWriter, r *http.Request) {
-	h.handleSetLocalAPIKeyDisabled(w, r, false)
+func (h *Handler) handleEnableVirtualKey(w http.ResponseWriter, r *http.Request) {
+	h.handleSetVirtualKeyDisabled(w, r, false)
 }
 
-func (h *Handler) handleDisableLocalAPIKey(w http.ResponseWriter, r *http.Request) {
-	h.handleSetLocalAPIKeyDisabled(w, r, true)
+func (h *Handler) handleDisableVirtualKey(w http.ResponseWriter, r *http.Request) {
+	h.handleSetVirtualKeyDisabled(w, r, true)
 }
 
-func (h *Handler) handleSetLocalAPIKeyDisabled(w http.ResponseWriter, r *http.Request, disabled bool) {
-	manager := h.localAPIKeyManagerForRoutes()
+func (h *Handler) handleSetVirtualKeyDisabled(w http.ResponseWriter, r *http.Request, disabled bool) {
+	manager := h.virtualKeyManagerForRoutes()
 	if manager == nil {
-		_ = httpjson.Error(w, http.StatusServiceUnavailable, "local api key manager not configured")
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "virtual key manager not configured")
 		return
 	}
 
 	keyID := r.PathValue("key")
 	key, err := manager.Get(r.Context(), keyID)
 	if err != nil {
-		if errors.Is(err, localapikeypkg.ErrLocalAPIKeyNotConfigured) {
-			_ = httpjson.Error(w, http.StatusNotFound, "local api key not found")
+		if errors.Is(err, virtualkeypkg.ErrVirtualKeyNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "virtual key not found")
 			return
 		}
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
@@ -809,12 +809,12 @@ func (h *Handler) handleSetLocalAPIKeyDisabled(w http.ResponseWriter, r *http.Re
 	key.Disabled = disabled
 
 	if err := manager.Update(r.Context(), keyID, key); err != nil {
-		if errors.Is(err, localapikeypkg.ErrStaticLocalAPIKeyReadOnly) {
+		if errors.Is(err, virtualkeypkg.ErrStaticVirtualKeyReadOnly) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			_ = httpjson.Error(w, http.StatusNotFound, "local api key not found")
+			_ = httpjson.Error(w, http.StatusNotFound, "virtual key not found")
 			return
 		}
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
@@ -826,7 +826,7 @@ func (h *Handler) handleSetLocalAPIKeyDisabled(w http.ResponseWriter, r *http.Re
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = httpjson.Write(w, http.StatusOK, localAPIKeyViewFromKey(manager, updated))
+	_ = httpjson.Write(w, http.StatusOK, virtualKeyViewFromKey(manager, updated))
 }
 
 func (h *Handler) handleListMCPClients(w http.ResponseWriter, r *http.Request) {
@@ -927,34 +927,34 @@ func (h *Handler) routeManagerForRoutes() *routepkg.AgentRouteManager {
 	return routepkg.NewAgentRouteManager(store)
 }
 
-func (h *Handler) localAPIKeyStore() intf.LocalAPIKeyStorer {
+func (h *Handler) virtualKeyStore() intf.VirtualKeyStorer {
 	if h.configStore == nil {
 		return nil
 	}
-	store, err := h.configStore.GetLocalAPIKeyStore(context.Background(), localapikeypkg.DecodeStoredLocalAPIKey)
+	store, err := h.configStore.GetVirtualKeyStore(context.Background(), virtualkeypkg.DecodeStoredVirtualKey)
 	if err != nil {
 		return nil
 	}
 	return store
 }
 
-func (h *Handler) localAPIKeyManagerForRoutes() *localapikeypkg.LocalAPIKeyManager {
-	if h.localAPIKeyManager != nil {
-		return h.localAPIKeyManager
+func (h *Handler) virtualKeyManagerForRoutes() *virtualkeypkg.VirtualKeyManager {
+	if h.virtualKeyManager != nil {
+		return h.virtualKeyManager
 	}
 
-	store := h.localAPIKeyStore()
+	store := h.virtualKeyStore()
 	if store == nil {
 		return nil
 	}
-	return localapikeypkg.NewLocalAPIKeyManager(store)
+	return virtualkeypkg.NewVirtualKeyManager(store)
 }
 
-func localAPIKeyViewFromKey(manager *localapikeypkg.LocalAPIKeyManager, key localapikeypkg.LocalAPIKey) LocalAPIKeyView {
-	view := LocalAPIKeyView{
-		LocalAPIKey: key,
-		Source:      "store",
-		ReadOnly:    false,
+func virtualKeyViewFromKey(manager *virtualkeypkg.VirtualKeyManager, key virtualkeypkg.VirtualKey) VirtualKeyView {
+	view := VirtualKeyView{
+		VirtualKey: key,
+		Source:     "store",
+		ReadOnly:   false,
 	}
 	if manager != nil && manager.IsStatic(key.Key) {
 		view.Source = "caddyfile"

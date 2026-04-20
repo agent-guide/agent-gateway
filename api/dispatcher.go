@@ -98,8 +98,8 @@ func (h AgentRouteDispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		return next.ServeHTTP(w, r)
 	}
 
-	if _, err := h.gateway.ResolveLocalAPIKey(r.Context(), r, route); err != nil {
-		return WriteError(h.logger, apiHandler.Name(), route.ID, "", w, rewritten, err, "resolve local api key")
+	if _, err := h.gateway.ResolveVirtualKey(r.Context(), r, route); err != nil {
+		return WriteError(h.logger, apiHandler.Name(), route.ID, "", w, rewritten, err, "resolve virtual key")
 	}
 
 	prepared, err := apiHandler.PrepareLLMApiRequest(rewritten)

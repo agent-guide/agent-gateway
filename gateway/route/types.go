@@ -102,7 +102,7 @@ func (p *RoutePolicy) Defaults() {
 }
 
 type AuthPolicy struct {
-	RequireLocalAPIKey bool `json:"require_local_api_key"`
+	RequireVirtualKey bool `json:"require_virtual_key"`
 }
 
 type RateLimitPolicy struct {

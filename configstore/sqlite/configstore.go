@@ -18,12 +18,12 @@ import (
 type SQLiteConfigStore struct {
 	SQLitePath string `json:"sqlite_path,omitempty"`
 
-	logger           *zap.Logger
-	db               *gorm.DB
-	credentialStore  *CredentialStore
-	providerStore    *ProviderConfigStore
-	localAPIKeyStore *LocalAPIKeyStore
-	routeStore       *RouteStore
+	logger          *zap.Logger
+	db              *gorm.DB
+	credentialStore *CredentialStore
+	providerStore   *ProviderConfigStore
+	virtualKeyStore *VirtualKeyStore
+	routeStore      *RouteStore
 }
 
 func init() {
@@ -111,17 +111,17 @@ func (s *SQLiteConfigStore) GetProviderConfigStore(ctx context.Context, decodePr
 	return s.providerStore, nil
 }
 
-func (s *SQLiteConfigStore) GetLocalAPIKeyStore(ctx context.Context, decodeLocalAPIKey intf.ConfigObjectDecoder) (intf.LocalAPIKeyStorer, error) {
-	if s.localAPIKeyStore != nil {
-		return s.localAPIKeyStore, nil
+func (s *SQLiteConfigStore) GetVirtualKeyStore(ctx context.Context, decodeVirtualKey intf.ConfigObjectDecoder) (intf.VirtualKeyStorer, error) {
+	if s.virtualKeyStore != nil {
+		return s.virtualKeyStore, nil
 	}
 
-	localAPIKeyStore, err := NewLocalAPIKeyStore(ctx, s.db, decodeLocalAPIKey)
+	virtualKeyStore, err := NewVirtualKeyStore(ctx, s.db, decodeVirtualKey)
 	if err != nil {
-		return nil, fmt.Errorf("init local api key store: %w", err)
+		return nil, fmt.Errorf("init virtual key store: %w", err)
 	}
-	s.localAPIKeyStore = localAPIKeyStore
-	return localAPIKeyStore, nil
+	s.virtualKeyStore = virtualKeyStore
+	return virtualKeyStore, nil
 }
 
 func (s *SQLiteConfigStore) GetRouteStore(ctx context.Context, decodeRoute intf.ConfigObjectDecoder) (intf.RouteStorer, error) {

@@ -1,4 +1,4 @@
-package localapikey
+package virtualkey
 
 import (
 	"fmt"
@@ -8,43 +8,43 @@ import (
 	"time"
 )
 
-func (key LocalAPIKey) Validate() error {
+func (key VirtualKey) Validate() error {
 	if key.Disabled {
-		return fmt.Errorf("local api key is disabled")
+		return fmt.Errorf("virtual key is disabled")
 	}
 	if !key.ExpiresAt.IsZero() && key.ExpiresAt.Before(time.Now()) {
-		return fmt.Errorf("local api key is expired")
+		return fmt.Errorf("virtual key is expired")
 	}
 
 	return nil
 }
 
-func (key LocalAPIKey) ValidateForRoute(routeID string) error {
+func (key VirtualKey) ValidateForRoute(routeID string) error {
 	err := key.Validate()
 	if err != nil {
 		return err
 	}
 	if len(key.AllowedRouteIDs) > 0 && !slices.Contains(key.AllowedRouteIDs, routeID) {
-		return fmt.Errorf("local api key is not allowed to access this route")
+		return fmt.Errorf("virtual key is not allowed to access this route")
 	}
 	return nil
 }
 
-// func ValidateForRoute(routeID string, requireLocalAPIKey bool, key *LocalAPIKey) (*LocalAPIKey, error) {
+// func ValidateForRoute(routeID string, requireVirtualKey bool, key *VirtualKey) (*VirtualKey, error) {
 // 	if key == nil {
-// 		if requireLocalAPIKey {
-// 			return nil, statuserr.New(http.StatusUnauthorized, "local api key is required")
+// 		if requireVirtualKey {
+// 			return nil, statuserr.New(http.StatusUnauthorized, "virtual key is required")
 // 		}
 // 		return nil, nil
 // 	}
 // 	if key.Disabled {
-// 		return nil, statuserr.New(http.StatusForbidden, "local api key is disabled")
+// 		return nil, statuserr.New(http.StatusForbidden, "virtual key is disabled")
 // 	}
 // 	if !key.ExpiresAt.IsZero() && key.ExpiresAt.Before(time.Now()) {
-// 		return nil, statuserr.New(http.StatusForbidden, "local api key is expired")
+// 		return nil, statuserr.New(http.StatusForbidden, "virtual key is expired")
 // 	}
 // 	if len(key.AllowedRouteIDs) > 0 && !slices.Contains(key.AllowedRouteIDs, routeID) {
-// 		return nil, statuserr.New(http.StatusForbidden, "local api key is not allowed to access this route")
+// 		return nil, statuserr.New(http.StatusForbidden, "virtual key is not allowed to access this route")
 // 	}
 // 	return key, nil
 // }

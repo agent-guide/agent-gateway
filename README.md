@@ -5,7 +5,7 @@
 - OpenAI-compatible and Anthropic-compatible HTTP APIs
 - route-based dispatch to upstream providers
 - static Caddyfile configuration plus SQLite-backed dynamic configuration
-- admin APIs for providers, routes, local API keys, upstream credentials, CLI auth, and Caddy server management
+- admin APIs for providers, routes, virtual keys, upstream credentials, CLI auth, and Caddy server management
 - early MCP, memory, metrics, and agent endpoint scaffolding
 
 The request path today is centered on LLM routing. MCP, memory, metrics, and agent Admin API routes are registered, but they currently return `501 not implemented`.
@@ -37,7 +37,7 @@ The request path today is centered on LLM routing. MCP, memory, metrics, and age
 ## Repository Layout
 
 - `cmd/` - custom Caddy entrypoint and module imports
-- `gateway/` - `agent_gateway` app, runtime managers, route selection, provider resolution, local API key validation
+- `gateway/` - `agent_gateway` app, runtime managers, route selection, provider resolution, virtual key validation
 - `api/` - `agent_route_dispatcher` and protocol handlers
 - `admin/` - `agent_gateway_admin`, Admin API routes, session auth, Caddy management proxy
 - `llm/provider/` - provider interface and built-in provider implementations
@@ -79,7 +79,7 @@ Create a minimal `Caddyfile`:
 			default_model gpt-4.1
 		}
 
-		localapikey test-key {
+		virtualkey test-key {
 			user_id local-test
 			name "Local test key"
 			allowed_route openai-chat
@@ -88,7 +88,7 @@ Create a minimal `Caddyfile`:
 		route openai-chat {
 			llm_api openai
 			path_prefix /
-			require_local_api_key
+			require_virtual_key
 			allowed_model gpt-4.1
 			target provider openai-main
 		}
@@ -183,7 +183,7 @@ The gateway is configured in the global `agent_gateway` block:
 		config_store sqlite { ... }
 		provider <provider-id> { ... }
 		authenticator <name> { ... }
-		localapikey <key> { ... }
+		virtualkey <key> { ... }
 		route <route-id> { ... }
 	}
 }
@@ -238,7 +238,7 @@ route openai-chat {
 	host api.example.com
 	path_prefix /v1
 	method POST
-	require_local_api_key
+	require_virtual_key
 	allowed_model gpt-4.1 gpt-4.1-mini
 	target provider openai-main 1
 }
@@ -250,16 +250,16 @@ Supported route subdirectives:
 - `host <host>`
 - `path_prefix <prefix>`
 - `method <method> [more-methods...]`
-- `require_local_api_key [true|false]`
+- `require_virtual_key [true|false]`
 - `allowed_model <model> [more-models...]`
 - `target provider <provider-ref> [weight]`
 
 Static Caddyfile targets are weighted targets. The Go route model and Admin API also contain fields for failover, conditional targets, selection strategy, retry, fallback, quota, and rate limits, but not every field is exposed in Caddyfile syntax.
 
-### Local API Keys
+### Virtual Keys
 
 ```caddy
-localapikey test-key {
+virtualkey test-key {
 	user_id local-test
 	name "Local test key"
 	description "Used by local examples"
@@ -280,7 +280,7 @@ Supported subdirectives:
 - `status_message <text>`
 - `expires_at <rfc3339>`
 
-If `allowed_route` is omitted, the key can be used on any route that requires local key authentication.
+If `allowed_route` is omitted, the key can be used on any route that requires virtual key authentication.
 
 ## Runtime Request Flow
 
@@ -288,7 +288,7 @@ If `allowed_route` is omitted, the key can be used on any route that requires lo
 2. The dispatcher finds the best matching route by host, path prefix, and method.
 3. The matched route's `llm_api` selects the protocol handler.
 4. The route manager lists static routes plus persisted routes from SQLite, caching persisted routes as it loads them.
-5. If required, the local API key is extracted from `x-api-key` or `Authorization: Bearer`.
+5. If required, the virtual key is extracted from `x-api-key` or `Authorization: Bearer`.
 6. The protocol handler converts the request into the internal provider request.
 7. The route target selector chooses an upstream provider.
 8. The provider sends the upstream request and the protocol handler translates the response.
@@ -309,7 +309,7 @@ Configuration comes from two places:
 - static Caddyfile config under `agent_gateway`
 - persisted SQLite records managed through the Admin API
 
-Static providers, routes, local API keys, and authenticators are loaded during provisioning. Persisted provider, route, credential, and local API key records can be changed through the Admin API without rebuilding the Caddy binary.
+Static providers, routes, virtual keys, and authenticators are loaded during provisioning. Persisted provider, route, credential, and virtual key records can be changed through the Admin API without rebuilding the Caddy binary.
 
 Static records are exposed through Admin API list/read responses with source/read-only metadata where applicable. Attempts to mutate static providers or routes return conflict errors.
 
@@ -391,27 +391,27 @@ curl -X POST http://127.0.0.1:8081/admin/routes \
     ],
     "policy": {
       "auth": {
-        "require_local_api_key": true
+        "require_virtual_key": true
       },
       "allowed_models": ["openai/gpt-4o-mini"]
     }
   }'
 ```
 
-### Local API Keys
+### Virtual Keys
 
-- `GET /admin/local_api_keys`
-- `POST /admin/local_api_keys`
-- `GET /admin/local_api_keys/{key}`
-- `PUT /admin/local_api_keys/{key}`
-- `POST /admin/local_api_keys/{key}/enable`
-- `POST /admin/local_api_keys/{key}/disable`
-- `DELETE /admin/local_api_keys/{key}`
+- `GET /admin/virtual_keys`
+- `POST /admin/virtual_keys`
+- `GET /admin/virtual_keys/{key}`
+- `PUT /admin/virtual_keys/{key}`
+- `POST /admin/virtual_keys/{key}/enable`
+- `POST /admin/virtual_keys/{key}/disable`
+- `DELETE /admin/virtual_keys/{key}`
 
 Create a local gateway API key:
 
 ```bash
-curl -X POST http://127.0.0.1:8081/admin/local_api_keys \
+curl -X POST http://127.0.0.1:8081/admin/virtual_keys \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{

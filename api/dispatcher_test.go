@@ -58,7 +58,7 @@ func TestAgentRouteDispatcherValidateUsesLoadedHandlers(t *testing.T) {
 	}
 }
 
-func TestAgentRouteDispatcherDefersLocalAPIKeyUntilLLMApiMatch(t *testing.T) {
+func TestAgentRouteDispatcherDefersVirtualKeyUntilLLMApiMatch(t *testing.T) {
 	gw := gateway.NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
 		StaticRoutes: []routepkg.AgentRoute{{
@@ -66,7 +66,7 @@ func TestAgentRouteDispatcherDefersLocalAPIKeyUntilLLMApiMatch(t *testing.T) {
 			LLMAPI: "stub",
 			Match:  routepkg.RouteMatch{PathPrefix: "/"},
 			Policy: routepkg.RoutePolicy{
-				Auth: routepkg.AuthPolicy{RequireLocalAPIKey: true},
+				Auth: routepkg.AuthPolicy{RequireVirtualKey: true},
 			},
 			Targets: []routepkg.RouteTarget{{ProviderRef: "openai"}},
 		}},
