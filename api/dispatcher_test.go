@@ -93,15 +93,15 @@ func TestAgentRouteDispatcherDefersVirtualKeyUntilLLMApiMatch(t *testing.T) {
 	}
 }
 
-func TestAgentRouteDispatcherRejectsDisabledLLMApiHandlerName(t *testing.T) {
-	const handlerName = "test-disabled-llm-api-handler"
-	RegisterLLMApiHandlerName(handlerName)
-	if err := DisableLLMApiHandlerName(handlerName); err != nil {
-		t.Fatalf("disable llm api handler name: %v", err)
+func TestAgentRouteDispatcherRejectsDisabledLLMApiHandlerType(t *testing.T) {
+	const handlerType = "test-disabled-llm-api-handler"
+	RegisterLLMApiHandlerType(handlerType)
+	if err := DisableLLMApiHandlerType(handlerType); err != nil {
+		t.Fatalf("disable llm api handler type: %v", err)
 	}
 	defer func() {
-		if err := EnableLLMApiHandlerName(handlerName); err != nil {
-			t.Fatalf("restore llm api handler name: %v", err)
+		if err := EnableLLMApiHandlerType(handlerType); err != nil {
+			t.Fatalf("restore llm api handler type: %v", err)
 		}
 	}()
 
@@ -109,7 +109,7 @@ func TestAgentRouteDispatcherRejectsDisabledLLMApiHandlerName(t *testing.T) {
 	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
 		StaticRoutes: []routepkg.AgentRoute{{
 			ID:      "disabled-api-route",
-			LLMAPI:  handlerName,
+			LLMAPI:  handlerType,
 			Match:   routepkg.RouteMatch{PathPrefix: "/"},
 			Targets: []routepkg.RouteTarget{{ProviderID: "openai"}},
 		}},
@@ -118,7 +118,7 @@ func TestAgentRouteDispatcherRejectsDisabledLLMApiHandlerName(t *testing.T) {
 	}
 
 	dispatcher := AgentRouteDispatcher{
-		apiHandlers: map[string]LLMApiHandler{handlerName: stubLLMApiHandler{}},
+		apiHandlers: map[string]LLMApiHandler{handlerType: stubLLMApiHandler{}},
 		gateway:     gw,
 	}
 	rec := httptest.NewRecorder()

@@ -8,74 +8,74 @@ import (
 	"sync"
 )
 
-// ErrLLMApiHandlerNameDisabled is returned when a registered LLM API handler type is disabled.
-var ErrLLMApiHandlerNameDisabled = errors.New("llm api handler name is disabled")
+// ErrLLMApiHandlerTypeDisabled is returned when a registered LLM API handler type is disabled.
+var ErrLLMApiHandlerTypeDisabled = errors.New("llm api handler type is disabled")
 
 var (
 	llmAPIHandlerMu            sync.RWMutex
-	llmAPIHandlerNames         = map[string]struct{}{}
-	disabledLLMAPIHandlerNames = map[string]struct{}{}
+	llmAPIHandlerTypes         = map[string]struct{}{}
+	disabledLLMAPIHandlerTypes = map[string]struct{}{}
 )
 
-// RegisterLLMApiHandlerName registers an available LLM API handler by name.
-func RegisterLLMApiHandlerName(name string) {
-	name = normalizeLLMAPIHandlerName(name)
-	if name == "" {
+// RegisterLLMApiHandlerType registers an available LLM API handler type.
+func RegisterLLMApiHandlerType(handlerType string) {
+	handlerType = normalizeLLMAPIHandlerType(handlerType)
+	if handlerType == "" {
 		return
 	}
 	llmAPIHandlerMu.Lock()
-	llmAPIHandlerNames[name] = struct{}{}
+	llmAPIHandlerTypes[handlerType] = struct{}{}
 	llmAPIHandlerMu.Unlock()
 }
 
-// ListLLMApiHandlerNames returns the names of all registered LLM API handlers.
-func ListLLMApiHandlerNames() []string {
+// ListLLMApiHandlerTypes returns the types of all registered LLM API handlers.
+func ListLLMApiHandlerTypes() []string {
 	llmAPIHandlerMu.RLock()
 	defer llmAPIHandlerMu.RUnlock()
-	names := make([]string, 0, len(llmAPIHandlerNames))
-	for name := range llmAPIHandlerNames {
-		names = append(names, name)
+	types := make([]string, 0, len(llmAPIHandlerTypes))
+	for handlerType := range llmAPIHandlerTypes {
+		types = append(types, handlerType)
 	}
-	sort.Strings(names)
-	return names
+	sort.Strings(types)
+	return types
 }
 
-// IsLLMApiHandlerNameEnabled reports whether a registered LLM API handler is enabled.
-func IsLLMApiHandlerNameEnabled(name string) (bool, bool) {
-	name = normalizeLLMAPIHandlerName(name)
+// IsLLMApiHandlerTypeEnabled reports whether a registered LLM API handler type is enabled.
+func IsLLMApiHandlerTypeEnabled(handlerType string) (bool, bool) {
+	handlerType = normalizeLLMAPIHandlerType(handlerType)
 	llmAPIHandlerMu.RLock()
 	defer llmAPIHandlerMu.RUnlock()
-	if _, ok := llmAPIHandlerNames[name]; !ok {
+	if _, ok := llmAPIHandlerTypes[handlerType]; !ok {
 		return false, false
 	}
-	_, disabled := disabledLLMAPIHandlerNames[name]
+	_, disabled := disabledLLMAPIHandlerTypes[handlerType]
 	return !disabled, true
 }
 
-// EnableLLMApiHandlerName enables a registered LLM API handler.
-func EnableLLMApiHandlerName(name string) error {
-	name = normalizeLLMAPIHandlerName(name)
+// EnableLLMApiHandlerType enables a registered LLM API handler type.
+func EnableLLMApiHandlerType(handlerType string) error {
+	handlerType = normalizeLLMAPIHandlerType(handlerType)
 	llmAPIHandlerMu.Lock()
 	defer llmAPIHandlerMu.Unlock()
-	if _, ok := llmAPIHandlerNames[name]; !ok {
-		return fmt.Errorf("unknown llm api handler: %s", name)
+	if _, ok := llmAPIHandlerTypes[handlerType]; !ok {
+		return fmt.Errorf("unknown llm api handler type: %s", handlerType)
 	}
-	delete(disabledLLMAPIHandlerNames, name)
+	delete(disabledLLMAPIHandlerTypes, handlerType)
 	return nil
 }
 
-// DisableLLMApiHandlerName disables a registered LLM API handler.
-func DisableLLMApiHandlerName(name string) error {
-	name = normalizeLLMAPIHandlerName(name)
+// DisableLLMApiHandlerType disables a registered LLM API handler type.
+func DisableLLMApiHandlerType(handlerType string) error {
+	handlerType = normalizeLLMAPIHandlerType(handlerType)
 	llmAPIHandlerMu.Lock()
 	defer llmAPIHandlerMu.Unlock()
-	if _, ok := llmAPIHandlerNames[name]; !ok {
-		return fmt.Errorf("unknown llm api handler: %s", name)
+	if _, ok := llmAPIHandlerTypes[handlerType]; !ok {
+		return fmt.Errorf("unknown llm api handler type: %s", handlerType)
 	}
-	disabledLLMAPIHandlerNames[name] = struct{}{}
+	disabledLLMAPIHandlerTypes[handlerType] = struct{}{}
 	return nil
 }
 
-func normalizeLLMAPIHandlerName(name string) string {
-	return strings.ToLower(strings.TrimSpace(name))
+func normalizeLLMAPIHandlerType(handlerType string) string {
+	return strings.ToLower(strings.TrimSpace(handlerType))
 }

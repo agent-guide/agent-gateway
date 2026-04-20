@@ -25,7 +25,7 @@ type Handler struct {
 }
 
 func init() {
-	api.RegisterLLMApiHandlerName("anthropic")
+	api.RegisterLLMApiHandlerType("anthropic")
 	caddy.RegisterModule(Handler{})
 }
 

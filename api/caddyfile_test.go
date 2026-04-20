@@ -55,7 +55,7 @@ func TestParseAgentRouteDispatcher(t *testing.T) {
 	}
 }
 
-func TestAgentRouteDispatcherAdaptUsesHandlerName(t *testing.T) {
+func TestAgentRouteDispatcherAdaptUsesHandlerType(t *testing.T) {
 	input := []byte(`
 		:8080 {
 			agent_route_dispatcher {

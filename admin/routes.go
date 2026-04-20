@@ -45,8 +45,8 @@ type ProviderTypeView struct {
 	Enabled      bool   `json:"enabled"`
 }
 
-type LLMApiHandlerNameView struct {
-	LLMApiHandlerName string `json:"llm_api_handler_name"`
+type LLMApiHandlerTypeView struct {
+	LLMApiHandlerType string `json:"llm_api_handler_type"`
 	Enabled           bool   `json:"enabled"`
 }
 
@@ -74,10 +74,10 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodPost, Path: "/admin/provider_types/{provider_type}/enable", Handler: h.handleEnableProviderType, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/provider_types/{provider_type}/disable", Handler: h.handleDisableProviderType, RequireAuth: true},
 
-		// LLM API handler names
-		{Method: http.MethodGet, Path: "/admin/llm_api_handler_names", Handler: h.handleListLLMApiHandlerNames, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/llm_api_handler_names/{llm_api_handler_name}/enable", Handler: h.handleEnableLLMApiHandlerName, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/llm_api_handler_names/{llm_api_handler_name}/disable", Handler: h.handleDisableLLMApiHandlerName, RequireAuth: true},
+		// LLM API handler types
+		{Method: http.MethodGet, Path: "/admin/llm_api_handler_types", Handler: h.handleListLLMApiHandlerTypes, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/llm_api_handler_types/{llm_api_handler_type}/enable", Handler: h.handleEnableLLMApiHandlerType, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/llm_api_handler_types/{llm_api_handler_type}/disable", Handler: h.handleDisableLLMApiHandlerType, RequireAuth: true},
 
 		// Providers
 		{Method: http.MethodGet, Path: "/admin/providers", Handler: h.handleListProviders, RequireAuth: true},
@@ -181,42 +181,42 @@ func (h *Handler) handleListProviderTypes(w http.ResponseWriter, r *http.Request
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": items})
 }
 
-func (h *Handler) handleListLLMApiHandlerNames(w http.ResponseWriter, r *http.Request) {
-	names := apipkg.ListLLMApiHandlerNames()
-	items := make([]LLMApiHandlerNameView, 0, len(names))
-	for _, name := range names {
-		enabled, ok := apipkg.IsLLMApiHandlerNameEnabled(name)
+func (h *Handler) handleListLLMApiHandlerTypes(w http.ResponseWriter, r *http.Request) {
+	types := apipkg.ListLLMApiHandlerTypes()
+	items := make([]LLMApiHandlerTypeView, 0, len(types))
+	for _, handlerType := range types {
+		enabled, ok := apipkg.IsLLMApiHandlerTypeEnabled(handlerType)
 		if !ok {
 			continue
 		}
-		items = append(items, LLMApiHandlerNameView{
-			LLMApiHandlerName: name,
+		items = append(items, LLMApiHandlerTypeView{
+			LLMApiHandlerType: handlerType,
 			Enabled:           enabled,
 		})
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": items})
 }
 
-func (h *Handler) handleEnableLLMApiHandlerName(w http.ResponseWriter, r *http.Request) {
-	h.handleSetLLMApiHandlerNameEnabled(w, r, true)
+func (h *Handler) handleEnableLLMApiHandlerType(w http.ResponseWriter, r *http.Request) {
+	h.handleSetLLMApiHandlerTypeEnabled(w, r, true)
 }
 
-func (h *Handler) handleDisableLLMApiHandlerName(w http.ResponseWriter, r *http.Request) {
-	h.handleSetLLMApiHandlerNameEnabled(w, r, false)
+func (h *Handler) handleDisableLLMApiHandlerType(w http.ResponseWriter, r *http.Request) {
+	h.handleSetLLMApiHandlerTypeEnabled(w, r, false)
 }
 
-func (h *Handler) handleSetLLMApiHandlerNameEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
-	name := strings.ToLower(strings.TrimSpace(r.PathValue("llm_api_handler_name")))
-	if name == "" {
-		_ = httpjson.Error(w, http.StatusBadRequest, "llm_api_handler_name is required")
+func (h *Handler) handleSetLLMApiHandlerTypeEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
+	handlerType := strings.ToLower(strings.TrimSpace(r.PathValue("llm_api_handler_type")))
+	if handlerType == "" {
+		_ = httpjson.Error(w, http.StatusBadRequest, "llm_api_handler_type is required")
 		return
 	}
 
 	var err error
 	if enabled {
-		err = apipkg.EnableLLMApiHandlerName(name)
+		err = apipkg.EnableLLMApiHandlerType(handlerType)
 	} else {
-		err = apipkg.DisableLLMApiHandlerName(name)
+		err = apipkg.DisableLLMApiHandlerType(handlerType)
 	}
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusNotFound, err.Error())
@@ -229,7 +229,7 @@ func (h *Handler) handleSetLLMApiHandlerNameEnabled(w http.ResponseWriter, r *ht
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{
 		"status":               status,
-		"llm_api_handler_name": name,
+		"llm_api_handler_type": handlerType,
 		"enabled":              enabled,
 	})
 }
