@@ -23,8 +23,8 @@ func (r AgentRoute) ValidateDefinition() error {
 			continue
 		}
 		hasEligibleTarget = true
-		if target.ProviderRef == "" {
-			return fmt.Errorf("route %q has target with empty provider_ref", r.ID)
+		if target.ProviderID == "" {
+			return fmt.Errorf("route %q has target with empty provider_id", r.ID)
 		}
 	}
 	if !hasEligibleTarget {
@@ -34,21 +34,21 @@ func (r AgentRoute) ValidateDefinition() error {
 	return nil
 }
 
-// ProviderRefs returns unique enabled provider references declared by the route.
-func (r AgentRoute) ProviderRefs() []string {
-	refs := make([]string, 0, len(r.Targets))
+// ProviderIDs returns unique enabled provider IDs declared by the route.
+func (r AgentRoute) ProviderIDs() []string {
+	ids := make([]string, 0, len(r.Targets))
 	seen := make(map[string]struct{}, len(r.Targets))
 	for _, target := range r.Targets {
-		if target.Disabled || target.ProviderRef == "" {
+		if target.Disabled || target.ProviderID == "" {
 			continue
 		}
-		if _, ok := seen[target.ProviderRef]; ok {
+		if _, ok := seen[target.ProviderID]; ok {
 			continue
 		}
-		seen[target.ProviderRef] = struct{}{}
-		refs = append(refs, target.ProviderRef)
+		seen[target.ProviderID] = struct{}{}
+		ids = append(ids, target.ProviderID)
 	}
-	return refs
+	return ids
 }
 
 // ValidateRequestPolicy validates the request against route-level policy.

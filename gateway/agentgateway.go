@@ -137,7 +137,7 @@ func (g *AgentGateway) ResolveRoute(ctx context.Context, r *http.Request) (route
 	return route, nil
 }
 
-func (g *AgentGateway) resolveProviderRef(route routepkg.AgentRoute, routeResolveReq routepkg.RouteResolveRequest) (string, error) {
+func (g *AgentGateway) resolveProviderID(route routepkg.AgentRoute, routeResolveReq routepkg.RouteResolveRequest) (string, error) {
 	if err := route.ValidateRequestPolicy(routeResolveReq); err != nil {
 		return "", err
 	}
@@ -147,10 +147,10 @@ func (g *AgentGateway) resolveProviderRef(route routepkg.AgentRoute, routeResolv
 	if err != nil {
 		return "", err
 	}
-	if target == nil || target.ProviderRef == "" {
+	if target == nil || target.ProviderID == "" {
 		return "", statuserr.New(http.StatusBadGateway, fmt.Sprintf("route %q has no eligible targets", route.ID))
 	}
-	return target.ProviderRef, nil
+	return target.ProviderID, nil
 }
 
 func (g *AgentGateway) ResolveProvider(ctx context.Context, route routepkg.AgentRoute, routeResolveReq routepkg.RouteResolveRequest) (provider.Provider, error) {
@@ -159,22 +159,22 @@ func (g *AgentGateway) ResolveProvider(ctx context.Context, route routepkg.Agent
 		return nil, statuserr.New(http.StatusServiceUnavailable, "provider resolver is not configured")
 	}
 
-	providerRef, err := g.resolveProviderRef(route, routeResolveReq)
+	providerID, err := g.resolveProviderID(route, routeResolveReq)
 	if err != nil {
 		return nil, err
 	}
 
-	prov, resolvedProviderRef, err := resolver.ResolveProvider(ctx, providerRef)
+	prov, resolvedProviderID, err := resolver.ResolveProvider(ctx, providerID)
 	if err != nil || prov == nil {
 		if errors.Is(err, ErrProviderDisabled) {
-			return nil, statuserr.New(http.StatusForbidden, fmt.Sprintf("route target provider %q is disabled", providerRef))
+			return nil, statuserr.New(http.StatusForbidden, fmt.Sprintf("route target provider %q is disabled", providerID))
 		}
-		return nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("route target provider %q is not configured", providerRef))
+		return nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("route target provider %q is not configured", providerID))
 	}
-	if resolvedProviderRef == "" {
-		resolvedProviderRef = providerRef
+	if resolvedProviderID == "" {
+		resolvedProviderID = providerID
 	}
-	prov = g.wrapProvider(prov, resolvedProviderRef)
+	prov = g.wrapProvider(prov, resolvedProviderID)
 
 	return prov, nil
 }
@@ -220,11 +220,11 @@ func (g *AgentGateway) selector() routepkg.RouteTargetSelector {
 	return g.Selector
 }
 
-func (g *AgentGateway) wrapProvider(prov provider.Provider, providerRef string) provider.Provider {
+func (g *AgentGateway) wrapProvider(prov provider.Provider, providerID string) provider.Provider {
 	g.mu.RLock()
 	credMgr := g.credentialManager
 	g.mu.RUnlock()
-	return provider.WrapWithCredentialManager(prov, providerRef, credMgr)
+	return provider.WrapWithCredentialManager(prov, providerID, credMgr)
 }
 
 func (g *AgentGateway) configureConfigStore(configStore configstoreintf.ConfigStorer) {

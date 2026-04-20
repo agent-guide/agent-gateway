@@ -188,7 +188,7 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	if len(route.Policy.AllowedModels) != 1 || route.Policy.AllowedModels[0] != "gpt-4.1" {
 		t.Fatalf("route allowed_models = %#v", route.Policy.AllowedModels)
 	}
-	if len(route.Targets) != 1 || route.Targets[0].ProviderRef != "local-ollama" {
+	if len(route.Targets) != 1 || route.Targets[0].ProviderID != "local-ollama" {
 		t.Fatalf("route targets = %#v", route.Targets)
 	}
 

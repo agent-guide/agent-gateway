@@ -274,9 +274,9 @@ func TestRouteCRUD(t *testing.T) {
 		ID:     "chat-prod",
 		LLMAPI: "openai",
 		Targets: []routepkg.RouteTarget{{
-			ProviderRef: "openai",
-			Mode:        routepkg.TargetModeWeighted,
-			Weight:      1,
+			ProviderID: "openai",
+			Mode:       routepkg.TargetModeWeighted,
+			Weight:     1,
 		}},
 	})
 	if err != nil {
@@ -306,7 +306,7 @@ func TestRouteCRUD(t *testing.T) {
 	if got.ID != "chat-prod" {
 		t.Fatalf("unexpected route id: got %q want %q", got.ID, "chat-prod")
 	}
-	if len(got.Targets) != 1 || got.Targets[0].ProviderRef != "openai" {
+	if len(got.Targets) != 1 || got.Targets[0].ProviderID != "openai" {
 		t.Fatalf("unexpected targets: %#v", got.Targets)
 	}
 	if got.Source != "store" || got.ReadOnly {
@@ -741,7 +741,7 @@ func TestRouteEnableDisable(t *testing.T) {
 			"chat-prod": {
 				ID: "chat-prod",
 				Targets: []routepkg.RouteTarget{{
-					ProviderRef: "openai",
+					ProviderID: "openai",
 				}},
 			},
 		}},
@@ -1026,13 +1026,13 @@ func TestRouteGetPrefersStaticAgentRouteManager(t *testing.T) {
 		items: map[string]*routepkg.AgentRoute{
 			"chat-prod": {
 				ID:      "chat-prod",
-				Targets: []routepkg.RouteTarget{{ProviderRef: "openai"}},
+				Targets: []routepkg.RouteTarget{{ProviderID: "openai"}},
 			},
 		},
 	}
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, []routepkg.AgentRoute{{
 		ID:      "chat-prod",
-		Targets: []routepkg.RouteTarget{{ProviderRef: "anthropic"}},
+		Targets: []routepkg.RouteTarget{{ProviderID: "anthropic"}},
 	}}, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -1067,13 +1067,13 @@ func TestRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 		items: map[string]*routepkg.AgentRoute{
 			"chat-dynamic": {
 				ID:      "chat-dynamic",
-				Targets: []routepkg.RouteTarget{{ProviderRef: "openai"}},
+				Targets: []routepkg.RouteTarget{{ProviderID: "openai"}},
 			},
 		},
 	}
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, []routepkg.AgentRoute{{
 		ID:      "chat-static",
-		Targets: []routepkg.RouteTarget{{ProviderRef: "anthropic"}},
+		Targets: []routepkg.RouteTarget{{ProviderID: "anthropic"}},
 	}}, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 

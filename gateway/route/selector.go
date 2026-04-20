@@ -18,7 +18,7 @@ type DefaultRouteSelector struct{}
 func (s DefaultRouteSelector) SelectTarget(r AgentRoute, req RouteResolveRequest) (*RouteTarget, error) {
 	candidates := make([]RouteTarget, 0, len(r.Targets))
 	for _, target := range r.Targets {
-		if target.Disabled || target.ProviderRef == "" {
+		if target.Disabled || target.ProviderID == "" {
 			continue
 		}
 		if !matchesConditions(target.Conditions, req) {

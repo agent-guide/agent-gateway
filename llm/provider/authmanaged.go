@@ -15,31 +15,31 @@ const staticAPIKeyCredentialIDPrefix = "provider-static-api-key:"
 
 type authManagedProvider struct {
 	base          Provider
-	providerRef   string
+	providerID    string
 	credentialMgr *credentialmgr.Manager
 	config        ProviderConfig
 }
 
-func WrapWithCredentialManager(base Provider, providerRef string, credMgr *credentialmgr.Manager) Provider {
+func WrapWithCredentialManager(base Provider, providerID string, credMgr *credentialmgr.Manager) Provider {
 	if base == nil || credMgr == nil {
 		return base
 	}
 	cfg := base.Config()
 	if cfg.Id == "" {
-		cfg.Id = providerRef
+		cfg.Id = providerID
 	}
 	if cfg.ProviderType == "" {
-		cfg.ProviderType = providerRef
+		cfg.ProviderType = providerID
 	}
 	cfg.Defaults()
 
 	p := &authManagedProvider{
 		base:          base,
-		providerRef:   providerRef,
+		providerID:    providerID,
 		credentialMgr: credMgr,
 		config:        cfg,
 	}
-	if cred := newStaticAPIKeyCredential(cfg, providerRef); cred != nil {
+	if cred := newStaticAPIKeyCredential(cfg, providerID); cred != nil {
 		_ = p.credentialMgr.RegisterCredential(context.Background(), cred)
 	}
 	return p
@@ -108,7 +108,7 @@ func (p *authManagedProvider) pickManagedCredential(ctx context.Context, model s
 	if p.credentialMgr == nil {
 		return nil
 	}
-	cred, err := p.credentialMgr.PickWithFilter(ctx, p.providerRef, model, nil, credentialmgr.Filter{Source: credentialmgr.SourceCLIAuth})
+	cred, err := p.credentialMgr.PickWithFilter(ctx, p.providerID, model, nil, credentialmgr.Filter{Source: credentialmgr.SourceCLIAuth})
 	if err != nil {
 		return nil
 	}
@@ -121,7 +121,7 @@ func (p *authManagedProvider) pickStaticCredential(ctx context.Context, model st
 	if p.credentialMgr == nil {
 		return nil
 	}
-	cred, err := p.credentialMgr.PickWithFilter(ctx, p.providerRef, model, nil, credentialmgr.Filter{Source: credentialmgr.SourceAPIKey})
+	cred, err := p.credentialMgr.PickWithFilter(ctx, p.providerID, model, nil, credentialmgr.Filter{Source: credentialmgr.SourceAPIKey})
 	if err != nil || cred == nil {
 		return nil
 	}
@@ -155,18 +155,18 @@ func (p *authManagedProvider) markResult(ctx context.Context, cred *credentialmg
 	p.credentialMgr.MarkResult(ctx, result)
 }
 
-func newStaticAPIKeyCredential(cfg ProviderConfig, providerRef string) *credentialmgr.Credential {
+func newStaticAPIKeyCredential(cfg ProviderConfig, providerID string) *credentialmgr.Credential {
 	apiKey := strings.TrimSpace(cfg.APIKey)
 	if apiKey == "" {
 		return nil
 	}
 	cfg.Defaults()
-	providerRef = strings.TrimSpace(providerRef)
-	if providerRef == "" {
-		providerRef = strings.TrimSpace(cfg.Id)
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		providerID = strings.TrimSpace(cfg.Id)
 	}
-	if providerRef == "" {
-		providerRef = strings.TrimSpace(cfg.ProviderType)
+	if providerID == "" {
+		providerID = strings.TrimSpace(cfg.ProviderType)
 	}
 	attrs := map[string]string{
 		"api_key": apiKey,
@@ -183,7 +183,7 @@ func newStaticAPIKeyCredential(cfg ProviderConfig, providerRef string) *credenti
 	now := time.Now().UTC()
 	return &credentialmgr.Credential{
 		ID:         staticAPIKeyCredentialID(cfg),
-		Provider:   providerRef,
+		Provider:   providerID,
 		Source:     credentialmgr.SourceAPIKey,
 		Attributes: attrs,
 		CreatedAt:  now,

@@ -52,13 +52,13 @@ type RouteMatch struct {
 
 // RouteTarget references an upstream provider candidate under a route.
 type RouteTarget struct {
-	ProviderRef string            `json:"provider_ref"`
-	Mode        TargetMode        `json:"mode"`
-	Weight      int               `json:"weight,omitempty"`
-	Priority    int               `json:"priority,omitempty"`
-	ModelMap    map[string]string `json:"model_map,omitempty"`
-	Conditions  TargetConditions  `json:"conditions,omitempty"`
-	Disabled    bool              `json:"disabled,omitempty"`
+	ProviderID string            `json:"provider_id"`
+	Mode       TargetMode        `json:"mode"`
+	Weight     int               `json:"weight,omitempty"`
+	Priority   int               `json:"priority,omitempty"`
+	ModelMap   map[string]string `json:"model_map,omitempty"`
+	Conditions TargetConditions  `json:"conditions,omitempty"`
+	Disabled   bool              `json:"disabled,omitempty"`
 }
 
 // TargetConditions express conditional target eligibility.

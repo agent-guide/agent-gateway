@@ -40,7 +40,7 @@ func TestValidateDefinitionRejectsEmptyRouteID(t *testing.T) {
 	}
 }
 
-func TestValidateDefinitionRejectsEnabledTargetWithoutProviderRef(t *testing.T) {
+func TestValidateDefinitionRejectsEnabledTargetWithoutProviderID(t *testing.T) {
 	err := (AgentRoute{
 		ID:     "chat-prod",
 		LLMAPI: "openai",
@@ -49,34 +49,34 @@ func TestValidateDefinitionRejectsEnabledTargetWithoutProviderRef(t *testing.T) 
 		},
 	}).ValidateDefinition()
 	if err == nil {
-		t.Fatal("ValidateDefinition returned nil error, want provider_ref rejection")
+		t.Fatal("ValidateDefinition returned nil error, want provider_id rejection")
 	}
 }
 
 func TestValidateDefinitionRejectsMissingLLMAPI(t *testing.T) {
 	err := (AgentRoute{
 		ID:      "chat-prod",
-		Targets: []RouteTarget{{ProviderRef: "openai"}},
+		Targets: []RouteTarget{{ProviderID: "openai"}},
 	}).ValidateDefinition()
 	if err == nil {
 		t.Fatal("ValidateDefinition returned nil error, want llm_api rejection")
 	}
 }
 
-func TestProviderRefsReturnsUniqueEnabledRefs(t *testing.T) {
-	refs := (AgentRoute{
+func TestProviderIDsReturnsUniqueEnabledIDs(t *testing.T) {
+	ids := (AgentRoute{
 		ID: "chat-prod",
 		Targets: []RouteTarget{
-			{ProviderRef: "openai"},
-			{ProviderRef: "openai"},
-			{ProviderRef: "openrouter", Disabled: true},
-			{ProviderRef: "anthropic"},
+			{ProviderID: "openai"},
+			{ProviderID: "openai"},
+			{ProviderID: "openrouter", Disabled: true},
+			{ProviderID: "anthropic"},
 		},
-	}).ProviderRefs()
-	if len(refs) != 2 {
-		t.Fatalf("len(ProviderRefs) = %d, want 2", len(refs))
+	}).ProviderIDs()
+	if len(ids) != 2 {
+		t.Fatalf("len(ProviderIDs) = %d, want 2", len(ids))
 	}
-	if refs[0] != "openai" || refs[1] != "anthropic" {
-		t.Fatalf("ProviderRefs = %#v, want [openai anthropic]", refs)
+	if ids[0] != "openai" || ids[1] != "anthropic" {
+		t.Fatalf("ProviderIDs = %#v, want [openai anthropic]", ids)
 	}
 }

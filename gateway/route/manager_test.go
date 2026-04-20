@@ -114,7 +114,7 @@ func TestAgentRouteManagerCreateUpdateDeleteManageCache(t *testing.T) {
 
 	if err := manager.Create(context.Background(), AgentRoute{
 		ID:      "chat-prod",
-		Targets: []RouteTarget{{ProviderRef: "openai"}},
+		Targets: []RouteTarget{{ProviderID: "openai"}},
 	}, ""); err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestAgentRouteManagerCreateUpdateDeleteManageCache(t *testing.T) {
 
 	if err := manager.Update(context.Background(), "chat-prod", AgentRoute{
 		Description: "updated",
-		Targets:     []RouteTarget{{ProviderRef: "anthropic"}},
+		Targets:     []RouteTarget{{ProviderID: "anthropic"}},
 	}); err != nil {
 		t.Fatalf("Update returned error: %v", err)
 	}

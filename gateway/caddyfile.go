@@ -341,9 +341,9 @@ func parseRouteSegment(d *caddyfile.Dispenser) (routepkg.AgentRoute, error) {
 				return routepkg.AgentRoute{}, seg.ArgErr()
 			}
 			target := routepkg.RouteTarget{
-				ProviderRef: strings.Trim(args[1], "\"`"),
-				Mode:        routepkg.TargetModeWeighted,
-				Weight:      1,
+				ProviderID: strings.Trim(args[1], "\"`"),
+				Mode:       routepkg.TargetModeWeighted,
+				Weight:     1,
 			}
 			if len(args) == 3 {
 				weight, err := strconv.Atoi(strings.Trim(args[2], "\"`"))

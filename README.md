@@ -252,7 +252,7 @@ Supported route subdirectives:
 - `method <method> [more-methods...]`
 - `require_virtual_key [true|false]`
 - `allowed_model <model> [more-models...]`
-- `target provider <provider-ref> [weight]`
+- `target provider <provider-id> [weight]`
 
 Static Caddyfile targets are weighted targets. The Go route model and Admin API also contain fields for failover, conditional targets, selection strategy, retry, fallback, quota, and rate limits, but not every field is exposed in Caddyfile syntax.
 
@@ -384,7 +384,7 @@ curl -X POST http://127.0.0.1:8081/admin/routes \
     },
     "targets": [
       {
-        "provider_ref": "openrouter-main",
+        "provider_id": "openrouter-main",
         "mode": "weighted",
         "weight": 1
       }

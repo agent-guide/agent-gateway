@@ -94,7 +94,7 @@ func TestWrapWithCredentialManagerHonorsAPIKeyFirst(t *testing.T) {
 	}
 }
 
-func TestWrapWithCredentialManagerScopesStaticCredentialToProviderRef(t *testing.T) {
+func TestWrapWithCredentialManagerScopesStaticCredentialToProviderID(t *testing.T) {
 	cliauthMgr := newTestCLIAuthManager()
 	credMgr := cliauthMgr.CredentialManager()
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
@@ -124,7 +124,7 @@ func TestWrapWithCredentialManagerScopesStaticCredentialToProviderRef(t *testing
 		t.Fatalf("generate: %v", err)
 	}
 	if base.lastCred == nil {
-		t.Fatal("expected provider-ref scoped static API key credential")
+		t.Fatal("expected provider ID scoped static API key credential")
 	}
 	if base.lastCred.ID != "provider-static-api-key:zhipu-test" {
 		t.Fatalf("credential ID = %q, want provider-static-api-key:zhipu-test", base.lastCred.ID)

@@ -227,7 +227,7 @@ Static route parsing is intentionally small right now. Supported route subdirect
 
 - `require_virtual_key`
 - `allowed_model`
-- `target provider <provider-ref> [weight]`
+- `target provider <provider-id> [weight]`
 
 The Go route model is richer than the current Caddyfile grammar. That mismatch is intentional for now: the data model has been opened up earlier than the human-facing config syntax.
 

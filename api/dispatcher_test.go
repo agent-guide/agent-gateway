@@ -68,7 +68,7 @@ func TestAgentRouteDispatcherDefersVirtualKeyUntilLLMApiMatch(t *testing.T) {
 			Policy: routepkg.RoutePolicy{
 				Auth: routepkg.AuthPolicy{RequireVirtualKey: true},
 			},
-			Targets: []routepkg.RouteTarget{{ProviderRef: "openai"}},
+			Targets: []routepkg.RouteTarget{{ProviderID: "openai"}},
 		}},
 	}); err != nil {
 		t.Fatalf("Bootstrap returned error: %v", err)
@@ -111,7 +111,7 @@ func TestAgentRouteDispatcherRejectsDisabledLLMApiHandlerName(t *testing.T) {
 			ID:      "disabled-api-route",
 			LLMAPI:  handlerName,
 			Match:   routepkg.RouteMatch{PathPrefix: "/"},
-			Targets: []routepkg.RouteTarget{{ProviderRef: "openai"}},
+			Targets: []routepkg.RouteTarget{{ProviderID: "openai"}},
 		}},
 	}); err != nil {
 		t.Fatalf("Bootstrap returned error: %v", err)

@@ -27,9 +27,9 @@ func TestRouteStoreTagColumn(t *testing.T) {
 	want := &route.AgentRoute{
 		ID: "chat-prod",
 		Targets: []route.RouteTarget{{
-			ProviderRef: "openai",
-			Mode:        route.TargetModeWeighted,
-			Weight:      1,
+			ProviderID: "openai",
+			Mode:       route.TargetModeWeighted,
+			Weight:     1,
 		}},
 	}
 
@@ -87,9 +87,9 @@ func TestRouteStoreCreateRejectsDuplicateID(t *testing.T) {
 	item := &route.AgentRoute{
 		ID: "chat-prod",
 		Targets: []route.RouteTarget{{
-			ProviderRef: "openai",
-			Mode:        route.TargetModeWeighted,
-			Weight:      1,
+			ProviderID: "openai",
+			Mode:       route.TargetModeWeighted,
+			Weight:     1,
 		}},
 	}
 
@@ -119,9 +119,9 @@ func TestRouteStoreUpdateRejectsMissingID(t *testing.T) {
 	err = store.Update(ctx, "missing", &route.AgentRoute{
 		ID: "missing",
 		Targets: []route.RouteTarget{{
-			ProviderRef: "openai",
-			Mode:        route.TargetModeWeighted,
-			Weight:      1,
+			ProviderID: "openai",
+			Mode:       route.TargetModeWeighted,
+			Weight:     1,
 		}},
 	})
 	if !errors.Is(err, configstoreintf.ErrNotFound) {

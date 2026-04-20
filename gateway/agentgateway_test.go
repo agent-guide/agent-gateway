@@ -26,7 +26,7 @@ type countingSelector struct {
 
 func (s *countingSelector) SelectTarget(routepkg.AgentRoute, routepkg.RouteResolveRequest) (*routepkg.RouteTarget, error) {
 	s.calls++
-	return &routepkg.RouteTarget{ProviderRef: "openai"}, nil
+	return &routepkg.RouteTarget{ProviderID: "openai"}, nil
 }
 
 type testProvider struct{}
@@ -57,8 +57,8 @@ func TestResolverUsesCustomSelector(t *testing.T) {
 		LLMAPI: "openai",
 		Match:  routepkg.RouteMatch{PathPrefix: "/v1"},
 		Targets: []routepkg.RouteTarget{
-			{ProviderRef: "openai", Mode: routepkg.TargetModeWeighted, Weight: 1},
-			{ProviderRef: "openrouter", Mode: routepkg.TargetModeWeighted, Weight: 1},
+			{ProviderID: "openai", Mode: routepkg.TargetModeWeighted, Weight: 1},
+			{ProviderID: "openrouter", Mode: routepkg.TargetModeWeighted, Weight: 1},
 		},
 	}
 	gw := NewAgentGateway()
@@ -67,7 +67,7 @@ func TestResolverUsesCustomSelector(t *testing.T) {
 		StaticProviders: map[string]provider.Provider{
 			"openrouter": testProvider{},
 		},
-		Selector: fixedSelector{target: routepkg.RouteTarget{ProviderRef: "openrouter"}},
+		Selector: fixedSelector{target: routepkg.RouteTarget{ProviderID: "openrouter"}},
 	}); err != nil {
 		t.Fatalf("Bootstrap returned error: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestResolveRejectsDisabledRoute(t *testing.T) {
 			Disabled: true,
 			LLMAPI:   "openai",
 			Match:    routepkg.RouteMatch{PathPrefix: "/v1"},
-			Targets:  []routepkg.RouteTarget{{ProviderRef: "openai"}},
+			Targets:  []routepkg.RouteTarget{{ProviderID: "openai"}},
 		}},
 		StaticProviders: map[string]provider.Provider{
 			"openai": testProvider{},

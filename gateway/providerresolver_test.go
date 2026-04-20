@@ -158,7 +158,7 @@ func TestProviderManagerResolvePrefersStaticProvider(t *testing.T) {
 		t.Fatalf("ResolveProvider returned %v, want static provider", got)
 	}
 	if name != "test-provider" {
-		t.Fatalf("provider ref = %q, want test-provider", name)
+		t.Fatalf("provider id = %q, want test-provider", name)
 	}
 	if store.getCalls != 0 {
 		t.Fatalf("store get calls = %d, want 0", store.getCalls)
@@ -188,7 +188,7 @@ func TestProviderManagerResolveCachesDynamicProvider(t *testing.T) {
 		t.Fatalf("cached provider mismatch: first=%p second=%p", first, second)
 	}
 	if name != "test-provider" {
-		t.Fatalf("provider ref = %q, want test-provider", name)
+		t.Fatalf("provider id = %q, want test-provider", name)
 	}
 	if store.getCalls != 2 {
 		t.Fatalf("store get calls = %d, want 2", store.getCalls)

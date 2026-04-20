@@ -16,7 +16,7 @@ var (
 )
 
 type ProviderResolver interface {
-	ResolveProvider(ctx context.Context, ref string) (provider.Provider, string, error)
+	ResolveProvider(ctx context.Context, providerID string) (provider.Provider, string, error)
 }
 
 type RouteListOptions struct {
@@ -244,9 +244,9 @@ func (m *AgentRouteManager) Validate(ctx context.Context, routeID string, resolv
 		return fmt.Errorf("provider resolver is not configured")
 	}
 
-	for _, ref := range route.ProviderRefs() {
-		if _, _, err := resolver.ResolveProvider(ctx, ref); err != nil {
-			return fmt.Errorf("provider %q is not configured", ref)
+	for _, providerID := range route.ProviderIDs() {
+		if _, _, err := resolver.ResolveProvider(ctx, providerID); err != nil {
+			return fmt.Errorf("provider %q is not configured", providerID)
 		}
 	}
 	return nil
