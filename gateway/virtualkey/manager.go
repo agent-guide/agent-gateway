@@ -16,7 +16,7 @@ var (
 )
 
 type VirtualKeyListOptions struct {
-	UserID string
+	Tag string
 }
 
 type VirtualKeyManager struct {
@@ -116,7 +116,7 @@ func (m *VirtualKeyManager) List(ctx context.Context, opts VirtualKeyListOptions
 
 	out := make(map[string]VirtualKey, len(staticKeys))
 	for key, item := range staticKeys {
-		if opts.UserID != "" && item.UserID != opts.UserID {
+		if opts.Tag != "" && item.Tag != opts.Tag {
 			continue
 		}
 		out[key] = item
@@ -126,7 +126,7 @@ func (m *VirtualKeyManager) List(ctx context.Context, opts VirtualKeyListOptions
 		return mapVirtualKeys(out), nil
 	}
 
-	items, err := store.ListByUserID(ctx, opts.UserID)
+	items, err := store.ListByTag(ctx, opts.Tag)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +160,7 @@ func (m *VirtualKeyManager) Create(ctx context.Context, key VirtualKey) error {
 	if store == nil {
 		return fmt.Errorf("virtual key store is not configured")
 	}
-	if err := store.Create(ctx, key.Key, key.UserID, &key); err != nil {
+	if err := store.Create(ctx, key.Key, key.Tag, &key); err != nil {
 		return err
 	}
 

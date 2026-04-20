@@ -35,7 +35,7 @@ func (s testAppConfigStore) GetRouteStore(context.Context, configstoreintf.Confi
 	return nil, nil
 }
 
-func (s *testProvisionVirtualKeyStore) ListByUserID(context.Context, string) ([]any, error) {
+func (s *testProvisionVirtualKeyStore) ListByTag(context.Context, string) ([]any, error) {
 	return nil, nil
 }
 

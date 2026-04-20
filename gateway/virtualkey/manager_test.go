@@ -13,10 +13,10 @@ type testManagedVirtualKeyStore struct {
 	getCalls int
 }
 
-func (s *testManagedVirtualKeyStore) ListByUserID(_ context.Context, userID string) ([]any, error) {
+func (s *testManagedVirtualKeyStore) ListByTag(_ context.Context, tag string) ([]any, error) {
 	out := make([]any, 0, len(s.items))
 	for _, item := range s.items {
-		if userID != "" && item.UserID != userID {
+		if tag != "" && item.Tag != tag {
 			continue
 		}
 		cloned := *item
@@ -63,7 +63,7 @@ func (s *testManagedVirtualKeyStore) Get(_ context.Context, key string) (any, er
 func TestVirtualKeyManagerGetCachesDynamicKey(t *testing.T) {
 	store := &testManagedVirtualKeyStore{
 		items: map[string]*VirtualKey{
-			"lk-test": {Key: "lk-test", UserID: "admin"},
+			"lk-test": {Key: "lk-test", Tag: "admin"},
 		},
 	}
 	manager := NewVirtualKeyManager(store)
@@ -72,8 +72,8 @@ func TestVirtualKeyManagerGetCachesDynamicKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get returned error: %v", err)
 	}
-	if got.UserID != "admin" {
-		t.Fatalf("UserID = %q, want admin", got.UserID)
+	if got.Tag != "admin" {
+		t.Fatalf("Tag = %q, want admin", got.Tag)
 	}
 
 	if _, err := manager.Get(context.Background(), "lk-test"); err != nil {
@@ -110,9 +110,9 @@ func TestVirtualKeyManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	manager := NewVirtualKeyManager(store)
 
 	if err := manager.Create(context.Background(), VirtualKey{
-		Key:    "lk-test",
-		UserID: "admin",
-		Name:   "created",
+		Key:  "lk-test",
+		Tag:  "admin",
+		Name: "created",
 	}); err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
@@ -127,8 +127,8 @@ func TestVirtualKeyManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	}
 
 	if err := manager.Update(context.Background(), "lk-test", VirtualKey{
-		UserID: "admin",
-		Name:   "updated",
+		Tag:  "admin",
+		Name: "updated",
 	}); err != nil {
 		t.Fatalf("Update returned error: %v", err)
 	}

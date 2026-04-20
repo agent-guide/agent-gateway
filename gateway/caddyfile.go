@@ -212,11 +212,11 @@ func parseVirtualKeySegment(d *caddyfile.Dispenser) (virtualkeypkg.VirtualKey, e
 		name := seg.Val()
 		args := seg.RemainingArgsRaw()
 		switch name {
-		case "user_id":
+		case "tag":
 			if len(args) != 1 {
 				return virtualkeypkg.VirtualKey{}, seg.ArgErr()
 			}
-			key.UserID = strings.Trim(args[0], "\"`")
+			key.Tag = strings.Trim(args[0], "\"`")
 		case "name":
 			if len(args) != 1 {
 				return virtualkeypkg.VirtualKey{}, seg.ArgErr()

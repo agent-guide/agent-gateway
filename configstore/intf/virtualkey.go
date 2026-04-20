@@ -3,9 +3,9 @@ package intf
 import "context"
 
 type VirtualKeyStorer interface {
-	ListByUserID(ctx context.Context, userID string) ([]any, error)
+	ListByTag(ctx context.Context, tag string) ([]any, error)
 
-	Create(ctx context.Context, key string, userID string, obj any) error
+	Create(ctx context.Context, key string, tag string, obj any) error
 
 	Update(ctx context.Context, key string, obj any) error
 

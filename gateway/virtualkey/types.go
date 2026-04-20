@@ -5,7 +5,7 @@ import "time"
 // VirtualKey represents a gateway consumer identity, not an upstream provider credential.
 type VirtualKey struct {
 	Key         string `json:"key"`
-	UserID      string `json:"user_id,omitempty"`
+	Tag         string `json:"tag,omitempty"`
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	Disabled    bool   `json:"disabled"`

@@ -2,6 +2,8 @@ package admin
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -18,6 +20,7 @@ import (
 )
 
 const defaultRouteTag = ""
+const generatedVirtualKeyPrefix = "vk-"
 
 type VirtualKeyView struct {
 	virtualkeypkg.VirtualKey
@@ -650,19 +653,14 @@ func (h *Handler) handleListVirtualKeys(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	userID := r.URL.Query().Get("user_id")
+	tag := r.URL.Query().Get("tag")
 	sessionUsername := h.sessionUsername(r)
 	if sessionUsername == "" {
 		_ = httpjson.Error(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	if userID != "" && userID != sessionUsername {
-		_ = httpjson.Error(w, http.StatusForbidden, "forbidden")
-		return
-	}
-	userID = sessionUsername
 
-	items, err := manager.List(r.Context(), virtualkeypkg.VirtualKeyListOptions{UserID: userID})
+	items, err := manager.List(r.Context(), virtualkeypkg.VirtualKeyListOptions{Tag: tag})
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -687,27 +685,31 @@ func (h *Handler) handleCreateVirtualKey(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	sessionUsername := h.sessionUsername(r)
-	if sessionUsername == "" {
+	if h.sessionUsername(r) == "" {
 		_ = httpjson.Error(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	if key.UserID != "" && key.UserID != sessionUsername {
-		_ = httpjson.Error(w, http.StatusForbidden, "forbidden")
-		return
-	}
-	key.UserID = sessionUsername
 
-	if key.Key == "" {
-		_ = httpjson.Error(w, http.StatusBadRequest, "key is required")
+	generatedKey, err := generateVirtualKey()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, "failed to generate virtual key")
 		return
 	}
+	key.Key = generatedKey
 
 	if err := manager.Create(r.Context(), key); err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	_ = httpjson.Write(w, http.StatusCreated, key)
+}
+
+func generateVirtualKey() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return generatedVirtualKeyPrefix + base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 func (h *Handler) handleGetVirtualKey(w http.ResponseWriter, r *http.Request) {

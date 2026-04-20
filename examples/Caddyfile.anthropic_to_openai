@@ -32,7 +32,7 @@
 		}
 
 		virtualkey test-key {
-			user_id local-test
+			tag local-test
 			name "Local Python test key"
 			allowed_route anthropic-chat
 		}

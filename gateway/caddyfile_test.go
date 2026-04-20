@@ -76,7 +76,7 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 		}
 
 		virtualkey key1 {
-			user_id admin
+			tag admin
 			name "Primary virtual key"
 			description "configured from caddyfile"
 			allowed_route openai-chat
@@ -196,8 +196,8 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	if key.Key != "key1" {
 		t.Fatalf("virtual key = %q, want key1", key.Key)
 	}
-	if key.UserID != "admin" {
-		t.Fatalf("virtual key user_id = %q, want admin", key.UserID)
+	if key.Tag != "admin" {
+		t.Fatalf("virtual key tag = %q, want admin", key.Tag)
 	}
 	if key.Name != "Primary virtual key" {
 		t.Fatalf("virtual key name = %q", key.Name)
@@ -284,7 +284,7 @@ func TestParseVirtualKeySegmentAcceptsEmptyBlock(t *testing.T) {
 	if key.Key != "key1" {
 		t.Fatalf("virtual key = %q, want key1", key.Key)
 	}
-	if key.UserID != "" || key.Name != "" || key.Description != "" || key.Disabled || len(key.AllowedRouteIDs) != 0 || key.StatusMessage != "" || !key.ExpiresAt.IsZero() {
+	if key.Tag != "" || key.Name != "" || key.Description != "" || key.Disabled || len(key.AllowedRouteIDs) != 0 || key.StatusMessage != "" || !key.ExpiresAt.IsZero() {
 		t.Fatalf("unexpected virtual key defaults: %#v", key)
 	}
 }
