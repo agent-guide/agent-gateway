@@ -121,9 +121,9 @@ curl http://127.0.0.1:8082/v1/chat/completions \
   }'
 ```
 
-The local gateway API key may be sent as either `x-api-key: <key>` or `Authorization: Bearer <key>`.
+The VirtualKey may be sent as either `x-api-key: <key>` or `Authorization: Bearer <key>`.
 
-The Python OpenAI SDK example uses `http://127.0.0.1:8082/v1`, `test-key`, and `gpt-4.1` by default:
+The Python OpenAI SDK example uses `http://127.0.0.1:8082/v1`, the `test-key` VirtualKey, and `gpt-4.1` by default:
 
 ```bash
 python3 -m pip install openai
