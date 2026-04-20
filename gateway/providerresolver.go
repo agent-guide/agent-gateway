@@ -30,7 +30,7 @@ var (
 )
 
 type ProviderListOptions struct {
-	ProviderName string
+	ProviderType string
 }
 
 type ProviderManager struct {
@@ -132,7 +132,7 @@ func (m *ProviderManager) ListConfigs(ctx context.Context, opts ProviderListOpti
 	out := make(map[string]provider.ProviderConfig, len(staticProviders))
 	for ref, prov := range staticProviders {
 		cfg := provider.NormalizeConfig(prov.Config(), ref, "")
-		if opts.ProviderName != "" && cfg.ProviderName != opts.ProviderName {
+		if opts.ProviderType != "" && cfg.ProviderType != opts.ProviderType {
 			continue
 		}
 		out[ref] = cfg
@@ -142,7 +142,7 @@ func (m *ProviderManager) ListConfigs(ctx context.Context, opts ProviderListOpti
 		return mapProviderConfigs(out), nil
 	}
 
-	items, err := store.ListByName(ctx, opts.ProviderName)
+	items, err := store.ListByType(ctx, opts.ProviderType)
 	if err != nil {
 		return nil, err
 	}
@@ -163,8 +163,8 @@ func (m *ProviderManager) CreateConfig(ctx context.Context, cfg provider.Provide
 	if cfg.Id == "" {
 		return fmt.Errorf("provider id is required")
 	}
-	if cfg.ProviderName == "" {
-		return fmt.Errorf("provider_name is required")
+	if cfg.ProviderType == "" {
+		return fmt.Errorf("provider_type is required")
 	}
 	if err := m.ensureWritable(cfg.Id); err != nil {
 		return err
@@ -176,7 +176,7 @@ func (m *ProviderManager) CreateConfig(ctx context.Context, cfg provider.Provide
 	if store == nil {
 		return fmt.Errorf("provider store is not configured")
 	}
-	if _, err := store.Create(ctx, cfg.Id, cfg.ProviderName, &cfg); err != nil {
+	if _, err := store.Create(ctx, cfg.Id, cfg.ProviderType, &cfg); err != nil {
 		return err
 	}
 
@@ -188,8 +188,8 @@ func (m *ProviderManager) UpdateConfig(ctx context.Context, ref string, cfg prov
 	if ref == "" {
 		return fmt.Errorf("provider ref is required")
 	}
-	if cfg.ProviderName == "" {
-		return fmt.Errorf("provider_name is required")
+	if cfg.ProviderType == "" {
+		return fmt.Errorf("provider_type is required")
 	}
 	if err := m.ensureWritable(ref); err != nil {
 		return err
@@ -328,7 +328,7 @@ func (m *ProviderManager) loadDynamicProvider(ctx context.Context, ref string, s
 	return cachedProviderEntry{
 		cfgJSON:  fingerprint,
 		provider: prov,
-		name:     resolvedCfg.ProviderName,
+		name:     ref,
 	}, nil
 }
 

@@ -54,7 +54,7 @@ func (Provider) CaddyModule() caddy.ModuleInfo {
 }
 
 func (p *Provider) Provision(_ caddy.Context) error {
-	if err := provider.ValidateProviderName(&p.ProviderConfig, "gemini"); err != nil {
+	if err := provider.ValidateProviderType(&p.ProviderConfig, "gemini"); err != nil {
 		return err
 	}
 	built, err := New(p.ProviderConfig)

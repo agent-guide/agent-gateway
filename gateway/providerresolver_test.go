@@ -17,13 +17,13 @@ type testManagedProviderStore struct {
 	getCalls int
 }
 
-func (s *testManagedProviderStore) ListByName(_ context.Context, name string) ([]any, error) {
+func (s *testManagedProviderStore) ListByType(_ context.Context, name string) ([]any, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	out := make([]any, 0, len(s.items))
 	for _, item := range s.items {
-		if name != "" && item.ProviderName != name {
+		if name != "" && item.ProviderType != name {
 			continue
 		}
 		cloned := *item
@@ -45,8 +45,8 @@ func (s *testManagedProviderStore) Create(_ context.Context, id string, name str
 	}
 	cloned := *cfg
 	cloned.Id = id
-	if cloned.ProviderName == "" {
-		cloned.ProviderName = name
+	if cloned.ProviderType == "" {
+		cloned.ProviderType = name
 	}
 	s.items[id] = &cloned
 	return id, nil
@@ -87,8 +87,8 @@ func (s *testManagedProviderStore) Get(_ context.Context, id string) (string, an
 		return "", nil, configstoreintf.ErrNotFound
 	}
 	cloned := *item
-	tag := cloned.ProviderName
-	cloned.ProviderName = ""
+	tag := cloned.ProviderType
+	cloned.ProviderType = ""
 	return tag, &cloned, nil
 }
 
@@ -141,11 +141,11 @@ func TestProviderManagerResolvePrefersStaticProvider(t *testing.T) {
 
 	store := &testManagedProviderStore{
 		items: map[string]*provider.ProviderConfig{
-			"test-provider": {Id: "test-provider", ProviderName: "test-counting-provider", BaseURL: "https://dynamic.example"},
+			"test-provider": {Id: "test-provider", ProviderType: "test-counting-provider", BaseURL: "https://dynamic.example"},
 		},
 	}
 	manager := NewProviderManager(store)
-	staticProvider := &countingProvider{instance: 999, cfg: provider.ProviderConfig{ProviderName: "static"}}
+	staticProvider := &countingProvider{instance: 999, cfg: provider.ProviderConfig{ProviderType: "static"}}
 	manager.InitStaticProviders(map[string]provider.Provider{
 		"test-provider": staticProvider,
 	})
@@ -158,7 +158,7 @@ func TestProviderManagerResolvePrefersStaticProvider(t *testing.T) {
 		t.Fatalf("ResolveProvider returned %v, want static provider", got)
 	}
 	if name != "test-provider" {
-		t.Fatalf("provider name = %q, want test-provider", name)
+		t.Fatalf("provider ref = %q, want test-provider", name)
 	}
 	if store.getCalls != 0 {
 		t.Fatalf("store get calls = %d, want 0", store.getCalls)
@@ -170,7 +170,7 @@ func TestProviderManagerResolveCachesDynamicProvider(t *testing.T) {
 
 	store := &testManagedProviderStore{
 		items: map[string]*provider.ProviderConfig{
-			"test-provider": {Id: "test-provider", ProviderName: "test-counting-provider", BaseURL: "https://v1.example"},
+			"test-provider": {Id: "test-provider", ProviderType: "test-counting-provider", BaseURL: "https://v1.example"},
 		},
 	}
 	manager := NewProviderManager(store)
@@ -187,8 +187,8 @@ func TestProviderManagerResolveCachesDynamicProvider(t *testing.T) {
 	if first != second {
 		t.Fatalf("cached provider mismatch: first=%p second=%p", first, second)
 	}
-	if name != "test-counting-provider" {
-		t.Fatalf("provider name = %q, want test-counting-provider", name)
+	if name != "test-provider" {
+		t.Fatalf("provider ref = %q, want test-provider", name)
 	}
 	if store.getCalls != 2 {
 		t.Fatalf("store get calls = %d, want 2", store.getCalls)
@@ -200,7 +200,7 @@ func TestProviderManagerResolveRefreshesProviderWhenConfigChanges(t *testing.T) 
 
 	store := &testManagedProviderStore{
 		items: map[string]*provider.ProviderConfig{
-			"test-provider": {Id: "test-provider", ProviderName: "test-counting-provider", BaseURL: "https://v1.example"},
+			"test-provider": {Id: "test-provider", ProviderType: "test-counting-provider", BaseURL: "https://v1.example"},
 		},
 	}
 	manager := NewProviderManager(store)
@@ -211,7 +211,7 @@ func TestProviderManagerResolveRefreshesProviderWhenConfigChanges(t *testing.T) 
 	}
 
 	store.mu.Lock()
-	store.items["test-provider"] = &provider.ProviderConfig{Id: "test-provider", ProviderName: "test-counting-provider", BaseURL: "https://v2.example"}
+	store.items["test-provider"] = &provider.ProviderConfig{Id: "test-provider", ProviderType: "test-counting-provider", BaseURL: "https://v2.example"}
 	store.mu.Unlock()
 
 	second, _, err := manager.ResolveProvider(context.Background(), "test-provider")
@@ -237,15 +237,15 @@ func TestProviderManagerGetAndListConfigPreferStaticProvider(t *testing.T) {
 
 	store := &testManagedProviderStore{
 		items: map[string]*provider.ProviderConfig{
-			"test-provider":  {Id: "test-provider", ProviderName: "test-counting-provider", BaseURL: "https://dynamic.example"},
-			"other-provider": {Id: "other-provider", ProviderName: "test-counting-provider", BaseURL: "https://other.example"},
+			"test-provider":  {Id: "test-provider", ProviderType: "test-counting-provider", BaseURL: "https://dynamic.example"},
+			"other-provider": {Id: "other-provider", ProviderType: "test-counting-provider", BaseURL: "https://other.example"},
 		},
 	}
 	manager := NewProviderManager(store)
 	manager.InitStaticProviders(map[string]provider.Provider{
 		"test-provider": &countingProvider{
 			instance: 999,
-			cfg:      provider.ProviderConfig{Id: "test-provider", ProviderName: "test-counting-provider", BaseURL: "https://static.example"},
+			cfg:      provider.ProviderConfig{Id: "test-provider", ProviderType: "test-counting-provider", BaseURL: "https://static.example"},
 		},
 	})
 
@@ -273,7 +273,7 @@ func TestProviderManagerResolveRejectsDisabledProvider(t *testing.T) {
 		items: map[string]*provider.ProviderConfig{
 			"test-provider": {
 				Id:           "test-provider",
-				ProviderName: "test-counting-provider",
+				ProviderType: "test-counting-provider",
 				Disabled:     true,
 			},
 		},
@@ -294,7 +294,7 @@ func TestProviderManagerCreateUpdateDeleteManageCache(t *testing.T) {
 
 	if err := manager.CreateConfig(context.Background(), provider.ProviderConfig{
 		Id:           "test-provider",
-		ProviderName: "test-counting-provider",
+		ProviderType: "test-counting-provider",
 		BaseURL:      "https://created.example",
 	}); err != nil {
 		t.Fatalf("Create returned error: %v", err)
@@ -307,13 +307,13 @@ func TestProviderManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	store.mu.Lock()
 	store.items["test-provider"] = &provider.ProviderConfig{
 		Id:           "test-provider",
-		ProviderName: "test-counting-provider",
+		ProviderType: "test-counting-provider",
 		BaseURL:      "https://updated.example",
 	}
 	store.mu.Unlock()
 
 	if err := manager.UpdateConfig(context.Background(), "test-provider", provider.ProviderConfig{
-		ProviderName: "test-counting-provider",
+		ProviderType: "test-counting-provider",
 		BaseURL:      "https://update-call.example",
 	}); err != nil {
 		t.Fatalf("Update returned error: %v", err)
@@ -342,11 +342,11 @@ func TestProviderManagerRejectsStaticProviderMutation(t *testing.T) {
 	manager.InitStaticProviders(map[string]provider.Provider{
 		"test-provider": &countingProvider{
 			instance: 999,
-			cfg:      provider.ProviderConfig{Id: "test-provider", ProviderName: "test-counting-provider"},
+			cfg:      provider.ProviderConfig{Id: "test-provider", ProviderType: "test-counting-provider"},
 		},
 	})
 
-	if err := manager.UpdateConfig(context.Background(), "test-provider", provider.ProviderConfig{ProviderName: "test-counting-provider"}); !errors.Is(err, ErrStaticProviderReadOnly) {
+	if err := manager.UpdateConfig(context.Background(), "test-provider", provider.ProviderConfig{ProviderType: "test-counting-provider"}); !errors.Is(err, ErrStaticProviderReadOnly) {
 		t.Fatalf("Update error = %v, want ErrStaticProviderReadOnly", err)
 	}
 	if err := manager.DeleteConfig(context.Background(), "test-provider"); !errors.Is(err, ErrStaticProviderReadOnly) {

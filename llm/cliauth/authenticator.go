@@ -12,7 +12,7 @@ import (
 // Authenticator handles the CLI login flow for a specific provider.
 // Each concrete implementation covers one CLI tool (e.g. Codex, Claude CLI).
 type Authenticator interface {
-	// Provider returns the unique provider name this authenticator handles (e.g. "openai", "anthropic").
+	// Provider returns the unique provider type this authenticator handles (e.g. "openai", "anthropic").
 	Provider() string
 	// Login initiates the interactive CLI login flow and returns a new Credential on success.
 	Login(ctx context.Context) (*Credential, error)

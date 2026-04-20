@@ -16,7 +16,7 @@
 		}
 
 		provider zhipu-simulated-openai {
-			provider_name openai
+			provider_type openai
 			api_key {$ZHIPU_API_KEY}
 			base_url https://open.bigmodel.cn/api/paas/v4
 			default_model glm-4.7
@@ -24,7 +24,7 @@
 		}
 
 		provider deepseek-simulated-openai {
-			provider_name openai
+			provider_type openai
 			api_key {$DEEPSEEK_API_KEY}
 			base_url https://api.deepseek.com
 			default_model deepseek-chat

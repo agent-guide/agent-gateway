@@ -34,12 +34,12 @@ func NewCredentialStore(ctx context.Context, db *gorm.DB, decodeCredential intf.
 	}, nil
 }
 
-func (s *CredentialStore) ListByProviderName(ctx context.Context, providerName string) ([]any, error) {
-	return s.sqliteJSONStore.ListByTagPrefix(ctx, providerName)
+func (s *CredentialStore) ListByProviderType(ctx context.Context, providerType string) ([]any, error) {
+	return s.sqliteJSONStore.ListByTagPrefix(ctx, providerType)
 }
 
-func (s *CredentialStore) Create(ctx context.Context, id string, providerName string, obj any) (string, error) {
-	return s.sqliteJSONStore.Create(ctx, id, providerName, obj)
+func (s *CredentialStore) Create(ctx context.Context, id string, providerType string, obj any) (string, error) {
+	return s.sqliteJSONStore.Create(ctx, id, providerType, obj)
 }
 
 func (s *CredentialStore) Update(ctx context.Context, id string, obj any) error {

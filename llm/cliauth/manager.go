@@ -89,7 +89,7 @@ func (m *Manager) CredentialManager() *credentialmgr.Manager {
 }
 
 // RegisterAuthenticator registers an Authenticator for a CLI name.
-// It also indexes the same Authenticator by its provider name so refresh lookups
+// It also indexes the same Authenticator by its provider type so refresh lookups
 // can continue resolving via credential.Provider.
 func (m *Manager) RegisterAuthenticator(cliname string, auth Authenticator) {
 	m.RegisterAuthenticatorWithOptions(cliname, auth, RegisterAuthenticatorOptions{

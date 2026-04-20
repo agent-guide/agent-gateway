@@ -74,8 +74,8 @@ func TestNewDefaults(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected provider type %T", prov)
 	}
-	if p.ProviderName != "" {
-		t.Fatalf("provider name should not be changed by New: %q", p.ProviderName)
+	if p.ProviderType != "" {
+		t.Fatalf("provider type should not be changed by New: %q", p.ProviderType)
 	}
 	if p.BaseURL != "https://open.bigmodel.cn/api/paas/v4" {
 		t.Fatalf("BaseURL = %q", p.BaseURL)
@@ -120,7 +120,7 @@ func generateAndCapture(t *testing.T, options map[string]any) (*provider.Generat
 	defer server.Close()
 
 	prov, err := New(provider.ProviderConfig{
-		ProviderName: "zhipu",
+		ProviderType: "zhipu",
 		APIKey:       "test-key",
 		BaseURL:      server.URL + "/api/paas/v4",
 		Options:      options,

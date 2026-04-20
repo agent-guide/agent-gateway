@@ -22,11 +22,11 @@ func UnmarshalCaddyfileConfig(d *caddyfile.Dispenser, cfg *ProviderConfig) error
 		}
 		for d.NextBlock(0) {
 			switch d.Val() {
-			case "provider_name":
+			case "provider_type":
 				if !d.NextArg() {
 					return d.ArgErr()
 				}
-				cfg.ProviderName = d.Val()
+				cfg.ProviderType = d.Val()
 			case "api_key":
 				if !d.NextArg() {
 					return d.ArgErr()
@@ -100,14 +100,14 @@ func UnmarshalCaddyfileConfig(d *caddyfile.Dispenser, cfg *ProviderConfig) error
 	return nil
 }
 
-// ValidateProviderName ensures the provider config name matches the mounted module name.
-func ValidateProviderName(cfg *ProviderConfig, expected string) error {
-	if cfg.ProviderName == "" {
-		cfg.ProviderName = expected
+// ValidateProviderType ensures the provider config name matches the mounted module name.
+func ValidateProviderType(cfg *ProviderConfig, expected string) error {
+	if cfg.ProviderType == "" {
+		cfg.ProviderType = expected
 		return nil
 	}
-	if cfg.ProviderName != expected {
-		return fmt.Errorf("provider_name must be %q, got %q", expected, cfg.ProviderName)
+	if cfg.ProviderType != expected {
+		return fmt.Errorf("provider_type must be %q, got %q", expected, cfg.ProviderType)
 	}
 	return nil
 }

@@ -74,7 +74,7 @@ Create a minimal `Caddyfile`:
 		}
 
 		provider openai-main {
-			provider_name openai
+			provider_type openai
 			api_key {$OPENAI_API_KEY}
 			default_model gpt-4.1
 		}
@@ -205,7 +205,7 @@ Common provider settings:
 
 ```caddy
 provider openai-main {
-	provider_name openai
+	provider_type openai
 	api_key {$OPENAI_API_KEY}
 	base_url https://api.openai.com/v1
 	default_model gpt-4.1
@@ -326,9 +326,9 @@ All endpoints below are under the path where `agent_gateway_admin` is mounted. E
 
 ### Providers
 
-- `GET /admin/provider_names`
-- `POST /admin/provider_names/{provider_name}/enable`
-- `POST /admin/provider_names/{provider_name}/disable`
+- `GET /admin/provider_types`
+- `POST /admin/provider_types/{provider_type}/enable`
+- `POST /admin/provider_types/{provider_type}/disable`
 - `GET /admin/llm_api_handler_names`
 - `POST /admin/llm_api_handler_names/{llm_api_handler_name}/enable`
 - `POST /admin/llm_api_handler_names/{llm_api_handler_name}/disable`
@@ -348,7 +348,7 @@ curl -X POST http://127.0.0.1:8081/admin/providers \
   -H 'Content-Type: application/json' \
   -d '{
     "id": "openrouter-main",
-    "provider_name": "openrouter",
+    "provider_type": "openrouter",
     "api_key": "sk-or-...",
     "base_url": "https://openrouter.ai/api/v1",
     "default_model": "openai/gpt-4o-mini",

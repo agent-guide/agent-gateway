@@ -44,7 +44,7 @@ func TestGenerateUsesDeepSeekAPI(t *testing.T) {
 	defer server.Close()
 
 	prov, err := New(provider.ProviderConfig{
-		ProviderName: "deepseek",
+		ProviderType: "deepseek",
 		APIKey:       "test-key",
 		BaseURL:      server.URL,
 	})
@@ -101,8 +101,8 @@ func TestNewDefaults(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected provider type %T", prov)
 	}
-	if p.ProviderName != "" {
-		t.Fatalf("provider name should not be changed by New: %q", p.ProviderName)
+	if p.ProviderType != "" {
+		t.Fatalf("provider type should not be changed by New: %q", p.ProviderType)
 	}
 	if p.BaseURL != "https://api.deepseek.com" {
 		t.Fatalf("BaseURL = %q", p.BaseURL)

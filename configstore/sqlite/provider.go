@@ -11,7 +11,7 @@ import (
 
 type providerConfigRecord struct {
 	ID        string    `gorm:"primaryKey"`
-	Tag       string    `gorm:"index;not null"` // provider name
+	Tag       string    `gorm:"index;not null"` // provider type
 	Config    string    `gorm:"type:text;not null"`
 	CreatedAt time.Time `gorm:"autoCreateTime"`
 	UpdatedAt time.Time `gorm:"autoUpdateTime"`
@@ -41,7 +41,7 @@ func NewProviderConfigStore(ctx context.Context, db *gorm.DB, decodeProviderConf
 	}, nil
 }
 
-func (s *ProviderConfigStore) ListByName(ctx context.Context, name string) ([]any, error) {
+func (s *ProviderConfigStore) ListByType(ctx context.Context, name string) ([]any, error) {
 	return s.sqliteJSONStore.ListByTag(ctx, name)
 }
 

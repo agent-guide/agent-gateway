@@ -45,7 +45,7 @@ func (Provider) CaddyModule() caddy.ModuleInfo {
 
 func (p *Provider) Provision(_ caddy.Context) error {
 	p.ensureBase()
-	if err := provider.ValidateProviderName(&p.ProviderConfig, "zhipu"); err != nil {
+	if err := provider.ValidateProviderType(&p.ProviderConfig, "zhipu"); err != nil {
 		return err
 	}
 	built, err := New(p.ProviderConfig)

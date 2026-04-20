@@ -16,7 +16,7 @@
 		}
 
 		provider zhipu-main {
-			provider_name zhipu
+			provider_type zhipu
 			api_key {$ZHIPU_API_KEY}
 			base_url https://open.bigmodel.cn/api/paas/v4
 			default_model glm-4.7
@@ -24,7 +24,7 @@
 		}
 
 		provider deepseek-main {
-			provider_name deepseek
+			provider_type deepseek
 			api_key {$DEEPSEEK_API_KEY}
 			base_url https://api.deepseek.com
 			default_model deepseek-chat

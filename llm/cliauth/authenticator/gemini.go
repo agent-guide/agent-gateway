@@ -114,7 +114,7 @@ func (a *GeminiAuthenticator) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
-// Provider returns the provider name this authenticator handles.
+// Provider returns the provider type this authenticator handles.
 func (a *GeminiAuthenticator) Provider() string {
 	return "gemini"
 }

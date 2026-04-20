@@ -77,7 +77,7 @@ func parseProvider(d *caddyfile.Dispenser, app *App) error {
 	if scan.NextArg() {
 		return scan.ArgErr()
 	}
-	providerName, err := providerNameFromSegment(scan)
+	providerType, err := providerTypeFromSegment(scan)
 	if err != nil {
 		return err
 	}
@@ -86,7 +86,7 @@ func parseProvider(d *caddyfile.Dispenser, app *App) error {
 	if !unmarshal.Next() || !unmarshal.NextArg() {
 		return d.ArgErr()
 	}
-	modID := "llm.providers." + providerName
+	modID := "llm.providers." + providerType
 	unm, err := caddyfile.UnmarshalModule(unmarshal, modID)
 	if err != nil {
 		return err
@@ -102,27 +102,27 @@ func parseProvider(d *caddyfile.Dispenser, app *App) error {
 	return nil
 }
 
-func providerNameFromSegment(d *caddyfile.Dispenser) (string, error) {
-	var providerName string
+func providerTypeFromSegment(d *caddyfile.Dispenser) (string, error) {
+	var providerType string
 	for d.NextBlock(0) {
-		if d.Val() != "provider_name" {
+		if d.Val() != "provider_type" {
 			continue
 		}
-		if providerName != "" {
-			return "", d.Err("provider_name already configured")
+		if providerType != "" {
+			return "", d.Err("provider_type already configured")
 		}
 		if !d.NextArg() {
 			return "", d.ArgErr()
 		}
-		providerName = d.Val()
+		providerType = d.Val()
 		if d.NextArg() {
 			return "", d.ArgErr()
 		}
 	}
-	if providerName == "" {
-		return "", d.Err("provider_name is required")
+	if providerType == "" {
+		return "", d.Err("provider_type is required")
 	}
-	return providerName, nil
+	return providerType, nil
 }
 
 func parseConfigStore(d *caddyfile.Dispenser, app *App) error {

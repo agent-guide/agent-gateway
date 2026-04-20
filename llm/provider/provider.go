@@ -74,8 +74,8 @@ type ProviderCapabilities struct {
 type ProviderConfig struct {
 	// Id is the unique provider config ID.
 	Id string `json:"id"`
-	// ProviderName is the registered provider name (e.g. "openai", "anthropic").
-	ProviderName string `json:"provider_name"`
+	// ProviderType is the registered provider type (e.g. "openai", "anthropic").
+	ProviderType string `json:"provider_type"`
 	// Disabled prevents the provider from being selected at runtime.
 	Disabled bool `json:"disabled"`
 	// APIKey is the provider API key. May be empty for local providers (Ollama).
@@ -137,13 +137,13 @@ func (c *ProviderConfig) Defaults() {
 }
 
 // NormalizeConfig returns a runtime-ready provider config without mutating the
-// source value. If ProviderName is empty, fallbackName is applied before defaults.
+// source value. If ProviderType is empty, fallbackName is applied before defaults.
 func NormalizeConfig(cfg ProviderConfig, fallbackId string, fallbackName string) ProviderConfig {
 	if cfg.Id == "" {
 		cfg.Id = fallbackId
 	}
-	if cfg.ProviderName == "" {
-		cfg.ProviderName = fallbackName
+	if cfg.ProviderType == "" {
+		cfg.ProviderType = fallbackName
 	}
 	cfg.Defaults()
 	return cfg

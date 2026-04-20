@@ -74,7 +74,7 @@ func TestWrapWithCredentialManagerHonorsAPIKeyFirst(t *testing.T) {
 
 	base := &testConfigurableProvider{
 		cfg: ProviderConfig{
-			ProviderName: "openai",
+			ProviderType: "openai",
 			APIKey:       "static-key",
 			AuthStrategy: AuthStrategyAPIKeyFirst,
 		},
@@ -94,6 +94,49 @@ func TestWrapWithCredentialManagerHonorsAPIKeyFirst(t *testing.T) {
 	}
 }
 
+func TestWrapWithCredentialManagerScopesStaticCredentialToProviderRef(t *testing.T) {
+	cliauthMgr := newTestCLIAuthManager()
+	credMgr := cliauthMgr.CredentialManager()
+	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
+		ID:       "provider-static-api-key:zhipu",
+		Provider: "zhipu",
+		Source:   credentialmgr.SourceAPIKey,
+		Attributes: map[string]string{
+			"api_key":  "wrong-key",
+			"base_url": "https://wrong.example",
+			"priority": "1",
+		},
+	}); err != nil {
+		t.Fatalf("register stale type-scoped credential: %v", err)
+	}
+
+	base := &testConfigurableProvider{
+		cfg: ProviderConfig{
+			Id:           "zhipu-test",
+			ProviderType: "zhipu",
+			APIKey:       "right-key",
+			BaseURL:      "https://right.example",
+			AuthStrategy: AuthStrategyAPIKeyFirst,
+		},
+	}
+	wrapped := WrapWithCredentialManager(base, "zhipu-test", credMgr)
+	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if base.lastCred == nil {
+		t.Fatal("expected provider-ref scoped static API key credential")
+	}
+	if base.lastCred.ID != "provider-static-api-key:zhipu-test" {
+		t.Fatalf("credential ID = %q, want provider-static-api-key:zhipu-test", base.lastCred.ID)
+	}
+	if base.lastCred.Provider != "zhipu-test" {
+		t.Fatalf("credential provider = %q, want zhipu-test", base.lastCred.Provider)
+	}
+	if base.lastAPIKey != "right-key" {
+		t.Fatalf("api key = %q, want right-key", base.lastAPIKey)
+	}
+}
+
 func TestWrapWithCredentialManagerFallsBackAfterStaticAPIKeyQuota(t *testing.T) {
 	cliauthMgr := newTestCLIAuthManager()
 	credMgr := cliauthMgr.CredentialManager()
@@ -110,7 +153,7 @@ func TestWrapWithCredentialManagerFallsBackAfterStaticAPIKeyQuota(t *testing.T) 
 
 	base := &testConfigurableProvider{
 		cfg: ProviderConfig{
-			ProviderName: "openai",
+			ProviderType: "openai",
 			APIKey:       "static-key",
 			AuthStrategy: AuthStrategyAPIKeyFirst,
 		},
@@ -153,7 +196,7 @@ func TestWrapWithCredentialManagerUsesProviderCredentials(t *testing.T) {
 
 	base := &testConfigurableProvider{
 		cfg: ProviderConfig{
-			ProviderName: "openai",
+			ProviderType: "openai",
 			AuthStrategy: AuthStrategyCredentialFirst,
 		},
 	}
@@ -187,7 +230,7 @@ func TestWrapWithCredentialManagerPreservesManagedRoundRobin(t *testing.T) {
 
 	base := &testConfigurableProvider{
 		cfg: ProviderConfig{
-			ProviderName: "openai",
+			ProviderType: "openai",
 			AuthStrategy: AuthStrategyCredentialFirst,
 		},
 	}

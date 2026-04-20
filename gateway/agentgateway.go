@@ -164,17 +164,17 @@ func (g *AgentGateway) ResolveProvider(ctx context.Context, route routepkg.Agent
 		return nil, err
 	}
 
-	prov, providerName, err := resolver.ResolveProvider(ctx, providerRef)
+	prov, resolvedProviderRef, err := resolver.ResolveProvider(ctx, providerRef)
 	if err != nil || prov == nil {
 		if errors.Is(err, ErrProviderDisabled) {
 			return nil, statuserr.New(http.StatusForbidden, fmt.Sprintf("route target provider %q is disabled", providerRef))
 		}
 		return nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("route target provider %q is not configured", providerRef))
 	}
-	if providerName == "" {
-		providerName = providerRef
+	if resolvedProviderRef == "" {
+		resolvedProviderRef = providerRef
 	}
-	prov = g.wrapProvider(prov, providerName)
+	prov = g.wrapProvider(prov, resolvedProviderRef)
 
 	return prov, nil
 }
@@ -220,11 +220,11 @@ func (g *AgentGateway) selector() routepkg.RouteTargetSelector {
 	return g.Selector
 }
 
-func (g *AgentGateway) wrapProvider(prov provider.Provider, providerName string) provider.Provider {
+func (g *AgentGateway) wrapProvider(prov provider.Provider, providerRef string) provider.Provider {
 	g.mu.RLock()
 	credMgr := g.credentialManager
 	g.mu.RUnlock()
-	return provider.WrapWithCredentialManager(prov, providerName, credMgr)
+	return provider.WrapWithCredentialManager(prov, providerRef, credMgr)
 }
 
 func (g *AgentGateway) configureConfigStore(configStore configstoreintf.ConfigStorer) {

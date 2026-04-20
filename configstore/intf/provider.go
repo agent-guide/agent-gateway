@@ -6,8 +6,8 @@ import (
 
 // ProviderConfigStorer abstracts persistence of the config of providers.
 type ProviderConfigStorer interface {
-	// ListByName lists provider configs by provider type name.
-	ListByName(ctx context.Context, name string) ([]any, error)
+	// ListByType lists provider configs by provider type name.
+	ListByType(ctx context.Context, name string) ([]any, error)
 
 	// Create creates a new provider config, storing the provider type in name.
 	Create(ctx context.Context, id string, name string, obj any) (string, error)

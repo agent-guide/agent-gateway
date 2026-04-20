@@ -19,7 +19,7 @@ type stubCredentialStore struct {
 	lastUpdated *credentialmgr.Credential
 }
 
-func (s *stubCredentialStore) ListByProviderName(context.Context, string) ([]any, error) {
+func (s *stubCredentialStore) ListByProviderType(context.Context, string) ([]any, error) {
 	return nil, nil
 }
 

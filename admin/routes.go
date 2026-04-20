@@ -40,8 +40,8 @@ type ProviderView struct {
 	ReadOnly bool   `json:"read_only"`
 }
 
-type ProviderNameView struct {
-	ProviderName string `json:"provider_name"`
+type ProviderTypeView struct {
+	ProviderType string `json:"provider_type"`
 	Enabled      bool   `json:"enabled"`
 }
 
@@ -70,9 +70,9 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodGet, Path: "/admin/auth/me", Handler: h.handleMe, RequireAuth: true},
 
 		// Provider names
-		{Method: http.MethodGet, Path: "/admin/provider_names", Handler: h.handleListProviderNames, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/provider_names/{provider_name}/enable", Handler: h.handleEnableProviderName, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/provider_names/{provider_name}/disable", Handler: h.handleDisableProviderName, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/provider_types", Handler: h.handleListProviderTypes, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/provider_types/{provider_type}/enable", Handler: h.handleEnableProviderType, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/provider_types/{provider_type}/disable", Handler: h.handleDisableProviderType, RequireAuth: true},
 
 		// LLM API handler names
 		{Method: http.MethodGet, Path: "/admin/llm_api_handler_names", Handler: h.handleListLLMApiHandlerNames, RequireAuth: true},
@@ -152,7 +152,7 @@ func (h *Handler) handleListProviders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	items, err := manager.ListConfigs(r.Context(), gateway.ProviderListOptions{
-		ProviderName: r.URL.Query().Get("provider_name"),
+		ProviderType: r.URL.Query().Get("provider_type"),
 	})
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
@@ -165,16 +165,16 @@ func (h *Handler) handleListProviders(w http.ResponseWriter, r *http.Request) {
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": providers})
 }
 
-func (h *Handler) handleListProviderNames(w http.ResponseWriter, r *http.Request) {
-	names := provider.ListProviderNames()
-	items := make([]ProviderNameView, 0, len(names))
+func (h *Handler) handleListProviderTypes(w http.ResponseWriter, r *http.Request) {
+	names := provider.ListProviderTypes()
+	items := make([]ProviderTypeView, 0, len(names))
 	for _, name := range names {
-		enabled, ok := provider.IsProviderNameEnabled(name)
+		enabled, ok := provider.IsProviderTypeEnabled(name)
 		if !ok {
 			continue
 		}
-		items = append(items, ProviderNameView{
-			ProviderName: name,
+		items = append(items, ProviderTypeView{
+			ProviderType: name,
 			Enabled:      enabled,
 		})
 	}
@@ -234,26 +234,26 @@ func (h *Handler) handleSetLLMApiHandlerNameEnabled(w http.ResponseWriter, r *ht
 	})
 }
 
-func (h *Handler) handleEnableProviderName(w http.ResponseWriter, r *http.Request) {
-	h.handleSetProviderNameEnabled(w, r, true)
+func (h *Handler) handleEnableProviderType(w http.ResponseWriter, r *http.Request) {
+	h.handleSetProviderTypeEnabled(w, r, true)
 }
 
-func (h *Handler) handleDisableProviderName(w http.ResponseWriter, r *http.Request) {
-	h.handleSetProviderNameEnabled(w, r, false)
+func (h *Handler) handleDisableProviderType(w http.ResponseWriter, r *http.Request) {
+	h.handleSetProviderTypeEnabled(w, r, false)
 }
 
-func (h *Handler) handleSetProviderNameEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
-	name := strings.ToLower(strings.TrimSpace(r.PathValue("provider_name")))
+func (h *Handler) handleSetProviderTypeEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
+	name := strings.ToLower(strings.TrimSpace(r.PathValue("provider_type")))
 	if name == "" {
-		_ = httpjson.Error(w, http.StatusBadRequest, "provider_name is required")
+		_ = httpjson.Error(w, http.StatusBadRequest, "provider_type is required")
 		return
 	}
 
 	var err error
 	if enabled {
-		err = provider.EnableProviderName(name)
+		err = provider.EnableProviderType(name)
 	} else {
-		err = provider.DisableProviderName(name)
+		err = provider.DisableProviderType(name)
 	}
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusNotFound, err.Error())
@@ -266,7 +266,7 @@ func (h *Handler) handleSetProviderNameEnabled(w http.ResponseWriter, r *http.Re
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{
 		"status":        status,
-		"provider_name": name,
+		"provider_type": name,
 		"enabled":       enabled,
 	})
 }
@@ -283,8 +283,8 @@ func (h *Handler) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}
-	if cfg.Id == "" || cfg.ProviderName == "" {
-		_ = httpjson.Error(w, http.StatusBadRequest, "id and provider_name are required")
+	if cfg.Id == "" || cfg.ProviderType == "" {
+		_ = httpjson.Error(w, http.StatusBadRequest, "id and provider_type are required")
 		return
 	}
 	if err := manager.CreateConfig(r.Context(), cfg); err != nil {
@@ -331,8 +331,8 @@ func (h *Handler) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}
-	if cfg.ProviderName == "" {
-		_ = httpjson.Error(w, http.StatusBadRequest, "provider_name is required")
+	if cfg.ProviderType == "" {
+		_ = httpjson.Error(w, http.StatusBadRequest, "provider_type is required")
 		return
 	}
 

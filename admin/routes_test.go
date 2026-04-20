@@ -135,10 +135,10 @@ type testProviderConfigStore struct {
 	items map[string]*provider.ProviderConfig
 }
 
-func (s *testProviderConfigStore) ListByName(_ context.Context, name string) ([]any, error) {
+func (s *testProviderConfigStore) ListByType(_ context.Context, name string) ([]any, error) {
 	out := make([]any, 0, len(s.items))
 	for _, item := range s.items {
-		if name != "" && item.ProviderName != name {
+		if name != "" && item.ProviderType != name {
 			continue
 		}
 		cloned := *item
@@ -157,8 +157,8 @@ func (s *testProviderConfigStore) Create(_ context.Context, id string, name stri
 	}
 	cloned := *cfg
 	cloned.Id = id
-	if cloned.ProviderName == "" {
-		cloned.ProviderName = name
+	if cloned.ProviderType == "" {
+		cloned.ProviderType = name
 	}
 	s.items[id] = &cloned
 	return id, nil
@@ -186,8 +186,8 @@ func (s *testProviderConfigStore) Get(_ context.Context, id string) (string, any
 		return "", nil, gorm.ErrRecordNotFound
 	}
 	cloned := *item
-	tag := cloned.ProviderName
-	cloned.ProviderName = ""
+	tag := cloned.ProviderType
+	cloned.ProviderType = ""
 	return tag, &cloned, nil
 }
 
@@ -495,7 +495,7 @@ func TestProviderCRUD(t *testing.T) {
 
 	body, err := json.Marshal(provider.ProviderConfig{
 		Id:           "openai-main",
-		ProviderName: "openai",
+		ProviderType: "openai",
 		BaseURL:      "https://api.openai.com/v1",
 		DefaultModel: "gpt-4o-mini",
 	})
@@ -526,8 +526,8 @@ func TestProviderCRUD(t *testing.T) {
 	if got.Id != "openai-main" {
 		t.Fatalf("unexpected provider id: got %q want %q", got.Id, "openai-main")
 	}
-	if got.ProviderName != "openai" {
-		t.Fatalf("unexpected provider_name: got %q want %q", got.ProviderName, "openai")
+	if got.ProviderType != "openai" {
+		t.Fatalf("unexpected provider_type: got %q want %q", got.ProviderType, "openai")
 	}
 	if got.Source != "store" || got.ReadOnly {
 		t.Fatalf("unexpected provider metadata: %#v", got)
@@ -542,7 +542,7 @@ func TestProviderEnableDisable(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
-			"openai-main": {Id: "openai-main", ProviderName: "openai"},
+			"openai-main": {Id: "openai-main", ProviderType: "openai"},
 		}},
 	}, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
@@ -580,14 +580,14 @@ func TestProviderEnableDisable(t *testing.T) {
 	}
 }
 
-func TestProviderNameListEnableDisable(t *testing.T) {
-	const providerName = "test-admin-provider-name"
-	provider.RegisterProviderFactory(providerName, func(cfg provider.ProviderConfig) (provider.Provider, error) {
+func TestProviderTypeListEnableDisable(t *testing.T) {
+	const providerType = "test-admin-provider-name"
+	provider.RegisterProviderFactory(providerType, func(cfg provider.ProviderConfig) (provider.Provider, error) {
 		return &stubAdminProvider{cfg: cfg}, nil
 	})
 	defer func() {
-		if err := provider.EnableProviderName(providerName); err != nil {
-			t.Fatalf("restore provider name: %v", err)
+		if err := provider.EnableProviderType(providerType); err != nil {
+			t.Fatalf("restore provider type: %v", err)
 		}
 	}()
 
@@ -599,7 +599,7 @@ func TestProviderNameListEnableDisable(t *testing.T) {
 	handler := NewHandler(nil, nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	disableReq := httptest.NewRequest(http.MethodPost, "/admin/provider_names/"+providerName+"/disable", nil)
+	disableReq := httptest.NewRequest(http.MethodPost, "/admin/provider_types/"+providerType+"/disable", nil)
 	disableReq.Header.Set("Authorization", "Bearer "+token)
 	disableRec := httptest.NewRecorder()
 	handler.ServeHTTP(disableRec, disableReq)
@@ -607,7 +607,7 @@ func TestProviderNameListEnableDisable(t *testing.T) {
 		t.Fatalf("disable status = %d, want %d", disableRec.Code, http.StatusOK)
 	}
 
-	listReq := httptest.NewRequest(http.MethodGet, "/admin/provider_names", nil)
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/provider_types", nil)
 	listReq.Header.Set("Authorization", "Bearer "+token)
 	listRec := httptest.NewRecorder()
 	handler.ServeHTTP(listRec, listReq)
@@ -616,26 +616,26 @@ func TestProviderNameListEnableDisable(t *testing.T) {
 	}
 
 	var listed struct {
-		Items []ProviderNameView `json:"items"`
+		Items []ProviderTypeView `json:"items"`
 	}
 	if err := json.NewDecoder(listRec.Body).Decode(&listed); err != nil {
-		t.Fatalf("decode provider names: %v", err)
+		t.Fatalf("decode provider types: %v", err)
 	}
 	found := false
 	for _, item := range listed.Items {
-		if item.ProviderName != providerName {
+		if item.ProviderType != providerType {
 			continue
 		}
 		found = true
 		if item.Enabled {
-			t.Fatal("provider name enabled = true, want false")
+			t.Fatal("provider type enabled = true, want false")
 		}
 	}
 	if !found {
-		t.Fatalf("provider name %q not listed", providerName)
+		t.Fatalf("provider type %q not listed", providerType)
 	}
 
-	enableReq := httptest.NewRequest(http.MethodPost, "/admin/provider_names/"+providerName+"/enable", nil)
+	enableReq := httptest.NewRequest(http.MethodPost, "/admin/provider_types/"+providerType+"/enable", nil)
 	enableReq.Header.Set("Authorization", "Bearer "+token)
 	enableRec := httptest.NewRecorder()
 	handler.ServeHTTP(enableRec, enableReq)
@@ -645,13 +645,13 @@ func TestProviderNameListEnableDisable(t *testing.T) {
 
 	var enabled struct {
 		Status       string `json:"status"`
-		ProviderName string `json:"provider_name"`
+		ProviderType string `json:"provider_type"`
 		Enabled      bool   `json:"enabled"`
 	}
 	if err := json.NewDecoder(enableRec.Body).Decode(&enabled); err != nil {
-		t.Fatalf("decode enabled provider name: %v", err)
+		t.Fatalf("decode enabled provider type: %v", err)
 	}
-	if enabled.Status != "enabled" || enabled.ProviderName != providerName || !enabled.Enabled {
+	if enabled.Status != "enabled" || enabled.ProviderType != providerType || !enabled.Enabled {
 		t.Fatalf("unexpected enable response: %#v", enabled)
 	}
 }
@@ -835,10 +835,10 @@ func TestProviderGetMarksStaticProviderAsReadOnly(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
-			"openai-main": {Id: "openai-main", ProviderName: "openai", BaseURL: "https://dynamic.example"},
+			"openai-main": {Id: "openai-main", ProviderType: "openai", BaseURL: "https://dynamic.example"},
 		}},
 	}, nil, nil, nil, map[string]provider.Provider{
-		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderName: "openai", BaseURL: "https://static.example"}},
+		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai", BaseURL: "https://static.example"}},
 	}), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -871,10 +871,10 @@ func TestProviderListMarksStaticProvidersAsReadOnly(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
-			"openai-dynamic": {Id: "openai-dynamic", ProviderName: "openai"},
+			"openai-dynamic": {Id: "openai-dynamic", ProviderType: "openai"},
 		}},
 	}, nil, nil, nil, map[string]provider.Provider{
-		"anthropic-static": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "anthropic-static", ProviderName: "anthropic"}},
+		"anthropic-static": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "anthropic-static", ProviderType: "anthropic"}},
 	}), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -918,7 +918,7 @@ func TestProviderDeleteRejectsStaticProvider(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
 	}, nil, nil, nil, map[string]provider.Provider{
-		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderName: "openai"}},
+		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai"}},
 	}), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 

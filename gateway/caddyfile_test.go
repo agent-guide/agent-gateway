@@ -62,7 +62,7 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`
 	agent_gateway {
 		provider local-ollama {
-			provider_name ollama
+			provider_type ollama
 			base_url http://127.0.0.1:11434/v1
 			default_model qwen2.5
 		}
@@ -122,7 +122,7 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 
 	var ollama struct {
 		Id           string `json:"id,omitempty"`
-		ProviderName string `json:"provider_name,omitempty"`
+		ProviderType string `json:"provider_type,omitempty"`
 		BaseURL      string `json:"base_url,omitempty"`
 		DefaultModel string `json:"default_model,omitempty"`
 	}
@@ -132,8 +132,8 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	if ollama.Id != "local-ollama" {
 		t.Fatalf("ollama id = %q, want local-ollama", ollama.Id)
 	}
-	if ollama.ProviderName != "ollama" {
-		t.Fatalf("ollama provider_name = %q, want ollama", ollama.ProviderName)
+	if ollama.ProviderType != "ollama" {
+		t.Fatalf("ollama provider_type = %q, want ollama", ollama.ProviderType)
 	}
 	if ollama.BaseURL != "http://127.0.0.1:11434/v1" {
 		t.Fatalf("ollama base_url = %q", ollama.BaseURL)

@@ -206,7 +206,7 @@ Static configuration lives in the global `agent_gateway` Caddyfile block:
 {
     agent_gateway {
         provider openai-main {
-            provider_name openai
+            provider_type openai
             ...
         }
         config_store sqlite { ... }

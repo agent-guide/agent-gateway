@@ -110,7 +110,7 @@ func (m *Manager) Load(ctx context.Context) error {
 	if m == nil || m.store == nil {
 		return nil
 	}
-	items, err := m.store.ListByProviderName(ctx, "")
+	items, err := m.store.ListByProviderType(ctx, "")
 	if err != nil {
 		return fmt.Errorf("credential manager: load from store: %w", err)
 	}
