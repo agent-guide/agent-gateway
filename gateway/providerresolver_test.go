@@ -136,6 +136,12 @@ func registerCountingProviderFactory() {
 	})
 }
 
+func currentCountingProviderNextID() int {
+	countingProviderMu.Lock()
+	defer countingProviderMu.Unlock()
+	return countingProviderNextID
+}
+
 func TestProviderManagerResolvePrefersStaticProvider(t *testing.T) {
 	registerCountingProviderFactory()
 
@@ -174,6 +180,7 @@ func TestProviderManagerResolveCachesDynamicProvider(t *testing.T) {
 		},
 	}
 	manager := NewProviderManager(store)
+	before := currentCountingProviderNextID()
 
 	first, name, err := manager.ResolveProvider(context.Background(), "test-provider")
 	if err != nil {
@@ -192,6 +199,9 @@ func TestProviderManagerResolveCachesDynamicProvider(t *testing.T) {
 	}
 	if store.getCalls != 2 {
 		t.Fatalf("store get calls = %d, want 2", store.getCalls)
+	}
+	if got := currentCountingProviderNextID() - before; got != 1 {
+		t.Fatalf("provider factory calls = %d, want 1", got)
 	}
 }
 

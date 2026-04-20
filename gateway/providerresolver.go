@@ -265,14 +265,18 @@ func (m *ProviderManager) ResolveProvider(ctx context.Context, providerID string
 		return nil, "", fmt.Errorf("%w: %q", ErrProviderNotConfigured, providerID)
 	}
 
-	entry, err := m.loadDynamicProvider(ctx, providerID, store)
+	item, err := m.loadDynamicProviderConfig(ctx, providerID, store)
 	if err != nil {
 		return nil, "", err
 	}
-	if ok && cached.cfgJSON == entry.cfgJSON {
+	if ok && cached.cfgJSON == item.fingerprint {
 		return cached.provider, cached.name, nil
 	}
 
+	entry, err := m.buildDynamicProvider(providerID, item)
+	if err != nil {
+		return nil, "", err
+	}
 	m.cacheDynamicProvider(providerID, entry)
 	return entry.provider, entry.name, nil
 }
@@ -283,6 +287,12 @@ type cachedProviderEntry struct {
 	cfgJSON  string
 	provider provider.Provider
 	name     string
+}
+
+type dynamicProviderConfigItem struct {
+	tag         string
+	obj         any
+	fingerprint string
 }
 
 func (m *ProviderManager) cacheDynamicProvider(providerID string, entry cachedProviderEntry) {
@@ -298,21 +308,29 @@ func (m *ProviderManager) cacheDynamicProvider(providerID string, entry cachedPr
 	m.dynamicCache[providerID] = entry
 }
 
-func (m *ProviderManager) loadDynamicProvider(ctx context.Context, providerID string, store configstoreintf.ProviderConfigStorer) (cachedProviderEntry, error) {
+func (m *ProviderManager) loadDynamicProviderConfig(ctx context.Context, providerID string, store configstoreintf.ProviderConfigStorer) (dynamicProviderConfigItem, error) {
 	tag, obj, err := store.Get(ctx, providerID)
 	if err != nil {
 		if errors.Is(err, configstoreintf.ErrNotFound) {
-			return cachedProviderEntry{}, fmt.Errorf("%w: %q", ErrProviderNotConfigured, providerID)
+			return dynamicProviderConfigItem{}, fmt.Errorf("%w: %q", ErrProviderNotConfigured, providerID)
 		}
-		return cachedProviderEntry{}, err
+		return dynamicProviderConfigItem{}, err
 	}
 
 	fingerprint, err := fingerprintProviderConfig(providerID, obj)
 	if err != nil {
-		return cachedProviderEntry{}, err
+		return dynamicProviderConfigItem{}, err
 	}
 
-	resolvedCfg, err := decodeProviderConfigItem(providerID, tag, obj)
+	return dynamicProviderConfigItem{
+		tag:         tag,
+		obj:         obj,
+		fingerprint: fingerprint,
+	}, nil
+}
+
+func (m *ProviderManager) buildDynamicProvider(providerID string, item dynamicProviderConfigItem) (cachedProviderEntry, error) {
+	resolvedCfg, err := decodeProviderConfigItem(providerID, item.tag, item.obj)
 	if err != nil {
 		return cachedProviderEntry{}, fmt.Errorf("normalize provider config %q: %w", providerID, err)
 	}
@@ -326,7 +344,7 @@ func (m *ProviderManager) loadDynamicProvider(ctx context.Context, providerID st
 	}
 
 	return cachedProviderEntry{
-		cfgJSON:  fingerprint,
+		cfgJSON:  item.fingerprint,
 		provider: prov,
 		name:     providerID,
 	}, nil
