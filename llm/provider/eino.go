@@ -5,14 +5,11 @@ import (
 
 	einomodel "github.com/cloudwego/eino/components/model"
 	einoschema "github.com/cloudwego/eino/schema"
-
-	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 )
 
 type ChatRequestState struct {
 	APIKey        string
 	BaseURL       string
-	Credential    *credentialmgr.Credential
 	ModelName     string
 	Messages      []*einoschema.Message
 	Options       []einomodel.Option
@@ -20,7 +17,7 @@ type ChatRequestState struct {
 }
 
 func ResolveChatRequest(ctx context.Context, config ProviderConfig, req *GenerateRequest) (*ChatRequestState, error) {
-	apiKey, baseURL, cred := ResolveCredential(ctx, config)
+	apiKey, baseURL := ResolveCredential(ctx, config)
 	modelName := req.Model
 	if modelName == "" {
 		modelName = config.DefaultModel
@@ -34,7 +31,6 @@ func ResolveChatRequest(ctx context.Context, config ProviderConfig, req *Generat
 	return &ChatRequestState{
 		APIKey:        apiKey,
 		BaseURL:       baseURL,
-		Credential:    cred,
 		ModelName:     modelName,
 		Messages:      req.Messages,
 		Options:       opts,

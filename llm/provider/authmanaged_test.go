@@ -22,7 +22,8 @@ func newTestCLIAuthManager() *cliauth.Manager {
 }
 
 func (p *testConfigurableProvider) Generate(ctx context.Context, _ *GenerateRequest) (*GenerateResponse, error) {
-	apiKey, _, cred := ResolveCredential(ctx, p.cfg)
+	apiKey, _ := ResolveCredential(ctx, p.cfg)
+	cred, _ := CredentialFromContext(ctx)
 	p.lastAPIKey = apiKey
 	p.lastCred = cred
 	if p.calls < len(p.errs) {

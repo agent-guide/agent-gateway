@@ -151,36 +151,21 @@ func isRetryable(err error) bool {
 	return true // network errors without status code are retryable
 }
 
-func ResolveCredential(ctx context.Context, config ProviderConfig) (apiKey string, baseURL string, cred *credentialmgr.Credential) {
+func ResolveCredential(ctx context.Context, config ProviderConfig) (apiKey string, baseURL string) {
 	config.Defaults()
 	apiKey = config.APIKey
 	baseURL = config.BaseURL
 
 	if c, ok := CredentialFromContext(ctx); ok {
-		switch config.AuthStrategy {
-		case AuthStrategyAPIKeyOnly:
-			return apiKey, baseURL, nil
-		case AuthStrategyAPIKeyFirst:
-			cred = c
-		case AuthStrategyCredentialOnly, AuthStrategyCredentialFirst:
-			cred = c
-			apiKey = ""
-		default:
-			if strings.TrimSpace(apiKey) == "" {
-				cred = c
-			}
+		if token, _ := c.Metadata["access_token"].(string); token != "" {
+			apiKey = token
+		} else if key := strings.TrimSpace(c.APIKey()); key != "" {
+			apiKey = key
 		}
-		if cred != nil {
-			if token, _ := cred.Metadata["access_token"].(string); token != "" {
-				apiKey = token
-			} else if key := strings.TrimSpace(cred.APIKey()); key != "" {
-				apiKey = key
-			}
-			if u := strings.TrimSpace(cred.BaseURL()); u != "" {
-				baseURL = u
-			}
+		if u := strings.TrimSpace(c.BaseURL()); u != "" {
+			baseURL = u
 		}
 	}
 
-	return apiKey, baseURL, cred
+	return apiKey, baseURL
 }

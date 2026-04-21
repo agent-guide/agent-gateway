@@ -181,8 +181,8 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.GenerateReque
 	// Reuse the cached client for the common path (no credential override).
 	// Build a new one only when a per-request credential changes the API key or base URL.
 	client := p.genaiClient
-	if state.Credential != nil {
-		client, err = buildGenaiClient(ctx, state.APIKey, state.BaseURL, p.ProviderConfig.Network, state.Credential)
+	if cred, ok := provider.CredentialFromContext(ctx); ok {
+		client, err = buildGenaiClient(ctx, state.APIKey, state.BaseURL, p.ProviderConfig.Network, cred)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("gemini: build credential client: %w", err)
 		}
