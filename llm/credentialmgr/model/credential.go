@@ -19,12 +19,8 @@ type Credential struct {
 	Provider string `json:"provider"`
 	// Source identifies where the credential came from (e.g. api_key, cliauth).
 	Source string `json:"source,omitempty"`
-	// Prefix optionally namespaces models for routing (e.g. "teamA/gpt-4o").
-	Prefix string `json:"prefix,omitempty"`
 	// Label is a human-readable label for logging and display.
 	Label string `json:"label,omitempty"`
-	// ProxyURL overrides the global proxy setting for this credential if provided.
-	ProxyURL string `json:"proxy_url,omitempty"`
 	// Attributes stores provider-specific configuration (e.g. api_key, base_url, priority).
 	Attributes map[string]string `json:"attributes,omitempty"`
 	// Metadata stores runtime mutable provider state (e.g. tokens, cookies).
@@ -45,10 +41,6 @@ type Credential struct {
 	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is the last modification timestamp.
 	UpdatedAt time.Time `json:"updated_at"`
-	// LastRefreshedAt records the last successful source-level refresh.
-	LastRefreshedAt time.Time `json:"last_refreshed_at,omitempty"`
-	// NextRefreshAfter is the earliest time a source-level refresh should retrigger.
-	NextRefreshAfter time.Time `json:"next_refresh_after,omitempty"`
 }
 
 // QuotaState captures quota limiter tracking data for a credential.

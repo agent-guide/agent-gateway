@@ -65,17 +65,13 @@ func CheckResponse(resp *http.Response) error {
 		fmt.Sprintf("upstream %d: %s", resp.StatusCode, string(body)))
 }
 
-func BuildHTTPClient(config ProviderConfig, extraHeaders map[string]string, cred *credentialmgr.Credential) *http.Client {
-	proxyURL := config.Network.ProxyURL
-	if cred != nil && cred.ProxyURL != "" {
-		proxyURL = cred.ProxyURL
-	}
-
+func BuildHTTPClient(config ProviderConfig, extraHeaders map[string]string) *http.Client {
 	transport := &http.Transport{
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 20,
 		IdleConnTimeout:     90 * time.Second,
 	}
+	proxyURL := config.Network.ProxyURL
 	if proxyURL != "" {
 		if parsed, err := url.Parse(proxyURL); err == nil {
 			transport.Proxy = http.ProxyURL(parsed)

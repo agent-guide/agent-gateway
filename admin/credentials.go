@@ -47,16 +47,12 @@ func (h *Handler) handleGetCredential(w http.ResponseWriter, r *http.Request) {
 type credentialCreateRequest struct {
 	Provider   string            `json:"provider"`
 	Label      string            `json:"label,omitempty"`
-	Prefix     string            `json:"prefix,omitempty"`
-	ProxyURL   string            `json:"proxy_url,omitempty"`
 	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
 // credentialUpdateRequest is the request body for PUT /admin/credentials/{credential_id}.
 type credentialUpdateRequest struct {
 	Label      string            `json:"label,omitempty"`
-	Prefix     string            `json:"prefix,omitempty"`
-	ProxyURL   string            `json:"proxy_url,omitempty"`
 	Attributes map[string]string `json:"attributes,omitempty"`
 	Disabled   bool              `json:"disabled,omitempty"`
 }
@@ -81,8 +77,6 @@ func (h *Handler) handleCreateCredential(w http.ResponseWriter, r *http.Request)
 		Provider:   strings.TrimSpace(req.Provider),
 		Source:     credentialmgr.SourceAPIKey,
 		Label:      req.Label,
-		Prefix:     req.Prefix,
-		ProxyURL:   req.ProxyURL,
 		Attributes: req.Attributes,
 	}
 	if err := h.credentialManager.RegisterCredential(r.Context(), cred); err != nil {
@@ -121,8 +115,6 @@ func (h *Handler) handleUpdateCredential(w http.ResponseWriter, r *http.Request)
 	}
 
 	existing.Label = req.Label
-	existing.Prefix = req.Prefix
-	existing.ProxyURL = req.ProxyURL
 	existing.Disabled = req.Disabled
 	if req.Attributes != nil {
 		existing.Attributes = req.Attributes

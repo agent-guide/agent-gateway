@@ -40,6 +40,10 @@ type Credential struct {
 	StatusMessage string `json:"status_message,omitempty"`
 	// ModelStates tracks per-model runtime availability data.
 	ModelStates map[string]*ModelState `json:"model_states,omitempty"`
+	// LastRefreshedAt records the last successful source-level refresh.
+	LastRefreshedAt time.Time `json:"last_refreshed_at,omitempty"`
+	// NextRefreshAfter is the earliest time a source-level refresh should retrigger.
+	NextRefreshAfter time.Time `json:"next_refresh_after,omitempty"`
 }
 
 // ModelState captures the execution state for a specific model under a credential.

@@ -101,7 +101,7 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.GenerateReque
 		APIKey:     state.APIKey,
 		BaseURL:    state.BaseURL,
 		Model:      state.ModelName,
-		HTTPClient: provider.BuildHTTPClient(p.ProviderConfig, nil, state.Credential),
+		HTTPClient: provider.BuildHTTPClient(p.ProviderConfig, nil),
 	}
 
 	chatModel, err := einoopenrouter.NewChatModel(ctx, cfg)

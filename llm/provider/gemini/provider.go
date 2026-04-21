@@ -76,7 +76,7 @@ func (p *Provider) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 // buildGenaiClient constructs a genai.Client with the given credentials and network config.
 // This is the single path for creating Gemini API clients in this package.
 func buildGenaiClient(ctx context.Context, apiKey, baseURL string, network provider.NetworkConfig, cred *credentialmgr.Credential) (*genai.Client, error) {
-	httpClient := provider.BuildHTTPClient(provider.ProviderConfig{Network: network}, nil, cred)
+	httpClient := provider.BuildHTTPClient(provider.ProviderConfig{Network: network}, nil)
 	timeout := network.Timeout()
 	return genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey:     apiKey,
@@ -124,7 +124,7 @@ func (p *Provider) ListModels(ctx context.Context) ([]provider.ModelInfo, error)
 	}
 	p.setHeaders(httpReq)
 
-	httpClient := provider.BuildHTTPClient(p.ProviderConfig, nil, nil)
+	httpClient := provider.BuildHTTPClient(p.ProviderConfig, nil)
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("gemini: request failed: %w", err)

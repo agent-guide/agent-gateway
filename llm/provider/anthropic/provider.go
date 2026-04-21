@@ -165,7 +165,7 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.GenerateReque
 		APIKey:     state.APIKey,
 		Model:      state.ModelName,
 		MaxTokens:  maxTokens,
-		HTTPClient: provider.BuildHTTPClient(p.ProviderConfig, nil, state.Credential),
+		HTTPClient: provider.BuildHTTPClient(p.ProviderConfig, nil),
 	}
 	if state.BaseURL != "" {
 		cfg.BaseURL = &state.BaseURL

@@ -105,7 +105,7 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.GenerateReque
 		BaseURL:    state.BaseURL,
 		Model:      state.ModelName,
 		Timeout:    p.ProviderConfig.Network.Timeout(),
-		HTTPClient: provider.BuildHTTPClient(p.ProviderConfig, nil, state.Credential),
+		HTTPClient: provider.BuildHTTPClient(p.ProviderConfig, nil),
 	}
 	applyOptions(cfg, p.ProviderConfig.Options)
 

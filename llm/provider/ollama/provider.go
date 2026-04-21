@@ -101,7 +101,7 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.GenerateReque
 	cfg := &einoollama.ChatModelConfig{
 		BaseURL:    baseURL,
 		Model:      state.ModelName,
-		HTTPClient: provider.BuildHTTPClient(p.ProviderConfig, nil, state.Credential),
+		HTTPClient: provider.BuildHTTPClient(p.ProviderConfig, nil),
 	}
 
 	chatModel, err := einoollama.NewChatModel(ctx, cfg)
