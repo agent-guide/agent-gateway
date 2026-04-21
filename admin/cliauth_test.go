@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
+	"github.com/agent-guide/caddy-agent-gateway/cliauth"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"golang.org/x/crypto/bcrypt"
 )

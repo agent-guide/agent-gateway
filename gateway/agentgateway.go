@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/agent-guide/caddy-agent-gateway/cliauth"
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 )

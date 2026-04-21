@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/cloudwego/eino/schema"
 )
@@ -17,8 +16,8 @@ type testConfigurableProvider struct {
 	lastCred   *credentialmgr.Credential
 }
 
-func newTestCLIAuthManager() *cliauth.Manager {
-	return cliauth.NewManager(credentialmgr.NewManager(nil, nil, nil), nil)
+func newTestCredentialManager() *credentialmgr.Manager {
+	return credentialmgr.NewManager(nil, nil, nil)
 }
 
 func (p *testConfigurableProvider) Generate(ctx context.Context, _ *GenerateRequest) (*GenerateResponse, error) {
@@ -60,8 +59,7 @@ func TestProviderConfigDefaults(t *testing.T) {
 }
 
 func TestWrapWithCredentialManagerHonorsAPIKeyFirst(t *testing.T) {
-	cliauthMgr := newTestCLIAuthManager()
-	credMgr := cliauthMgr.CredentialManager()
+	credMgr := newTestCredentialManager()
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
 		ID:       "cred-1",
 		Provider: "openai",
@@ -96,8 +94,7 @@ func TestWrapWithCredentialManagerHonorsAPIKeyFirst(t *testing.T) {
 }
 
 func TestWrapWithCredentialManagerScopesStaticCredentialToProviderID(t *testing.T) {
-	cliauthMgr := newTestCLIAuthManager()
-	credMgr := cliauthMgr.CredentialManager()
+	credMgr := newTestCredentialManager()
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
 		ID:       "provider-static-api-key:zhipu",
 		Provider: "zhipu",
@@ -139,8 +136,7 @@ func TestWrapWithCredentialManagerScopesStaticCredentialToProviderID(t *testing.
 }
 
 func TestWrapWithCredentialManagerFallsBackAfterStaticAPIKeyQuota(t *testing.T) {
-	cliauthMgr := newTestCLIAuthManager()
-	credMgr := cliauthMgr.CredentialManager()
+	credMgr := newTestCredentialManager()
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
 		ID:       "cred-1",
 		Provider: "openai",
@@ -180,8 +176,7 @@ func TestWrapWithCredentialManagerFallsBackAfterStaticAPIKeyQuota(t *testing.T) 
 }
 
 func TestWrapWithCredentialManagerUsesProviderCredentials(t *testing.T) {
-	cliauthMgr := newTestCLIAuthManager()
-	credMgr := cliauthMgr.CredentialManager()
+	credMgr := newTestCredentialManager()
 	for _, id := range []string{"cred-a", "cred-b"} {
 		if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
 			ID:       id,
@@ -214,8 +209,7 @@ func TestWrapWithCredentialManagerUsesProviderCredentials(t *testing.T) {
 }
 
 func TestWrapWithCredentialManagerPreservesManagedRoundRobin(t *testing.T) {
-	cliauthMgr := newTestCLIAuthManager()
-	credMgr := cliauthMgr.CredentialManager()
+	credMgr := newTestCredentialManager()
 	for _, id := range []string{"cred-a", "cred-b"} {
 		if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
 			ID:       id,

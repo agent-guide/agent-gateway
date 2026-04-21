@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agent-guide/caddy-agent-gateway/cliauth"
 	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/configstore/sqlite"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/ollama"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"

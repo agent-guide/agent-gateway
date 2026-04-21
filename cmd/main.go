@@ -14,7 +14,7 @@ import (
 	_ "github.com/agent-guide/caddy-agent-gateway/gateway"
 
 	// CLI authenticators (register as factory + Caddy modules via init())
-	_ "github.com/agent-guide/caddy-agent-gateway/llm/cliauth/authenticator"
+	_ "github.com/agent-guide/caddy-agent-gateway/cliauth/authenticator"
 
 	// LLM Providers (register as factory + Caddy modules via init())
 	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/anthropic"

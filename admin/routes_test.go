@@ -11,11 +11,11 @@ import (
 	"testing"
 
 	apipkg "github.com/agent-guide/caddy-agent-gateway/api"
+	"github.com/agent-guide/caddy-agent-gateway/cliauth"
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/cloudwego/eino/schema"
 	"golang.org/x/crypto/bcrypt"

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/agent-guide/caddy-agent-gateway/cliauth"
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"github.com/caddyserver/caddy/v2"
 )
 

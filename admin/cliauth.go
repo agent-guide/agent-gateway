@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/agent-guide/caddy-agent-gateway/cliauth"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
-	"github.com/agent-guide/caddy-agent-gateway/llm/cliauth"
 	"go.uber.org/zap"
 )
 
