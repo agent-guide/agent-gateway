@@ -57,9 +57,9 @@ func TestMatchLLMApiIncludesCountTokens(t *testing.T) {
 func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 	credMgr := credentialmgr.NewManager(nil, nil, nil)
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
-		ID:       "cred-anthropic-1",
-		Provider: "anthropic",
-		Source:   credentialmgr.SourceCLIAuth,
+		ID:           "cred-anthropic-1",
+		ProviderType: "anthropic",
+		Source:       credentialmgr.SourceCLIAuth,
 	}); err != nil {
 		t.Fatalf("register credential: %v", err)
 	}

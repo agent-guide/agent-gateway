@@ -2,6 +2,7 @@ package credentialmgr
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 )
@@ -9,8 +10,8 @@ import (
 func TestPickWithFilterSelectsRequestedSource(t *testing.T) {
 	mgr := NewManager(nil, nil, nil)
 	for _, cred := range []*Credential{
-		{ID: "api-key", Provider: "openai", Source: SourceAPIKey},
-		{ID: "cliauth", Provider: "openai", Source: SourceCLIAuth},
+		{ID: "api-key", ProviderType: "openai", Source: SourceAPIKey},
+		{ID: "cliauth", ProviderType: "openai", Source: SourceCLIAuth},
 	} {
 		if err := mgr.RegisterCredential(context.Background(), cred); err != nil {
 			t.Fatalf("register %s: %v", cred.ID, err)
@@ -29,16 +30,16 @@ func TestPickWithFilterSelectsRequestedSource(t *testing.T) {
 func TestMarkResultAppliesQuotaCooldown(t *testing.T) {
 	mgr := NewManager(nil, nil, nil)
 	if err := mgr.RegisterCredential(context.Background(), &Credential{
-		ID:       "cred-1",
-		Provider: "openai",
-		Source:   SourceAPIKey,
+		ID:           "cred-1",
+		ProviderType: "openai",
+		Source:       SourceAPIKey,
 	}); err != nil {
 		t.Fatalf("register credential: %v", err)
 	}
 
 	mgr.MarkResult(context.Background(), Result{
 		CredentialID: "cred-1",
-		Provider:     "openai",
+		ProviderType: "openai",
 		Model:        "gpt-test",
 		Error: &Error{
 			Message:    "quota exceeded",
@@ -57,5 +58,31 @@ func TestMarkResultAppliesQuotaCooldown(t *testing.T) {
 	state := cred.ModelStates["gpt-test"]
 	if state == nil || !state.Unavailable || !state.Quota.Exceeded {
 		t.Fatalf("model state was not marked cooling down: %+v", state)
+	}
+}
+
+func TestCredentialMarshalsProviderTypeAndProviderID(t *testing.T) {
+	cred := &Credential{
+		ID:           "cred-1",
+		ProviderType: "zhipu",
+		ProviderID:   "zhipu-test",
+	}
+
+	raw, err := json.Marshal(cred)
+	if err != nil {
+		t.Fatalf("json.Marshal returned error: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("json.Unmarshal returned error: %v", err)
+	}
+	if got["provider_type"] != "zhipu" {
+		t.Fatalf("provider_type = %#v, want zhipu", got["provider_type"])
+	}
+	if got["provider_id"] != "zhipu-test" {
+		t.Fatalf("provider_id = %#v, want zhipu-test", got["provider_id"])
+	}
+	if _, exists := got["provider"]; exists {
+		t.Fatalf("legacy provider field should not be emitted: %#v", got)
 	}
 }

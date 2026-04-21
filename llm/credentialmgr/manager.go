@@ -30,7 +30,7 @@ type Error = model.Error
 
 type Result struct {
 	CredentialID string
-	Provider     string
+	ProviderType string
 	Model        string
 	Success      bool
 	RetryAfter   *time.Duration
@@ -38,8 +38,9 @@ type Result struct {
 }
 
 type Filter struct {
-	Provider string
-	Source   string
+	ProviderType string
+	ProviderID   string
+	Source       string
 }
 
 type Hook interface {
@@ -133,8 +134,8 @@ func (m *Manager) RegisterCredential(ctx context.Context, cred *Credential) erro
 	if cred == nil {
 		return fmt.Errorf("credential manager: credential is nil")
 	}
-	if strings.TrimSpace(cred.Provider) == "" {
-		return fmt.Errorf("credential manager: credential has no provider")
+	if strings.TrimSpace(cred.ProviderType) == "" {
+		return fmt.Errorf("credential manager: credential has no provider type")
 	}
 
 	cred = cred.Clone()
@@ -229,7 +230,8 @@ func (m *Manager) ListCredentials(filter Filter) []*Credential {
 	if m == nil {
 		return nil
 	}
-	provider := strings.ToLower(strings.TrimSpace(filter.Provider))
+	providerType := strings.ToLower(strings.TrimSpace(filter.ProviderType))
+	providerID := strings.ToLower(strings.TrimSpace(filter.ProviderID))
 	source := strings.ToLower(strings.TrimSpace(filter.Source))
 
 	m.mu.RLock()
@@ -239,7 +241,10 @@ func (m *Manager) ListCredentials(filter Filter) []*Credential {
 		if cred == nil {
 			continue
 		}
-		if provider != "" && strings.ToLower(cred.Provider) != provider {
+		if providerType != "" && strings.ToLower(cred.ProviderType) != providerType {
+			continue
+		}
+		if providerID != "" && strings.ToLower(cred.ProviderID) != providerID {
 			continue
 		}
 		if source != "" && strings.ToLower(cred.Source) != source {
@@ -250,17 +255,17 @@ func (m *Manager) ListCredentials(filter Filter) []*Credential {
 	return out
 }
 
-func (m *Manager) Pick(ctx context.Context, provider, model string, tried map[string]struct{}) (*Credential, error) {
-	return m.PickWithFilter(ctx, provider, model, tried, Filter{})
+func (m *Manager) Pick(ctx context.Context, providerType, model string, tried map[string]struct{}) (*Credential, error) {
+	return m.PickWithFilter(ctx, providerType, model, tried, Filter{})
 }
 
-func (m *Manager) PickWithFilter(ctx context.Context, provider, model string, tried map[string]struct{}, filter Filter) (*Credential, error) {
+func (m *Manager) PickWithFilter(ctx context.Context, providerType, model string, tried map[string]struct{}, filter Filter) (*Credential, error) {
 	if m == nil {
 		return nil, &Error{Code: "manager_nil", Message: "credential manager not initialized"}
 	}
 	localTried := tried
 	for {
-		cred, err := m.scheduler.Pick(ctx, provider, model, localTried)
+		cred, err := m.scheduler.Pick(ctx, providerType, model, localTried)
 		if err != nil || cred == nil {
 			return nil, err
 		}
@@ -288,7 +293,10 @@ func matchFilter(cred *Credential, filter Filter) bool {
 	if cred == nil {
 		return false
 	}
-	if provider := strings.ToLower(strings.TrimSpace(filter.Provider)); provider != "" && strings.ToLower(cred.Provider) != provider {
+	if providerType := strings.ToLower(strings.TrimSpace(filter.ProviderType)); providerType != "" && strings.ToLower(cred.ProviderType) != providerType {
+		return false
+	}
+	if providerID := strings.ToLower(strings.TrimSpace(filter.ProviderID)); providerID != "" && strings.ToLower(cred.ProviderID) != providerID {
 		return false
 	}
 	if source := strings.ToLower(strings.TrimSpace(filter.Source)); source != "" && strings.ToLower(cred.Source) != source {
@@ -408,7 +416,7 @@ func (m *Manager) create(ctx context.Context, cred *Credential) error {
 	if m.store == nil {
 		return nil
 	}
-	if _, err := m.store.Create(ctx, cred.ID, cred.Provider, cred); err != nil {
+	if _, err := m.store.Create(ctx, cred.ID, cred.ProviderType, cred); err != nil {
 		return fmt.Errorf("credential manager: create credential %s: %w", cred.ID, err)
 	}
 	return nil

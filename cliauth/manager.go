@@ -22,8 +22,8 @@ const (
 type Result struct {
 	// CredentialID references the credential that produced this result.
 	CredentialID string
-	// Provider is copied for convenience.
-	Provider string
+	// ProviderType is copied for convenience.
+	ProviderType string
 	// Model is the upstream model identifier used for the request.
 	Model string
 	// Success marks whether the execution succeeded.
@@ -60,7 +60,7 @@ type Manager struct {
 	mu             sync.RWMutex
 	creds          map[string]*Credential         // credID -> Credential
 	authenticators map[string]*authenticatorEntry // cli key -> Authenticator
-	providerAuths  map[string]string              // provider key -> cli key
+	providerAuths  map[string]string              // providerType key -> cli key
 	refresher      Refresher                      // fallback global refresher
 
 	// Auto-refresh state.
@@ -90,7 +90,7 @@ func (m *Manager) CredentialManager() *credentialmgr.Manager {
 
 // RegisterAuthenticator registers an Authenticator for a CLI name.
 // It also indexes the same Authenticator by its provider type so refresh lookups
-// can continue resolving via credential.Provider.
+// can continue resolving via credential.ProviderType.
 func (m *Manager) RegisterAuthenticator(cliname string, auth Authenticator) {
 	m.RegisterAuthenticatorWithOptions(cliname, auth, RegisterAuthenticatorOptions{
 		Source: AuthenticatorSourceRuntime,
@@ -106,7 +106,7 @@ func (m *Manager) RegisterAuthenticatorWithOptions(cliname string, auth Authenti
 	if cliKey == "" {
 		return
 	}
-	providerKey := strings.ToLower(strings.TrimSpace(auth.Provider()))
+	providerTypeKey := strings.ToLower(strings.TrimSpace(auth.Provider()))
 	if opts.Source == "" {
 		opts.Source = AuthenticatorSourceRuntime
 	}
@@ -120,15 +120,15 @@ func (m *Manager) RegisterAuthenticatorWithOptions(cliname string, auth Authenti
 	m.authenticators[cliKey] = &authenticatorEntry{
 		state: AuthenticatorState{
 			Name:     cliKey,
-			Provider: providerKey,
+			Provider: providerTypeKey,
 			Source:   opts.Source,
 			ReadOnly: opts.ReadOnly,
 			Enabled:  true,
 		},
 		auth: auth,
 	}
-	if providerKey != "" {
-		m.providerAuths[providerKey] = cliKey
+	if providerTypeKey != "" {
+		m.providerAuths[providerTypeKey] = cliKey
 	}
 	m.mu.Unlock()
 }
@@ -234,7 +234,7 @@ func (m *Manager) ListAuthenticatorStates() []AuthenticatorState {
 }
 
 // SetRefresher registers a fallback Refresher used when no Authenticator is registered
-// for a credential's provider.
+// for a credential's provider type.
 func (m *Manager) SetRefresher(r Refresher) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -276,8 +276,8 @@ func (m *Manager) RegisterLoginCredential(ctx context.Context, cred *Credential)
 	if cred == nil {
 		return fmt.Errorf("manager: credential is nil")
 	}
-	if strings.TrimSpace(cred.Provider) == "" {
-		return fmt.Errorf("manager: credential has no provider")
+	if strings.TrimSpace(cred.ProviderType) == "" {
+		return fmt.Errorf("manager: credential has no provider type")
 	}
 
 	cred = cred.Clone()
@@ -327,17 +327,17 @@ func (m *Manager) UpdateCredential(ctx context.Context, cred *Credential) error 
 	return nil
 }
 
-// Pick selects the best available credential for the given provider and model.
+// Pick selects the best available credential for the given provider type and model.
 // Tried is an optional set of credential IDs that have already been attempted
 // and should be skipped.
-func (m *Manager) Pick(ctx context.Context, provider, model string, tried map[string]struct{}) (*Credential, error) {
+func (m *Manager) Pick(ctx context.Context, providerType, model string, tried map[string]struct{}) (*Credential, error) {
 	if m == nil {
 		return nil, &Error{Code: "manager_nil", Message: "manager not initialized"}
 	}
 	if m.credentialMgr == nil {
 		return nil, &Error{Code: "manager_nil", Message: "credential manager not initialized"}
 	}
-	common, err := m.credentialMgr.Pick(ctx, provider, model, tried)
+	common, err := m.credentialMgr.Pick(ctx, providerType, model, tried)
 	if err != nil || common == nil {
 		return nil, err
 	}
@@ -364,7 +364,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 	}
 	m.credentialMgr.MarkResult(ctx, credentialmgr.Result{
 		CredentialID: result.CredentialID,
-		Provider:     result.Provider,
+		ProviderType: result.ProviderType,
 		Model:        result.Model,
 		Success:      result.Success,
 		RetryAfter:   result.RetryAfter,
@@ -423,7 +423,7 @@ func (m *Manager) runRefreshCycle(ctx context.Context) {
 	candidates := m.snapshotForRefresh(now)
 	for _, cred := range candidates {
 		// Resolve the refresher: prefer registered Authenticator, fall back to global Refresher.
-		refresher := m.resolveRefresher(cred.Provider)
+		refresher := m.resolveRefresher(cred.ProviderType)
 		if refresher == nil {
 			continue
 		}
@@ -441,10 +441,10 @@ func (m *Manager) runRefreshCycle(ctx context.Context) {
 	}
 }
 
-// resolveRefresher returns the Refresher for the given provider.
+// resolveRefresher returns the Refresher for the given provider type.
 // Prefers a registered Authenticator; falls back to the global Refresher.
-func (m *Manager) resolveRefresher(provider string) Refresher {
-	key := strings.ToLower(strings.TrimSpace(provider))
+func (m *Manager) resolveRefresher(providerType string) Refresher {
+	key := strings.ToLower(strings.TrimSpace(providerType))
 	m.mu.RLock()
 	cliKey, ok := m.providerAuths[key]
 	entry := m.authenticators[cliKey]

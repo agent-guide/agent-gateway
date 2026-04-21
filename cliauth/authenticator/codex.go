@@ -426,10 +426,10 @@ func (a *CodexAuthenticator) refreshTokensWithRetry(ctx context.Context, refresh
 func (a *CodexAuthenticator) buildCredential(tokenResp *codexTokenResponse) (*cliauth.Credential, error) {
 	cred := &cliauth.Credential{
 		Credential: credentialmgr.Credential{
-			ID:         uuid.New().String(),
-			Provider:   a.Provider(),
-			Metadata:   make(map[string]any),
-			Attributes: make(map[string]string),
+			ID:           uuid.New().String(),
+			ProviderType: a.Provider(),
+			Metadata:     make(map[string]any),
+			Attributes:   make(map[string]string),
 		},
 		Status: cliauth.StatusActive,
 	}

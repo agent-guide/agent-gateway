@@ -13,9 +13,9 @@ import (
 // CredentialScheduler manages an in-memory set of credentials and selects
 // the best available one for each request.
 type CredentialScheduler interface {
-	// Pick selects the best available credential for the given provider and model.
+	// Pick selects the best available credential for the given provider type and model.
 	// tried is an optional set of credential IDs that have already been attempted.
-	Pick(ctx context.Context, provider, model string, tried map[string]struct{}) (*Credential, error)
+	Pick(ctx context.Context, providerType, model string, tried map[string]struct{}) (*Credential, error)
 
 	// SetStrategy replaces the active selection strategy.
 	SetStrategy(s CredentialSelector)
@@ -60,7 +60,7 @@ type authScheduler struct {
 	mu            sync.Mutex
 	strategy      CredentialSelector
 	providers     map[string]*providerScheduler
-	credProviders map[string]string // credID -> providerKey
+	credProviders map[string]string // credID -> providerTypeKey
 }
 
 type providerScheduler struct {
@@ -139,11 +139,11 @@ func (s *authScheduler) DeregisterCredential(id string) {
 	s.removeLocked(id)
 }
 
-func (s *authScheduler) Pick(_ context.Context, provider, model string, tried map[string]struct{}) (*Credential, error) {
+func (s *authScheduler) Pick(_ context.Context, providerType, model string, tried map[string]struct{}) (*Credential, error) {
 	if s == nil {
 		return nil, &Error{Code: "credential_not_found", Message: "no credential available"}
 	}
-	providerKey := strings.ToLower(strings.TrimSpace(provider))
+	providerKey := strings.ToLower(strings.TrimSpace(providerType))
 	modelKey := canonicalModelKey(model)
 
 	s.mu.Lock()
@@ -174,7 +174,7 @@ func (s *authScheduler) Pick(_ context.Context, provider, model string, tried ma
 	if picked := shard.pickReadyLocked(s.strategy, predicate); picked != nil {
 		return picked, nil
 	}
-	return nil, shard.unavailableErrorLocked(provider, model, predicate)
+	return nil, shard.unavailableErrorLocked(providerType, model, predicate)
 }
 
 func (s *authScheduler) upsertLocked(cred *Credential, now time.Time) {
@@ -182,7 +182,7 @@ func (s *authScheduler) upsertLocked(cred *Credential, now time.Time) {
 		return
 	}
 	credID := strings.TrimSpace(cred.ID)
-	providerKey := strings.ToLower(strings.TrimSpace(cred.Provider))
+	providerKey := strings.ToLower(strings.TrimSpace(cred.ProviderType))
 	if credID == "" || providerKey == "" || cred.IsDisabled() {
 		s.removeLocked(credID)
 		return
@@ -384,7 +384,7 @@ func hasMatch(bucket *ReadyBucket, predicate func(*Credential) bool) bool {
 	return false
 }
 
-func (m *modelScheduler) unavailableErrorLocked(provider, model string, predicate func(*Credential) bool) error {
+func (m *modelScheduler) unavailableErrorLocked(providerType, model string, predicate func(*Credential) bool) error {
 	now := time.Now()
 	total := 0
 	cooldownCount := 0
@@ -410,7 +410,7 @@ func (m *modelScheduler) unavailableErrorLocked(provider, model string, predicat
 		if resetIn < 0 {
 			resetIn = 0
 		}
-		return &cooldownError{model: model, provider: provider, resetIn: formatDuration(resetIn)}
+		return &cooldownError{model: model, providerType: providerType, resetIn: formatDuration(resetIn)}
 	}
 	return &Error{Code: "credential_unavailable", Message: "no credential available"}
 }

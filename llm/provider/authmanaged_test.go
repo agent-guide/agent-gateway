@@ -61,9 +61,9 @@ func TestProviderConfigDefaults(t *testing.T) {
 func TestWrapWithCredentialManagerHonorsAPIKeyFirst(t *testing.T) {
 	credMgr := newTestCredentialManager()
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
-		ID:       "cred-1",
-		Provider: "openai",
-		Source:   credentialmgr.SourceCLIAuth,
+		ID:           "cred-1",
+		ProviderType: "openai",
+		Source:       credentialmgr.SourceCLIAuth,
 		Attributes: map[string]string{
 			"api_key": "cred-key",
 		},
@@ -96,9 +96,10 @@ func TestWrapWithCredentialManagerHonorsAPIKeyFirst(t *testing.T) {
 func TestWrapWithCredentialManagerScopesStaticCredentialToProviderID(t *testing.T) {
 	credMgr := newTestCredentialManager()
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
-		ID:       "provider-static-api-key:zhipu",
-		Provider: "zhipu",
-		Source:   credentialmgr.SourceAPIKey,
+		ID:           "provider-static-api-key:zhipu",
+		ProviderType: "zhipu",
+		ProviderID:   "zhipu",
+		Source:       credentialmgr.SourceAPIKey,
 		Attributes: map[string]string{
 			"api_key":  "wrong-key",
 			"base_url": "https://wrong.example",
@@ -127,8 +128,11 @@ func TestWrapWithCredentialManagerScopesStaticCredentialToProviderID(t *testing.
 	if base.lastCred.ID != "provider-static-api-key:zhipu-test" {
 		t.Fatalf("credential ID = %q, want provider-static-api-key:zhipu-test", base.lastCred.ID)
 	}
-	if base.lastCred.Provider != "zhipu-test" {
-		t.Fatalf("credential provider = %q, want zhipu-test", base.lastCred.Provider)
+	if base.lastCred.ProviderType != "zhipu" {
+		t.Fatalf("credential provider type = %q, want zhipu", base.lastCred.ProviderType)
+	}
+	if base.lastCred.ProviderID != "zhipu-test" {
+		t.Fatalf("credential provider id = %q, want zhipu-test", base.lastCred.ProviderID)
 	}
 	if base.lastAPIKey != "right-key" {
 		t.Fatalf("api key = %q, want right-key", base.lastAPIKey)
@@ -138,9 +142,9 @@ func TestWrapWithCredentialManagerScopesStaticCredentialToProviderID(t *testing.
 func TestWrapWithCredentialManagerFallsBackAfterStaticAPIKeyQuota(t *testing.T) {
 	credMgr := newTestCredentialManager()
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
-		ID:       "cred-1",
-		Provider: "openai",
-		Source:   credentialmgr.SourceCLIAuth,
+		ID:           "cred-1",
+		ProviderType: "openai",
+		Source:       credentialmgr.SourceCLIAuth,
 		Attributes: map[string]string{
 			"api_key": "cred-key",
 		},
@@ -179,9 +183,9 @@ func TestWrapWithCredentialManagerUsesProviderCredentials(t *testing.T) {
 	credMgr := newTestCredentialManager()
 	for _, id := range []string{"cred-a", "cred-b"} {
 		if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
-			ID:       id,
-			Provider: "openai",
-			Source:   credentialmgr.SourceCLIAuth,
+			ID:           id,
+			ProviderType: "openai",
+			Source:       credentialmgr.SourceCLIAuth,
 			Attributes: map[string]string{
 				"api_key": id + "-key",
 			},
@@ -203,8 +207,8 @@ func TestWrapWithCredentialManagerUsesProviderCredentials(t *testing.T) {
 	if base.lastCred == nil {
 		t.Fatal("expected credential override")
 	}
-	if base.lastCred.Provider != "openai" {
-		t.Fatalf("unexpected credential provider: got %q want %q", base.lastCred.Provider, "openai")
+	if base.lastCred.ProviderType != "openai" {
+		t.Fatalf("unexpected credential provider type: got %q want %q", base.lastCred.ProviderType, "openai")
 	}
 }
 
@@ -212,9 +216,9 @@ func TestWrapWithCredentialManagerPreservesManagedRoundRobin(t *testing.T) {
 	credMgr := newTestCredentialManager()
 	for _, id := range []string{"cred-a", "cred-b"} {
 		if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
-			ID:       id,
-			Provider: "openai",
-			Source:   credentialmgr.SourceCLIAuth,
+			ID:           id,
+			ProviderType: "openai",
+			Source:       credentialmgr.SourceCLIAuth,
 			Attributes: map[string]string{
 				"api_key": id + "-key",
 			},

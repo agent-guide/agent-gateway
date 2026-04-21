@@ -108,7 +108,11 @@ func (p *authManagedProvider) pickManagedCredential(ctx context.Context, model s
 	if p.credentialMgr == nil {
 		return nil
 	}
-	cred, err := p.credentialMgr.PickWithFilter(ctx, p.providerID, model, nil, credentialmgr.Filter{Source: credentialmgr.SourceCLIAuth})
+	providerType := strings.TrimSpace(p.config.ProviderType)
+	if providerType == "" {
+		providerType = p.providerID
+	}
+	cred, err := p.credentialMgr.PickWithFilter(ctx, providerType, model, nil, credentialmgr.Filter{Source: credentialmgr.SourceCLIAuth})
 	if err != nil {
 		return nil
 	}
@@ -121,7 +125,14 @@ func (p *authManagedProvider) pickStaticCredential(ctx context.Context, model st
 	if p.credentialMgr == nil {
 		return nil
 	}
-	cred, err := p.credentialMgr.PickWithFilter(ctx, p.providerID, model, nil, credentialmgr.Filter{Source: credentialmgr.SourceAPIKey})
+	providerType := strings.TrimSpace(p.config.ProviderType)
+	if providerType == "" {
+		providerType = p.providerID
+	}
+	cred, err := p.credentialMgr.PickWithFilter(ctx, providerType, model, nil, credentialmgr.Filter{
+		ProviderID: p.providerID,
+		Source:     credentialmgr.SourceAPIKey,
+	})
 	if err != nil || cred == nil {
 		return nil
 	}
@@ -135,7 +146,7 @@ func (p *authManagedProvider) markResult(ctx context.Context, cred *credentialmg
 
 	result := credentialmgr.Result{
 		CredentialID: cred.ID,
-		Provider:     cred.Provider,
+		ProviderType: cred.ProviderType,
 		Model:        model,
 		Success:      err == nil,
 	}
@@ -168,6 +179,10 @@ func newStaticAPIKeyCredential(cfg ProviderConfig, providerID string) *credentia
 	if providerID == "" {
 		providerID = strings.TrimSpace(cfg.ProviderType)
 	}
+	providerType := strings.TrimSpace(cfg.ProviderType)
+	if providerType == "" {
+		providerType = providerID
+	}
 	attrs := map[string]string{
 		"api_key": apiKey,
 	}
@@ -182,12 +197,13 @@ func newStaticAPIKeyCredential(cfg ProviderConfig, providerID string) *credentia
 	}
 	now := time.Now().UTC()
 	return &credentialmgr.Credential{
-		ID:         staticAPIKeyCredentialID(cfg),
-		Provider:   providerID,
-		Source:     credentialmgr.SourceAPIKey,
-		Attributes: attrs,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ID:           staticAPIKeyCredentialID(cfg),
+		ProviderType: providerType,
+		ProviderID:   providerID,
+		Source:       credentialmgr.SourceAPIKey,
+		Attributes:   attrs,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 }
 

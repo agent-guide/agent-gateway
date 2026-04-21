@@ -85,9 +85,9 @@ func TestMatchLLMApiRequiresVersionedOpenAIPath(t *testing.T) {
 func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 	credMgr := credentialmgr.NewManager(nil, nil, nil)
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
-		ID:       "cred-openai-1",
-		Provider: "openai",
-		Source:   credentialmgr.SourceCLIAuth,
+		ID:           "cred-openai-1",
+		ProviderType: "openai",
+		Source:       credentialmgr.SourceCLIAuth,
 	}); err != nil {
 		t.Fatalf("register credential: %v", err)
 	}

@@ -16,8 +16,8 @@ func (h *Handler) handleListCredentials(w http.ResponseWriter, r *http.Request) 
 	}
 
 	filter := credentialmgr.Filter{
-		Provider: r.URL.Query().Get("provider"),
-		Source:   r.URL.Query().Get("source"),
+		ProviderType: r.URL.Query().Get("provider_type"),
+		Source:       r.URL.Query().Get("source"),
 	}
 	items := h.credentialManager.ListCredentials(filter)
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": items})
@@ -45,9 +45,9 @@ func (h *Handler) handleGetCredential(w http.ResponseWriter, r *http.Request) {
 
 // credentialCreateRequest is the request body for POST /admin/credentials.
 type credentialCreateRequest struct {
-	Provider   string            `json:"provider"`
-	Label      string            `json:"label,omitempty"`
-	Attributes map[string]string `json:"attributes,omitempty"`
+	ProviderType string            `json:"provider_type"`
+	Label        string            `json:"label,omitempty"`
+	Attributes   map[string]string `json:"attributes,omitempty"`
 }
 
 // credentialUpdateRequest is the request body for PUT /admin/credentials/{credential_id}.
@@ -68,16 +68,17 @@ func (h *Handler) handleCreateCredential(w http.ResponseWriter, r *http.Request)
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}
-	if strings.TrimSpace(req.Provider) == "" {
-		_ = httpjson.Error(w, http.StatusBadRequest, "provider is required")
+	providerType := strings.TrimSpace(req.ProviderType)
+	if providerType == "" {
+		_ = httpjson.Error(w, http.StatusBadRequest, "provider_type is required")
 		return
 	}
 
 	cred := &credentialmgr.Credential{
-		Provider:   strings.TrimSpace(req.Provider),
-		Source:     credentialmgr.SourceAPIKey,
-		Label:      req.Label,
-		Attributes: req.Attributes,
+		ProviderType: providerType,
+		Source:       credentialmgr.SourceAPIKey,
+		Label:        req.Label,
+		Attributes:   req.Attributes,
 	}
 	if err := h.credentialManager.RegisterCredential(r.Context(), cred); err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())

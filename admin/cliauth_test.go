@@ -14,19 +14,19 @@ import (
 )
 
 type testAuthenticator struct {
-	provider string
-	loginFn  func(context.Context) (*cliauth.Credential, error)
+	providerType string
+	loginFn      func(context.Context) (*cliauth.Credential, error)
 }
 
 func (a *testAuthenticator) Provider() string {
-	return a.provider
+	return a.providerType
 }
 
 func (a *testAuthenticator) Login(ctx context.Context) (*cliauth.Credential, error) {
 	if a.loginFn != nil {
 		return a.loginFn(ctx)
 	}
-	return &cliauth.Credential{Credential: credentialmgr.Credential{Provider: a.provider}}, nil
+	return &cliauth.Credential{Credential: credentialmgr.Credential{ProviderType: a.providerType}}, nil
 }
 
 func (a *testAuthenticator) RefreshLead(context.Context, *cliauth.Credential) (*cliauth.Credential, error) {
@@ -42,13 +42,13 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 	credMgr := credentialmgr.NewManager(nil, nil, nil)
 	cliauthMgr := cliauth.NewManager(credMgr, nil)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
-		provider: "openai",
+		providerType: "openai",
 		loginFn: func(context.Context) (*cliauth.Credential, error) {
 			return &cliauth.Credential{
 				Credential: credentialmgr.Credential{
-					ID:       "cred-openai-1",
-					Provider: "openai",
-					Label:    "test@example.com",
+					ID:           "cred-openai-1",
+					ProviderType: "openai",
+					Label:        "test@example.com",
 				},
 			}, nil
 		},
@@ -69,8 +69,8 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		if cred := cliauthMgr.CredentialManager().GetCredential("cred-openai-1"); cred != nil {
-			if cred.Provider != "openai" {
-				t.Fatalf("unexpected provider: got %q want %q", cred.Provider, "openai")
+			if cred.ProviderType != "openai" {
+				t.Fatalf("unexpected provider type: got %q want %q", cred.ProviderType, "openai")
 			}
 			return
 		}
@@ -107,13 +107,13 @@ func TestCLIAuthStatusReportsCompletion(t *testing.T) {
 
 	cliauthMgr := cliauth.NewManager(nil, nil)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
-		provider: "openai",
+		providerType: "openai",
 		loginFn: func(context.Context) (*cliauth.Credential, error) {
 			time.Sleep(20 * time.Millisecond)
 			return &cliauth.Credential{
 				Credential: credentialmgr.Credential{
-					ID:       "cred-openai-2",
-					Provider: "openai",
+					ID:           "cred-openai-2",
+					ProviderType: "openai",
 				},
 			}, nil
 		},
@@ -168,7 +168,7 @@ func TestCLIAuthEnableAndListAuthenticators(t *testing.T) {
 
 	const authName = "test-admin-authenticator"
 	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
-		return &testAuthenticator{provider: "openai"}, nil
+		return &testAuthenticator{providerType: "openai"}, nil
 	})
 
 	cliauthMgr := cliauth.NewManager(nil, nil)
@@ -220,7 +220,7 @@ func TestCLIAuthDisableRuntimeAuthenticator(t *testing.T) {
 	}
 
 	cliauthMgr := cliauth.NewManager(nil, nil)
-	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{provider: "openai"})
+	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{providerType: "openai"})
 
 	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
@@ -245,7 +245,7 @@ func TestCLIAuthDisableCaddyfileAuthenticatorReturnsConflict(t *testing.T) {
 	}
 
 	cliauthMgr := cliauth.NewManager(nil, nil)
-	cliauthMgr.RegisterAuthenticatorWithOptions("codex", &testAuthenticator{provider: "openai"}, cliauth.RegisterAuthenticatorOptions{
+	cliauthMgr.RegisterAuthenticatorWithOptions("codex", &testAuthenticator{providerType: "openai"}, cliauth.RegisterAuthenticatorOptions{
 		Source:   cliauth.AuthenticatorSourceCaddyfile,
 		ReadOnly: true,
 	})

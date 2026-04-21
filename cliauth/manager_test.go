@@ -9,7 +9,7 @@ import (
 )
 
 type stubAuthenticator struct {
-	provider string
+	providerType string
 }
 
 type stubCredentialStore struct {
@@ -49,7 +49,7 @@ func (s *stubCredentialStore) Get(context.Context, string) (string, any, error) 
 }
 
 func (a *stubAuthenticator) Provider() string {
-	return a.provider
+	return a.providerType
 }
 
 func (a *stubAuthenticator) Login(context.Context) (*Credential, error) {
@@ -62,7 +62,7 @@ func (a *stubAuthenticator) RefreshLead(context.Context, *Credential) (*Credenti
 
 func TestRegisterAuthenticatorIndexesProviderKey(t *testing.T) {
 	mgr := NewManager(nil, nil)
-	auth := &stubAuthenticator{provider: "openai"}
+	auth := &stubAuthenticator{providerType: "openai"}
 
 	mgr.RegisterAuthenticator("codex", auth)
 
@@ -86,7 +86,7 @@ func TestRegisterAuthenticatorIndexesProviderKey(t *testing.T) {
 
 func TestDisableAuthenticatorRemovesRuntimeAuthenticator(t *testing.T) {
 	mgr := NewManager(nil, nil)
-	auth := &stubAuthenticator{provider: "openai"}
+	auth := &stubAuthenticator{providerType: "openai"}
 
 	mgr.RegisterAuthenticator("codex", auth)
 
@@ -103,7 +103,7 @@ func TestDisableAuthenticatorRemovesRuntimeAuthenticator(t *testing.T) {
 
 func TestDisableAuthenticatorRejectsReadOnlyAuthenticator(t *testing.T) {
 	mgr := NewManager(nil, nil)
-	auth := &stubAuthenticator{provider: "openai"}
+	auth := &stubAuthenticator{providerType: "openai"}
 
 	mgr.RegisterAuthenticatorWithOptions("codex", auth, RegisterAuthenticatorOptions{
 		Source:   AuthenticatorSourceCaddyfile,
@@ -130,7 +130,7 @@ func TestRegisterAuthenticatorFactoryListsNames(t *testing.T) {
 	})
 
 	factory := func() (Authenticator, error) {
-		return &stubAuthenticator{provider: "openai"}, nil
+		return &stubAuthenticator{providerType: "openai"}, nil
 	}
 
 	RegisterAuthenticatorFactory(" Codex ", factory)
@@ -164,14 +164,14 @@ func TestListAuthenticatorStatesMergesFactoriesAndEnabledState(t *testing.T) {
 	})
 
 	RegisterAuthenticatorFactory("codex", func() (Authenticator, error) {
-		return &stubAuthenticator{provider: "openai"}, nil
+		return &stubAuthenticator{providerType: "openai"}, nil
 	})
 	RegisterAuthenticatorFactory("claude", func() (Authenticator, error) {
-		return &stubAuthenticator{provider: "anthropic"}, nil
+		return &stubAuthenticator{providerType: "anthropic"}, nil
 	})
 
 	mgr := NewManager(nil, nil)
-	mgr.RegisterAuthenticatorWithOptions("codex", &stubAuthenticator{provider: "openai"}, RegisterAuthenticatorOptions{
+	mgr.RegisterAuthenticatorWithOptions("codex", &stubAuthenticator{providerType: "openai"}, RegisterAuthenticatorOptions{
 		Source:   AuthenticatorSourceCaddyfile,
 		ReadOnly: true,
 	})
@@ -195,8 +195,8 @@ func TestRegisterCredentialPersistsWithCreate(t *testing.T) {
 
 	if err := mgr.RegisterLoginCredential(context.Background(), &Credential{
 		Credential: credentialmgr.Credential{
-			ID:       "cred-1",
-			Provider: "openai",
+			ID:           "cred-1",
+			ProviderType: "openai",
 		},
 	}); err != nil {
 		t.Fatalf("RegisterCredential returned error: %v", err)
@@ -217,8 +217,8 @@ func TestUpdateCredentialPersistsWithUpdate(t *testing.T) {
 
 	if err := mgr.UpdateCredential(context.Background(), &Credential{
 		Credential: credentialmgr.Credential{
-			ID:       "cred-1",
-			Provider: "openai",
+			ID:           "cred-1",
+			ProviderType: "openai",
 		},
 	}); err != nil {
 		t.Fatalf("UpdateCredential returned error: %v", err)
@@ -236,8 +236,8 @@ func TestPickReturnsUpdatedCredentialSnapshot(t *testing.T) {
 	mgr := NewManager(credentialmgr.NewManager(nil, nil, nil), nil)
 	if err := mgr.RegisterLoginCredential(context.Background(), &Credential{
 		Credential: credentialmgr.Credential{
-			ID:       "cred-1",
-			Provider: "openai",
+			ID:           "cred-1",
+			ProviderType: "openai",
 			Attributes: map[string]string{
 				"api_key": "old-key",
 			},
@@ -252,8 +252,8 @@ func TestPickReturnsUpdatedCredentialSnapshot(t *testing.T) {
 
 	if err := mgr.UpdateCredential(context.Background(), &Credential{
 		Credential: credentialmgr.Credential{
-			ID:       "cred-1",
-			Provider: "openai",
+			ID:           "cred-1",
+			ProviderType: "openai",
 			Attributes: map[string]string{
 				"api_key": "new-key",
 			},

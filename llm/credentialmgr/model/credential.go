@@ -15,8 +15,10 @@ import (
 type Credential struct {
 	// ID uniquely identifies the credential.
 	ID string `json:"id"`
-	// Provider is the upstream provider key (e.g. "openai", "anthropic").
-	Provider string `json:"provider"`
+	// ProviderType is the upstream provider type/key (e.g. "openai", "anthropic").
+	ProviderType string `json:"provider_type"`
+	// ProviderID optionally scopes the credential to a specific provider instance.
+	ProviderID string `json:"provider_id,omitempty"`
 	// Source identifies where the credential came from (e.g. api_key, cliauth).
 	Source string `json:"source,omitempty"`
 	// Label is a human-readable label for logging and display.

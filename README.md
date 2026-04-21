@@ -436,7 +436,7 @@ curl -X POST http://127.0.0.1:8081/admin/credentials \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
-    "provider": "openai",
+    "provider_type": "openai",
     "label": "primary",
     "attributes": {
       "api_key": "sk-...",
