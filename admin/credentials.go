@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
+	"gorm.io/gorm"
 )
 
 type CredentialView struct {
@@ -25,6 +27,7 @@ func (h *Handler) handleListCredentials(w http.ResponseWriter, r *http.Request) 
 
 	filter := credentialmgr.Filter{
 		ProviderType: r.URL.Query().Get("provider_type"),
+		ProviderID:   r.URL.Query().Get("provider_id"),
 		Source:       r.URL.Query().Get("source"),
 	}
 	items := h.credentialManager.ListCredentials(filter)
@@ -68,9 +71,9 @@ func (h *Handler) handleGetCredential(w http.ResponseWriter, r *http.Request) {
 
 // credentialCreateRequest is the request body for POST /admin/credentials.
 type credentialCreateRequest struct {
-	ProviderType string            `json:"provider_type"`
-	Label        string            `json:"label,omitempty"`
-	Attributes   map[string]string `json:"attributes,omitempty"`
+	ProviderID string            `json:"provider_id"`
+	Label      string            `json:"label,omitempty"`
+	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
 // credentialUpdateRequest is the request body for PUT /admin/credentials/{credential_id}.
@@ -85,20 +88,36 @@ func (h *Handler) handleCreateCredential(w http.ResponseWriter, r *http.Request)
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, "credential manager not configured")
 		return
 	}
+	manager := h.providerManagerForRoutes()
+	if manager == nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "provider manager is not configured")
+		return
+	}
 
 	var req credentialCreateRequest
 	if err := httpjson.Decode(r, &req); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}
-	providerType := strings.TrimSpace(req.ProviderType)
-	if providerType == "" {
-		_ = httpjson.Error(w, http.StatusBadRequest, "provider_type is required")
+	providerID := strings.TrimSpace(req.ProviderID)
+	if providerID == "" {
+		_ = httpjson.Error(w, http.StatusBadRequest, "provider_id is required")
+		return
+	}
+
+	cfg, err := manager.GetConfig(r.Context(), providerID)
+	if err != nil {
+		if errors.Is(err, gateway.ErrProviderNotConfigured) || errors.Is(err, gorm.ErrRecordNotFound) {
+			_ = httpjson.Error(w, http.StatusNotFound, "provider not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	cred := &credentialmgr.Credential{
-		ProviderType: providerType,
+		ProviderType: cfg.ProviderType,
+		ProviderID:   cfg.Id,
 		Source:       credentialmgr.SourceAPIKey,
 		Label:        req.Label,
 		Attributes:   req.Attributes,

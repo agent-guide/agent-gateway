@@ -975,6 +975,92 @@ func TestCredentialListIncludesProviderStaticAPIKeysAsReadOnly(t *testing.T) {
 	}
 }
 
+func TestCredentialCreateUsesProviderID(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
+			"openai-main": {Id: "openai-main", ProviderType: "openai"},
+		}},
+	}, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler.credentialManager = credMgr
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	body, err := json.Marshal(map[string]any{
+		"provider_id": "openai-main",
+		"label":       "primary",
+		"attributes": map[string]string{
+			"api_key": "sk-test",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal create request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/credentials", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("unexpected create status: got %d want %d", rec.Code, http.StatusCreated)
+	}
+
+	var got credentialmgr.Credential
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode created credential: %v", err)
+	}
+	if strings.TrimSpace(got.ID) == "" {
+		t.Fatal("expected created credential response to include id")
+	}
+	if got.ProviderID != "openai-main" {
+		t.Fatalf("unexpected provider_id: got %q want %q", got.ProviderID, "openai-main")
+	}
+	if got.ProviderType != "openai" {
+		t.Fatalf("unexpected provider_type: got %q want %q", got.ProviderType, "openai")
+	}
+	if got.Label != "primary" {
+		t.Fatalf("unexpected label: got %q want %q", got.Label, "primary")
+	}
+}
+
+func TestCredentialCreateRejectsUnknownProviderID(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
+	}, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler.credentialManager = credMgr
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	body, err := json.Marshal(map[string]any{
+		"provider_id": "missing-provider",
+		"attributes": map[string]string{
+			"api_key": "sk-test",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal create request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/credentials", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unexpected create status: got %d want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
 func TestCredentialUpdateRejectsProviderStaticAPIKeys(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {

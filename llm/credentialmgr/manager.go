@@ -138,6 +138,7 @@ func (m *Manager) RegisterCredential(ctx context.Context, cred *Credential) erro
 		return fmt.Errorf("credential manager: credential has no provider type")
 	}
 
+	original := cred
 	cred = cred.Clone()
 	if strings.TrimSpace(cred.ID) == "" {
 		cred.ID = uuid.New().String()
@@ -160,6 +161,9 @@ func (m *Manager) RegisterCredential(ctx context.Context, cred *Credential) erro
 
 	m.scheduler.RegisterCredential(cred.Clone())
 	m.hook.OnCredentialRegistered(ctx, cred.Clone())
+	original.ID = cred.ID
+	original.CreatedAt = cred.CreatedAt
+	original.UpdatedAt = cred.UpdatedAt
 	return nil
 }
 
