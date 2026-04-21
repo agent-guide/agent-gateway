@@ -25,7 +25,9 @@ type Handler struct {
 	providerManager   *gateway.ProviderManager
 	mux               *http.ServeMux
 	logger            *zap.Logger
-	cliAuthSessions   sync.Map // cliname -> cliAuthStatus
+	cliAuthMu         sync.RWMutex
+	cliAuthSessions   map[string]cliAuthStatus // login_id -> cliAuthStatus
+	cliAuthActive     map[string]string        // cliname -> login_id
 	sessions          *sessionStore
 	adminUsername     string
 	adminPasswordHash string
@@ -61,6 +63,8 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 		virtualKeyManager: virtualKeyManager,
 		providerManager:   providerManager,
 		logger:            logger,
+		cliAuthSessions:   map[string]cliAuthStatus{},
+		cliAuthActive:     map[string]string{},
 		sessions:          newSessionStore(),
 		adminUsername:     adminUser,
 		adminPasswordHash: adminPasswordHash,

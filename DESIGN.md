@@ -331,11 +331,12 @@ POST /admin/cliauth/authenticators/{authenticator_name}/enable
   -> register authenticator in auth manager
 POST /admin/cliauth/authenticators/{authenticator_name}/login
   -> lookup authenticator
+  -> allocate login_id
   -> start async login goroutine
   -> authenticator.Login()
   -> auth manager RegisterCredential()
   -> persist credential
-  -> poll /admin/cliauth/authenticators/{authenticator_name}/login/status
+  -> poll /admin/cliauth/logins/{login_id}
 ```
 
 The login flow is async because the provider login step may require browser or human interaction.

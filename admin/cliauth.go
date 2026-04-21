@@ -2,6 +2,8 @@ package admin
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"strings"
@@ -14,15 +16,17 @@ import (
 
 // cliAuthStatus tracks the state of an async CLI auth flow.
 type cliAuthStatus struct {
-	Status          string     `json:"status"` // "running", "succeeded", "failed"
-	StartedAt       time.Time  `json:"started_at"`
-	FinishedAt      *time.Time `json:"finished_at,omitempty"`
-	Phase           string     `json:"phase,omitempty"`
-	Message         string     `json:"message,omitempty"`
-	VerificationURL string     `json:"verification_url,omitempty"`
-	UserCode        string     `json:"user_code,omitempty"`
-	Error           string     `json:"error,omitempty"`
-	CredentialID    string     `json:"credential_id,omitempty"`
+	LoginID           string     `json:"login_id"`
+	AuthenticatorName string     `json:"authenticator_name"`
+	Status            string     `json:"status"` // "running", "succeeded", "failed"
+	StartedAt         time.Time  `json:"started_at"`
+	FinishedAt        *time.Time `json:"finished_at,omitempty"`
+	Phase             string     `json:"phase,omitempty"`
+	Message           string     `json:"message,omitempty"`
+	VerificationURL   string     `json:"verification_url,omitempty"`
+	UserCode          string     `json:"user_code,omitempty"`
+	Error             string     `json:"error,omitempty"`
+	CredentialID      string     `json:"credential_id,omitempty"`
 }
 
 func (h *Handler) handleListCLIAuthAuthenticators(w http.ResponseWriter, r *http.Request) {
@@ -105,80 +109,93 @@ func (h *Handler) handleStartCLIAuthAuthenticatorLogin(w http.ResponseWriter, r 
 		return
 	}
 
-	status := &cliAuthStatus{
-		Status:    "running",
-		StartedAt: time.Now().UTC(),
+	loginID, err := generateCLIAuthLoginID()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, "failed to create login session")
+		return
 	}
-	h.storeCLIAuthStatus(requestedName, status)
+
+	status := &cliAuthStatus{
+		LoginID:           loginID,
+		AuthenticatorName: requestedName,
+		Status:            "running",
+		StartedAt:         time.Now().UTC(),
+	}
+	if activeLoginID, conflict := h.startCLIAuthSession(requestedName, status); conflict {
+		_ = httpjson.Error(w, http.StatusConflict, "login already running for "+requestedName+" (login_id="+activeLoginID+")")
+		return
+	}
 
 	// Run the login flow in the background so the HTTP call returns immediately.
 	go func() {
 		ctx := context.Background()
 		reporter := cliAuthStatusReporter{
-			cliname: requestedName,
+			loginID: loginID,
 			handler: h,
 		}
 		cred, err := auth.Login(ctx, reporter)
-		finished := cliAuthStatusSnapshot(status)
+		finished, ok := h.getCLIAuthStatus(loginID)
+		if !ok {
+			finished = cliAuthStatusSnapshot(status)
+		}
 		now := time.Now().UTC()
 		finished.FinishedAt = &now
 		if err != nil {
 			finished.Status = "failed"
 			finished.Error = err.Error()
-			h.storeCLIAuthStatus(requestedName, &finished)
+			h.finishCLIAuthSession(loginID, &finished)
 			h.logger.Error("cli login failed", zap.String("cliname", requestedName), zap.Error(err))
 			return
 		}
 		if regErr := h.cliauthManager.RegisterLoginCredential(ctx, cred); regErr != nil {
 			finished.Status = "failed"
 			finished.Error = regErr.Error()
-			h.storeCLIAuthStatus(requestedName, &finished)
+			h.finishCLIAuthSession(loginID, &finished)
 			h.logger.Error("cli login: register credential failed",
 				zap.String("cliname", requestedName), zap.Error(regErr))
 			return
 		}
 		finished.Status = "succeeded"
 		finished.CredentialID = cred.ID
-		h.storeCLIAuthStatus(requestedName, &finished)
+		h.finishCLIAuthSession(loginID, &finished)
 		h.logger.Info("cli login succeeded",
 			zap.String("cliname", requestedName),
+			zap.String("login_id", loginID),
 			zap.String("credential_id", cred.ID))
 	}()
 
 	_ = httpjson.Write(w, http.StatusAccepted, map[string]string{
+		"login_id":           loginID,
 		"status":             "login_started",
 		"authenticator_name": requestedName,
-		"message":            "CLI login initiated. Poll the login status endpoint for the verification URL and any required user action.",
+		"message":            "CLI login initiated. Poll /admin/cliauth/logins/{login_id} for the verification URL and any required user action.",
 	})
 }
 
-// handleGetCLIAuthAuthenticatorLoginStatus returns the current status of an async CLI auth flow.
-// GET /admin/cliauth/authenticators/{authenticator_name}/login/status
-func (h *Handler) handleGetCLIAuthAuthenticatorLoginStatus(w http.ResponseWriter, r *http.Request) {
-	cliname := strings.ToLower(strings.TrimSpace(r.PathValue("authenticator_name")))
-	if cliname == "" {
-		_ = httpjson.Error(w, http.StatusBadRequest, "authenticator_name is required")
+// handleGetCLIAuthLoginStatus returns the current status of an async CLI auth flow.
+// GET /admin/cliauth/logins/{login_id}
+func (h *Handler) handleGetCLIAuthLoginStatus(w http.ResponseWriter, r *http.Request) {
+	loginID := strings.TrimSpace(r.PathValue("login_id"))
+	if loginID == "" {
+		_ = httpjson.Error(w, http.StatusBadRequest, "login_id is required")
 		return
 	}
 
-	val, ok := h.cliAuthSessions.Load(cliname)
+	status, ok := h.getCLIAuthStatus(loginID)
 	if !ok {
-		_ = httpjson.Error(w, http.StatusNotFound, "no login session found for "+cliname)
-		return
-	}
-	status, ok := val.(cliAuthStatus)
-	if !ok {
-		_ = httpjson.Error(w, http.StatusInternalServerError, "invalid login session state")
+		_ = httpjson.Error(w, http.StatusNotFound, "no login session found for "+loginID)
 		return
 	}
 	_ = httpjson.Write(w, http.StatusOK, status)
 }
 
-func (h *Handler) storeCLIAuthStatus(cliname string, status *cliAuthStatus) {
+func (h *Handler) storeCLIAuthStatus(loginID string, status *cliAuthStatus) {
 	if h == nil || status == nil {
 		return
 	}
-	h.cliAuthSessions.Store(cliname, cliAuthStatusSnapshot(status))
+	h.cliAuthMu.Lock()
+	defer h.cliAuthMu.Unlock()
+	h.cliAuthSessions[loginID] = cliAuthStatusSnapshot(status)
 }
 
 func cliAuthStatusSnapshot(status *cliAuthStatus) cliAuthStatus {
@@ -194,25 +211,72 @@ func cliAuthStatusSnapshot(status *cliAuthStatus) cliAuthStatus {
 }
 
 type cliAuthStatusReporter struct {
-	cliname string
+	loginID string
 	handler *Handler
 }
 
 func (r cliAuthStatusReporter) UpdateLoginStatus(update cliauth.LoginStatusUpdate) {
-	if r.handler == nil || strings.TrimSpace(r.cliname) == "" {
+	if r.handler == nil || strings.TrimSpace(r.loginID) == "" {
 		return
 	}
-	val, ok := r.handler.cliAuthSessions.Load(r.cliname)
+	status, ok := r.handler.getCLIAuthStatus(r.loginID)
 	if !ok {
 		return
 	}
-	current, ok := val.(cliAuthStatus)
-	if !ok {
+	status.Phase = strings.TrimSpace(update.Phase)
+	status.Message = strings.TrimSpace(update.Message)
+	status.VerificationURL = strings.TrimSpace(update.VerificationURL)
+	status.UserCode = strings.TrimSpace(update.UserCode)
+	r.handler.storeCLIAuthStatus(r.loginID, &status)
+}
+
+func (h *Handler) startCLIAuthSession(cliname string, status *cliAuthStatus) (string, bool) {
+	if h == nil || status == nil || strings.TrimSpace(cliname) == "" || strings.TrimSpace(status.LoginID) == "" {
+		return "", true
+	}
+	h.cliAuthMu.Lock()
+	defer h.cliAuthMu.Unlock()
+
+	if activeLoginID, ok := h.cliAuthActive[cliname]; ok {
+		if existing, ok := h.cliAuthSessions[activeLoginID]; ok && existing.Status == "running" {
+			return activeLoginID, true
+		}
+		delete(h.cliAuthActive, cliname)
+	}
+
+	h.cliAuthSessions[status.LoginID] = cliAuthStatusSnapshot(status)
+	h.cliAuthActive[cliname] = status.LoginID
+	return "", false
+}
+
+func (h *Handler) finishCLIAuthSession(loginID string, status *cliAuthStatus) {
+	if h == nil || status == nil || strings.TrimSpace(loginID) == "" {
 		return
 	}
-	current.Phase = strings.TrimSpace(update.Phase)
-	current.Message = strings.TrimSpace(update.Message)
-	current.VerificationURL = strings.TrimSpace(update.VerificationURL)
-	current.UserCode = strings.TrimSpace(update.UserCode)
-	r.handler.storeCLIAuthStatus(r.cliname, &current)
+	h.cliAuthMu.Lock()
+	defer h.cliAuthMu.Unlock()
+
+	snapshot := cliAuthStatusSnapshot(status)
+	h.cliAuthSessions[loginID] = snapshot
+	if activeLoginID, ok := h.cliAuthActive[snapshot.AuthenticatorName]; ok && activeLoginID == loginID {
+		delete(h.cliAuthActive, snapshot.AuthenticatorName)
+	}
+}
+
+func (h *Handler) getCLIAuthStatus(loginID string) (cliAuthStatus, bool) {
+	if h == nil || strings.TrimSpace(loginID) == "" {
+		return cliAuthStatus{}, false
+	}
+	h.cliAuthMu.RLock()
+	defer h.cliAuthMu.RUnlock()
+	status, ok := h.cliAuthSessions[loginID]
+	return status, ok
+}
+
+func generateCLIAuthLoginID() (string, error) {
+	var b [18]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return "clilogin-" + base64.RawURLEncoding.EncodeToString(b[:]), nil
 }

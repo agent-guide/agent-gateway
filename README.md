@@ -452,7 +452,7 @@ curl -X POST http://127.0.0.1:8081/admin/credentials \
 - `POST /admin/cliauth/authenticators/{authenticator_name}/enable`
 - `POST /admin/cliauth/authenticators/{authenticator_name}/disable`
 - `POST /admin/cliauth/authenticators/{authenticator_name}/login`
-- `GET /admin/cliauth/authenticators/{authenticator_name}/login/status`
+- `GET /admin/cliauth/logins/{login_id}`
 
 CLI auth login runs asynchronously on the server. The login endpoint returns `202 Accepted`; poll the status endpoint for completion.
 

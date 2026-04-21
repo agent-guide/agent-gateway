@@ -113,7 +113,7 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodPost, Path: "/admin/cliauth/authenticators/{authenticator_name}/enable", Handler: h.handleEnableCLIAuthAuthenticator, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/cliauth/authenticators/{authenticator_name}/disable", Handler: h.handleDisableCLIAuthAuthenticator, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/cliauth/authenticators/{authenticator_name}/login", Handler: h.handleStartCLIAuthAuthenticatorLogin, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/cliauth/authenticators/{authenticator_name}/login/status", Handler: h.handleGetCLIAuthAuthenticatorLoginStatus, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/cliauth/logins/{login_id}", Handler: h.handleGetCLIAuthLoginStatus, RequireAuth: true},
 
 		// MCP
 		{Method: http.MethodGet, Path: "/admin/mcp/clients", Handler: h.handleListMCPClients, RequireAuth: true},
