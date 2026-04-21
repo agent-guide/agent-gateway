@@ -83,13 +83,16 @@ func TestWrapWithCredentialManagerHonorsAPIKeyFirst(t *testing.T) {
 		t.Fatalf("generate: %v", err)
 	}
 	if base.lastCred == nil {
-		t.Fatal("expected static API key credential")
+		t.Fatal("expected managed credential")
 	}
-	if base.lastCred.ID != "provider-static-api-key:openai" {
-		t.Fatalf("unexpected credential override: got %q", base.lastCred.ID)
+	if base.lastCred.ID != "cred-1" {
+		t.Fatalf("unexpected credential override: got %q want %q", base.lastCred.ID, "cred-1")
 	}
-	if base.lastAPIKey != "static-key" {
-		t.Fatalf("unexpected api key: got %q want static-key", base.lastAPIKey)
+	if base.lastAPIKey != "cred-key" {
+		t.Fatalf("unexpected api key: got %q want cred-key", base.lastAPIKey)
+	}
+	if got := credMgr.GetCredential(StaticAPIKeyCredentialID(base.cfg)); got != nil {
+		t.Fatalf("static api key credential should not be registered, got %+v", got)
 	}
 }
 
@@ -122,60 +125,32 @@ func TestWrapWithCredentialManagerScopesStaticCredentialToProviderID(t *testing.
 	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	if base.lastCred == nil {
-		t.Fatal("expected provider ID scoped static API key credential")
-	}
-	if base.lastCred.ID != "provider-static-api-key:zhipu-test" {
-		t.Fatalf("credential ID = %q, want provider-static-api-key:zhipu-test", base.lastCred.ID)
-	}
-	if base.lastCred.ProviderType != "zhipu" {
-		t.Fatalf("credential provider type = %q, want zhipu", base.lastCred.ProviderType)
-	}
-	if base.lastCred.ProviderID != "zhipu-test" {
-		t.Fatalf("credential provider id = %q, want zhipu-test", base.lastCred.ProviderID)
+	if base.lastCred != nil {
+		t.Fatalf("expected no context credential for static API key fallback, got %+v", base.lastCred)
 	}
 	if base.lastAPIKey != "right-key" {
 		t.Fatalf("api key = %q, want right-key", base.lastAPIKey)
 	}
 }
 
-func TestWrapWithCredentialManagerFallsBackAfterStaticAPIKeyQuota(t *testing.T) {
+func TestWrapWithCredentialManagerFallsBackToStaticAPIKeyWhenManagedCredentialMissing(t *testing.T) {
 	credMgr := newTestCredentialManager()
-	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
-		ID:           "cred-1",
-		ProviderType: "openai",
-		Source:       credentialmgr.SourceCLIAuth,
-		Attributes: map[string]string{
-			"api_key": "cred-key",
-		},
-	}); err != nil {
-		t.Fatalf("register credential: %v", err)
-	}
-
 	base := &testConfigurableProvider{
 		cfg: ProviderConfig{
 			ProviderType: "openai",
 			APIKey:       "static-key",
 			AuthStrategy: AuthStrategyAPIKeyFirst,
 		},
-		errs: []error{NewStatusError(429, "quota exceeded")},
 	}
 	wrapped := WrapWithCredentialManager(base, "openai", credMgr)
-	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{Model: "gpt-test"}); err == nil {
-		t.Fatal("expected first generate to fail")
-	}
-	if base.lastCred == nil || base.lastCred.ID != "provider-static-api-key:openai" {
-		t.Fatalf("expected first call to use static API key, got %+v", base.lastCred)
-	}
-
 	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{Model: "gpt-test"}); err != nil {
-		t.Fatalf("second generate: %v", err)
+		t.Fatalf("generate: %v", err)
 	}
-	if base.lastCred == nil || base.lastCred.ID != "cred-1" {
-		t.Fatalf("expected second call to use managed credential, got %+v", base.lastCred)
+	if base.lastCred != nil {
+		t.Fatalf("expected no context credential for static API key fallback, got %+v", base.lastCred)
 	}
-	if base.lastAPIKey != "cred-key" {
-		t.Fatalf("unexpected api key: got %q want cred-key", base.lastAPIKey)
+	if base.lastAPIKey != "static-key" {
+		t.Fatalf("unexpected api key: got %q want static-key", base.lastAPIKey)
 	}
 }
 

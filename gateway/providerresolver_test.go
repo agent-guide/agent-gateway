@@ -305,9 +305,13 @@ func TestProviderManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	if err := manager.CreateConfig(context.Background(), provider.ProviderConfig{
 		Id:           "test-provider",
 		ProviderType: "test-counting-provider",
+		APIKey:       "create-secret",
 		BaseURL:      "https://created.example",
 	}); err != nil {
 		t.Fatalf("Create returned error: %v", err)
+	}
+	if got := store.items["test-provider"].APIKey; got != "create-secret" {
+		t.Fatalf("stored create api key = %q, want create-secret", got)
 	}
 
 	if _, _, err := manager.ResolveProvider(context.Background(), "test-provider"); err != nil {
@@ -324,9 +328,13 @@ func TestProviderManagerCreateUpdateDeleteManageCache(t *testing.T) {
 
 	if err := manager.UpdateConfig(context.Background(), "test-provider", provider.ProviderConfig{
 		ProviderType: "test-counting-provider",
+		APIKey:       "update-secret",
 		BaseURL:      "https://update-call.example",
 	}); err != nil {
 		t.Fatalf("Update returned error: %v", err)
+	}
+	if got := store.items["test-provider"].APIKey; got != "update-secret" {
+		t.Fatalf("stored update api key = %q, want update-secret", got)
 	}
 
 	cfg, err := manager.GetConfig(context.Background(), "test-provider")
@@ -335,6 +343,9 @@ func TestProviderManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	}
 	if cfg.BaseURL != "https://update-call.example" {
 		t.Fatalf("BaseURL = %q, want https://update-call.example", cfg.BaseURL)
+	}
+	if cfg.APIKey != "update-secret" {
+		t.Fatalf("APIKey = %q, want update-secret", cfg.APIKey)
 	}
 
 	if err := manager.DeleteConfig(context.Background(), "test-provider"); err != nil {
