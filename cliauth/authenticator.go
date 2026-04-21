@@ -15,10 +15,23 @@ type Authenticator interface {
 	// Provider returns the unique provider type this authenticator handles (e.g. "openai", "anthropic").
 	Provider() string
 	// Login initiates the interactive CLI login flow and returns a new Credential on success.
-	Login(ctx context.Context) (*Credential, error)
+	Login(ctx context.Context, reporter LoginStatusReporter) (*Credential, error)
 	// RefreshLead attempts to refresh the given credential before it expires.
 	// Returns nil to indicate no refresh is needed; returns an updated Credential on success.
 	RefreshLead(ctx context.Context, cred *Credential) (*Credential, error)
+}
+
+// LoginStatusUpdate describes a user-visible state transition during an interactive login flow.
+type LoginStatusUpdate struct {
+	Phase           string `json:"phase,omitempty"`
+	Message         string `json:"message,omitempty"`
+	VerificationURL string `json:"verification_url,omitempty"`
+	UserCode        string `json:"user_code,omitempty"`
+}
+
+// LoginStatusReporter receives login progress updates suitable for surfacing via the admin API.
+type LoginStatusReporter interface {
+	UpdateLoginStatus(update LoginStatusUpdate)
 }
 
 // AuthenticatorFactory creates an Authenticator instance.

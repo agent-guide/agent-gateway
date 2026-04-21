@@ -52,7 +52,7 @@ func (a *stubAuthenticator) Provider() string {
 	return a.providerType
 }
 
-func (a *stubAuthenticator) Login(context.Context) (*Credential, error) {
+func (a *stubAuthenticator) Login(context.Context, LoginStatusReporter) (*Credential, error) {
 	return nil, nil
 }
 

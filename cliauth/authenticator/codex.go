@@ -181,14 +181,14 @@ func (a *CodexAuthenticator) Provider() string {
 
 // Login initiates the Codex CLI login flow and returns a new Credential on success.
 // It uses browser-based OAuth PKCE by default; set UseDeviceFlow for headless environments.
-func (a *CodexAuthenticator) Login(ctx context.Context) (*cliauth.Credential, error) {
+func (a *CodexAuthenticator) Login(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if a.UseDeviceFlow {
-		return a.loginWithDeviceFlow(ctx)
+		return a.loginWithDeviceFlow(ctx, reporter)
 	}
-	return a.loginWithBrowser(ctx)
+	return a.loginWithBrowser(ctx, reporter)
 }
 
 // RefreshLead refreshes the credential's access token before it expires.
@@ -218,7 +218,7 @@ func (a *CodexAuthenticator) RefreshLead(ctx context.Context, cred *cliauth.Cred
 
 // ---- Browser-based OAuth PKCE flow ----
 
-func (a *CodexAuthenticator) loginWithBrowser(ctx context.Context) (*cliauth.Credential, error) {
+func (a *CodexAuthenticator) loginWithBrowser(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
 	codeVerifier, codeChallenge, err := generatePKCECodes()
 	if err != nil {
 		return nil, fmt.Errorf("codex: PKCE generation failed: %w", err)
@@ -245,8 +245,13 @@ func (a *CodexAuthenticator) loginWithBrowser(ctx context.Context) (*cliauth.Cre
 	}()
 
 	authURL := buildAuthURL(state, codeChallenge)
+	reportLoginStatus(reporter, cliauth.LoginStatusUpdate{
+		Phase:           "awaiting_browser_auth",
+		Message:         "Open the verification URL in a browser and complete the Codex login flow.",
+		VerificationURL: authURL,
+	})
 
-	if a.NoBrowser {
+	if a.NoBrowser || reporter != nil {
 		fmt.Printf("Visit the following URL to authenticate with Codex:\n%s\n", authURL)
 	} else {
 		fmt.Println("Opening browser for Codex authentication...")
@@ -256,6 +261,11 @@ func (a *CodexAuthenticator) loginWithBrowser(ctx context.Context) (*cliauth.Cre
 	}
 
 	fmt.Println("Waiting for Codex authentication callback...")
+	reportLoginStatus(reporter, cliauth.LoginStatusUpdate{
+		Phase:           "waiting_for_callback",
+		Message:         "Waiting for the Codex OAuth callback after browser verification.",
+		VerificationURL: authURL,
+	})
 
 	code, gotState, err := srv.waitForCallback(codexCallbackTimeout)
 	if err != nil {
@@ -275,7 +285,7 @@ func (a *CodexAuthenticator) loginWithBrowser(ctx context.Context) (*cliauth.Cre
 
 // ---- Device flow ----
 
-func (a *CodexAuthenticator) loginWithDeviceFlow(ctx context.Context) (*cliauth.Credential, error) {
+func (a *CodexAuthenticator) loginWithDeviceFlow(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
 	client := a.httpClient()
 
 	userCodeResp, err := requestDeviceUserCode(ctx, client)
@@ -297,13 +307,25 @@ func (a *CodexAuthenticator) loginWithDeviceFlow(ctx context.Context) (*cliauth.
 	fmt.Printf("Codex device authentication\n")
 	fmt.Printf("  Visit:     %s\n", codexDeviceVerificationURL)
 	fmt.Printf("  User code: %s\n", deviceCode)
+	reportLoginStatus(reporter, cliauth.LoginStatusUpdate{
+		Phase:           "awaiting_device_auth",
+		Message:         "Open the verification URL and enter the user code to continue Codex device authentication.",
+		VerificationURL: codexDeviceVerificationURL,
+		UserCode:        deviceCode,
+	})
 
-	if !a.NoBrowser {
+	if !a.NoBrowser && reporter == nil {
 		if openErr := openBrowser(codexDeviceVerificationURL); openErr != nil {
 			fmt.Printf("Could not open browser automatically. Please visit the URL above.\n")
 		}
 	}
 
+	reportLoginStatus(reporter, cliauth.LoginStatusUpdate{
+		Phase:           "waiting_for_device_confirmation",
+		Message:         "Waiting for Codex device authentication to be completed.",
+		VerificationURL: codexDeviceVerificationURL,
+		UserCode:        deviceCode,
+	})
 	devTokenResp, err := pollDeviceToken(ctx, client, deviceAuthID, deviceCode, pollInterval)
 	if err != nil {
 		return nil, fmt.Errorf("codex device: %w", err)

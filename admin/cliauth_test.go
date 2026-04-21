@@ -15,16 +15,16 @@ import (
 
 type testAuthenticator struct {
 	providerType string
-	loginFn      func(context.Context) (*cliauth.Credential, error)
+	loginFn      func(context.Context, cliauth.LoginStatusReporter) (*cliauth.Credential, error)
 }
 
 func (a *testAuthenticator) Provider() string {
 	return a.providerType
 }
 
-func (a *testAuthenticator) Login(ctx context.Context) (*cliauth.Credential, error) {
+func (a *testAuthenticator) Login(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
 	if a.loginFn != nil {
-		return a.loginFn(ctx)
+		return a.loginFn(ctx, reporter)
 	}
 	return &cliauth.Credential{Credential: credentialmgr.Credential{ProviderType: a.providerType}}, nil
 }
@@ -43,7 +43,7 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 	cliauthMgr := cliauth.NewManager(credMgr, nil)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
 		providerType: "openai",
-		loginFn: func(context.Context) (*cliauth.Credential, error) {
+		loginFn: func(context.Context, cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
 			return &cliauth.Credential{
 				Credential: credentialmgr.Credential{
 					ID:           "cred-openai-1",
@@ -108,7 +108,7 @@ func TestCLIAuthStatusReportsCompletion(t *testing.T) {
 	cliauthMgr := cliauth.NewManager(nil, nil)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
 		providerType: "openai",
-		loginFn: func(context.Context) (*cliauth.Credential, error) {
+		loginFn: func(context.Context, cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
 			time.Sleep(20 * time.Millisecond)
 			return &cliauth.Credential{
 				Credential: credentialmgr.Credential{
@@ -158,6 +158,72 @@ func TestCLIAuthStatusReportsCompletion(t *testing.T) {
 	}
 
 	t.Fatal("cli auth status did not reach succeeded")
+}
+
+func TestCLIAuthStatusIncludesInteractiveInstructions(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	release := make(chan struct{})
+	cliauthMgr := cliauth.NewManager(nil, nil)
+	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
+		providerType: "openai",
+		loginFn: func(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
+			reporter.UpdateLoginStatus(cliauth.LoginStatusUpdate{
+				Phase:           "awaiting_browser_auth",
+				Message:         "Open the verification URL in a browser.",
+				VerificationURL: "https://example.com/login",
+			})
+			<-release
+			return &cliauth.Credential{
+				Credential: credentialmgr.Credential{
+					ID:           "cred-openai-3",
+					ProviderType: "openai",
+				},
+			}, nil
+		},
+	})
+
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	startReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", nil)
+	startReq.Header.Set("Authorization", "Bearer "+token)
+	startRec := httptest.NewRecorder()
+	handler.ServeHTTP(startRec, startReq)
+	if startRec.Code != http.StatusAccepted {
+		t.Fatalf("unexpected start status: got %d want %d", startRec.Code, http.StatusAccepted)
+	}
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		statusReq := httptest.NewRequest(http.MethodGet, "/admin/cliauth/authenticators/codex/login/status", nil)
+		statusReq.Header.Set("Authorization", "Bearer "+token)
+		statusRec := httptest.NewRecorder()
+		handler.ServeHTTP(statusRec, statusReq)
+		if statusRec.Code != http.StatusOK {
+			t.Fatalf("unexpected status code: got %d want %d", statusRec.Code, http.StatusOK)
+		}
+
+		var status cliAuthStatus
+		if err := json.NewDecoder(statusRec.Body).Decode(&status); err != nil {
+			t.Fatalf("decode status response: %v", err)
+		}
+		if status.VerificationURL == "https://example.com/login" {
+			if status.Phase != "awaiting_browser_auth" {
+				t.Fatalf("unexpected phase: got %q want %q", status.Phase, "awaiting_browser_auth")
+			}
+			close(release)
+			return
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	close(release)
+	t.Fatal("cli auth status did not expose verification url")
 }
 
 func TestCLIAuthEnableAndListAuthenticators(t *testing.T) {

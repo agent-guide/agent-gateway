@@ -126,11 +126,11 @@ func (a *ClaudeAuthenticator) Provider() string {
 }
 
 // Login initiates the Claude CLI login flow and returns a new Credential on success.
-func (a *ClaudeAuthenticator) Login(ctx context.Context) (*cliauth.Credential, error) {
+func (a *ClaudeAuthenticator) Login(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return a.loginWithBrowser(ctx)
+	return a.loginWithBrowser(ctx, reporter)
 }
 
 // RefreshLead refreshes the credential's access token before it expires.
@@ -160,7 +160,7 @@ func (a *ClaudeAuthenticator) RefreshLead(ctx context.Context, cred *cliauth.Cre
 
 // ---- Browser-based OAuth PKCE flow ----
 
-func (a *ClaudeAuthenticator) loginWithBrowser(ctx context.Context) (*cliauth.Credential, error) {
+func (a *ClaudeAuthenticator) loginWithBrowser(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
 	codeVerifier, codeChallenge, err := generatePKCECodes()
 	if err != nil {
 		return nil, fmt.Errorf("claude: PKCE generation failed: %w", err)
@@ -187,8 +187,13 @@ func (a *ClaudeAuthenticator) loginWithBrowser(ctx context.Context) (*cliauth.Cr
 	}()
 
 	authURL := buildClaudeAuthURL(state, codeChallenge)
+	reportLoginStatus(reporter, cliauth.LoginStatusUpdate{
+		Phase:           "awaiting_browser_auth",
+		Message:         "Open the verification URL in a browser and complete the Claude login flow.",
+		VerificationURL: authURL,
+	})
 
-	if a.NoBrowser {
+	if a.NoBrowser || reporter != nil {
 		fmt.Printf("Visit the following URL to authenticate with Claude:\n%s\n", authURL)
 	} else {
 		fmt.Println("Opening browser for Claude authentication...")
@@ -198,6 +203,11 @@ func (a *ClaudeAuthenticator) loginWithBrowser(ctx context.Context) (*cliauth.Cr
 	}
 
 	fmt.Println("Waiting for Claude authentication callback...")
+	reportLoginStatus(reporter, cliauth.LoginStatusUpdate{
+		Phase:           "waiting_for_callback",
+		Message:         "Waiting for the Claude OAuth callback after browser verification.",
+		VerificationURL: authURL,
+	})
 
 	code, gotState, err := srv.waitForCallback(claudeCallbackTimeout)
 	if err != nil {

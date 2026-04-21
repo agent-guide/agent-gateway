@@ -14,11 +14,15 @@ import (
 
 // cliAuthStatus tracks the state of an async CLI auth flow.
 type cliAuthStatus struct {
-	Status       string     `json:"status"` // "running", "succeeded", "failed"
-	StartedAt    time.Time  `json:"started_at"`
-	FinishedAt   *time.Time `json:"finished_at,omitempty"`
-	Error        string     `json:"error,omitempty"`
-	CredentialID string     `json:"credential_id,omitempty"`
+	Status          string     `json:"status"` // "running", "succeeded", "failed"
+	StartedAt       time.Time  `json:"started_at"`
+	FinishedAt      *time.Time `json:"finished_at,omitempty"`
+	Phase           string     `json:"phase,omitempty"`
+	Message         string     `json:"message,omitempty"`
+	VerificationURL string     `json:"verification_url,omitempty"`
+	UserCode        string     `json:"user_code,omitempty"`
+	Error           string     `json:"error,omitempty"`
+	CredentialID    string     `json:"credential_id,omitempty"`
 }
 
 func (h *Handler) handleListCLIAuthAuthenticators(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +114,11 @@ func (h *Handler) handleStartCLIAuthAuthenticatorLogin(w http.ResponseWriter, r 
 	// Run the login flow in the background so the HTTP call returns immediately.
 	go func() {
 		ctx := context.Background()
-		cred, err := auth.Login(ctx)
+		reporter := cliAuthStatusReporter{
+			cliname: requestedName,
+			handler: h,
+		}
+		cred, err := auth.Login(ctx, reporter)
 		finished := cliAuthStatusSnapshot(status)
 		now := time.Now().UTC()
 		finished.FinishedAt = &now
@@ -140,7 +148,7 @@ func (h *Handler) handleStartCLIAuthAuthenticatorLogin(w http.ResponseWriter, r 
 	_ = httpjson.Write(w, http.StatusAccepted, map[string]string{
 		"status":             "login_started",
 		"authenticator_name": requestedName,
-		"message":            "CLI login initiated. Complete the provider authentication flow on the server to register the credential.",
+		"message":            "CLI login initiated. Poll the login status endpoint for the verification URL and any required user action.",
 	})
 }
 
@@ -183,4 +191,28 @@ func cliAuthStatusSnapshot(status *cliAuthStatus) cliAuthStatus {
 		snapshot.FinishedAt = &finished
 	}
 	return snapshot
+}
+
+type cliAuthStatusReporter struct {
+	cliname string
+	handler *Handler
+}
+
+func (r cliAuthStatusReporter) UpdateLoginStatus(update cliauth.LoginStatusUpdate) {
+	if r.handler == nil || strings.TrimSpace(r.cliname) == "" {
+		return
+	}
+	val, ok := r.handler.cliAuthSessions.Load(r.cliname)
+	if !ok {
+		return
+	}
+	current, ok := val.(cliAuthStatus)
+	if !ok {
+		return
+	}
+	current.Phase = strings.TrimSpace(update.Phase)
+	current.Message = strings.TrimSpace(update.Message)
+	current.VerificationURL = strings.TrimSpace(update.VerificationURL)
+	current.UserCode = strings.TrimSpace(update.UserCode)
+	r.handler.storeCLIAuthStatus(r.cliname, &current)
 }

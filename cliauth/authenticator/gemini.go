@@ -120,11 +120,11 @@ func (a *GeminiAuthenticator) Provider() string {
 }
 
 // Login initiates the Gemini CLI login flow and returns a new Credential on success.
-func (a *GeminiAuthenticator) Login(ctx context.Context) (*cliauth.Credential, error) {
+func (a *GeminiAuthenticator) Login(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return a.loginWithBrowser(ctx)
+	return a.loginWithBrowser(ctx, reporter)
 }
 
 // RefreshLead refreshes the credential's access token before it expires.
@@ -154,7 +154,7 @@ func (a *GeminiAuthenticator) RefreshLead(ctx context.Context, cred *cliauth.Cre
 
 // ---- Browser-based OAuth2 flow ----
 
-func (a *GeminiAuthenticator) loginWithBrowser(ctx context.Context) (*cliauth.Credential, error) {
+func (a *GeminiAuthenticator) loginWithBrowser(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
 	port := a.CallbackPort
 	if port <= 0 {
 		port = geminiDefaultCallbackPort
@@ -180,8 +180,13 @@ func (a *GeminiAuthenticator) loginWithBrowser(ctx context.Context) (*cliauth.Cr
 	}()
 
 	authURL := conf.AuthCodeURL("state-token", oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent"))
+	reportLoginStatus(reporter, cliauth.LoginStatusUpdate{
+		Phase:           "awaiting_browser_auth",
+		Message:         "Open the verification URL in a browser and complete the Gemini login flow.",
+		VerificationURL: authURL,
+	})
 
-	if a.NoBrowser {
+	if a.NoBrowser || reporter != nil {
 		fmt.Printf("Visit the following URL to authenticate with Gemini:\n%s\n", authURL)
 	} else {
 		fmt.Println("Opening browser for Gemini authentication...")
@@ -191,6 +196,11 @@ func (a *GeminiAuthenticator) loginWithBrowser(ctx context.Context) (*cliauth.Cr
 	}
 
 	fmt.Println("Waiting for Gemini authentication callback...")
+	reportLoginStatus(reporter, cliauth.LoginStatusUpdate{
+		Phase:           "waiting_for_callback",
+		Message:         "Waiting for the Gemini OAuth callback after browser verification.",
+		VerificationURL: authURL,
+	})
 
 	code, err := srv.waitForCallback(geminiCallbackTimeout)
 	if err != nil {
