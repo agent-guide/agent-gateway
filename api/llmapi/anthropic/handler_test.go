@@ -96,8 +96,8 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
 		t.Fatalf("ServeLLMApi returned error: %v", err)
 	}
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusBadGateway)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusTooManyRequests)
 	}
 
 	cred := credMgr.GetCredential("cred-anthropic-1")

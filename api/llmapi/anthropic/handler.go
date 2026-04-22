@@ -124,7 +124,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request, prov pr
 
 	resp, err := prov.Generate(r.Context(), genReq)
 	if err != nil {
-		_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "anthropic", Model: genReq.Model}, w, r, http.StatusBadGateway, err.Error(), fmt.Errorf("generate response: %w", err))
+		_ = api.WriteProviderError(h.logger, api.ErrorContext{Protocol: "anthropic", Model: genReq.Model}, w, r, err, "generate response")
 		return
 	}
 	conv := &Converter{}
@@ -135,7 +135,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 	ctx := r.Context()
 	stream, err := prov.Stream(ctx, genReq)
 	if err != nil {
-		_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "anthropic", Model: genReq.Model}, w, r, http.StatusBadGateway, err.Error(), fmt.Errorf("start stream: %w", err))
+		_ = api.WriteProviderError(h.logger, api.ErrorContext{Protocol: "anthropic", Model: genReq.Model}, w, r, err, "start stream")
 		return
 	}
 	defer stream.Close()

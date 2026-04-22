@@ -1,8 +1,11 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/agent-guide/caddy-agent-gateway/internal/httplog"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
@@ -31,6 +34,8 @@ type ErrorContext struct {
 	Model    string
 }
 
+const StatusClientClosedRequest = 499
+
 func WriteError(logger *zap.Logger, apiName, routeID, model string, w http.ResponseWriter, r *http.Request, err error, message string) error {
 	status := statuserr.StatusCode(err, http.StatusBadGateway)
 	return WriteLoggedError(logger, ErrorContext{
@@ -38,6 +43,26 @@ func WriteError(logger *zap.Logger, apiName, routeID, model string, w http.Respo
 		RouteID:  routeID,
 		Model:    model,
 	}, w, r, status, err.Error(), fmt.Errorf("%s: %w", message, err))
+}
+
+func WriteProviderError(logger *zap.Logger, ctx ErrorContext, w http.ResponseWriter, r *http.Request, err error, phase string) error {
+	status := statuserr.StatusCode(err, http.StatusBadGateway)
+	clientMessage := err.Error()
+	if IsClientCanceled(err) {
+		status = StatusClientClosedRequest
+		clientMessage = "client canceled request"
+	}
+	return WriteLoggedError(logger, ctx, w, r, status, clientMessage, fmt.Errorf("%s: %w", phase, err))
+}
+
+func IsClientCanceled(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "context canceled")
 }
 
 func WriteLoggedError(logger *zap.Logger, ctx ErrorContext, w http.ResponseWriter, r *http.Request, status int, clientMessage string, cause error, fields ...zap.Field) error {

@@ -44,12 +44,24 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Test streaming chat completions.",
     )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=float(os.getenv("AGENT_GATEWAY_TIMEOUT", "30")),
+        help="Client timeout in seconds.",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=int(os.getenv("AGENT_GATEWAY_MAX_TOKENS", "128")),
+        help="Maximum output tokens for the request.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    client = OpenAI(api_key=args.api_key, base_url=args.base_url)
+    client = OpenAI(api_key=args.api_key, base_url=args.base_url, timeout=args.timeout, max_retries=0)
 
     messages = []
     if args.system:
@@ -59,12 +71,13 @@ def main() -> int:
     request = {
         "model": args.model,
         "messages": messages,
-        "max_tokens": 4096,
-        "temperature": 0.2,
+        "max_tokens": args.max_tokens,
     }
+    if not args.model.startswith("gpt-5"):
+        request["temperature"] = 0.2
 
     if args.stream:
-        print("Streaming response:")
+        print(f"Streaming response (timeout={args.timeout}s, max_tokens={args.max_tokens}):")
         stream = client.chat.completions.create(**request, stream=True)
         for chunk in stream:
             if not chunk.choices:
@@ -75,6 +88,7 @@ def main() -> int:
         print()
         return 0
 
+    print(f"Requesting completion (timeout={args.timeout}s, max_tokens={args.max_tokens})...")
     completion = client.chat.completions.create(**request)
     print(completion.choices[0].message.content)
     if completion.usage:

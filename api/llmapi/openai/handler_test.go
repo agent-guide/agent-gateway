@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agent-guide/caddy-agent-gateway/api"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/cloudwego/eino/schema"
@@ -120,8 +121,8 @@ func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
 		t.Fatalf("ServeLLMApi returned error: %v", err)
 	}
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusBadGateway)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusTooManyRequests)
 	}
 
 	cred := credMgr.GetCredential("cred-openai-1")
@@ -134,6 +135,42 @@ func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 	modelState := cred.ModelStates["gpt-4o-mini"]
 	if modelState == nil || !modelState.Quota.Exceeded || !modelState.Unavailable {
 		t.Fatal("expected model state to be marked unavailable and quota exceeded")
+	}
+}
+
+func TestServeLLMApiMapsClientCanceledStreamTo499(t *testing.T) {
+	prov := &testProvider{
+		streamErr: provider.NewStatusError(http.StatusBadGateway, "Post \"https://api.openai.com/v1/chat/completions\": context canceled"),
+	}
+	handler := newHandler()
+
+	body, err := json.Marshal(ChatCompletionRequest{
+		Model:  "gpt-4o-mini",
+		Stream: true,
+		Messages: []ChatMessage{{
+			Role:    "user",
+			Content: "hello",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body)))
+	prepared, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	if rec.Code != api.StatusClientClosedRequest {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, api.StatusClientClosedRequest)
+	}
+	if !strings.Contains(rec.Body.String(), "client canceled request") {
+		t.Fatalf("unexpected error body: %q", rec.Body.String())
 	}
 }
 
