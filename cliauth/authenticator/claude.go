@@ -120,8 +120,8 @@ func (a *ClaudeAuthenticator) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
-// Provider returns the provider type this authenticator handles.
-func (a *ClaudeAuthenticator) Provider() string {
+// ProviderType returns the provider type this authenticator handles.
+func (a *ClaudeAuthenticator) ProviderType() string {
 	return "anthropic"
 }
 
@@ -315,7 +315,7 @@ func (a *ClaudeAuthenticator) buildCredential(tokenResp *claudeTokenResponse) (*
 	cred := &cliauth.Credential{
 		Credential: credentialmgr.Credential{
 			ID:           uuid.New().String(),
-			ProviderType: a.Provider(),
+			ProviderType: a.ProviderType(),
 			Metadata:     make(map[string]any),
 			Attributes:   make(map[string]string),
 		},

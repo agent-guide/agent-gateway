@@ -12,8 +12,8 @@ import (
 // Authenticator handles the CLI login flow for a specific provider.
 // Each concrete implementation covers one CLI tool (e.g. Codex, Claude CLI).
 type Authenticator interface {
-	// Provider returns the unique provider type this authenticator handles (e.g. "openai", "anthropic").
-	Provider() string
+	// ProviderType returns the unique provider type this authenticator handles (e.g. "openai", "anthropic").
+	ProviderType() string
 	// Login initiates the interactive CLI login flow and returns a new Credential on success.
 	Login(ctx context.Context, reporter LoginStatusReporter) (*Credential, error)
 	// RefreshLead attempts to refresh the given credential before it expires.
@@ -56,11 +56,11 @@ type RegisterAuthenticatorOptions struct {
 
 // AuthenticatorState describes a supported or enabled Authenticator.
 type AuthenticatorState struct {
-	Name     string              `json:"name"`
-	Provider string              `json:"provider,omitempty"`
-	Source   AuthenticatorSource `json:"source,omitempty"`
-	ReadOnly bool                `json:"read_only"`
-	Enabled  bool                `json:"enabled"`
+	Name         string              `json:"name"`
+	ProviderType string              `json:"provider_type,omitempty"`
+	Source       AuthenticatorSource `json:"source,omitempty"`
+	ReadOnly     bool                `json:"read_only"`
+	Enabled      bool                `json:"enabled"`
 }
 
 type authenticatorEntry struct {
@@ -73,12 +73,12 @@ var (
 	authFactories = map[string]AuthenticatorFactory{}
 )
 
-// RegisterAuthenticatorFactory registers an Authenticator factory by CLI name.
-func RegisterAuthenticatorFactory(cliname string, factory AuthenticatorFactory) {
+// RegisterAuthenticatorFactory registers an Authenticator factory by CLI Authenticator Type.
+func RegisterAuthenticatorFactory(cliauthType string, factory AuthenticatorFactory) {
 	if factory == nil {
 		return
 	}
-	cliKey := strings.ToLower(strings.TrimSpace(cliname))
+	cliKey := strings.ToLower(strings.TrimSpace(cliauthType))
 	if cliKey == "" {
 		return
 	}
@@ -99,14 +99,14 @@ func NewAuthenticator(cliname string) (Authenticator, error) {
 	return factory()
 }
 
-// ListAuthenticatorNames returns the names of all registered Authenticator factories.
-func ListAuthenticatorNames() []string {
+// ListAuthenticatorTypes returns the types of all registered Authenticator factories.
+func ListAuthenticatorTypes() []string {
 	authFactoryMu.RLock()
 	defer authFactoryMu.RUnlock()
-	names := make([]string, 0, len(authFactories))
-	for name := range authFactories {
-		names = append(names, name)
+	cliauthTypes := make([]string, 0, len(authFactories))
+	for cliauthType := range authFactories {
+		cliauthTypes = append(cliauthTypes, cliauthType)
 	}
-	sort.Strings(names)
-	return names
+	sort.Strings(cliauthTypes)
+	return cliauthTypes
 }

@@ -48,7 +48,7 @@ func (s *stubCredentialStore) Get(context.Context, string) (string, any, error) 
 	return "", nil, nil
 }
 
-func (a *stubAuthenticator) Provider() string {
+func (a *stubAuthenticator) ProviderType() string {
 	return a.providerType
 }
 
@@ -138,21 +138,21 @@ func TestRegisterAuthenticatorFactoryListsNames(t *testing.T) {
 	RegisterAuthenticatorFactory("", factory)
 	RegisterAuthenticatorFactory("gemini", nil)
 
-	names := ListAuthenticatorNames()
+	names := ListAuthenticatorTypes()
 	sort.Strings(names)
 
 	want := []string{"claude", "codex"}
 	if len(names) != len(want) {
-		t.Fatalf("ListAuthenticatorNames() = %v, want %v", names, want)
+		t.Fatalf("ListAuthenticatorTypes() = %v, want %v", names, want)
 	}
 	for i := range want {
 		if names[i] != want[i] {
-			t.Fatalf("ListAuthenticatorNames() = %v, want %v", names, want)
+			t.Fatalf("ListAuthenticatorTypes() = %v, want %v", names, want)
 		}
 	}
 }
 
-func TestListAuthenticatorStatesMergesFactoriesAndEnabledState(t *testing.T) {
+func TestListAuthenticatorStatesListsSupportedAuthenticators(t *testing.T) {
 	authFactoryMu.Lock()
 	originalFactories := authFactories
 	authFactories = map[string]AuthenticatorFactory{}
@@ -180,8 +180,8 @@ func TestListAuthenticatorStatesMergesFactoriesAndEnabledState(t *testing.T) {
 	if len(states) != 2 {
 		t.Fatalf("ListAuthenticatorStates() = %#v, want 2 states", states)
 	}
-	if states[0].Name != "claude" || states[0].Enabled {
-		t.Fatalf("first state = %#v, want disabled claude", states[0])
+	if states[0].Name != "claude" || states[0].Enabled || states[0].ProviderType != "" || states[0].Source != "" || states[0].ReadOnly {
+		t.Fatalf("first state = %#v, want disabled placeholder claude", states[0])
 	}
 	if states[1].Name != "codex" || !states[1].Enabled || !states[1].ReadOnly || states[1].Source != AuthenticatorSourceCaddyfile {
 		t.Fatalf("second state = %#v, want read-only enabled codex", states[1])

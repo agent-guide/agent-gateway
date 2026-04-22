@@ -174,8 +174,8 @@ func (a *CodexAuthenticator) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
-// Provider returns the provider type this authenticator handles.
-func (a *CodexAuthenticator) Provider() string {
+// ProviderType returns the provider type this authenticator handles.
+func (a *CodexAuthenticator) ProviderType() string {
 	return "openai"
 }
 
@@ -449,7 +449,7 @@ func (a *CodexAuthenticator) buildCredential(tokenResp *codexTokenResponse) (*cl
 	cred := &cliauth.Credential{
 		Credential: credentialmgr.Credential{
 			ID:           uuid.New().String(),
-			ProviderType: a.Provider(),
+			ProviderType: a.ProviderType(),
 			Metadata:     make(map[string]any),
 			Attributes:   make(map[string]string),
 		},

@@ -106,24 +106,24 @@ func (m *Manager) RegisterAuthenticatorWithOptions(cliname string, auth Authenti
 	if cliKey == "" {
 		return
 	}
-	providerTypeKey := strings.ToLower(strings.TrimSpace(auth.Provider()))
+	providerTypeKey := strings.ToLower(strings.TrimSpace(auth.ProviderType()))
 	if opts.Source == "" {
 		opts.Source = AuthenticatorSourceRuntime
 	}
 	m.mu.Lock()
-	if previous := m.authenticators[cliKey]; previous != nil && previous.state.Provider != "" {
-		previousProviderKey := strings.ToLower(previous.state.Provider)
+	if previous := m.authenticators[cliKey]; previous != nil && previous.state.ProviderType != "" {
+		previousProviderKey := strings.ToLower(previous.state.ProviderType)
 		if m.providerAuths[previousProviderKey] == cliKey {
 			delete(m.providerAuths, previousProviderKey)
 		}
 	}
 	m.authenticators[cliKey] = &authenticatorEntry{
 		state: AuthenticatorState{
-			Name:     cliKey,
-			Provider: providerTypeKey,
-			Source:   opts.Source,
-			ReadOnly: opts.ReadOnly,
-			Enabled:  true,
+			Name:         cliKey,
+			ProviderType: providerTypeKey,
+			Source:       opts.Source,
+			ReadOnly:     opts.ReadOnly,
+			Enabled:      true,
 		},
 		auth: auth,
 	}
@@ -168,8 +168,8 @@ func (m *Manager) DisableAuthenticator(cliname string) error {
 	if entry.state.ReadOnly {
 		return ErrAuthenticatorReadOnly
 	}
-	if entry.state.Provider != "" {
-		providerKey := strings.ToLower(entry.state.Provider)
+	if entry.state.ProviderType != "" {
+		providerKey := strings.ToLower(entry.state.ProviderType)
 		if m.providerAuths[providerKey] == cliKey {
 			delete(m.providerAuths, providerKey)
 		}
@@ -202,28 +202,18 @@ func (m *Manager) AuthenticatorState(cliname string) (AuthenticatorState, bool) 
 	return entry.state, true
 }
 
-// ListAuthenticatorStates returns supported authenticators merged with enabled runtime state.
+// ListAuthenticatorStates returns all supported authenticators, marking the
+// ones that are currently enabled with their runtime metadata.
 func (m *Manager) ListAuthenticatorStates() []AuthenticatorState {
-	names := ListAuthenticatorNames()
-	seen := make(map[string]struct{}, len(names))
-	out := make([]AuthenticatorState, 0, len(names))
-
+	cliauthTypes := ListAuthenticatorTypes()
+	out := make([]AuthenticatorState, 0, len(m.authenticators))
 	m.mu.RLock()
-	for _, name := range names {
-		seen[name] = struct{}{}
-		if entry := m.authenticators[name]; entry != nil {
+	for _, cliauthName := range cliauthTypes {
+		if entry := m.authenticators[cliauthName]; entry != nil {
 			out = append(out, entry.state)
 			continue
 		}
-		out = append(out, AuthenticatorState{Name: name})
-	}
-	for name, entry := range m.authenticators {
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		if entry != nil {
-			out = append(out, entry.state)
-		}
+		out = append(out, AuthenticatorState{Name: cliauthName})
 	}
 	m.mu.RUnlock()
 

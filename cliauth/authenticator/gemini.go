@@ -114,8 +114,8 @@ func (a *GeminiAuthenticator) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
-// Provider returns the provider type this authenticator handles.
-func (a *GeminiAuthenticator) Provider() string {
+// ProviderType returns the provider type this authenticator handles.
+func (a *GeminiAuthenticator) ProviderType() string {
 	return "gemini"
 }
 
@@ -268,7 +268,7 @@ func (a *GeminiAuthenticator) buildCredential(ctx context.Context, conf *oauth2.
 	cred := &cliauth.Credential{
 		Credential: credentialmgr.Credential{
 			ID:           uuid.New().String(),
-			ProviderType: a.Provider(),
+			ProviderType: a.ProviderType(),
 			Metadata:     make(map[string]any),
 			Attributes:   make(map[string]string),
 		},

@@ -26,7 +26,7 @@ type cliAuthLoginStartResponse struct {
 	Message           string `json:"message"`
 }
 
-func (a *testAuthenticator) Provider() string {
+func (a *testAuthenticator) ProviderType() string {
 	return a.providerType
 }
 

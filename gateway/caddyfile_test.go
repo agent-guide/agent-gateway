@@ -46,7 +46,7 @@ func (m *testAuthenticatorModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) err
 	return nil
 }
 
-func (testAuthenticatorModule) Provider() string { return "test" }
+func (testAuthenticatorModule) ProviderType() string { return "test" }
 
 func (testAuthenticatorModule) Login(context.Context, cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
 	return nil, nil
