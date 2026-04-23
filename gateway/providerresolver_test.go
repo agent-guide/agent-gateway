@@ -151,20 +151,22 @@ func TestProviderManagerResolvePrefersStaticProvider(t *testing.T) {
 		},
 	}
 	manager := NewProviderManager(store)
-	staticProvider := &countingProvider{instance: 999, cfg: provider.ProviderConfig{ProviderType: "static"}}
-	manager.InitStaticProviders(map[string]provider.Provider{
+	staticProvider := &countingProvider{instance: 999, cfg: provider.ProviderConfig{Id: "test-provider", ProviderType: "static"}}
+	if err := manager.InitStaticProviders(map[string]provider.Provider{
 		"test-provider": staticProvider,
-	})
+	}); err != nil {
+		t.Fatalf("InitStaticProviders returned error: %v", err)
+	}
 
-	got, name, err := manager.ResolveProvider(context.Background(), "test-provider")
+	got, err := manager.ResolveProvider(context.Background(), "test-provider")
 	if err != nil {
 		t.Fatalf("ResolveProvider returned error: %v", err)
 	}
 	if got != staticProvider {
 		t.Fatalf("ResolveProvider returned %v, want static provider", got)
 	}
-	if name != "test-provider" {
-		t.Fatalf("provider id = %q, want test-provider", name)
+	if got.Config().Id != "test-provider" {
+		t.Fatalf("static provider config id = %q, want test-provider", got.Config().Id)
 	}
 	if store.getCalls != 0 {
 		t.Fatalf("store get calls = %d, want 0", store.getCalls)
@@ -182,11 +184,11 @@ func TestProviderManagerResolveCachesDynamicProvider(t *testing.T) {
 	manager := NewProviderManager(store)
 	before := currentCountingProviderNextID()
 
-	first, name, err := manager.ResolveProvider(context.Background(), "test-provider")
+	first, err := manager.ResolveProvider(context.Background(), "test-provider")
 	if err != nil {
 		t.Fatalf("first ResolveProvider returned error: %v", err)
 	}
-	second, _, err := manager.ResolveProvider(context.Background(), "test-provider")
+	second, err := manager.ResolveProvider(context.Background(), "test-provider")
 	if err != nil {
 		t.Fatalf("second ResolveProvider returned error: %v", err)
 	}
@@ -194,8 +196,8 @@ func TestProviderManagerResolveCachesDynamicProvider(t *testing.T) {
 	if first != second {
 		t.Fatalf("cached provider mismatch: first=%p second=%p", first, second)
 	}
-	if name != "test-provider" {
-		t.Fatalf("provider id = %q, want test-provider", name)
+	if first.Config().Id != "test-provider" {
+		t.Fatalf("provider id = %q, want test-provider", first.Config().Id)
 	}
 	if store.getCalls != 2 {
 		t.Fatalf("store get calls = %d, want 2", store.getCalls)
@@ -215,7 +217,7 @@ func TestProviderManagerResolveRefreshesProviderWhenConfigChanges(t *testing.T) 
 	}
 	manager := NewProviderManager(store)
 
-	first, _, err := manager.ResolveProvider(context.Background(), "test-provider")
+	first, err := manager.ResolveProvider(context.Background(), "test-provider")
 	if err != nil {
 		t.Fatalf("first ResolveProvider returned error: %v", err)
 	}
@@ -224,7 +226,7 @@ func TestProviderManagerResolveRefreshesProviderWhenConfigChanges(t *testing.T) 
 	store.items["test-provider"] = &provider.ProviderConfig{Id: "test-provider", ProviderType: "test-counting-provider", BaseURL: "https://v2.example"}
 	store.mu.Unlock()
 
-	second, _, err := manager.ResolveProvider(context.Background(), "test-provider")
+	second, err := manager.ResolveProvider(context.Background(), "test-provider")
 	if err != nil {
 		t.Fatalf("second ResolveProvider returned error: %v", err)
 	}
@@ -252,12 +254,14 @@ func TestProviderManagerGetAndListConfigPreferStaticProvider(t *testing.T) {
 		},
 	}
 	manager := NewProviderManager(store)
-	manager.InitStaticProviders(map[string]provider.Provider{
+	if err := manager.InitStaticProviders(map[string]provider.Provider{
 		"test-provider": &countingProvider{
 			instance: 999,
 			cfg:      provider.ProviderConfig{Id: "test-provider", ProviderType: "test-counting-provider", BaseURL: "https://static.example"},
 		},
-	})
+	}); err != nil {
+		t.Fatalf("InitStaticProviders returned error: %v", err)
+	}
 
 	got, err := manager.GetConfig(context.Background(), "test-provider")
 	if err != nil {
@@ -290,7 +294,7 @@ func TestProviderManagerResolveRejectsDisabledProvider(t *testing.T) {
 	}
 	manager := NewProviderManager(store)
 
-	_, _, err := manager.ResolveProvider(context.Background(), "test-provider")
+	_, err := manager.ResolveProvider(context.Background(), "test-provider")
 	if !errors.Is(err, ErrProviderDisabled) {
 		t.Fatalf("ResolveProvider error = %v, want %v", err, ErrProviderDisabled)
 	}
@@ -314,7 +318,7 @@ func TestProviderManagerCreateUpdateDeleteManageCache(t *testing.T) {
 		t.Fatalf("stored create api key = %q, want create-secret", got)
 	}
 
-	if _, _, err := manager.ResolveProvider(context.Background(), "test-provider"); err != nil {
+	if _, err := manager.ResolveProvider(context.Background(), "test-provider"); err != nil {
 		t.Fatalf("ResolveProvider returned error: %v", err)
 	}
 
@@ -360,17 +364,34 @@ func TestProviderManagerRejectsStaticProviderMutation(t *testing.T) {
 	registerCountingProviderFactory()
 
 	manager := NewProviderManager(&testManagedProviderStore{items: map[string]*provider.ProviderConfig{}})
-	manager.InitStaticProviders(map[string]provider.Provider{
+	if err := manager.InitStaticProviders(map[string]provider.Provider{
 		"test-provider": &countingProvider{
 			instance: 999,
 			cfg:      provider.ProviderConfig{Id: "test-provider", ProviderType: "test-counting-provider"},
 		},
-	})
+	}); err != nil {
+		t.Fatalf("InitStaticProviders returned error: %v", err)
+	}
 
 	if err := manager.UpdateConfig(context.Background(), "test-provider", provider.ProviderConfig{ProviderType: "test-counting-provider"}); !errors.Is(err, ErrStaticProviderReadOnly) {
 		t.Fatalf("Update error = %v, want ErrStaticProviderReadOnly", err)
 	}
 	if err := manager.DeleteConfig(context.Background(), "test-provider"); !errors.Is(err, ErrStaticProviderReadOnly) {
 		t.Fatalf("Delete error = %v, want ErrStaticProviderReadOnly", err)
+	}
+}
+
+func TestProviderManagerRejectsStaticProviderWithoutID(t *testing.T) {
+	registerCountingProviderFactory()
+
+	manager := NewProviderManager(nil)
+	err := manager.InitStaticProviders(map[string]provider.Provider{
+		"test-provider": &countingProvider{
+			instance: 999,
+			cfg:      provider.ProviderConfig{ProviderType: "test-counting-provider"},
+		},
+	})
+	if err == nil {
+		t.Fatal("InitStaticProviders returned nil error, want provider id rejection")
 	}
 }

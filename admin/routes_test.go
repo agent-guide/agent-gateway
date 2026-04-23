@@ -937,6 +937,7 @@ func TestCredentialListIncludesProviderStaticAPIKeysAsReadOnly(t *testing.T) {
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
 		ID:           "cred-1",
 		ProviderType: "openai",
+		ProviderID:   "openai-static",
 		Source:       credentialmgr.SourceAPIKey,
 		Attributes:   map[string]string{"api_key": "managed-key"},
 	}); err != nil {

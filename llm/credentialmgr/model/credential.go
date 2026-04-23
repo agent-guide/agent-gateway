@@ -45,6 +45,19 @@ type Credential struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// Normalize canonicalizes stable credential identity fields in-place.
+func (c *Credential) Normalize() *Credential {
+	if c == nil {
+		return nil
+	}
+	c.ID = strings.TrimSpace(c.ID)
+	c.ProviderType = strings.ToLower(strings.TrimSpace(c.ProviderType))
+	c.ProviderID = strings.ToLower(strings.TrimSpace(c.ProviderID))
+	c.Source = strings.ToLower(strings.TrimSpace(c.Source))
+	c.Label = strings.TrimSpace(c.Label)
+	return c
+}
+
 // QuotaState captures quota limiter tracking data for a credential.
 type QuotaState struct {
 	Exceeded      bool      `json:"exceeded"`
@@ -198,7 +211,7 @@ func (c *Credential) Clone() *Credential {
 			cp.ModelStates[k] = v.Clone()
 		}
 	}
-	return &cp
+	return (&cp).Normalize()
 }
 
 // Clone duplicates a ModelState.

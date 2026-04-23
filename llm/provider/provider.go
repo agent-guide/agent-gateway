@@ -49,15 +49,14 @@ type StatusError interface {
 	StatusCode() int
 }
 
-// AuthStrategy controls how a provider instance chooses between static API keys
-// and managed credentials for upstream requests.
+// AuthStrategy controls the preferred order between managed API keys and
+// managed CLI auth tokens. ProviderConfig.APIKey remains a fallback when no
+// managed credential is selected.
 type AuthStrategy string
 
 const (
-	AuthStrategyAPIKeyFirst     AuthStrategy = "api_key_first"
-	AuthStrategyCredentialFirst AuthStrategy = "credential_first"
-	AuthStrategyCredentialOnly  AuthStrategy = "credential_only"
-	AuthStrategyAPIKeyOnly      AuthStrategy = "api_key_only"
+	AuthStrategyManagedAPIKeyFirst       AuthStrategy = "managed_api_key_first"
+	AuthStrategyManagedCLIAuthTokenFirst AuthStrategy = "managed_cliauth_token_first"
 )
 
 // ProviderCapabilities describes what a provider instance supports.
@@ -132,7 +131,7 @@ func (c *NetworkConfig) Timeout() time.Duration {
 func (c *ProviderConfig) Defaults() {
 	c.Network.Defaults()
 	if c.AuthStrategy == "" {
-		c.AuthStrategy = AuthStrategyAPIKeyFirst
+		c.AuthStrategy = AuthStrategyManagedAPIKeyFirst
 	}
 }
 

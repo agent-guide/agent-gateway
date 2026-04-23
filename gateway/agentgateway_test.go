@@ -48,7 +48,7 @@ func (testProvider) Capabilities() provider.ProviderCapabilities {
 }
 
 func (testProvider) Config() provider.ProviderConfig {
-	return provider.ProviderConfig{}
+	return provider.ProviderConfig{Id: "test-provider"}
 }
 
 func TestResolverUsesCustomSelector(t *testing.T) {
@@ -64,9 +64,9 @@ func TestResolverUsesCustomSelector(t *testing.T) {
 	gw := NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
 		StaticRoutes: []routepkg.AgentRoute{route},
-		StaticProviders: map[string]provider.Provider{
-			"openrouter": testProvider{},
-		},
+			StaticProviders: map[string]provider.Provider{
+				"openrouter": staticTestProvider{id: "openrouter"},
+			},
 		Selector: fixedSelector{target: routepkg.RouteTarget{ProviderID: "openrouter"}},
 	}); err != nil {
 		t.Fatalf("Bootstrap returned error: %v", err)
@@ -98,16 +98,40 @@ func TestResolveRejectsDisabledRoute(t *testing.T) {
 			Match:    routepkg.RouteMatch{PathPrefix: "/v1"},
 			Targets:  []routepkg.RouteTarget{{ProviderID: "openai"}},
 		}},
-		StaticProviders: map[string]provider.Provider{
-			"openai": testProvider{},
-		},
-	}); err != nil {
-		t.Fatalf("Bootstrap returned error: %v", err)
-	}
+			StaticProviders: map[string]provider.Provider{
+				"openai": staticTestProvider{id: "openai"},
+			},
+		}); err != nil {
+			t.Fatalf("Bootstrap returned error: %v", err)
+		}
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	_, err := gw.ResolveRoute(context.Background(), req)
 	if err == nil {
 		t.Fatal("ResolveRoute returned nil error, want disabled route rejection")
 	}
+}
+
+type staticTestProvider struct {
+	id string
+}
+
+func (p staticTestProvider) Generate(ctx context.Context, req *provider.GenerateRequest) (*provider.GenerateResponse, error) {
+	return testProvider{}.Generate(ctx, req)
+}
+
+func (p staticTestProvider) Stream(ctx context.Context, req *provider.GenerateRequest) (*schema.StreamReader[*schema.Message], error) {
+	return testProvider{}.Stream(ctx, req)
+}
+
+func (p staticTestProvider) ListModels(ctx context.Context) ([]provider.ModelInfo, error) {
+	return testProvider{}.ListModels(ctx)
+}
+
+func (p staticTestProvider) Capabilities() provider.ProviderCapabilities {
+	return testProvider{}.Capabilities()
+}
+
+func (p staticTestProvider) Config() provider.ProviderConfig {
+	return provider.ProviderConfig{Id: p.id}
 }

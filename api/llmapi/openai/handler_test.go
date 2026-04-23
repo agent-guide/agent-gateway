@@ -20,6 +20,7 @@ type testProvider struct {
 	generateErr  error
 	streamResp   *schema.StreamReader[*schema.Message]
 	streamErr    error
+	cfg          provider.ProviderConfig
 
 	lastGenerateReq *provider.GenerateRequest
 	lastStreamReq   *provider.GenerateRequest
@@ -44,7 +45,7 @@ func (p *testProvider) Capabilities() provider.ProviderCapabilities {
 }
 
 func (p *testProvider) Config() provider.ProviderConfig {
-	return provider.ProviderConfig{}
+	return p.cfg
 }
 
 type testStatusError struct {
@@ -88,15 +89,20 @@ func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
 		ID:           "cred-openai-1",
 		ProviderType: "openai",
-		Source:       credentialmgr.SourceCLIAuth,
+		ProviderID:   "openai",
+		Source:       credentialmgr.SourceAPIKey,
 	}); err != nil {
 		t.Fatalf("register credential: %v", err)
 	}
 
 	baseProv := &testProvider{
 		streamErr: testStatusError{msg: "rate limit", status: http.StatusTooManyRequests},
+		cfg: provider.ProviderConfig{
+			Id:           "openai",
+			ProviderType: "openai",
+		},
 	}
-	prov := provider.WrapWithCredentialManager(baseProv, "openai", credMgr)
+	prov := provider.WrapWithCredentialManager(baseProv, credMgr)
 	handler := newHandler()
 
 	body, err := json.Marshal(ChatCompletionRequest{

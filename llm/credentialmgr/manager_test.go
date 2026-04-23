@@ -3,22 +3,30 @@ package credentialmgr
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestPickWithFilterSelectsRequestedSource(t *testing.T) {
 	mgr := NewManager(nil, nil, nil)
 	for _, cred := range []*Credential{
-		{ID: "api-key", ProviderType: "openai", Source: SourceAPIKey},
-		{ID: "cliauth", ProviderType: "openai", Source: SourceCLIAuth},
+		{ID: "api-key", ProviderType: "openai", ProviderID: "openai", Source: SourceAPIKey},
+		{ID: "cliauth", ProviderType: "openai", ProviderID: "openai", Source: SourceCLIAuthToken},
 	} {
 		if err := mgr.RegisterCredential(context.Background(), cred); err != nil {
 			t.Fatalf("register %s: %v", cred.ID, err)
 		}
 	}
 
-	picked, err := mgr.PickWithFilter(context.Background(), "openai", "gpt-test", nil, Filter{Source: SourceCLIAuth})
+	picked, err := mgr.PickWithFilter(context.Background(), Filter{
+		Source:       SourceCLIAuthToken,
+		ProviderType: "openai",
+		ProviderID:   "openai",
+		Model:        "gpt-test",
+	}, nil)
 	if err != nil {
 		t.Fatalf("PickWithFilter returned error: %v", err)
 	}
@@ -27,11 +35,171 @@ func TestPickWithFilterSelectsRequestedSource(t *testing.T) {
 	}
 }
 
+func TestPickWithFilterSelectsRequestedProviderID(t *testing.T) {
+	mgr := NewManager(nil, nil, nil)
+	for _, cred := range []*Credential{
+		{ID: "openai-main", ProviderType: "openai", ProviderID: "openai-main", Source: SourceAPIKey},
+		{ID: "openai-backup", ProviderType: "openai", ProviderID: "openai-backup", Source: SourceAPIKey},
+	} {
+		if err := mgr.RegisterCredential(context.Background(), cred); err != nil {
+			t.Fatalf("register %s: %v", cred.ID, err)
+		}
+	}
+
+	picked, err := mgr.PickWithFilter(context.Background(), Filter{
+		Source:     SourceAPIKey,
+		ProviderID: "openai-main",
+		Model:      "gpt-test",
+	}, nil)
+	if err != nil {
+		t.Fatalf("PickWithFilter returned error: %v", err)
+	}
+	if picked.ID != "openai-main" {
+		t.Fatalf("picked credential = %q, want openai-main", picked.ID)
+	}
+}
+
+func TestPickWithFilterRejectsMissingProviderID(t *testing.T) {
+	mgr := NewManager(nil, nil, nil)
+
+	_, err := mgr.PickWithFilter(context.Background(), Filter{
+		ProviderType: "openai",
+		Model:        "gpt-test",
+	}, nil)
+	if err == nil {
+		t.Fatal("PickWithFilter returned nil error, want provider_id requirement")
+	}
+}
+
+func TestPickWithFilterReturnsNotFoundWhenFilteredCandidatesAbsent(t *testing.T) {
+	mgr := NewManager(nil, nil, nil)
+	for _, cred := range []*Credential{
+		{ID: "api-key", ProviderType: "openai", ProviderID: "openai", Source: SourceAPIKey},
+		{ID: "api-key-2", ProviderType: "openai", ProviderID: "openai", Source: SourceAPIKey},
+	} {
+		if err := mgr.RegisterCredential(context.Background(), cred); err != nil {
+			t.Fatalf("register %s: %v", cred.ID, err)
+		}
+	}
+
+	_, err := mgr.PickWithFilter(context.Background(), Filter{
+		Source:       SourceCLIAuthToken,
+		ProviderType: "openai",
+		ProviderID:   "openai",
+		Model:        "gpt-test",
+	}, nil)
+	if err == nil {
+		t.Fatal("PickWithFilter returned nil error, want credential_not_found")
+	}
+
+	var credErr *Error
+	if !errors.As(err, &credErr) {
+		t.Fatalf("PickWithFilter error type = %T, want *Error", err)
+	}
+	if credErr.Code != "credential_not_found" {
+		t.Fatalf("error code = %q, want credential_not_found", credErr.Code)
+	}
+}
+
+func TestPickWithFilterReturnsCooldownWhenFilteredCandidatesAllCoolingDown(t *testing.T) {
+	mgr := NewManager(nil, nil, nil)
+	for _, cred := range []*Credential{
+		{ID: "cli-1", ProviderType: "openai", ProviderID: "openai", Source: SourceCLIAuthToken},
+		{ID: "cli-2", ProviderType: "openai", ProviderID: "openai", Source: SourceCLIAuthToken},
+		{ID: "api-key", ProviderType: "openai", ProviderID: "openai", Source: SourceAPIKey},
+	} {
+		if err := mgr.RegisterCredential(context.Background(), cred); err != nil {
+			t.Fatalf("register %s: %v", cred.ID, err)
+		}
+	}
+
+	for _, id := range []string{"cli-1", "cli-2"} {
+		mgr.MarkResult(context.Background(), Result{
+			CredentialID: id,
+			ProviderType: "openai",
+			Model:        "gpt-test",
+			Error: &Error{
+				Message:    "quota exceeded",
+				HTTPStatus: http.StatusTooManyRequests,
+				Retryable:  true,
+			},
+		})
+	}
+
+	_, err := mgr.PickWithFilter(context.Background(), Filter{
+		Source:       SourceCLIAuthToken,
+		ProviderType: "openai",
+		ProviderID:   "openai",
+		Model:        "gpt-test",
+	}, nil)
+	if err == nil {
+		t.Fatal("PickWithFilter returned nil error, want cooldown error")
+	}
+
+	type statusCoder interface {
+		StatusCode() int
+	}
+	var sc statusCoder
+	if !errors.As(err, &sc) {
+		t.Fatalf("PickWithFilter error type = %T, want status code capable error", err)
+	}
+	if sc.StatusCode() != http.StatusTooManyRequests {
+		t.Fatalf("status code = %d, want %d", sc.StatusCode(), http.StatusTooManyRequests)
+	}
+	if !strings.Contains(err.Error(), "retry after") {
+		t.Fatalf("error message = %q, want retry-after hint", err.Error())
+	}
+}
+
+func TestPickWithFilterReturnsUnavailableWhenFilteredCandidateBlockedButNotCoolingDown(t *testing.T) {
+	mgr := NewManager(nil, nil, nil)
+	for _, cred := range []*Credential{
+		{ID: "cli-1", ProviderType: "openai", ProviderID: "openai", Source: SourceCLIAuthToken},
+		{ID: "api-key", ProviderType: "openai", ProviderID: "openai", Source: SourceAPIKey},
+	} {
+		if err := mgr.RegisterCredential(context.Background(), cred); err != nil {
+			t.Fatalf("register %s: %v", cred.ID, err)
+		}
+	}
+
+	retryAfter := 5 * time.Second
+	mgr.MarkResult(context.Background(), Result{
+		CredentialID: "cli-1",
+		ProviderType: "openai",
+		Model:        "gpt-test",
+		RetryAfter:   &retryAfter,
+		Error: &Error{
+			Message:    "upstream temporarily unavailable",
+			HTTPStatus: http.StatusServiceUnavailable,
+			Retryable:  true,
+		},
+	})
+
+	_, err := mgr.PickWithFilter(context.Background(), Filter{
+		Source:       SourceCLIAuthToken,
+		ProviderType: "openai",
+		ProviderID:   "openai",
+		Model:        "gpt-test",
+	}, nil)
+	if err == nil {
+		t.Fatal("PickWithFilter returned nil error, want credential_unavailable")
+	}
+
+	var credErr *Error
+	if !errors.As(err, &credErr) {
+		t.Fatalf("PickWithFilter error type = %T, want *Error", err)
+	}
+	if credErr.Code != "credential_unavailable" {
+		t.Fatalf("error code = %q, want credential_unavailable", credErr.Code)
+	}
+}
+
 func TestMarkResultAppliesQuotaCooldown(t *testing.T) {
 	mgr := NewManager(nil, nil, nil)
 	if err := mgr.RegisterCredential(context.Background(), &Credential{
 		ID:           "cred-1",
 		ProviderType: "openai",
+		ProviderID:   "openai",
 		Source:       SourceAPIKey,
 	}); err != nil {
 		t.Fatalf("register credential: %v", err)

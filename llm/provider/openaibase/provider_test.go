@@ -25,7 +25,7 @@ func TestBaseUsesEmbeddedProviderConfig(t *testing.T) {
 		APIKey:       "test-key",
 		BaseURL:      "http://127.0.0.1:1",
 		Network:      provider.NetworkConfig{TimeoutSeconds: 5},
-		AuthStrategy: provider.AuthStrategyAPIKeyFirst,
+		AuthStrategy: provider.AuthStrategyManagedAPIKeyFirst,
 	}
 	base := NewBase(cfg)
 

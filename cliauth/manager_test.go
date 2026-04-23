@@ -197,6 +197,7 @@ func TestRegisterCredentialPersistsWithCreate(t *testing.T) {
 		Credential: credentialmgr.Credential{
 			ID:           "cred-1",
 			ProviderType: "openai",
+			ProviderID:   "openai-main",
 		},
 	}); err != nil {
 		t.Fatalf("RegisterCredential returned error: %v", err)
@@ -219,6 +220,7 @@ func TestUpdateCredentialPersistsWithUpdate(t *testing.T) {
 		Credential: credentialmgr.Credential{
 			ID:           "cred-1",
 			ProviderType: "openai",
+			ProviderID:   "openai-main",
 		},
 	}); err != nil {
 		t.Fatalf("UpdateCredential returned error: %v", err)
@@ -232,12 +234,14 @@ func TestUpdateCredentialPersistsWithUpdate(t *testing.T) {
 	}
 }
 
-func TestPickReturnsUpdatedCredentialSnapshot(t *testing.T) {
-	mgr := NewManager(credentialmgr.NewManager(nil, nil, nil), nil)
+func TestCredentialManagerReturnsUpdatedCredentialSnapshot(t *testing.T) {
+	commonMgr := credentialmgr.NewManager(nil, nil, nil)
+	mgr := NewManager(commonMgr, nil)
 	if err := mgr.RegisterLoginCredential(context.Background(), &Credential{
 		Credential: credentialmgr.Credential{
 			ID:           "cred-1",
 			ProviderType: "openai",
+			ProviderID:   "openai-main",
 			Attributes: map[string]string{
 				"api_key": "old-key",
 			},
@@ -246,14 +250,11 @@ func TestPickReturnsUpdatedCredentialSnapshot(t *testing.T) {
 		t.Fatalf("RegisterCredential returned error: %v", err)
 	}
 
-	if _, err := mgr.Pick(context.Background(), "openai", "gpt-test", nil); err != nil {
-		t.Fatalf("initial Pick returned error: %v", err)
-	}
-
 	if err := mgr.UpdateCredential(context.Background(), &Credential{
 		Credential: credentialmgr.Credential{
 			ID:           "cred-1",
 			ProviderType: "openai",
+			ProviderID:   "openai-main",
 			Attributes: map[string]string{
 				"api_key": "new-key",
 			},
@@ -262,11 +263,11 @@ func TestPickReturnsUpdatedCredentialSnapshot(t *testing.T) {
 		t.Fatalf("UpdateCredential returned error: %v", err)
 	}
 
-	picked, err := mgr.Pick(context.Background(), "openai", "gpt-test", nil)
-	if err != nil {
-		t.Fatalf("Pick returned error: %v", err)
+	picked := commonMgr.GetCredential("cred-1")
+	if picked == nil {
+		t.Fatal("GetCredential returned nil")
 	}
 	if got := picked.Attributes["api_key"]; got != "new-key" {
-		t.Fatalf("Pick returned stale credential api key: got %q want new-key", got)
+		t.Fatalf("GetCredential returned stale credential api key: got %q want new-key", got)
 	}
 }

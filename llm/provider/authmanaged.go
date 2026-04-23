@@ -15,29 +15,16 @@ const staticAPIKeyCredentialIDPrefix = "provider-static-api-key:"
 
 type authManagedProvider struct {
 	base          Provider
-	providerID    string
 	credentialMgr *credentialmgr.Manager
-	config        ProviderConfig
 }
 
-func WrapWithCredentialManager(base Provider, providerID string, credMgr *credentialmgr.Manager) Provider {
-	if base == nil || credMgr == nil {
+func WrapWithCredentialManager(base Provider, credMgr *credentialmgr.Manager) Provider {
+	if base == nil {
 		return base
 	}
-	cfg := base.Config()
-	if cfg.Id == "" {
-		cfg.Id = providerID
-	}
-	if cfg.ProviderType == "" {
-		cfg.ProviderType = providerID
-	}
-	cfg.Defaults()
-
 	p := &authManagedProvider{
 		base:          base,
-		providerID:    providerID,
 		credentialMgr: credMgr,
-		config:        cfg,
 	}
 	return p
 }
@@ -65,26 +52,37 @@ func (p *authManagedProvider) Capabilities() ProviderCapabilities {
 }
 
 func (p *authManagedProvider) Config() ProviderConfig {
-	return p.config
+	return p.base.Config()
 }
 
 func (p *authManagedProvider) pickCredential(ctx context.Context, model string) (context.Context, *credentialmgr.Credential) {
-	if p.credentialMgr == nil {
+	switch p.base.Config().AuthStrategy {
+	case AuthStrategyManagedCLIAuthTokenFirst:
+		cred := p.pickManagedCredential(ctx, credentialmgr.SourceCLIAuthToken, model)
+		if cred != nil {
+			return WithCredential(ctx, cred), cred
+		}
+		return ctx, nil
+	case AuthStrategyManagedAPIKeyFirst, "":
+		cred := p.pickManagedCredential(ctx, credentialmgr.SourceAPIKey, model)
+		if cred != nil {
+			return WithCredential(ctx, cred), cred
+		}
+		return ctx, nil
+	default:
 		return ctx, nil
 	}
+}
 
-	providerType := strings.TrimSpace(p.config.ProviderType)
-	if providerType == "" {
-		providerType = p.providerID
-	}
-	cred, err := p.credentialMgr.PickWithFilter(ctx, providerType, model, nil, credentialmgr.Filter{Source: credentialmgr.SourceCLIAuth})
+func (p *authManagedProvider) pickManagedCredential(ctx context.Context, source string, model string) *credentialmgr.Credential {
+	filter := credentialmgr.Filter{Source: source, Model: model}
+	filter.ProviderID = p.base.Config().Id
+	filter.ProviderType = p.base.Config().ProviderType
+	cred, err := p.credentialMgr.PickWithFilter(ctx, filter, nil)
 	if err != nil {
-		return ctx, nil
+		return nil
 	}
-	if cred == nil {
-		return ctx, nil
-	}
-	return WithCredential(ctx, cred), cred
+	return cred
 }
 
 func (p *authManagedProvider) markResult(ctx context.Context, cred *credentialmgr.Credential, model string, err error) {
@@ -137,12 +135,7 @@ func StaticAPIKeyCredential(cfg ProviderConfig, providerID string) *credentialmg
 	if baseURL := strings.TrimSpace(cfg.BaseURL); baseURL != "" {
 		attrs["base_url"] = baseURL
 	}
-	switch cfg.AuthStrategy {
-	case AuthStrategyAPIKeyFirst, AuthStrategyAPIKeyOnly, "":
-		attrs["priority"] = "1"
-	case AuthStrategyCredentialFirst:
-		attrs["priority"] = "-1"
-	}
+	attrs["priority"] = "-1"
 	now := time.Now().UTC()
 	return &credentialmgr.Credential{
 		ID:           StaticAPIKeyCredentialID(cfg),

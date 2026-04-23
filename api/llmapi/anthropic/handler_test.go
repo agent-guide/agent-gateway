@@ -15,6 +15,7 @@ import (
 
 type testProvider struct {
 	streamErr error
+	cfg       provider.ProviderConfig
 }
 
 func (p *testProvider) Generate(context.Context, *provider.GenerateRequest) (*provider.GenerateResponse, error) {
@@ -34,7 +35,7 @@ func (p *testProvider) Capabilities() provider.ProviderCapabilities {
 }
 
 func (p *testProvider) Config() provider.ProviderConfig {
-	return provider.ProviderConfig{}
+	return p.cfg
 }
 
 type testStatusError struct {
@@ -59,15 +60,20 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
 		ID:           "cred-anthropic-1",
 		ProviderType: "anthropic",
-		Source:       credentialmgr.SourceCLIAuth,
+		ProviderID:   "anthropic",
+		Source:       credentialmgr.SourceAPIKey,
 	}); err != nil {
 		t.Fatalf("register credential: %v", err)
 	}
 
 	baseProv := &testProvider{
 		streamErr: testStatusError{msg: "rate limit", status: http.StatusTooManyRequests},
+		cfg: provider.ProviderConfig{
+			Id:           "anthropic",
+			ProviderType: "anthropic",
+		},
 	}
-	prov := provider.WrapWithCredentialManager(baseProv, "anthropic", credMgr)
+	prov := provider.WrapWithCredentialManager(baseProv, credMgr)
 	handler := NewHandler(nil)
 
 	body, err := json.Marshal(MessagesRequest{

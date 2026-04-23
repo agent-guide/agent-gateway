@@ -244,7 +244,7 @@ func (m *Manager) Load(ctx context.Context) error {
 	if m.credentialMgr == nil {
 		return nil
 	}
-	for _, common := range m.credentialMgr.ListCredentials(credentialmgr.Filter{Source: credentialmgr.SourceCLIAuth}) {
+	for _, common := range m.credentialMgr.ListCredentials(credentialmgr.Filter{Source: credentialmgr.SourceCLIAuthToken}) {
 		cred := fromCommonCred(common)
 		// StatusRefreshing is a transient in-process state. If it survived a
 		// restart the refresh never completed; reset to Active so the refresh
@@ -283,7 +283,7 @@ func (m *Manager) RegisterLoginCredential(ctx context.Context, cred *Credential)
 		cred.Status = StatusActive
 	}
 	if m.credentialMgr != nil {
-		if err := m.credentialMgr.RegisterCredential(ctx, toCommonCred(cred, credentialmgr.SourceCLIAuth)); err != nil {
+		if err := m.credentialMgr.RegisterCredential(ctx, toCommonCred(cred, credentialmgr.SourceCLIAuthToken)); err != nil {
 			return err
 		}
 	}
@@ -305,7 +305,7 @@ func (m *Manager) UpdateCredential(ctx context.Context, cred *Credential) error 
 	cred.UpdatedAt = time.Now().UTC()
 
 	if m.credentialMgr != nil {
-		if err := m.credentialMgr.UpdateCredential(ctx, toCommonCred(cred, credentialmgr.SourceCLIAuth)); err != nil {
+		if err := m.credentialMgr.UpdateCredential(ctx, toCommonCred(cred, credentialmgr.SourceCLIAuthToken)); err != nil {
 			return err
 		}
 	}
@@ -315,32 +315,6 @@ func (m *Manager) UpdateCredential(ctx context.Context, cred *Credential) error 
 	m.mu.Unlock()
 
 	return nil
-}
-
-// Pick selects the best available credential for the given provider type and model.
-// Tried is an optional set of credential IDs that have already been attempted
-// and should be skipped.
-func (m *Manager) Pick(ctx context.Context, providerType, model string, tried map[string]struct{}) (*Credential, error) {
-	if m == nil {
-		return nil, &Error{Code: "manager_nil", Message: "manager not initialized"}
-	}
-	if m.credentialMgr == nil {
-		return nil, &Error{Code: "manager_nil", Message: "credential manager not initialized"}
-	}
-	common, err := m.credentialMgr.Pick(ctx, providerType, model, tried)
-	if err != nil || common == nil {
-		return nil, err
-	}
-	m.mu.RLock()
-	cred := m.creds[common.ID]
-	m.mu.RUnlock()
-	if cred == nil {
-		cred = fromCommonCred(common)
-		if cred == nil {
-			return nil, &Error{Code: "credential_not_found", Message: "credential not found"}
-		}
-	}
-	return cred.Clone(), nil
 }
 
 // MarkResult records the outcome of a provider request and adjusts credential state
@@ -525,7 +499,7 @@ func toCommonCred(c *Credential, source string) *credentialmgr.Credential {
 		return nil
 	}
 	if source == "" {
-		source = credentialmgr.SourceCLIAuth
+		source = credentialmgr.SourceCLIAuthToken
 	}
 	sc := c.Credential.Clone()
 	sc.Source = source

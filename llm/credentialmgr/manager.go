@@ -3,6 +3,7 @@ package credentialmgr
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -16,8 +17,11 @@ import (
 )
 
 const (
-	SourceAPIKey  = "api_key"
-	SourceCLIAuth = "cliauth"
+	SourceAPIKey       = "api_key"
+	SourceCLIAuthToken = "cliauth_token"
+
+	ProviderScopeProviderType = "type"
+	ProviderScopeProviderID   = "id"
 
 	defaultQuotaBackoffBase = time.Second
 	defaultQuotaBackoffMax  = 30 * time.Minute
@@ -38,9 +42,10 @@ type Result struct {
 }
 
 type Filter struct {
+	Source       string
 	ProviderType string
 	ProviderID   string
-	Source       string
+	Model        string
 }
 
 type Hook interface {
@@ -56,10 +61,11 @@ func (NoopHook) OnCredentialUpdated(context.Context, *Credential)    {}
 func (NoopHook) OnResult(context.Context, Result)                    {}
 
 type Manager struct {
-	store     intf.CredentialStorer
-	scheduler sched.CredentialScheduler
-	strategy  sched.CredentialSelector
-	hook      Hook
+	store         intf.CredentialStorer
+	scheduler     sched.CredentialScheduler
+	selector      sched.CredentialSelector
+	providerScope string
+	hook          Hook
 
 	mu    sync.RWMutex
 	creds map[string]*Credential
@@ -67,17 +73,29 @@ type Manager struct {
 	quotaCooldownDisabled bool
 }
 
-func NewManager(store intf.CredentialStorer, strategy sched.CredentialSelector, hook Hook) *Manager {
+func NewManager(store intf.CredentialStorer, selector sched.CredentialSelector, hook Hook) *Manager {
 	if hook == nil {
 		hook = NoopHook{}
 	}
-	return &Manager{
-		store:     store,
-		strategy:  strategy,
-		hook:      hook,
-		scheduler: sched.NewScheduler(strategy),
-		creds:     make(map[string]*Credential),
+
+	m := &Manager{
+		store:         store,
+		selector:      selector,
+		providerScope: ProviderScopeProviderID,
+		hook:          hook,
+		creds:         make(map[string]*Credential),
 	}
+
+	credentialProviderKey := func(cred *Credential) string {
+		if cred == nil {
+			return ""
+		}
+		providerKey, _ := m.getProviderKey(cred.ProviderID, cred.ProviderType)
+		return providerKey
+	}
+	m.scheduler = sched.NewScheduler(credentialProviderKey, selector)
+
+	return m
 }
 
 func DecodeCredential(data []byte) (any, error) {
@@ -85,17 +103,17 @@ func DecodeCredential(data []byte) (any, error) {
 	if err := json.Unmarshal(data, &c); err != nil {
 		return nil, fmt.Errorf("decode credential object: %w", err)
 	}
-	return &c, nil
+	return c.Normalize(), nil
 }
 
-func (m *Manager) SetStrategy(strategy sched.CredentialSelector) {
+func (m *Manager) SetSelector(selector sched.CredentialSelector) {
 	if m == nil {
 		return
 	}
 	m.mu.Lock()
-	m.strategy = strategy
+	m.selector = selector
 	m.mu.Unlock()
-	m.scheduler.SetStrategy(strategy)
+	m.scheduler.SetSelector(selector)
 }
 
 func (m *Manager) SetQuotaCooldownDisabled(disable bool) {
@@ -134,13 +152,14 @@ func (m *Manager) RegisterCredential(ctx context.Context, cred *Credential) erro
 	if cred == nil {
 		return fmt.Errorf("credential manager: credential is nil")
 	}
-	if strings.TrimSpace(cred.ProviderType) == "" {
-		return fmt.Errorf("credential manager: credential has no provider type")
+	cred = cred.Normalize()
+	if cred.ProviderType == "" || cred.ProviderID == "" {
+		return fmt.Errorf("credential manager: credential has no provider type/id")
 	}
 
 	original := cred
 	cred = cred.Clone()
-	if strings.TrimSpace(cred.ID) == "" {
+	if cred.ID == "" {
 		cred.ID = uuid.New().String()
 	}
 	now := time.Now().UTC()
@@ -175,7 +194,7 @@ func (m *Manager) UpdateCredential(ctx context.Context, cred *Credential) error 
 		return fmt.Errorf("credential manager: credential is nil")
 	}
 
-	cred = cred.Clone()
+	cred = cred.Clone().Normalize()
 	cred.UpdatedAt = time.Now().UTC()
 	if !shouldSkipPersist(ctx) {
 		if err := m.update(ctx, cred); err != nil {
@@ -259,17 +278,31 @@ func (m *Manager) ListCredentials(filter Filter) []*Credential {
 	return out
 }
 
-func (m *Manager) Pick(ctx context.Context, providerType, model string, tried map[string]struct{}) (*Credential, error) {
-	return m.PickWithFilter(ctx, providerType, model, tried, Filter{})
-}
-
-func (m *Manager) PickWithFilter(ctx context.Context, providerType, model string, tried map[string]struct{}, filter Filter) (*Credential, error) {
+func (m *Manager) PickWithFilter(ctx context.Context, filter Filter, tried map[string]struct{}) (*Credential, error) {
 	if m == nil {
 		return nil, &Error{Code: "manager_nil", Message: "credential manager not initialized"}
 	}
+	providerKey, err := m.getProviderKey(filter.ProviderID, filter.ProviderType)
+	if err != nil {
+		return nil, err
+	}
 	localTried := tried
+	predicate := func(cred *Credential) bool {
+		if cred == nil {
+			return false
+		}
+		if len(localTried) > 0 {
+			if _, ok := localTried[cred.ID]; ok {
+				return false
+			}
+		}
+		if !matchFilter(cred, filter) {
+			return false
+		}
+		return true
+	}
 	for {
-		cred, err := m.scheduler.Pick(ctx, providerType, model, localTried)
+		cred, err := m.scheduler.Pick(ctx, providerKey, filter.Model, predicate)
 		if err != nil || cred == nil {
 			return nil, err
 		}
@@ -283,13 +316,7 @@ func (m *Manager) PickWithFilter(ctx context.Context, providerType, model string
 			localTried[cred.ID] = struct{}{}
 			continue
 		}
-		if matchFilter(stored, filter) {
-			return stored.Clone(), nil
-		}
-		if localTried == nil {
-			localTried = make(map[string]struct{})
-		}
-		localTried[cred.ID] = struct{}{}
+		return stored.Clone(), nil
 	}
 }
 
@@ -307,6 +334,27 @@ func matchFilter(cred *Credential, filter Filter) bool {
 		return false
 	}
 	return true
+}
+
+func (m *Manager) getProviderKey(providerID, providerType string) (string, error) {
+	switch m.providerScope {
+	case ProviderScopeProviderID:
+		if providerID == "" {
+			return "", errors.New("provider_id cannot be set")
+		}
+		return strings.ToLower(strings.TrimSpace(m.providerScope + ":" + providerID)), nil
+	case ProviderScopeProviderType:
+		if providerType == "" {
+			return "", errors.New("provider_type cannot be set")
+		}
+		return strings.ToLower(strings.TrimSpace(m.providerScope + ":" + providerType)), nil
+	default:
+		return "", errors.New("provider_scope cannot both empty")
+	}
+}
+
+func (m *Manager) ProviderScope() string {
+	return m.providerScope
 }
 
 func (m *Manager) MarkResult(ctx context.Context, result Result) {

@@ -164,17 +164,14 @@ func (g *AgentGateway) ResolveProvider(ctx context.Context, route routepkg.Agent
 		return nil, err
 	}
 
-	prov, resolvedProviderID, err := resolver.ResolveProvider(ctx, providerID)
+	prov, err := resolver.ResolveProvider(ctx, providerID)
 	if err != nil || prov == nil {
 		if errors.Is(err, ErrProviderDisabled) {
 			return nil, statuserr.New(http.StatusForbidden, fmt.Sprintf("route target provider %q is disabled", providerID))
 		}
 		return nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("route target provider %q is not configured", providerID))
 	}
-	if resolvedProviderID == "" {
-		resolvedProviderID = providerID
-	}
-	prov = g.wrapProvider(prov, resolvedProviderID)
+	prov = g.wrapProvider(prov)
 
 	return prov, nil
 }
@@ -220,11 +217,11 @@ func (g *AgentGateway) selector() routepkg.RouteTargetSelector {
 	return g.Selector
 }
 
-func (g *AgentGateway) wrapProvider(prov provider.Provider, providerID string) provider.Provider {
+func (g *AgentGateway) wrapProvider(prov provider.Provider) provider.Provider {
 	g.mu.RLock()
 	credMgr := g.credentialManager
 	g.mu.RUnlock()
-	return provider.WrapWithCredentialManager(prov, providerID, credMgr)
+	return provider.WrapWithCredentialManager(prov, credMgr)
 }
 
 func (g *AgentGateway) configureConfigStore(configStore configstoreintf.ConfigStorer) {
@@ -284,7 +281,9 @@ func (g *AgentGateway) configureProviderResolver(ctx context.Context, configStor
 	}
 
 	providerManager := NewProviderManager(providerStore)
-	providerManager.InitStaticProviders(staticProviders)
+	if err := providerManager.InitStaticProviders(staticProviders); err != nil {
+		return fmt.Errorf("init static providers: %w", err)
+	}
 	g.providerManager = providerManager
 	return nil
 }

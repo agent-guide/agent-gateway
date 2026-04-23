@@ -13,13 +13,13 @@ import (
 
 // ProviderResolver resolves a provider ID into an executable provider instance.
 type ProviderResolver interface {
-	ResolveProvider(ctx context.Context, providerID string) (provider.Provider, string, error)
+	ResolveProvider(ctx context.Context, providerID string) (provider.Provider, error)
 }
 
 // ProviderResolverFunc adapts a function into ProviderResolver.
-type ProviderResolverFunc func(ctx context.Context, providerID string) (provider.Provider, string, error)
+type ProviderResolverFunc func(ctx context.Context, providerID string) (provider.Provider, error)
 
-func (f ProviderResolverFunc) ResolveProvider(ctx context.Context, providerID string) (provider.Provider, string, error) {
+func (f ProviderResolverFunc) ResolveProvider(ctx context.Context, providerID string) (provider.Provider, error) {
 	return f(ctx, providerID)
 }
 
@@ -58,7 +58,7 @@ func (m *ProviderManager) Reset() {
 	m.dynamicCache = map[string]cachedProviderEntry{}
 }
 
-func (m *ProviderManager) InitStaticProviders(providers map[string]provider.Provider) {
+func (m *ProviderManager) InitStaticProviders(providers map[string]provider.Provider) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -67,8 +67,16 @@ func (m *ProviderManager) InitStaticProviders(providers map[string]provider.Prov
 		if name == "" || prov == nil {
 			continue
 		}
+		cfg := prov.Config()
+		if cfg.Id == "" {
+			return fmt.Errorf("static provider %q: provider id is required", name)
+		}
+		if cfg.Id != name {
+			return fmt.Errorf("static provider %q: provider config id %q must match registration id", name, cfg.Id)
+		}
 		m.staticProviders[name] = prov
 	}
+	return nil
 }
 
 func (m *ProviderManager) IsStatic(providerID string) bool {
@@ -241,9 +249,9 @@ func (m *ProviderManager) DeleteConfig(ctx context.Context, providerID string) e
 // This is intentionally different from AgentRouteManager/VirtualKeyManager, which skip the
 // store on cache hit, because provider config changes (API keys, base URLs) must take
 // effect without a gateway restart.
-func (m *ProviderManager) ResolveProvider(ctx context.Context, providerID string) (provider.Provider, string, error) {
+func (m *ProviderManager) ResolveProvider(ctx context.Context, providerID string) (provider.Provider, error) {
 	if providerID == "" {
-		return nil, "", fmt.Errorf("provider id is required")
+		return nil, fmt.Errorf("provider id is required")
 	}
 
 	m.mu.RLock()
@@ -252,9 +260,9 @@ func (m *ProviderManager) ResolveProvider(ctx context.Context, providerID string
 	if ok {
 		cfg := provider.NormalizeConfig(staticProvider.Config(), providerID, "")
 		if cfg.Disabled {
-			return nil, "", fmt.Errorf("%w: %q", ErrProviderDisabled, providerID)
+			return nil, fmt.Errorf("%w: %q", ErrProviderDisabled, providerID)
 		}
-		return staticProvider, providerID, nil
+		return staticProvider, nil
 	}
 
 	m.mu.RLock()
@@ -262,23 +270,23 @@ func (m *ProviderManager) ResolveProvider(ctx context.Context, providerID string
 	store := m.store
 	m.mu.RUnlock()
 	if store == nil {
-		return nil, "", fmt.Errorf("%w: %q", ErrProviderNotConfigured, providerID)
+		return nil, fmt.Errorf("%w: %q", ErrProviderNotConfigured, providerID)
 	}
 
 	item, err := m.loadDynamicProviderConfig(ctx, providerID, store)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	if ok && cached.cfgJSON == item.fingerprint {
-		return cached.provider, cached.name, nil
+		return cached.provider, nil
 	}
 
 	entry, err := m.buildDynamicProvider(providerID, item)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	m.cacheDynamicProvider(providerID, entry)
-	return entry.provider, entry.name, nil
+	return entry.provider, nil
 }
 
 // cachedProviderEntry holds a cached provider instance and the config fingerprint

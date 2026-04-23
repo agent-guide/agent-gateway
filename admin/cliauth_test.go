@@ -65,6 +65,7 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 				Credential: credentialmgr.Credential{
 					ID:           "cred-openai-1",
 					ProviderType: "openai",
+					ProviderID:   "openai-main",
 					Label:        "test@example.com",
 				},
 			}, nil
@@ -96,6 +97,9 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 		if cred := cliauthMgr.CredentialManager().GetCredential("cred-openai-1"); cred != nil {
 			if cred.ProviderType != "openai" {
 				t.Fatalf("unexpected provider type: got %q want %q", cred.ProviderType, "openai")
+			}
+			if cred.ProviderID != "openai-main" {
+				t.Fatalf("unexpected provider id: got %q want %q", cred.ProviderID, "openai-main")
 			}
 			return
 		}
@@ -139,6 +143,7 @@ func TestCLIAuthStatusReportsCompletion(t *testing.T) {
 				Credential: credentialmgr.Credential{
 					ID:           "cred-openai-2",
 					ProviderType: "openai",
+					ProviderID:   "openai-main",
 				},
 			}, nil
 		},
@@ -217,6 +222,7 @@ func TestCLIAuthStatusIncludesInteractiveInstructions(t *testing.T) {
 				Credential: credentialmgr.Credential{
 					ID:           "cred-openai-3",
 					ProviderType: "openai",
+					ProviderID:   "openai-main",
 				},
 			}, nil
 		},
