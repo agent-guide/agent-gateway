@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
-	sched "github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr/scheduler"
 	"github.com/google/uuid"
 )
 
@@ -68,9 +67,8 @@ type Manager struct {
 	refreshSemaphore chan struct{}
 }
 
-// NewManager constructs a Manager with optional strategy and hook.
-// If strategy is nil, RoundRobinSelector is used. If hook is nil, NoopHook is used.
-func NewManager(credMgr *credentialmgr.Manager, strategy sched.CredentialSelector) *Manager {
+// NewManager constructs a CLI Authenticators Manager.
+func NewManager(credMgr *credentialmgr.Manager) *Manager {
 	m := &Manager{
 		credentialMgr:    credMgr,
 		creds:            make(map[string]*Credential),

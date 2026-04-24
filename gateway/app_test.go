@@ -79,7 +79,7 @@ func (s *testProvisionVirtualKeyStore) Get(_ context.Context, key string) (any, 
 }
 
 func TestProvisionAuthenticatorsWithEmptyConfig(t *testing.T) {
-	app := &App{cliauthManager: cliauth.NewManager(nil, nil)}
+	app := &App{cliauthManager: cliauth.NewManager(nil)}
 
 	if err := app.provisionAuthenticators(caddy.Context{}); err != nil {
 		t.Fatalf("provisionAuthenticators() error = %v", err)

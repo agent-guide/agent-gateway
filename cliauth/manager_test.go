@@ -61,7 +61,7 @@ func (a *stubAuthenticator) RefreshLead(context.Context, *Credential) (*Credenti
 }
 
 func TestRegisterAuthenticatorIndexesProviderKey(t *testing.T) {
-	mgr := NewManager(nil, nil)
+	mgr := NewManager(nil)
 	auth := &stubAuthenticator{providerType: "openai"}
 
 	mgr.RegisterAuthenticator("codex", auth)
@@ -85,7 +85,7 @@ func TestRegisterAuthenticatorIndexesProviderKey(t *testing.T) {
 }
 
 func TestDisableAuthenticatorRemovesRuntimeAuthenticator(t *testing.T) {
-	mgr := NewManager(nil, nil)
+	mgr := NewManager(nil)
 	auth := &stubAuthenticator{providerType: "openai"}
 
 	mgr.RegisterAuthenticator("codex", auth)
@@ -102,7 +102,7 @@ func TestDisableAuthenticatorRemovesRuntimeAuthenticator(t *testing.T) {
 }
 
 func TestDisableAuthenticatorRejectsReadOnlyAuthenticator(t *testing.T) {
-	mgr := NewManager(nil, nil)
+	mgr := NewManager(nil)
 	auth := &stubAuthenticator{providerType: "openai"}
 
 	mgr.RegisterAuthenticatorWithOptions("codex", auth, RegisterAuthenticatorOptions{
@@ -170,7 +170,7 @@ func TestListAuthenticatorStatesListsSupportedAuthenticators(t *testing.T) {
 		return &stubAuthenticator{providerType: "anthropic"}, nil
 	})
 
-	mgr := NewManager(nil, nil)
+	mgr := NewManager(nil)
 	mgr.RegisterAuthenticatorWithOptions("codex", &stubAuthenticator{providerType: "openai"}, RegisterAuthenticatorOptions{
 		Source:   AuthenticatorSourceCaddyfile,
 		ReadOnly: true,
@@ -191,7 +191,7 @@ func TestListAuthenticatorStatesListsSupportedAuthenticators(t *testing.T) {
 func TestRegisterCredentialPersistsWithCreate(t *testing.T) {
 	store := &stubCredentialStore{}
 	credMgr := credentialmgr.NewManager(store, nil, nil)
-	mgr := NewManager(credMgr, nil)
+	mgr := NewManager(credMgr)
 
 	if err := mgr.RegisterLoginCredential(context.Background(), &Credential{
 		Credential: credentialmgr.Credential{
@@ -214,7 +214,7 @@ func TestRegisterCredentialPersistsWithCreate(t *testing.T) {
 func TestUpdateCredentialPersistsWithUpdate(t *testing.T) {
 	store := &stubCredentialStore{}
 	credMgr := credentialmgr.NewManager(store, nil, nil)
-	mgr := NewManager(credMgr, nil)
+	mgr := NewManager(credMgr)
 
 	if err := mgr.UpdateCredential(context.Background(), &Credential{
 		Credential: credentialmgr.Credential{
@@ -236,7 +236,7 @@ func TestUpdateCredentialPersistsWithUpdate(t *testing.T) {
 
 func TestCredentialManagerReturnsUpdatedCredentialSnapshot(t *testing.T) {
 	commonMgr := credentialmgr.NewManager(nil, nil, nil)
-	mgr := NewManager(commonMgr, nil)
+	mgr := NewManager(commonMgr)
 	if err := mgr.RegisterLoginCredential(context.Background(), &Credential{
 		Credential: credentialmgr.Credential{
 			ID:           "cred-1",
