@@ -15,7 +15,7 @@ import (
 )
 
 type CredentialView struct {
-	credentialmgr.Credential
+	credentialmgr.ManagedCredential
 	ReadOnly bool `json:"read_only"`
 }
 
@@ -39,7 +39,7 @@ func (h *Handler) handleListCredentials(w http.ResponseWriter, r *http.Request) 
 		views = append(views, credentialView(item, false))
 	}
 	for _, item := range h.listProviderStaticCredentials(r.Context(), filter) {
-		views = append(views, credentialView(item, true))
+		views = append(views, credentialViewFromSpec(item, true))
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": views})
 }
@@ -61,12 +61,12 @@ func (h *Handler) handleGetCredential(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Write(w, http.StatusOK, credentialView(item, false))
 		return
 	}
-	item = h.getProviderStaticCredential(r.Context(), id)
-	if item == nil {
+	spec := h.getProviderStaticCredential(r.Context(), id)
+	if spec == nil {
 		_ = httpjson.Error(w, http.StatusNotFound, "credential not found")
 		return
 	}
-	_ = httpjson.Write(w, http.StatusOK, credentialView(item, true))
+	_ = httpjson.Write(w, http.StatusOK, credentialViewFromSpec(spec, true))
 }
 
 // credentialCreateRequest is the request body for POST /admin/credentials.
@@ -161,17 +161,18 @@ func (h *Handler) handleUpdateCredential(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	existing.Label = req.Label
-	existing.Disabled = req.Disabled
+	updated := existing.Credential.Clone()
+	updated.Label = req.Label
+	updated.Disabled = req.Disabled
 	if req.Attributes != nil {
-		existing.Attributes = req.Attributes
+		updated.Attributes = req.Attributes
 	}
 
-	if err := h.credentialManager.UpdateCredential(r.Context(), existing); err != nil {
+	if err := h.credentialManager.UpdateCredential(r.Context(), updated); err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = httpjson.Write(w, http.StatusOK, existing)
+	_ = httpjson.Write(w, http.StatusOK, h.credentialManager.GetCredential(id))
 }
 
 func (h *Handler) handleDeleteCredential(w http.ResponseWriter, r *http.Request) {
@@ -196,13 +197,23 @@ func (h *Handler) handleDeleteCredential(w http.ResponseWriter, r *http.Request)
 	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "deleted", "credential_id": id})
 }
 
-func credentialView(cred *credentialmgr.Credential, readOnly bool) CredentialView {
+func credentialView(cred *credentialmgr.ManagedCredential, readOnly bool) CredentialView {
 	if cred == nil {
 		return CredentialView{ReadOnly: readOnly}
 	}
 	return CredentialView{
-		Credential: *cred.Clone(),
-		ReadOnly:   readOnly,
+		ManagedCredential: *cred.Clone(),
+		ReadOnly:          readOnly,
+	}
+}
+
+func credentialViewFromSpec(cred *credentialmgr.Credential, readOnly bool) CredentialView {
+	if cred == nil {
+		return CredentialView{ReadOnly: readOnly}
+	}
+	return CredentialView{
+		ManagedCredential: credentialmgr.ManagedCredential{Credential: *cred.Clone()},
+		ReadOnly:          readOnly,
 	}
 }
 

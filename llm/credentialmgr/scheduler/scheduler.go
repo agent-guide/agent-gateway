@@ -15,27 +15,27 @@ import (
 type CredentialScheduler interface {
 	// Pick selects the best available credential for the given provider scope and model.
 	// tried is an optional set of credential IDs that have already been attempted.
-	Pick(ctx context.Context, providerKey, model string, predicate PredicateCredentialFunc) (*Credential, error)
+	Pick(ctx context.Context, providerKey, model string, predicate PredicateCredentialFunc) (*ManagedCredential, error)
 
 	// SetSelector replaces the active credential selector.
 	SetSelector(s CredentialSelector)
 
 	// RegisterCredential adds a new credential to the scheduler.
-	RegisterCredential(cred *Credential)
+	RegisterCredential(cred *ManagedCredential)
 
 	// UpdateCredential synchronizes updated credential state into the scheduler.
-	UpdateCredential(cred *Credential)
+	UpdateCredential(cred *ManagedCredential)
 
 	// DeregisterCredential removes a credential from the scheduler.
 	DeregisterCredential(id string)
 
 	// Rebuild recreates the complete scheduler state from a credential snapshot.
-	Rebuild(creds []*Credential)
+	Rebuild(creds []*ManagedCredential)
 }
 
-type GetProviderKeyFunc func(cred *Credential) string
+type GetProviderKeyFunc func(cred *ManagedCredential) string
 
-type PredicateCredentialFunc func(cred *Credential) bool
+type PredicateCredentialFunc func(cred *ManagedCredential) bool
 
 // NewScheduler constructs a CredentialScheduler with the given credential selector.
 // If selector is nil, RoundRobinSelector is used.
@@ -70,7 +70,7 @@ type authScheduler struct {
 }
 
 type providerScheduler struct {
-	creds       map[string]*Credential
+	creds       map[string]*ManagedCredential
 	modelShards map[string]*modelScheduler
 }
 
@@ -83,7 +83,7 @@ type modelScheduler struct {
 }
 
 type scheduledCred struct {
-	cred        *Credential
+	cred        *ManagedCredential
 	priority    int
 	state       scheduledState
 	nextRetryAt time.Time
@@ -101,7 +101,7 @@ func (s *authScheduler) SetSelector(selector CredentialSelector) {
 	s.selector = selector
 }
 
-func (s *authScheduler) Rebuild(creds []*Credential) {
+func (s *authScheduler) Rebuild(creds []*ManagedCredential) {
 	if s == nil {
 		return
 	}
@@ -115,15 +115,15 @@ func (s *authScheduler) Rebuild(creds []*Credential) {
 	}
 }
 
-func (s *authScheduler) RegisterCredential(cred *Credential) {
+func (s *authScheduler) RegisterCredential(cred *ManagedCredential) {
 	s.upsert(cred)
 }
 
-func (s *authScheduler) UpdateCredential(cred *Credential) {
+func (s *authScheduler) UpdateCredential(cred *ManagedCredential) {
 	s.upsert(cred)
 }
 
-func (s *authScheduler) upsert(cred *Credential) {
+func (s *authScheduler) upsert(cred *ManagedCredential) {
 	if s == nil {
 		return
 	}
@@ -145,7 +145,7 @@ func (s *authScheduler) DeregisterCredential(id string) {
 	s.removeLocked(id)
 }
 
-func (s *authScheduler) Pick(_ context.Context, providerKey, model string, predicate PredicateCredentialFunc) (*Credential, error) {
+func (s *authScheduler) Pick(_ context.Context, providerKey, model string, predicate PredicateCredentialFunc) (*ManagedCredential, error) {
 	if s == nil {
 		return nil, &Error{Code: "credential_not_found", Message: "no credential available"}
 	}
@@ -170,7 +170,7 @@ func (s *authScheduler) Pick(_ context.Context, providerKey, model string, predi
 	return nil, shard.unavailableErrorLocked(providerKey, model, predicate)
 }
 
-func (s *authScheduler) upsertLocked(cred *Credential, now time.Time) {
+func (s *authScheduler) upsertLocked(cred *ManagedCredential, now time.Time) {
 	if cred == nil {
 		return
 	}
@@ -179,7 +179,7 @@ func (s *authScheduler) upsertLocked(cred *Credential, now time.Time) {
 		return
 	}
 	credID := cred.ID
-	if credID == "" || cred.IsDisabled() {
+	if credID == "" || cred.Disabled {
 		s.removeLocked(credID)
 		return
 	}
@@ -208,7 +208,7 @@ func (s *authScheduler) ensureProviderLocked(providerKey string) *providerSchedu
 	ps := s.providers[providerKey]
 	if ps == nil {
 		ps = &providerScheduler{
-			creds:       make(map[string]*Credential),
+			creds:       make(map[string]*ManagedCredential),
 			modelShards: make(map[string]*modelScheduler),
 		}
 		s.providers[providerKey] = ps
@@ -216,7 +216,7 @@ func (s *authScheduler) ensureProviderLocked(providerKey string) *providerSchedu
 	return ps
 }
 
-func (p *providerScheduler) upsertLocked(cred *Credential, now time.Time) {
+func (p *providerScheduler) upsertLocked(cred *ManagedCredential, now time.Time) {
 	if p == nil || cred == nil {
 		return
 	}
@@ -263,7 +263,7 @@ func (p *providerScheduler) ensureModelLocked(modelKey string, now time.Time) *m
 	return shard
 }
 
-func (m *modelScheduler) upsertEntryLocked(cred *Credential, now time.Time) {
+func (m *modelScheduler) upsertEntryLocked(cred *ManagedCredential, now time.Time) {
 	if m == nil || cred == nil {
 		return
 	}
@@ -344,7 +344,7 @@ func (m *modelScheduler) promoteExpiredLocked(now time.Time) {
 	}
 }
 
-func (m *modelScheduler) pickReadyLocked(selector CredentialSelector, predicate func(*Credential) bool) *Credential {
+func (m *modelScheduler) pickReadyLocked(selector CredentialSelector, predicate func(*ManagedCredential) bool) *ManagedCredential {
 	if m == nil {
 		return nil
 	}
@@ -371,7 +371,7 @@ func (m *modelScheduler) pickReadyLocked(selector CredentialSelector, predicate 
 	return selector.PickFromBucket(m.readyByPriority[bestPriority], predicate)
 }
 
-func hasMatch(bucket *ReadyBucket, predicate func(*Credential) bool) bool {
+func hasMatch(bucket *ReadyBucket, predicate func(*ManagedCredential) bool) bool {
 	for _, cred := range bucket.creds {
 		if predicate == nil || predicate(cred) {
 			return true
@@ -380,7 +380,7 @@ func hasMatch(bucket *ReadyBucket, predicate func(*Credential) bool) bool {
 	return false
 }
 
-func (m *modelScheduler) unavailableErrorLocked(providerType, model string, predicate func(*Credential) bool) error {
+func (m *modelScheduler) unavailableErrorLocked(providerType, model string, predicate func(*ManagedCredential) bool) error {
 	now := time.Now()
 	total := 0
 	cooldownCount := 0
@@ -440,7 +440,7 @@ func (m *modelScheduler) rebuildIndexesLocked() {
 
 	for priority, entries := range byPriority {
 		sort.Slice(entries, func(i, j int) bool { return entries[i].cred.ID < entries[j].cred.ID })
-		creds := make([]*Credential, len(entries))
+		creds := make([]*ManagedCredential, len(entries))
 		for i, e := range entries {
 			creds[i] = e.cred
 		}

@@ -28,6 +28,7 @@ const (
 )
 
 type Credential = model.Credential
+type ManagedCredential = model.ManagedCredential
 type QuotaState = model.QuotaState
 type ModelState = model.ModelState
 type Error = model.Error
@@ -68,7 +69,7 @@ type Manager struct {
 	hook          Hook
 
 	mu    sync.RWMutex
-	creds map[string]*Credential
+	creds map[string]*ManagedCredential
 
 	quotaCooldownDisabled bool
 }
@@ -83,10 +84,10 @@ func NewManager(store intf.CredentialStorer, selector sched.CredentialSelector, 
 		selector:      selector,
 		providerScope: ProviderScopeProviderID,
 		hook:          hook,
-		creds:         make(map[string]*Credential),
+		creds:         make(map[string]*ManagedCredential),
 	}
 
-	credentialProviderKey := func(cred *Credential) string {
+	credentialProviderKey := func(cred *ManagedCredential) string {
 		if cred == nil {
 			return ""
 		}
@@ -175,10 +176,10 @@ func (m *Manager) RegisterCredential(ctx context.Context, cred *Credential) erro
 	}
 
 	m.mu.Lock()
-	m.creds[cred.ID] = cred
+	m.creds[cred.ID] = &ManagedCredential{Credential: *cred}
 	m.mu.Unlock()
 
-	m.scheduler.RegisterCredential(cred.Clone())
+	m.scheduler.RegisterCredential((&ManagedCredential{Credential: *cred}).Clone())
 	m.hook.OnCredentialRegistered(ctx, cred.Clone())
 	original.ID = cred.ID
 	original.CreatedAt = cred.CreatedAt
@@ -203,10 +204,11 @@ func (m *Manager) UpdateCredential(ctx context.Context, cred *Credential) error 
 	}
 
 	m.mu.Lock()
-	m.creds[cred.ID] = cred
+	managed := mergeManagedCredentialLocked(m.creds[cred.ID], cred)
+	m.creds[cred.ID] = managed
 	m.mu.Unlock()
 
-	m.scheduler.UpdateCredential(cred.Clone())
+	m.scheduler.UpdateCredential(managed.Clone())
 	m.hook.OnCredentialUpdated(ctx, cred.Clone())
 	return nil
 }
@@ -237,7 +239,7 @@ func (m *Manager) DeregisterCredential(ctx context.Context, id string) error {
 	return nil
 }
 
-func (m *Manager) GetCredential(id string) *Credential {
+func (m *Manager) GetCredential(id string) *ManagedCredential {
 	if m == nil {
 		return nil
 	}
@@ -249,7 +251,7 @@ func (m *Manager) GetCredential(id string) *Credential {
 	return nil
 }
 
-func (m *Manager) ListCredentials(filter Filter) []*Credential {
+func (m *Manager) ListCredentials(filter Filter) []*ManagedCredential {
 	if m == nil {
 		return nil
 	}
@@ -259,7 +261,7 @@ func (m *Manager) ListCredentials(filter Filter) []*Credential {
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	out := make([]*Credential, 0, len(m.creds))
+	out := make([]*ManagedCredential, 0, len(m.creds))
 	for _, cred := range m.creds {
 		if cred == nil {
 			continue
@@ -278,7 +280,7 @@ func (m *Manager) ListCredentials(filter Filter) []*Credential {
 	return out
 }
 
-func (m *Manager) PickWithFilter(ctx context.Context, filter Filter, tried map[string]struct{}) (*Credential, error) {
+func (m *Manager) PickWithFilter(ctx context.Context, filter Filter, tried map[string]struct{}) (*ManagedCredential, error) {
 	if m == nil {
 		return nil, &Error{Code: "manager_nil", Message: "credential manager not initialized"}
 	}
@@ -287,7 +289,7 @@ func (m *Manager) PickWithFilter(ctx context.Context, filter Filter, tried map[s
 		return nil, err
 	}
 	localTried := tried
-	predicate := func(cred *Credential) bool {
+	predicate := func(cred *ManagedCredential) bool {
 		if cred == nil {
 			return false
 		}
@@ -320,7 +322,7 @@ func (m *Manager) PickWithFilter(ctx context.Context, filter Filter, tried map[s
 	}
 }
 
-func matchFilter(cred *Credential, filter Filter) bool {
+func matchFilter(cred *ManagedCredential, filter Filter) bool {
 	if cred == nil {
 		return false
 	}
@@ -382,22 +384,22 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 	now := time.Now().UTC()
 	changed := false
 	if result.Success {
-		if cred.Unavailable || cred.LastError != nil || cred.Quota.Exceeded {
+		if cred.Unavailable || cred.LastError != nil || cred.Quota.Exceeded || cred.AuthInvalid {
 			cred.Unavailable = false
 			cred.LastError = nil
 			cred.NextRetryAfter = time.Time{}
 			cred.Quota = QuotaState{}
-			cred.Disabled = false
+			cred.AuthInvalid = false
 			changed = true
 		}
 		if result.Model != "" {
 			if state := cred.ModelStates[result.Model]; state != nil {
-				if state.Unavailable || state.LastError != nil || state.Quota.Exceeded || state.Disabled {
+				if state.Unavailable || state.LastError != nil || state.Quota.Exceeded || state.AuthInvalid {
 					state.Unavailable = false
 					state.LastError = nil
 					state.NextRetryAfter = time.Time{}
 					state.Quota = QuotaState{}
-					state.Disabled = false
+					state.AuthInvalid = false
 					state.UpdatedAt = now
 					changed = true
 				}
@@ -422,7 +424,8 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 			cred.Unavailable = true
 			cred.NextRetryAfter = now.Add(backoff)
 		} else if rerr.HTTPStatus == http.StatusUnauthorized || rerr.HTTPStatus == http.StatusForbidden {
-			cred.Disabled = true
+			cred.AuthInvalid = true
+			cred.LastError = rerr
 		} else {
 			cred.LastError = rerr
 			if result.RetryAfter != nil {
@@ -446,7 +449,8 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 				state.Unavailable = true
 				state.NextRetryAfter = cred.NextRetryAfter
 			} else if rerr.HTTPStatus == http.StatusUnauthorized || rerr.HTTPStatus == http.StatusForbidden {
-				state.Disabled = true
+				state.AuthInvalid = true
+				state.LastError = rerr
 			} else {
 				state.LastError = rerr
 				if result.RetryAfter != nil {
@@ -458,8 +462,11 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 	}
 
 	if changed {
-		cred.UpdatedAt = now
-		_ = m.UpdateCredential(ctx, cred)
+		cred.StateUpdatedAt = now
+		m.mu.Lock()
+		m.creds[cred.ID] = cred
+		m.mu.Unlock()
+		m.scheduler.UpdateCredential(cred.Clone())
 	}
 	m.hook.OnResult(ctx, result)
 }
@@ -506,4 +513,31 @@ func computeBackoff(level int, base, maxBackoff time.Duration) time.Duration {
 		d = maxBackoff
 	}
 	return d
+}
+
+func mergeManagedCredentialLocked(existing *ManagedCredential, spec *Credential) *ManagedCredential {
+	managed := &ManagedCredential{Credential: *spec.Clone()}
+	if existing == nil {
+		return managed
+	}
+	managed.Unavailable = existing.Unavailable
+	managed.NextRetryAfter = existing.NextRetryAfter
+	managed.Quota = existing.Quota
+	managed.AuthInvalid = existing.AuthInvalid
+	managed.StateUpdatedAt = existing.StateUpdatedAt
+	if existing.LastError != nil {
+		managed.LastError = &Error{
+			Code:       existing.LastError.Code,
+			Message:    existing.LastError.Message,
+			Retryable:  existing.LastError.Retryable,
+			HTTPStatus: existing.LastError.HTTPStatus,
+		}
+	}
+	if len(existing.ModelStates) > 0 {
+		managed.ModelStates = make(map[string]*ModelState, len(existing.ModelStates))
+		for k, v := range existing.ModelStates {
+			managed.ModelStates[k] = v.Clone()
+		}
+	}
+	return managed
 }

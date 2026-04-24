@@ -502,54 +502,25 @@ func toCommonCred(c *Credential, source string) *credentialmgr.Credential {
 	sc := c.Credential.Clone()
 	sc.Source = source
 	sc.Disabled = c.IsDisabled()
-	if len(c.ModelStates) > 0 {
-		sc.ModelStates = make(map[string]*credentialmgr.ModelState, len(c.ModelStates))
-		for k, v := range c.ModelStates {
-			if v == nil {
-				continue
-			}
-			ms := &credentialmgr.ModelState{
-				Disabled:       v.Status == StatusDisabled,
-				Unavailable:    v.Unavailable,
-				NextRetryAfter: v.NextRetryAfter,
-				UpdatedAt:      v.UpdatedAt,
-				Quota: credentialmgr.QuotaState{
-					Exceeded:      v.Quota.Exceeded,
-					Reason:        v.Quota.Reason,
-					NextRecoverAt: v.Quota.NextRecoverAt,
-					BackoffLevel:  v.Quota.BackoffLevel,
-				},
-			}
-			if v.LastError != nil {
-				ms.LastError = &credentialmgr.Error{
-					Code:       v.LastError.Code,
-					Message:    v.LastError.Message,
-					Retryable:  v.LastError.Retryable,
-					HTTPStatus: v.LastError.HTTPStatus,
-				}
-			}
-			sc.ModelStates[k] = ms
-		}
-	}
 	return sc
 }
 
-func fromCommonCred(c *credentialmgr.Credential) *Credential {
+func fromCommonCred(c *credentialmgr.ManagedCredential) *Credential {
 	if c == nil {
 		return nil
 	}
 	status := StatusActive
-	if c.Disabled {
+	if c.Credential.Disabled {
 		status = StatusDisabled
 	}
 	out := &Credential{
-		Credential: *c.Clone(),
+		Credential: *c.Credential.Clone(),
 		Status:     status,
 	}
-	if out.Unavailable || out.LastError != nil || out.Quota.Exceeded {
+	if c.Unavailable || c.LastError != nil || c.Quota.Exceeded || c.AuthInvalid {
 		out.Status = StatusError
 	}
-	if c.Disabled {
+	if c.Credential.Disabled {
 		out.Status = StatusDisabled
 	}
 	if len(c.ModelStates) > 0 {
@@ -571,7 +542,7 @@ func fromCommonCred(c *credentialmgr.Credential) *Credential {
 				},
 			}
 			switch {
-			case v.Disabled:
+			case v.AuthInvalid:
 				ms.Status = StatusDisabled
 			case v.Unavailable || v.LastError != nil || v.Quota.Exceeded:
 				ms.Status = StatusError

@@ -55,18 +55,18 @@ func (p *authManagedProvider) Config() ProviderConfig {
 	return p.base.Config()
 }
 
-func (p *authManagedProvider) pickCredential(ctx context.Context, model string) (context.Context, *credentialmgr.Credential) {
+func (p *authManagedProvider) pickCredential(ctx context.Context, model string) (context.Context, *credentialmgr.ManagedCredential) {
 	switch p.base.Config().AuthStrategy {
 	case AuthStrategyManagedCLIAuthTokenFirst:
 		cred := p.pickManagedCredential(ctx, credentialmgr.SourceCLIAuthToken, model)
 		if cred != nil {
-			return WithCredential(ctx, cred), cred
+			return WithCredential(ctx, cred.Credential.Clone()), cred
 		}
 		return ctx, nil
 	case AuthStrategyManagedAPIKeyFirst, "":
 		cred := p.pickManagedCredential(ctx, credentialmgr.SourceAPIKey, model)
 		if cred != nil {
-			return WithCredential(ctx, cred), cred
+			return WithCredential(ctx, cred.Credential.Clone()), cred
 		}
 		return ctx, nil
 	default:
@@ -74,7 +74,7 @@ func (p *authManagedProvider) pickCredential(ctx context.Context, model string) 
 	}
 }
 
-func (p *authManagedProvider) pickManagedCredential(ctx context.Context, source string, model string) *credentialmgr.Credential {
+func (p *authManagedProvider) pickManagedCredential(ctx context.Context, source string, model string) *credentialmgr.ManagedCredential {
 	filter := credentialmgr.Filter{Source: source, Model: model}
 	filter.ProviderID = p.base.Config().Id
 	filter.ProviderType = p.base.Config().ProviderType
@@ -85,7 +85,7 @@ func (p *authManagedProvider) pickManagedCredential(ctx context.Context, source 
 	return cred
 }
 
-func (p *authManagedProvider) markResult(ctx context.Context, cred *credentialmgr.Credential, model string, err error) {
+func (p *authManagedProvider) markResult(ctx context.Context, cred *credentialmgr.ManagedCredential, model string, err error) {
 	if cred == nil || p.credentialMgr == nil {
 		return
 	}

@@ -9,12 +9,12 @@ import (
 // CredentialSelector picks a credential from a pre-filtered, priority-sorted ReadyBucket.
 // Implement this interface to provide a custom selection algorithm.
 type CredentialSelector interface {
-	PickFromBucket(bucket *ReadyBucket, predicate func(*Credential) bool) *Credential
+	PickFromBucket(bucket *ReadyBucket, predicate func(*ManagedCredential) bool) *ManagedCredential
 }
 
 // ReadyBucket holds credentials at one priority level that are ready for selection.
 type ReadyBucket struct {
-	creds  []*Credential
+	creds  []*ManagedCredential
 	cursor int
 }
 
@@ -26,7 +26,7 @@ type RoundRobinSelector struct{}
 type FillFirstSelector struct{}
 
 // PickFromBucket picks the next credential using round-robin within the bucket.
-func (s *RoundRobinSelector) PickFromBucket(bucket *ReadyBucket, predicate func(*Credential) bool) *Credential {
+func (s *RoundRobinSelector) PickFromBucket(bucket *ReadyBucket, predicate func(*ManagedCredential) bool) *ManagedCredential {
 	n := len(bucket.creds)
 	if n == 0 {
 		return nil
@@ -45,7 +45,7 @@ func (s *RoundRobinSelector) PickFromBucket(bucket *ReadyBucket, predicate func(
 }
 
 // PickFromBucket picks the first matching credential in the bucket.
-func (s *FillFirstSelector) PickFromBucket(bucket *ReadyBucket, predicate func(*Credential) bool) *Credential {
+func (s *FillFirstSelector) PickFromBucket(bucket *ReadyBucket, predicate func(*ManagedCredential) bool) *ManagedCredential {
 	for _, cred := range bucket.creds {
 		if predicate == nil || predicate(cred) {
 			return cred
@@ -65,11 +65,11 @@ const (
 
 // isCredentialBlockedForModel reports whether a credential is blocked for the given model.
 // Returns (blocked, reason, nextRetry).
-func isCredentialBlockedForModel(cred *Credential, model string, now time.Time) (bool, blockReason, time.Time) {
+func isCredentialBlockedForModel(cred *ManagedCredential, model string, now time.Time) (bool, blockReason, time.Time) {
 	if cred == nil {
 		return true, blockReasonOther, time.Time{}
 	}
-	if cred.IsDisabled() {
+	if cred.Disabled || cred.AuthInvalid {
 		return true, blockReasonDisabled, time.Time{}
 	}
 
@@ -83,7 +83,7 @@ func isCredentialBlockedForModel(cred *Credential, model string, now time.Time) 
 			}
 		}
 		if ok && state != nil {
-			if state.Disabled {
+			if state.AuthInvalid {
 				return true, blockReasonDisabled, time.Time{}
 			}
 			if state.Unavailable && !state.NextRetryAfter.IsZero() && state.NextRetryAfter.After(now) {
@@ -126,7 +126,7 @@ func canonicalModelKey(model string) string {
 }
 
 // credentialPriority returns the scheduling priority for a credential.
-func credentialPriority(cred *Credential) int {
+func credentialPriority(cred *ManagedCredential) int {
 	if cred == nil {
 		return 0
 	}

@@ -8,10 +8,7 @@ import (
 	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
 )
 
-// Credential holds the routing-relevant state for a single upstream credential.
-// It is intentionally decoupled from lifecycle management (refresh scheduling,
-// status tracking) so that both cliauth-managed tokens and static API keys can
-// share the same CredentialScheduler implementation.
+// Credential holds the persisted definition for a single upstream credential.
 type Credential struct {
 	// ID uniquely identifies the credential.
 	ID string `json:"id"`
@@ -29,6 +26,15 @@ type Credential struct {
 	Metadata map[string]any `json:"metadata,omitempty"`
 	// Disabled marks the credential as intentionally excluded from scheduling.
 	Disabled bool `json:"disabled,omitempty"`
+	// CreatedAt is the creation timestamp.
+	CreatedAt time.Time `json:"created_at"`
+	// UpdatedAt is the last modification timestamp.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ManagedCredential wraps a persisted credential with in-memory runtime state.
+type ManagedCredential struct {
+	Credential
 	// Unavailable flags transient provider unavailability (e.g. quota exceeded).
 	Unavailable bool `json:"unavailable,omitempty"`
 	// NextRetryAfter is the earliest time a retry should be attempted.
@@ -39,10 +45,10 @@ type Credential struct {
 	LastError *Error `json:"last_error,omitempty"`
 	// ModelStates tracks per-model runtime availability data.
 	ModelStates map[string]*ModelState `json:"model_states,omitempty"`
-	// CreatedAt is the creation timestamp.
-	CreatedAt time.Time `json:"created_at"`
-	// UpdatedAt is the last modification timestamp.
-	UpdatedAt time.Time `json:"updated_at"`
+	// AuthInvalid flags credentials rejected by upstream authentication (e.g. 401/403).
+	AuthInvalid bool `json:"auth_invalid,omitempty"`
+	// StateUpdatedAt is the last runtime-state update timestamp.
+	StateUpdatedAt time.Time `json:"state_updated_at,omitempty"`
 }
 
 // Normalize canonicalizes stable credential identity fields in-place.
@@ -68,8 +74,6 @@ type QuotaState struct {
 
 // ModelState captures the execution state for a specific model under a credential.
 type ModelState struct {
-	// Disabled marks the model as intentionally excluded from scheduling.
-	Disabled bool `json:"disabled,omitempty"`
 	// Unavailable flags transient unavailability for this model.
 	Unavailable bool `json:"unavailable,omitempty"`
 	// NextRetryAfter is the earliest time this model may be retried.
@@ -78,6 +82,8 @@ type ModelState struct {
 	LastError *Error `json:"last_error,omitempty"`
 	// Quota retains quota information if this model hit rate limits.
 	Quota QuotaState `json:"quota"`
+	// AuthInvalid flags model-specific authentication failure state.
+	AuthInvalid bool `json:"auth_invalid,omitempty"`
 	// UpdatedAt tracks the last update timestamp.
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -107,11 +113,6 @@ func (e *Error) StatusCode() int {
 		return 0
 	}
 	return e.HTTPStatus
-}
-
-// IsDisabled reports whether the credential has been intentionally disabled.
-func (c *Credential) IsDisabled() bool {
-	return c != nil && c.Disabled
 }
 
 // APIKey returns the api_key attribute value, or empty string if not set.
@@ -205,13 +206,31 @@ func (c *Credential) Clone() *Credential {
 			cp.Metadata[k] = v
 		}
 	}
+	return (&cp).Normalize()
+}
+
+// Clone duplicates a ManagedCredential including runtime state.
+func (c *ManagedCredential) Clone() *ManagedCredential {
+	if c == nil {
+		return nil
+	}
+	cp := *c
+	cp.Credential = *c.Credential.Clone()
 	if len(c.ModelStates) > 0 {
 		cp.ModelStates = make(map[string]*ModelState, len(c.ModelStates))
 		for k, v := range c.ModelStates {
 			cp.ModelStates[k] = v.Clone()
 		}
 	}
-	return (&cp).Normalize()
+	if c.LastError != nil {
+		cp.LastError = &Error{
+			Code:       c.LastError.Code,
+			Message:    c.LastError.Message,
+			Retryable:  c.LastError.Retryable,
+			HTTPStatus: c.LastError.HTTPStatus,
+		}
+	}
+	return &cp
 }
 
 // Clone duplicates a ModelState.
