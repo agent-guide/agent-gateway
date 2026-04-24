@@ -94,7 +94,7 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if cred := cliauthMgr.CredentialManager().GetCredential("cred-openai-1"); cred != nil {
+		if cred := credMgr.GetCredential("cred-openai-1"); cred != nil {
 			if cred.ProviderType != "openai" {
 				t.Fatalf("unexpected provider type: got %q want %q", cred.ProviderType, "openai")
 			}

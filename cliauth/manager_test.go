@@ -70,17 +70,12 @@ func TestRegisterAuthenticatorIndexesProviderKey(t *testing.T) {
 		t.Fatalf("GetAuthenticator(codex) = (%v, %v), want registered authenticator", got, ok)
 	}
 
-	refresher := mgr.resolveRefresher("openai")
-	if refresher == nil {
-		t.Fatal("resolveRefresher(openai) returned nil")
+	resolved := mgr.resolveAuthenticator("openai")
+	if resolved == nil {
+		t.Fatal("resolveAuthenticator(openai) returned nil")
 	}
-
-	wrapped, ok := refresher.(*authenticatorRefresher)
-	if !ok {
-		t.Fatalf("resolveRefresher(openai) returned %T, want *authenticatorRefresher", refresher)
-	}
-	if wrapped.auth != auth {
-		t.Fatal("resolveRefresher(openai) did not return the registered authenticator")
+	if resolved != auth {
+		t.Fatal("resolveAuthenticator(openai) did not return the registered authenticator")
 	}
 }
 
@@ -96,8 +91,8 @@ func TestDisableAuthenticatorRemovesRuntimeAuthenticator(t *testing.T) {
 	if _, ok := mgr.GetAuthenticator("codex"); ok {
 		t.Fatal("GetAuthenticator(codex) returned disabled authenticator")
 	}
-	if refresher := mgr.resolveRefresher("openai"); refresher != nil {
-		t.Fatalf("resolveRefresher(openai) = %T, want nil", refresher)
+	if resolved := mgr.resolveAuthenticator("openai"); resolved != nil {
+		t.Fatalf("resolveAuthenticator(openai) = %T, want nil", resolved)
 	}
 }
 

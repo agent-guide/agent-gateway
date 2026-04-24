@@ -17,40 +17,6 @@ const (
 	defaultRefreshMaxConcurrent = 8
 )
 
-// Result captures the execution outcome used to adjust credential state.
-type Result struct {
-	// CredentialID references the credential that produced this result.
-	CredentialID string
-	// ProviderType is copied for convenience.
-	ProviderType string
-	// Model is the upstream model identifier used for the request.
-	Model string
-	// Success marks whether the execution succeeded.
-	Success bool
-	// RetryAfter carries a provider-supplied retry hint (e.g. 429 Retry-After).
-	RetryAfter *time.Duration
-	// Error describes the failure when Success is false.
-	Error *credentialmgr.Error
-}
-
-// Refresher is an optional interface that provider-specific credential managers
-// can implement to refresh expiring credentials.
-type Refresher interface {
-	// Refresh attempts to refresh the credential and returns the updated state.
-	// Returning nil means the credential should be left unchanged.
-	Refresh(ctx context.Context, cred *Credential) (*Credential, error)
-}
-
-// authenticatorRefresher wraps an Authenticator to satisfy the Refresher interface,
-// routing refresh calls through the authenticator's RefreshLead method.
-type authenticatorRefresher struct {
-	auth Authenticator
-}
-
-func (a *authenticatorRefresher) Refresh(ctx context.Context, cred *Credential) (*Credential, error) {
-	return a.auth.RefreshLead(ctx, cred)
-}
-
 // Manager orchestrates credential lifecycle: registration, selection, result
 // feedback, quota tracking, and optional persistence.
 type Manager struct {
@@ -60,7 +26,6 @@ type Manager struct {
 	creds          map[string]*Credential         // credID -> Credential
 	authenticators map[string]*authenticatorEntry // cli key -> Authenticator
 	providerAuths  map[string]string              // providerType key -> cli key
-	refresher      Refresher                      // fallback global refresher
 
 	// Auto-refresh state.
 	refreshCancel    context.CancelFunc
@@ -77,13 +42,6 @@ func NewManager(credMgr *credentialmgr.Manager) *Manager {
 		refreshSemaphore: make(chan struct{}, defaultRefreshMaxConcurrent),
 	}
 	return m
-}
-
-func (m *Manager) CredentialManager() *credentialmgr.Manager {
-	if m == nil {
-		return nil
-	}
-	return m.credentialMgr
 }
 
 // RegisterAuthenticator registers an Authenticator for a CLI name.
@@ -221,21 +179,6 @@ func (m *Manager) ListAuthenticatorStates() []AuthenticatorState {
 	return out
 }
 
-// SetRefresher registers a fallback Refresher used when no Authenticator is registered
-// for a credential's provider type.
-func (m *Manager) SetRefresher(r Refresher) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.refresher = r
-}
-
-// SetQuotaCooldownDisabled toggles quota cooldown scheduling globally.
-func (m *Manager) SetQuotaCooldownDisabled(disable bool) {
-	if m.credentialMgr != nil {
-		m.credentialMgr.SetQuotaCooldownDisabled(disable)
-	}
-}
-
 // Load reads all credentials from the store and registers them in memory.
 // This should be called once during startup.
 func (m *Manager) Load(ctx context.Context) error {
@@ -315,33 +258,8 @@ func (m *Manager) UpdateCredential(ctx context.Context, cred *Credential) error 
 	return nil
 }
 
-// MarkResult records the outcome of a provider request and adjusts credential state
-// (quota tracking, retry scheduling, etc.).
-func (m *Manager) MarkResult(ctx context.Context, result Result) {
-	if m == nil {
-		return
-	}
-	if m.credentialMgr == nil {
-		return
-	}
-	m.credentialMgr.MarkResult(ctx, credentialmgr.Result{
-		CredentialID: result.CredentialID,
-		ProviderType: result.ProviderType,
-		Model:        result.Model,
-		Success:      result.Success,
-		RetryAfter:   result.RetryAfter,
-		Error:        result.Error,
-	})
-	if common := m.credentialMgr.GetCredential(result.CredentialID); common != nil {
-		cred := fromCommonCred(common)
-		m.mu.Lock()
-		m.creds[cred.ID] = cred
-		m.mu.Unlock()
-	}
-}
-
 // StartRefreshLoop starts a background goroutine that periodically checks for
-// expiring credentials and calls the Authenticator's RefreshLead (or fallback Refresher).
+// expiring credentials and calls the matching Authenticator's RefreshLead.
 // Call StopRefreshLoop to shut it down.
 func (m *Manager) StartRefreshLoop(ctx context.Context) {
 	m.mu.Lock()
@@ -384,9 +302,8 @@ func (m *Manager) runRefreshCycle(ctx context.Context) {
 	now := time.Now()
 	candidates := m.snapshotForRefresh(now)
 	for _, cred := range candidates {
-		// Resolve the refresher: prefer registered Authenticator, fall back to global Refresher.
-		refresher := m.resolveRefresher(cred.ProviderType)
-		if refresher == nil {
+		auth := m.resolveAuthenticator(cred.ProviderType)
+		if auth == nil {
 			continue
 		}
 
@@ -396,26 +313,23 @@ func (m *Manager) runRefreshCycle(ctx context.Context) {
 			// Semaphore full; skip this cycle.
 			return
 		}
-		go func(c *Credential, r Refresher) {
+		go func(c *Credential, a Authenticator) {
 			defer func() { <-m.refreshSemaphore }()
-			m.refreshOne(ctx, c, r, now)
-		}(cred, refresher)
+			m.refreshOne(ctx, c, a, now)
+		}(cred, auth)
 	}
 }
 
-// resolveRefresher returns the Refresher for the given provider type.
-// Prefers a registered Authenticator; falls back to the global Refresher.
-func (m *Manager) resolveRefresher(providerType string) Refresher {
+func (m *Manager) resolveAuthenticator(providerType string) Authenticator {
 	key := strings.ToLower(strings.TrimSpace(providerType))
 	m.mu.RLock()
 	cliKey, ok := m.providerAuths[key]
 	entry := m.authenticators[cliKey]
-	fallback := m.refresher
 	m.mu.RUnlock()
 	if ok && entry != nil && entry.auth != nil {
-		return &authenticatorRefresher{auth: entry.auth}
+		return entry.auth
 	}
-	return fallback
+	return nil
 }
 
 func (m *Manager) snapshotForRefresh(now time.Time) []*Credential {
@@ -448,14 +362,14 @@ func needsRefresh(cred *Credential, now time.Time) bool {
 	return false
 }
 
-func (m *Manager) refreshOne(ctx context.Context, cred *Credential, refresher Refresher, now time.Time) {
+func (m *Manager) refreshOne(ctx context.Context, cred *Credential, auth Authenticator, now time.Time) {
 	// Mark as refreshing.
 	refreshing := cred.Clone()
 	refreshing.Status = StatusRefreshing
 	refreshing.UpdatedAt = now
 	_ = m.UpdateCredential(ctx, refreshing)
 
-	updated, err := refresher.Refresh(ctx, cred)
+	updated, err := auth.RefreshLead(ctx, cred)
 	if err != nil {
 		// Refresh failed: mark error and schedule retry.
 		failed := cred.Clone()
@@ -466,7 +380,7 @@ func (m *Manager) refreshOne(ctx context.Context, cred *Credential, refresher Re
 		return
 	}
 	if updated == nil {
-		// Refresher returned nil: leave credential unchanged.
+		// Authenticator returned nil: leave credential unchanged.
 		restored := cred.Clone()
 		restored.Status = StatusActive
 		_ = m.UpdateCredential(ctx, restored)
@@ -478,18 +392,6 @@ func (m *Manager) refreshOne(ctx context.Context, cred *Credential, refresher Re
 		updated.Status = StatusActive
 	}
 	_ = m.UpdateCredential(ctx, updated)
-}
-
-func fromCommonError(e *credentialmgr.Error) *Error {
-	if e == nil {
-		return nil
-	}
-	return &Error{
-		Code:       e.Code,
-		Message:    e.Message,
-		Retryable:  e.Retryable,
-		HTTPStatus: e.HTTPStatus,
-	}
 }
 
 func toCommonCred(c *Credential, source string) *credentialmgr.Credential {
@@ -522,35 +424,6 @@ func fromCommonCred(c *credentialmgr.ManagedCredential) *Credential {
 	}
 	if c.Credential.Disabled {
 		out.Status = StatusDisabled
-	}
-	if len(c.ModelStates) > 0 {
-		out.ModelStates = make(map[string]*ModelState, len(c.ModelStates))
-		for k, v := range c.ModelStates {
-			if v == nil {
-				continue
-			}
-			ms := &ModelState{
-				Unavailable:    v.Unavailable,
-				NextRetryAfter: v.NextRetryAfter,
-				LastError:      fromCommonError(v.LastError),
-				UpdatedAt:      v.UpdatedAt,
-				Quota: QuotaState{
-					Exceeded:      v.Quota.Exceeded,
-					Reason:        v.Quota.Reason,
-					NextRecoverAt: v.Quota.NextRecoverAt,
-					BackoffLevel:  v.Quota.BackoffLevel,
-				},
-			}
-			switch {
-			case v.AuthInvalid:
-				ms.Status = StatusDisabled
-			case v.Unavailable || v.LastError != nil || v.Quota.Exceeded:
-				ms.Status = StatusError
-			default:
-				ms.Status = StatusActive
-			}
-			out.ModelStates[k] = ms
-		}
 	}
 	return out
 }
