@@ -4,12 +4,56 @@ import (
 	"context"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 )
 
 type stubAuthenticator struct {
 	providerType string
+}
+
+type stubCredentialManager struct {
+	getFn      func(string) *credentialmgr.Credential
+	listFn     func(credentialmgr.Filter) []*credentialmgr.Credential
+	registerFn func(context.Context, *credentialmgr.Credential) error
+	updateFn   func(context.Context, *credentialmgr.Credential) error
+	deleteFn   func(context.Context, string) error
+}
+
+func (s *stubCredentialManager) GetCredential(id string) *credentialmgr.Credential {
+	if s.getFn == nil {
+		return nil
+	}
+	return s.getFn(id)
+}
+
+func (s *stubCredentialManager) ListCredentials(filter credentialmgr.Filter) []*credentialmgr.Credential {
+	if s.listFn == nil {
+		return nil
+	}
+	return s.listFn(filter)
+}
+
+func (s *stubCredentialManager) RegisterCredential(ctx context.Context, cred *credentialmgr.Credential) error {
+	if s.registerFn == nil {
+		return nil
+	}
+	return s.registerFn(ctx, cred)
+}
+
+func (s *stubCredentialManager) UpdateCredential(ctx context.Context, cred *credentialmgr.Credential) error {
+	if s.updateFn == nil {
+		return nil
+	}
+	return s.updateFn(ctx, cred)
+}
+
+func (s *stubCredentialManager) DeregisterCredential(ctx context.Context, id string) error {
+	if s.deleteFn == nil {
+		return nil
+	}
+	return s.deleteFn(ctx, id)
 }
 
 type stubCredentialStore struct {
@@ -186,7 +230,7 @@ func TestListAuthenticatorStatesListsSupportedAuthenticators(t *testing.T) {
 func TestRegisterCredentialPersistsWithCreate(t *testing.T) {
 	store := &stubCredentialStore{}
 	credMgr := credentialmgr.NewManager(store, nil, nil)
-	mgr := NewManager(credMgr)
+	mgr := NewManager(WrapSharedCredentialManager(credMgr))
 
 	if err := mgr.RegisterLoginCredential(context.Background(), &Credential{
 		Credential: credentialmgr.Credential{
@@ -209,7 +253,7 @@ func TestRegisterCredentialPersistsWithCreate(t *testing.T) {
 func TestUpdateCredentialPersistsWithUpdate(t *testing.T) {
 	store := &stubCredentialStore{}
 	credMgr := credentialmgr.NewManager(store, nil, nil)
-	mgr := NewManager(credMgr)
+	mgr := NewManager(WrapSharedCredentialManager(credMgr))
 
 	if err := mgr.UpdateCredential(context.Background(), &Credential{
 		Credential: credentialmgr.Credential{
@@ -231,7 +275,7 @@ func TestUpdateCredentialPersistsWithUpdate(t *testing.T) {
 
 func TestCredentialManagerReturnsUpdatedCredentialSnapshot(t *testing.T) {
 	commonMgr := credentialmgr.NewManager(nil, nil, nil)
-	mgr := NewManager(commonMgr)
+	mgr := NewManager(WrapSharedCredentialManager(commonMgr))
 	if err := mgr.RegisterLoginCredential(context.Background(), &Credential{
 		Credential: credentialmgr.Credential{
 			ID:           "cred-1",
@@ -264,5 +308,31 @@ func TestCredentialManagerReturnsUpdatedCredentialSnapshot(t *testing.T) {
 	}
 	if got := picked.Attributes["api_key"]; got != "new-key" {
 		t.Fatalf("GetCredential returned stale credential api key: got %q want new-key", got)
+	}
+}
+
+func TestNewManagerAcceptsCredentialManagerInterface(t *testing.T) {
+	mgr := NewManager(&stubCredentialManager{
+		listFn: func(filter credentialmgr.Filter) []*credentialmgr.Credential {
+			if filter.Source != credentialmgr.SourceCLIAuthToken {
+				t.Fatalf("Load filter source = %q, want %q", filter.Source, credentialmgr.SourceCLIAuthToken)
+			}
+			return []*credentialmgr.Credential{{
+				ID:           "cred-1",
+				ProviderType: "openai",
+				ProviderID:   "openai-main",
+				Source:       credentialmgr.SourceCLIAuthToken,
+			}}
+		},
+	})
+
+	if err := mgr.Load(context.Background()); err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if got := mgr.snapshotForRefresh(time.Time{}); len(got) != 0 {
+		t.Fatalf("snapshotForRefresh() loaded unexpected refresh candidate count: got %d want 0", len(got))
+	}
+	if _, ok := mgr.creds["cred-1"]; !ok {
+		t.Fatal("Load did not store credential from interface-backed manager")
 	}
 }

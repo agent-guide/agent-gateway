@@ -65,7 +65,7 @@ func (a *App) Provision(ctx caddy.Context) error {
 	}
 
 	a.credentialMgr = credentialmgr.NewManager(credentialStore, nil, nil)
-	a.cliauthManager = cliauth.NewManager(a.credentialMgr)
+	a.cliauthManager = cliauth.NewManager(cliauth.WrapSharedCredentialManager(a.credentialMgr))
 	if err := a.provisionProviders(ctx); err != nil {
 		return fmt.Errorf("provision providers: %w", err)
 	}

@@ -17,10 +17,80 @@ const (
 	defaultRefreshMaxConcurrent = 8
 )
 
+// CredentialManager captures the credential store/snapshot operations cliauth
+// needs from the shared credential manager.
+type CredentialManager interface {
+	GetCredential(id string) *credentialmgr.Credential
+	ListCredentials(filter credentialmgr.Filter) []*credentialmgr.Credential
+	RegisterCredential(ctx context.Context, cred *credentialmgr.Credential) error
+	UpdateCredential(ctx context.Context, cred *credentialmgr.Credential) error
+	DeregisterCredential(ctx context.Context, id string) error
+}
+
+type sharedCredentialManager struct {
+	manager *credentialmgr.Manager
+}
+
+// WrapSharedCredentialManager adapts the shared credential manager to the
+// cliauth-focused CredentialManager interface.
+func WrapSharedCredentialManager(manager *credentialmgr.Manager) CredentialManager {
+	if manager == nil {
+		return nil
+	}
+	return &sharedCredentialManager{manager: manager}
+}
+
+func (m *sharedCredentialManager) GetCredential(id string) *credentialmgr.Credential {
+	if m == nil || m.manager == nil {
+		return nil
+	}
+	cred := m.manager.GetCredential(id)
+	if cred == nil {
+		return nil
+	}
+	return cred.Credential.Clone()
+}
+
+func (m *sharedCredentialManager) ListCredentials(filter credentialmgr.Filter) []*credentialmgr.Credential {
+	if m == nil || m.manager == nil {
+		return nil
+	}
+	items := m.manager.ListCredentials(filter)
+	out := make([]*credentialmgr.Credential, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		out = append(out, item.Credential.Clone())
+	}
+	return out
+}
+
+func (m *sharedCredentialManager) RegisterCredential(ctx context.Context, cred *credentialmgr.Credential) error {
+	if m == nil || m.manager == nil {
+		return nil
+	}
+	return m.manager.RegisterCredential(ctx, cred)
+}
+
+func (m *sharedCredentialManager) UpdateCredential(ctx context.Context, cred *credentialmgr.Credential) error {
+	if m == nil || m.manager == nil {
+		return nil
+	}
+	return m.manager.UpdateCredential(ctx, cred)
+}
+
+func (m *sharedCredentialManager) DeregisterCredential(ctx context.Context, id string) error {
+	if m == nil || m.manager == nil {
+		return nil
+	}
+	return m.manager.DeregisterCredential(ctx, id)
+}
+
 // Manager orchestrates credential lifecycle: registration, selection, result
 // feedback, quota tracking, and optional persistence.
 type Manager struct {
-	credentialMgr *credentialmgr.Manager
+	credentialMgr CredentialManager
 
 	mu             sync.RWMutex
 	creds          map[string]*Credential         // credID -> Credential
@@ -33,7 +103,7 @@ type Manager struct {
 }
 
 // NewManager constructs a CLI Authenticators Manager.
-func NewManager(credMgr *credentialmgr.Manager) *Manager {
+func NewManager(credMgr CredentialManager) *Manager {
 	m := &Manager{
 		credentialMgr:    credMgr,
 		creds:            make(map[string]*Credential),
@@ -407,22 +477,19 @@ func toCommonCred(c *Credential, source string) *credentialmgr.Credential {
 	return sc
 }
 
-func fromCommonCred(c *credentialmgr.ManagedCredential) *Credential {
+func fromCommonCred(c *credentialmgr.Credential) *Credential {
 	if c == nil {
 		return nil
 	}
 	status := StatusActive
-	if c.Credential.Disabled {
+	if c.Disabled {
 		status = StatusDisabled
 	}
 	out := &Credential{
-		Credential: *c.Credential.Clone(),
+		Credential: *c.Clone(),
 		Status:     status,
 	}
-	if c.Unavailable || c.LastError != nil || c.Quota.Exceeded || c.AuthInvalid {
-		out.Status = StatusError
-	}
-	if c.Credential.Disabled {
+	if c.Disabled {
 		out.Status = StatusDisabled
 	}
 	return out

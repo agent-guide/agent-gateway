@@ -57,7 +57,7 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 	}
 
 	credMgr := credentialmgr.NewManager(nil, nil, nil)
-	cliauthMgr := cliauth.NewManager(credMgr)
+	cliauthMgr := cliauth.NewManager(cliauth.WrapSharedCredentialManager(credMgr))
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
 		providerType: "openai",
 		loginFn: func(context.Context, cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
