@@ -18,6 +18,7 @@ import (
 // Handler handles Admin API requests under /admin/.
 type Handler struct {
 	cliauthManager    *cliauth.Manager
+	cliauthRefresher  *cliauth.AutoRefresher
 	credentialManager *credentialmgr.Manager
 	configStore       intf.ConfigStorer
 	routeManager      *routepkg.AgentRouteManager
@@ -41,6 +42,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 	}
 
 	var cliauthMgr *cliauth.Manager
+	var cliauthRefresher *cliauth.AutoRefresher
 	var credentialMgr *credentialmgr.Manager
 	var configStore intf.ConfigStorer
 	var routeManager *routepkg.AgentRouteManager
@@ -48,6 +50,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 	var providerManager *gateway.ProviderManager
 	if agentGateway != nil {
 		cliauthMgr = agentGateway.CLIAuthManager()
+		cliauthRefresher = agentGateway.CLIAuthRefresher()
 		credentialMgr = agentGateway.CredentialManager()
 		configStore = agentGateway.ConfigStore()
 		routeManager = agentGateway.AgentRouteManager()
@@ -57,6 +60,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 
 	h := &Handler{
 		cliauthManager:    cliauthMgr,
+		cliauthRefresher:  cliauthRefresher,
 		credentialManager: credentialMgr,
 		configStore:       configStore,
 		routeManager:      routeManager,

@@ -20,6 +20,7 @@ all: clean deps build
 build:
 	@echo "Building $(BINARY_NAME)..."
 	$(GOBUILD) -o $(BINARY_NAME) ./cmd/main.go
+	$(GOBUILD) -o cliauthhelper ./cmd/cliauthhelper
 
 build-xcaddy:
 	@echo "Buiding with xcaddy..."

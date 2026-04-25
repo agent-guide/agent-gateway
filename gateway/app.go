@@ -35,12 +35,13 @@ type App struct {
 	// VirtualKeys lists statically configured gateway consumer API keys from the Caddyfile app block.
 	VirtualKeys []virtualkeypkg.VirtualKey `json:"virtual_keys,omitempty"`
 
-	logger         *zap.Logger
-	cliauthManager *cliauth.Manager
-	credentialMgr  *credentialmgr.Manager
-	configStorer   configstoreIntf.ConfigStorer
-	providers      map[string]provider.Provider
-	agentGateway   *AgentGateway
+	logger           *zap.Logger
+	cliauthManager   *cliauth.Manager
+	cliauthRefresher *cliauth.AutoRefresher
+	credentialMgr    *credentialmgr.Manager
+	configStorer     configstoreIntf.ConfigStorer
+	providers        map[string]provider.Provider
+	agentGateway     *AgentGateway
 }
 
 // CaddyModule returns the Caddy module information.
@@ -65,7 +66,8 @@ func (a *App) Provision(ctx caddy.Context) error {
 	}
 
 	a.credentialMgr = credentialmgr.NewManager(credentialStore, nil, nil)
-	a.cliauthManager = cliauth.NewManager(cliauth.WrapSharedCredentialManager(a.credentialMgr))
+	a.cliauthManager = cliauth.NewManager()
+	a.cliauthRefresher = cliauth.NewAutoRefresher(cliauth.WrapSharedCredentialManager(a.credentialMgr), a.cliauthManager)
 	if err := a.provisionProviders(ctx); err != nil {
 		return fmt.Errorf("provision providers: %w", err)
 	}
@@ -75,7 +77,7 @@ func (a *App) Provision(ctx caddy.Context) error {
 	if err := a.credentialMgr.Load(ctx); err != nil {
 		return fmt.Errorf("load credentials: %w", err)
 	}
-	if err := a.cliauthManager.Load(ctx); err != nil {
+	if err := a.cliauthRefresher.Load(ctx); err != nil {
 		return fmt.Errorf("load cliauth credentials: %w", err)
 	}
 
@@ -85,6 +87,7 @@ func (a *App) Provision(ctx caddy.Context) error {
 		StaticProviders:   a.providers,
 		ConfigStore:       a.configStorer,
 		CLIAuthManager:    a.cliauthManager,
+		CLIAuthRefresher:  a.cliauthRefresher,
 		CredentialManager: a.credentialMgr,
 	}); err != nil {
 		return fmt.Errorf("configure agent gateway: %w", err)
@@ -94,9 +97,14 @@ func (a *App) Provision(ctx caddy.Context) error {
 	return nil
 }
 
-// CLIAuthManager returns the CLI credential manager shared across the gateway.
+// CLIAuthManager returns the CLI authenticator manager shared across the gateway.
 func (a *App) CLIAuthManager() *cliauth.Manager {
 	return a.cliauthManager
+}
+
+// CLIAuthRefresher returns the CLI credential refresher shared across the gateway.
+func (a *App) CLIAuthRefresher() *cliauth.AutoRefresher {
+	return a.cliauthRefresher
 }
 
 // CredentialManager returns the shared upstream credential manager.
@@ -130,8 +138,8 @@ func (a *App) Validate() error {
 
 // Start starts the app.
 func (a *App) Start() error {
-	if a.cliauthManager != nil {
-		a.cliauthManager.StartRefreshLoop(context.Background())
+	if a.cliauthRefresher != nil {
+		a.cliauthRefresher.Start(context.Background())
 	}
 	a.logger.Info("Agent Gateway started")
 	return nil
@@ -139,8 +147,8 @@ func (a *App) Start() error {
 
 // Stop stops the app.
 func (a *App) Stop() error {
-	if a.cliauthManager != nil {
-		a.cliauthManager.StopRefreshLoop()
+	if a.cliauthRefresher != nil {
+		a.cliauthRefresher.Stop()
 	}
 	return nil
 }

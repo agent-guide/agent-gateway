@@ -29,7 +29,7 @@ type testConfigStore struct {
 	virtualKeyStore configstoreintf.VirtualKeyStorer
 }
 
-func newTestAgentGateway(configStore configstoreintf.ConfigStorer, cliauthMgr *cliauth.Manager, staticRoutes []routepkg.AgentRoute, staticVirtualKeys []virtualkeypkg.VirtualKey, staticProviders ...map[string]provider.Provider) *gateway.AgentGateway {
+func newTestAgentGateway(configStore configstoreintf.ConfigStorer, cliauthMgr *cliauth.Manager, cliauthRefresher *cliauth.AutoRefresher, staticRoutes []routepkg.AgentRoute, staticVirtualKeys []virtualkeypkg.VirtualKey, staticProviders ...map[string]provider.Provider) *gateway.AgentGateway {
 	var providers map[string]provider.Provider
 	if len(staticProviders) > 0 {
 		providers = staticProviders[0]
@@ -41,6 +41,7 @@ func newTestAgentGateway(configStore configstoreintf.ConfigStorer, cliauthMgr *c
 		StaticVirtualKeys: staticVirtualKeys,
 		StaticProviders:   providers,
 		CLIAuthManager:    cliauthMgr,
+		CLIAuthRefresher:  cliauthRefresher,
 	}); err != nil {
 		panic(err)
 	}
@@ -268,7 +269,7 @@ func TestRouteCRUD(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testRouteStore{items: map[string]*routepkg.AgentRoute{}},
-	}, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	createBody, err := json.Marshal(routepkg.AgentRoute{
@@ -323,7 +324,7 @@ func TestVirtualKeyCRUD(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{}},
-	}, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body, err := json.Marshal(virtualkeypkg.VirtualKey{
@@ -491,7 +492,7 @@ func TestProviderCRUD(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
-	}, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body, err := json.Marshal(provider.ProviderConfig{
@@ -545,7 +546,7 @@ func TestProviderEnableDisable(t *testing.T) {
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
 			"openai-main": {Id: "openai-main", ProviderType: "openai"},
 		}},
-	}, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	disableReq := httptest.NewRequest(http.MethodPost, "/admin/providers/openai-main/disable", nil)
@@ -746,7 +747,7 @@ func TestRouteEnableDisable(t *testing.T) {
 				}},
 			},
 		}},
-	}, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	disableReq := httptest.NewRequest(http.MethodPost, "/admin/routes/chat-prod/disable", nil)
@@ -792,7 +793,7 @@ func TestVirtualKeyEnableDisable(t *testing.T) {
 		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{
 			"lk-test": {Key: "lk-test", Tag: "admin"},
 		}},
-	}, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	disableReq := httptest.NewRequest(http.MethodPost, "/admin/virtual_keys/lk-test/disable", nil)
@@ -838,7 +839,7 @@ func TestProviderGetMarksStaticProviderAsReadOnly(t *testing.T) {
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
 			"openai-main": {Id: "openai-main", ProviderType: "openai", BaseURL: "https://dynamic.example"},
 		}},
-	}, nil, nil, nil, map[string]provider.Provider{
+	}, nil, nil, nil, nil, map[string]provider.Provider{
 		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai", BaseURL: "https://static.example"}},
 	}), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
@@ -874,7 +875,7 @@ func TestProviderListMarksStaticProvidersAsReadOnly(t *testing.T) {
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
 			"openai-dynamic": {Id: "openai-dynamic", ProviderType: "openai"},
 		}},
-	}, nil, nil, nil, map[string]provider.Provider{
+	}, nil, nil, nil, nil, map[string]provider.Provider{
 		"anthropic-static": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "anthropic-static", ProviderType: "anthropic"}},
 	}), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
@@ -987,7 +988,7 @@ func TestCredentialCreateUsesProviderID(t *testing.T) {
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
 			"openai-main": {Id: "openai-main", ProviderType: "openai"},
 		}},
-	}, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	handler.credentialManager = credMgr
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -1038,7 +1039,7 @@ func TestCredentialCreateRejectsUnknownProviderID(t *testing.T) {
 	credMgr := credentialmgr.NewManager(nil, nil, nil)
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
-	}, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	handler.credentialManager = credMgr
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -1114,7 +1115,7 @@ func TestProviderDeleteRejectsStaticProvider(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
-	}, nil, nil, nil, map[string]provider.Provider{
+	}, nil, nil, nil, nil, map[string]provider.Provider{
 		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai"}},
 	}), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
@@ -1132,7 +1133,7 @@ func TestProviderDeleteRejectsStaticProvider(t *testing.T) {
 func TestProtectedRouteRejectsRequestsWhenAdminAuthIsNotConfigured(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{}},
-	}, nil, nil, nil), nil, "", "")
+	}, nil, nil, nil, nil), nil, "", "")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/virtual_keys", nil)
 	rec := httptest.NewRecorder()
@@ -1150,7 +1151,7 @@ func TestCreateVirtualKeyDoesNotBindTagToSessionUser(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{}},
-	}, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -1190,7 +1191,7 @@ func TestListVirtualKeysFiltersByTag(t *testing.T) {
 			"lk-admin": {Key: "lk-admin", Tag: "admin"},
 			"lk-other": {Key: "lk-other", Tag: "someone-else"},
 		}},
-	}, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -1227,7 +1228,7 @@ func TestRouteGetPrefersStaticAgentRouteManager(t *testing.T) {
 			},
 		},
 	}
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, []routepkg.AgentRoute{{
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []routepkg.AgentRoute{{
 		ID:      "chat-prod",
 		Targets: []routepkg.RouteTarget{{ProviderID: "anthropic"}},
 	}}, nil), nil, "admin", string(passwordHash))
@@ -1268,7 +1269,7 @@ func TestRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 			},
 		},
 	}
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, []routepkg.AgentRoute{{
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []routepkg.AgentRoute{{
 		ID:      "chat-static",
 		Targets: []routepkg.RouteTarget{{ProviderID: "anthropic"}},
 	}}, nil), nil, "admin", string(passwordHash))

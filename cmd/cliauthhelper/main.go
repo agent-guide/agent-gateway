@@ -86,7 +86,7 @@ func runLogin(args []string) error {
 		return fmt.Errorf("--authenticator is required")
 	}
 
-	manager, credMgr, err := newManagers(*storePath)
+	refresher, credMgr, err := newManagers(*storePath)
 	if err != nil {
 		return err
 	}
@@ -125,7 +125,7 @@ func runLogin(args []string) error {
 		cred.Label = strings.TrimSpace(*label)
 	}
 
-	if err := manager.RegisterLoginCredential(ctx, cred); err != nil {
+	if err := refresher.RegisterLoginCredential(ctx, cred); err != nil {
 		return err
 	}
 
@@ -287,16 +287,16 @@ func configureAuthenticator(auth cliauth.Authenticator, cfg authenticatorConfig)
 	return nil
 }
 
-func newManagers(storePath string) (*cliauth.Manager, *CredentialManager, error) {
+func newManagers(storePath string) (*cliauth.AutoRefresher, *CredentialManager, error) {
 	credMgr, err := newCredentialManager(storePath)
 	if err != nil {
 		return nil, nil, err
 	}
-	manager := cliauth.NewManager(credMgr)
-	if err := manager.Load(context.Background()); err != nil {
+	refresher := cliauth.NewAutoRefresher(credMgr, nil)
+	if err := refresher.Load(context.Background()); err != nil {
 		return nil, nil, err
 	}
-	return manager, credMgr, nil
+	return refresher, credMgr, nil
 }
 
 func newCredentialManager(storePath string) (*CredentialManager, error) {

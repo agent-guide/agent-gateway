@@ -57,7 +57,8 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 	}
 
 	credMgr := credentialmgr.NewManager(nil, nil, nil)
-	cliauthMgr := cliauth.NewManager(cliauth.WrapSharedCredentialManager(credMgr))
+	cliauthMgr := cliauth.NewManager()
+	cliauthRefresher := cliauth.NewAutoRefresher(cliauth.WrapSharedCredentialManager(credMgr), cliauthMgr)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
 		providerType: "openai",
 		loginFn: func(context.Context, cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
@@ -72,7 +73,7 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 		},
 	})
 
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 	req := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -115,7 +116,9 @@ func TestCLIAuthReturnsNotFoundForUnknownCliname(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	handler := NewHandler(newTestAgentGateway(nil, cliauth.NewManager(nil), nil, nil), nil, "admin", string(passwordHash))
+	cliauthMgr := cliauth.NewManager()
+	cliauthRefresher := cliauth.NewAutoRefresher(nil, cliauthMgr)
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 	req := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/unknown/login", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -134,7 +137,8 @@ func TestCLIAuthStatusReportsCompletion(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	cliauthMgr := cliauth.NewManager(nil)
+	cliauthMgr := cliauth.NewManager()
+	cliauthRefresher := cliauth.NewAutoRefresher(nil, cliauthMgr)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
 		providerType: "openai",
 		loginFn: func(context.Context, cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
@@ -149,7 +153,7 @@ func TestCLIAuthStatusReportsCompletion(t *testing.T) {
 		},
 	})
 
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	startReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", nil)
@@ -208,7 +212,8 @@ func TestCLIAuthStatusIncludesInteractiveInstructions(t *testing.T) {
 	}
 
 	release := make(chan struct{})
-	cliauthMgr := cliauth.NewManager(nil)
+	cliauthMgr := cliauth.NewManager()
+	cliauthRefresher := cliauth.NewAutoRefresher(nil, cliauthMgr)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
 		providerType: "openai",
 		loginFn: func(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
@@ -228,7 +233,7 @@ func TestCLIAuthStatusIncludesInteractiveInstructions(t *testing.T) {
 		},
 	})
 
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	startReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", nil)
@@ -286,7 +291,8 @@ func TestCLIAuthRejectsConcurrentLoginForSameAuthenticator(t *testing.T) {
 	}
 
 	release := make(chan struct{})
-	cliauthMgr := cliauth.NewManager(nil)
+	cliauthMgr := cliauth.NewManager()
+	cliauthRefresher := cliauth.NewAutoRefresher(nil, cliauthMgr)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
 		providerType: "openai",
 		loginFn: func(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
@@ -305,7 +311,7 @@ func TestCLIAuthRejectsConcurrentLoginForSameAuthenticator(t *testing.T) {
 		},
 	})
 
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	firstReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", nil)
@@ -349,8 +355,8 @@ func TestCLIAuthEnableAndListAuthenticators(t *testing.T) {
 		return &testAuthenticator{providerType: "openai"}, nil
 	})
 
-	cliauthMgr := cliauth.NewManager(nil)
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil), nil, "admin", string(passwordHash))
+	cliauthMgr := cliauth.NewManager()
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	enableReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/"+authName+"/enable", nil)
@@ -397,10 +403,10 @@ func TestCLIAuthDisableRuntimeAuthenticator(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	cliauthMgr := cliauth.NewManager(nil)
+	cliauthMgr := cliauth.NewManager()
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{providerType: "openai"})
 
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/disable", nil)
@@ -422,13 +428,13 @@ func TestCLIAuthDisableCaddyfileAuthenticatorReturnsConflict(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	cliauthMgr := cliauth.NewManager(nil)
+	cliauthMgr := cliauth.NewManager()
 	cliauthMgr.RegisterAuthenticatorWithOptions("codex", &testAuthenticator{providerType: "openai"}, cliauth.RegisterAuthenticatorOptions{
 		Source:   cliauth.AuthenticatorSourceCaddyfile,
 		ReadOnly: true,
 	})
 
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/disable", nil)

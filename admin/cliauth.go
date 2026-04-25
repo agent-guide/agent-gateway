@@ -92,7 +92,7 @@ func (h *Handler) handleDisableCLIAuthAuthenticator(w http.ResponseWriter, r *ht
 // the registered Authenticator's Login method. On success the returned
 // credential is registered with the auth manager.
 func (h *Handler) handleStartCLIAuthAuthenticatorLogin(w http.ResponseWriter, r *http.Request) {
-	if h.cliauthManager == nil {
+	if h.cliauthManager == nil || h.cliauthRefresher == nil {
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, "auth manager not configured")
 		return
 	}
@@ -147,7 +147,7 @@ func (h *Handler) handleStartCLIAuthAuthenticatorLogin(w http.ResponseWriter, r 
 			h.logger.Error("cli login failed", zap.String("cliname", requestedName), zap.Error(err))
 			return
 		}
-		if regErr := h.cliauthManager.RegisterLoginCredential(ctx, cred); regErr != nil {
+		if regErr := h.cliauthRefresher.RegisterLoginCredential(ctx, cred); regErr != nil {
 			finished.Status = "failed"
 			finished.Error = regErr.Error()
 			h.finishCLIAuthSession(loginID, &finished)

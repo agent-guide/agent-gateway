@@ -16,7 +16,7 @@ func TestAuthProtectedRouteRequiresFreshBearerToken(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{}, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 
 	listReq := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
 	listRec := httptest.NewRecorder()
@@ -69,7 +69,7 @@ func TestAuthProtectedRouteRequiresFreshBearerToken(t *testing.T) {
 }
 
 func TestAuthProtectedRouteRejectsRequestsWhenAdminCredentialsAreNotConfigured(t *testing.T) {
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{}, nil, nil, nil), nil, "", "")
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{}, nil, nil, nil, nil), nil, "", "")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
 	rec := httptest.NewRecorder()

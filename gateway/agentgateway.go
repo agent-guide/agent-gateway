@@ -22,6 +22,7 @@ type BootstrapOptions struct {
 	StaticProviders   map[string]provider.Provider
 	ConfigStore       configstoreintf.ConfigStorer
 	CLIAuthManager    *cliauth.Manager
+	CLIAuthRefresher  *cliauth.AutoRefresher
 	CredentialManager *credentialmgr.Manager
 	Selector          routepkg.RouteTargetSelector
 }
@@ -35,6 +36,7 @@ type AgentGateway struct {
 	virtualKeyManager *virtualkeypkg.VirtualKeyManager
 	providerManager   *ProviderManager
 	cliauthManager    *cliauth.Manager
+	cliauthRefresher  *cliauth.AutoRefresher
 	credentialManager *credentialmgr.Manager
 	Selector          routepkg.RouteTargetSelector
 }
@@ -60,6 +62,7 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 		return err
 	}
 	g.cliauthManager = opts.CLIAuthManager
+	g.cliauthRefresher = opts.CLIAuthRefresher
 	g.credentialManager = opts.CredentialManager
 	g.Selector = opts.Selector
 	g.configured = true
@@ -76,6 +79,7 @@ func (g *AgentGateway) Reset() {
 	g.virtualKeyManager = nil
 	g.providerManager = nil
 	g.cliauthManager = nil
+	g.cliauthRefresher = nil
 	g.credentialManager = nil
 	g.Selector = nil
 }
@@ -90,6 +94,12 @@ func (g *AgentGateway) CLIAuthManager() *cliauth.Manager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.cliauthManager
+}
+
+func (g *AgentGateway) CLIAuthRefresher() *cliauth.AutoRefresher {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.cliauthRefresher
 }
 
 func (g *AgentGateway) CredentialManager() *credentialmgr.Manager {
