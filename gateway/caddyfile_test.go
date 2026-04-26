@@ -52,9 +52,11 @@ func (testAuthenticatorModule) Login(context.Context, cliauth.LoginStatusReporte
 	return nil, nil
 }
 
-func (testAuthenticatorModule) RefreshLead(context.Context, *cliauth.Credential) (*cliauth.Credential, error) {
+func (testAuthenticatorModule) Refresh(context.Context, *cliauth.Credential) (*cliauth.Credential, error) {
 	return nil, nil
 }
+
+func (testAuthenticatorModule) RefreshLeadTime() time.Duration { return 0 }
 
 var _ cliauth.Authenticator = (*testAuthenticatorModule)(nil)
 

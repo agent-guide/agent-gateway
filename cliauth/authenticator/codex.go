@@ -179,6 +179,11 @@ func (a *CodexAuthenticator) ProviderType() string {
 	return "openai"
 }
 
+// RefreshLeadTime returns how far in advance of token expiry to refresh Codex credentials.
+func (a *CodexAuthenticator) RefreshLeadTime() time.Duration {
+	return 5 * time.Minute
+}
+
 // Login initiates the Codex CLI login flow and returns a new Credential on success.
 // It uses browser-based OAuth PKCE by default; set UseDeviceFlow for headless environments.
 func (a *CodexAuthenticator) Login(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
@@ -191,9 +196,9 @@ func (a *CodexAuthenticator) Login(ctx context.Context, reporter cliauth.LoginSt
 	return a.loginWithBrowser(ctx, reporter)
 }
 
-// RefreshLead refreshes the credential's access token before it expires.
+// Refresh refreshes the credential's access token before it expires.
 // Returns nil if no refresh token is present or the credential has no expiry metadata.
-func (a *CodexAuthenticator) RefreshLead(ctx context.Context, cred *cliauth.Credential) (*cliauth.Credential, error) {
+func (a *CodexAuthenticator) Refresh(ctx context.Context, cred *cliauth.Credential) (*cliauth.Credential, error) {
 	if cred == nil {
 		return nil, fmt.Errorf("codex: credential is nil")
 	}

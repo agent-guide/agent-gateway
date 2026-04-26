@@ -125,6 +125,11 @@ func (a *ClaudeAuthenticator) ProviderType() string {
 	return "anthropic"
 }
 
+// RefreshLeadTime returns how far in advance of token expiry to refresh Claude credentials.
+func (a *ClaudeAuthenticator) RefreshLeadTime() time.Duration {
+	return 5 * time.Minute
+}
+
 // Login initiates the Claude CLI login flow and returns a new Credential on success.
 func (a *ClaudeAuthenticator) Login(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
 	if ctx == nil {
@@ -133,9 +138,9 @@ func (a *ClaudeAuthenticator) Login(ctx context.Context, reporter cliauth.LoginS
 	return a.loginWithBrowser(ctx, reporter)
 }
 
-// RefreshLead refreshes the credential's access token before it expires.
+// Refresh refreshes the credential's access token before it expires.
 // Returns nil if no refresh token is present.
-func (a *ClaudeAuthenticator) RefreshLead(ctx context.Context, cred *cliauth.Credential) (*cliauth.Credential, error) {
+func (a *ClaudeAuthenticator) Refresh(ctx context.Context, cred *cliauth.Credential) (*cliauth.Credential, error) {
 	if cred == nil {
 		return nil, fmt.Errorf("claude: credential is nil")
 	}

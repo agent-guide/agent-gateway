@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"testing"
+	"time"
 )
 
 type stubAuthenticator struct {
@@ -18,9 +19,11 @@ func (a *stubAuthenticator) Login(context.Context, LoginStatusReporter) (*Creden
 	return nil, nil
 }
 
-func (a *stubAuthenticator) RefreshLead(context.Context, *Credential) (*Credential, error) {
+func (a *stubAuthenticator) Refresh(context.Context, *Credential) (*Credential, error) {
 	return nil, nil
 }
+
+func (a *stubAuthenticator) RefreshLeadTime() time.Duration { return 0 }
 
 func TestRegisterAuthenticatorIndexesProviderKey(t *testing.T) {
 	mgr := NewManager()

@@ -37,9 +37,11 @@ func (a *testAuthenticator) Login(ctx context.Context, reporter cliauth.LoginSta
 	return &cliauth.Credential{Credential: credentialmgr.Credential{ProviderType: a.providerType}}, nil
 }
 
-func (a *testAuthenticator) RefreshLead(context.Context, *cliauth.Credential) (*cliauth.Credential, error) {
+func (a *testAuthenticator) Refresh(context.Context, *cliauth.Credential) (*cliauth.Credential, error) {
 	return nil, nil
 }
+
+func (a *testAuthenticator) RefreshLeadTime() time.Duration { return 0 }
 
 func containsAll(s string, subs ...string) bool {
 	for _, sub := range subs {

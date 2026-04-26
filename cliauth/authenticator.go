@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Authenticator handles the CLI login flow for a specific provider.
@@ -16,9 +17,11 @@ type Authenticator interface {
 	ProviderType() string
 	// Login initiates the interactive CLI login flow and returns a new Credential on success.
 	Login(ctx context.Context, reporter LoginStatusReporter) (*Credential, error)
-	// RefreshLead attempts to refresh the given credential before it expires.
+	// Refresh attempts to refresh the given credential before it expires.
 	// Returns nil to indicate no refresh is needed; returns an updated Credential on success.
-	RefreshLead(ctx context.Context, cred *Credential) (*Credential, error)
+	Refresh(ctx context.Context, cred *Credential) (*Credential, error)
+	// RefreshLeadTime returns how far in advance of token expiry to attempt a refresh.
+	RefreshLeadTime() time.Duration
 }
 
 // LoginStatusUpdate describes a user-visible state transition during an interactive login flow.

@@ -20,12 +20,14 @@ func (a *testRefreshAuthenticator) Login(context.Context, LoginStatusReporter) (
 	return nil, errors.New("not implemented")
 }
 
-func (a *testRefreshAuthenticator) RefreshLead(ctx context.Context, cred *Credential) (*Credential, error) {
+func (a *testRefreshAuthenticator) Refresh(ctx context.Context, cred *Credential) (*Credential, error) {
 	if a.refreshFn == nil {
 		return cred, nil
 	}
 	return a.refreshFn(ctx, cred)
 }
+
+func (a *testRefreshAuthenticator) RefreshLeadTime() time.Duration { return 0 }
 
 type stubCredentialManager struct {
 	getFn      func(string) *credentialmgr.Credential
@@ -273,7 +275,7 @@ func TestNextScheduleAtEncodesRefreshReadiness(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotNext, gotScheduled := nextScheduleAt(tt.cred, now)
+			gotNext, gotScheduled := nextScheduleAt(tt.cred, now, 0)
 			if gotScheduled != tt.wantScheduled {
 				t.Fatalf("nextScheduleAt scheduled = %v, want %v", gotScheduled, tt.wantScheduled)
 			}

@@ -12,7 +12,6 @@ import (
 )
 
 const (
-	defaultRefreshCheckInterval = 5 * time.Second
 	defaultRefreshMaxConcurrent = 8
 	defaultRefreshLeadTime      = 5 * time.Minute
 )
@@ -195,7 +194,14 @@ func (r *AutoRefresher) nextScheduleAt(credID string, now time.Time) (time.Time,
 	r.mu.RLock()
 	cred := r.creds[credID]
 	r.mu.RUnlock()
-	return nextScheduleAt(cred, now)
+
+	var leadTime time.Duration
+	if r.manager != nil && cred != nil {
+		if auth := r.manager.resolveAuthenticator(cred.ProviderType); auth != nil {
+			leadTime = auth.RefreshLeadTime()
+		}
+	}
+	return nextScheduleAt(cred, now, leadTime)
 }
 
 func (r *AutoRefresher) resolveRefreshTarget(credID string) (*Credential, Authenticator) {
@@ -221,7 +227,7 @@ func (r *AutoRefresher) refreshOne(ctx context.Context, cred *Credential, auth A
 	refreshing.UpdatedAt = now
 	_ = r.updateCredential(ctx, refreshing)
 
-	updated, err := auth.RefreshLead(ctx, cred)
+	updated, err := auth.Refresh(ctx, cred)
 	if err != nil {
 		failed := cred.Clone()
 		failed.Status = StatusError
@@ -246,8 +252,10 @@ func (r *AutoRefresher) refreshOne(ctx context.Context, cred *Credential, auth A
 }
 
 // nextScheduleAt returns when to next wake up and evaluate this credential.
+// leadTime controls how early before token expiry to schedule a refresh;
+// pass 0 to use defaultRefreshLeadTime.
 // Returns (zero, false) if the credential should not be tracked by the scheduler.
-func nextScheduleAt(cred *Credential, now time.Time) (time.Time, bool) {
+func nextScheduleAt(cred *Credential, now time.Time, leadTime time.Duration) (time.Time, bool) {
 	if cred == nil || cred.IsDisabled() {
 		return time.Time{}, false
 	}
@@ -258,8 +266,11 @@ func nextScheduleAt(cred *Credential, now time.Time) (time.Time, bool) {
 	if !cred.NextRefreshAfter.IsZero() && now.Before(cred.NextRefreshAfter) {
 		return cred.NextRefreshAfter, true
 	}
+	if leadTime <= 0 {
+		leadTime = defaultRefreshLeadTime
+	}
 	if exp, ok := cred.ExpirationTime(); ok {
-		dueAt := exp.Add(-defaultRefreshLeadTime)
+		dueAt := exp.Add(-leadTime)
 		if !dueAt.After(now) {
 			return now, true
 		}

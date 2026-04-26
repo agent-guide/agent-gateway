@@ -119,6 +119,11 @@ func (a *GeminiAuthenticator) ProviderType() string {
 	return "gemini"
 }
 
+// RefreshLeadTime returns how far in advance of token expiry to refresh Gemini credentials.
+func (a *GeminiAuthenticator) RefreshLeadTime() time.Duration {
+	return 5 * time.Minute
+}
+
 // Login initiates the Gemini CLI login flow and returns a new Credential on success.
 func (a *GeminiAuthenticator) Login(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
 	if ctx == nil {
@@ -127,9 +132,9 @@ func (a *GeminiAuthenticator) Login(ctx context.Context, reporter cliauth.LoginS
 	return a.loginWithBrowser(ctx, reporter)
 }
 
-// RefreshLead refreshes the credential's access token before it expires.
+// Refresh refreshes the credential's access token before it expires.
 // Returns nil if no refresh token is present.
-func (a *GeminiAuthenticator) RefreshLead(ctx context.Context, cred *cliauth.Credential) (*cliauth.Credential, error) {
+func (a *GeminiAuthenticator) Refresh(ctx context.Context, cred *cliauth.Credential) (*cliauth.Credential, error) {
 	if cred == nil {
 		return nil, fmt.Errorf("gemini: credential is nil")
 	}

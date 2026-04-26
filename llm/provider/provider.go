@@ -10,9 +10,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-// Provider defines the interface for LLM providers.
-//
-// Design follows CLIProxyAPI's approach: a small, focused interface covering
+// Provider defines the interface for LLM providers, which is covering
 // the core operations every provider must support. Providers that support
 // additional capabilities (embeddings, image generation, etc.) may implement
 // optional capability interfaces (EmbeddingProvider, etc.).
