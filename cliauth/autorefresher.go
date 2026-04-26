@@ -157,6 +157,16 @@ func (r *AutoRefresher) Stop() {
 	}
 }
 
+// IsRunning reports whether the background refresh loop is currently active.
+func (r *AutoRefresher) IsRunning() bool {
+	if r == nil {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.refreshCancel != nil
+}
+
 func (r *AutoRefresher) worker(ctx context.Context) {
 	for {
 		select {

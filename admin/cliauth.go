@@ -28,6 +28,10 @@ type cliAuthStatus struct {
 	CredentialID      string     `json:"credential_id,omitempty"`
 }
 
+type cliAuthRefresherStatus struct {
+	Enabled bool `json:"enabled"`
+}
+
 func (h *Handler) handleListCLIAuthAuthenticators(w http.ResponseWriter, r *http.Request) {
 	if h.cliauthManager == nil {
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, "auth manager not configured")
@@ -78,6 +82,49 @@ func (h *Handler) handleDisableCLIAuthAuthenticator(w http.ResponseWriter, r *ht
 		return
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "disabled", "authenticator_name": name})
+}
+
+func (h *Handler) handleGetCLIAuthRefresherStatus(w http.ResponseWriter, r *http.Request) {
+	if h.cliauthRefresher == nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "auth refresher not configured")
+		return
+	}
+
+	_ = httpjson.Write(w, http.StatusOK, cliAuthRefresherStatus{
+		Enabled: h.cliauthRefresher.IsRunning(),
+	})
+}
+
+func (h *Handler) handleEnableCLIAuthRefresher(w http.ResponseWriter, r *http.Request) {
+	if h.cliauthRefresher == nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "auth refresher not configured")
+		return
+	}
+
+	alreadyRunning := h.cliauthRefresher.IsRunning()
+	h.cliauthRefresher.Start(context.Background())
+
+	status := http.StatusCreated
+	if alreadyRunning {
+		status = http.StatusOK
+	}
+	_ = httpjson.Write(w, status, map[string]any{
+		"status":  "enabled",
+		"enabled": true,
+	})
+}
+
+func (h *Handler) handleDisableCLIAuthRefresher(w http.ResponseWriter, r *http.Request) {
+	if h.cliauthRefresher == nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "auth refresher not configured")
+		return
+	}
+
+	h.cliauthRefresher.Stop()
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{
+		"status":  "disabled",
+		"enabled": false,
+	})
 }
 
 // handleStartCLIAuthAuthenticatorLogin triggers a provider-specific CLI auth flow asynchronously.

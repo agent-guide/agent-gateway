@@ -26,6 +26,11 @@ type cliAuthLoginStartResponse struct {
 	Message           string `json:"message"`
 }
 
+type cliAuthRefresherResponse struct {
+	Status  string `json:"status"`
+	Enabled bool   `json:"enabled"`
+}
+
 func (a *testAuthenticator) ProviderType() string {
 	return a.providerType
 }
@@ -284,6 +289,94 @@ func TestCLIAuthStatusIncludesInteractiveInstructions(t *testing.T) {
 
 	close(release)
 	t.Fatal("cli auth status did not expose verification url")
+}
+
+func TestCLIAuthRefresherEnableDisable(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	cliauthRefresher := cliauth.NewAutoRefresher(nil, nil)
+	handler := NewHandler(newTestAgentGateway(nil, nil, cliauthRefresher, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	getStatus := func() cliAuthRefresherStatus {
+		req := httptest.NewRequest(http.MethodGet, "/admin/cliauth/refresher", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusOK)
+		}
+
+		var resp cliAuthRefresherStatus
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode refresher status: %v", err)
+		}
+		return resp
+	}
+
+	initial := getStatus()
+	if initial.Enabled {
+		t.Fatal("expected refresher to be disabled initially")
+	}
+
+	enableReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/refresher/enable", nil)
+	enableReq.Header.Set("Authorization", "Bearer "+token)
+	enableRec := httptest.NewRecorder()
+	handler.ServeHTTP(enableRec, enableReq)
+	if enableRec.Code != http.StatusCreated {
+		t.Fatalf("unexpected enable status: got %d want %d", enableRec.Code, http.StatusCreated)
+	}
+
+	var enableResp cliAuthRefresherResponse
+	if err := json.NewDecoder(enableRec.Body).Decode(&enableResp); err != nil {
+		t.Fatalf("decode enable response: %v", err)
+	}
+	if !enableResp.Enabled || enableResp.Status != "enabled" {
+		t.Fatalf("unexpected enable response: %+v", enableResp)
+	}
+	if !cliauthRefresher.IsRunning() {
+		t.Fatal("expected refresher to be running after enable")
+	}
+
+	reEnabled := getStatus()
+	if !reEnabled.Enabled {
+		t.Fatal("expected refresher status to report enabled")
+	}
+
+	enableAgainReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/refresher/enable", nil)
+	enableAgainReq.Header.Set("Authorization", "Bearer "+token)
+	enableAgainRec := httptest.NewRecorder()
+	handler.ServeHTTP(enableAgainRec, enableAgainReq)
+	if enableAgainRec.Code != http.StatusOK {
+		t.Fatalf("unexpected repeated enable status: got %d want %d", enableAgainRec.Code, http.StatusOK)
+	}
+
+	disableReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/refresher/disable", nil)
+	disableReq.Header.Set("Authorization", "Bearer "+token)
+	disableRec := httptest.NewRecorder()
+	handler.ServeHTTP(disableRec, disableReq)
+	if disableRec.Code != http.StatusOK {
+		t.Fatalf("unexpected disable status: got %d want %d", disableRec.Code, http.StatusOK)
+	}
+
+	var disableResp cliAuthRefresherResponse
+	if err := json.NewDecoder(disableRec.Body).Decode(&disableResp); err != nil {
+		t.Fatalf("decode disable response: %v", err)
+	}
+	if disableResp.Enabled || disableResp.Status != "disabled" {
+		t.Fatalf("unexpected disable response: %+v", disableResp)
+	}
+	if cliauthRefresher.IsRunning() {
+		t.Fatal("expected refresher to be stopped after disable")
+	}
+
+	final := getStatus()
+	if final.Enabled {
+		t.Fatal("expected refresher status to report disabled")
+	}
 }
 
 func TestCLIAuthRejectsConcurrentLoginForSameAuthenticator(t *testing.T) {
