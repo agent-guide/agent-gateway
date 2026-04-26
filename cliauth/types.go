@@ -3,6 +3,7 @@ package cliauth
 import (
 	"time"
 
+	"github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 )
 
@@ -36,6 +37,87 @@ type Credential struct {
 	LastRefreshedAt time.Time `json:"last_refreshed_at,omitempty"`
 	// NextRefreshAfter is the earliest time a source-level refresh should retrigger.
 	NextRefreshAfter time.Time `json:"next_refresh_after,omitempty"`
+}
+
+// LoginStatusUpdate describes a user-visible state transition during an interactive login flow.
+type LoginStatusUpdate struct {
+	Phase           string `json:"phase,omitempty"`
+	Message         string `json:"message,omitempty"`
+	VerificationURL string `json:"verification_url,omitempty"`
+	UserCode        string `json:"user_code,omitempty"`
+}
+
+// AuthenticatorState describes a supported or enabled Authenticator.
+type AuthenticatorState struct {
+	Name         string              `json:"name"`
+	ProviderType string              `json:"provider_type,omitempty"`
+	Enabled      bool                `json:"enabled"`
+	Config       AuthenticatorConfig `json:"config"`
+}
+
+// AuthenticatorConfig describes the runtime configuration supported by built-in
+// CLI authenticators.
+type AuthenticatorConfig struct {
+	CallbackPort int           `json:"callback_port,omitempty"`
+	NoBrowser    bool          `json:"no_browser,omitempty"`
+	DeviceFlow   bool          `json:"device_flow,omitempty"`
+	Network      NetworkConfig `json:"network"`
+}
+
+// NetworkConfig re-exports the shared HTTP network config type for authenticator configs.
+type NetworkConfig = httpclient.NetworkConfig
+
+// Defaults fills in zero values with sensible defaults.
+func (c *AuthenticatorConfig) Defaults() {
+	c.Network.Defaults()
+}
+
+// ApplyOverrides merges non-zero override values into the receiver while
+// preserving any existing runtime defaults already present on the config.
+func (c *AuthenticatorConfig) ApplyOverrides(overrides AuthenticatorConfig) {
+	if c == nil {
+		return
+	}
+	if overrides.CallbackPort > 0 {
+		c.CallbackPort = overrides.CallbackPort
+	}
+	c.NoBrowser = overrides.NoBrowser
+	c.DeviceFlow = overrides.DeviceFlow
+	applyNetworkConfigOverrides(&c.Network, overrides.Network)
+}
+
+func applyNetworkConfigOverrides(dst *NetworkConfig, overrides NetworkConfig) {
+	if dst == nil {
+		return
+	}
+	if overrides.RequestTimeoutSeconds > 0 {
+		dst.RequestTimeoutSeconds = overrides.RequestTimeoutSeconds
+	}
+	if overrides.MaxRetries > 0 {
+		dst.MaxRetries = overrides.MaxRetries
+	}
+	if overrides.RetryDelaySeconds > 0 {
+		dst.RetryDelaySeconds = overrides.RetryDelaySeconds
+	}
+	if overrides.MaxIdleConnections > 0 {
+		dst.MaxIdleConnections = overrides.MaxIdleConnections
+	}
+	if overrides.MaxIdleConnectionsPerHost > 0 {
+		dst.MaxIdleConnectionsPerHost = overrides.MaxIdleConnectionsPerHost
+	}
+	if overrides.IdleKeepAliveTimeoutSeconds > 0 {
+		dst.IdleKeepAliveTimeoutSeconds = overrides.IdleKeepAliveTimeoutSeconds
+	}
+	if overrides.ProxyURL != "" {
+		dst.ProxyURL = overrides.ProxyURL
+	}
+	if overrides.ExtraHeaders != nil {
+		headers := make(map[string]string, len(overrides.ExtraHeaders))
+		for k, v := range overrides.ExtraHeaders {
+			headers[k] = v
+		}
+		dst.ExtraHeaders = headers
+	}
 }
 
 // Clone shallow copies the Credential, duplicating maps to avoid accidental mutation.

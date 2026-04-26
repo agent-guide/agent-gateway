@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/cliauth"
+	internalhttpclient "github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/google/uuid"
 	"golang.org/x/oauth2"
@@ -50,17 +51,19 @@ const geminiUserInfoURL = "https://www.googleapis.com/oauth2/v1/userinfo?alt=jso
 // GeminiAuthenticator implements manager.Authenticator for the Google Gemini CLI login flow.
 // It uses browser-based OAuth2 authentication against Google's OAuth endpoints.
 type GeminiAuthenticator struct {
-	// CallbackPort is the local port for the OAuth callback server (default: 8085).
-	CallbackPort int
-	// NoBrowser suppresses automatic browser opening and prints the URL instead.
-	NoBrowser bool
+	cliauth.AuthenticatorConfig
 	// HTTPClient is the HTTP client used for token requests. If nil, http.DefaultClient is used.
 	HTTPClient *http.Client
+	client     *http.Client
 }
 
 // NewGeminiAuthenticator creates a GeminiAuthenticator with default settings.
 func NewGeminiAuthenticator() (cliauth.Authenticator, error) {
-	return &GeminiAuthenticator{CallbackPort: geminiDefaultCallbackPort}, nil
+	return &GeminiAuthenticator{
+		AuthenticatorConfig: cliauth.AuthenticatorConfig{
+			CallbackPort: geminiDefaultCallbackPort,
+		},
+	}, nil
 }
 
 // ProviderType returns the provider type this authenticator handles.
@@ -71,6 +74,28 @@ func (a *GeminiAuthenticator) ProviderType() string {
 // RefreshLeadTime returns how far in advance of token expiry to refresh Gemini credentials.
 func (a *GeminiAuthenticator) RefreshLeadTime() time.Duration {
 	return 5 * time.Minute
+}
+
+// GetConfig returns the current runtime configuration for the authenticator.
+func (a *GeminiAuthenticator) GetConfig() cliauth.AuthenticatorConfig {
+	if a == nil {
+		return cliauth.AuthenticatorConfig{}
+	}
+	return a.AuthenticatorConfig
+}
+
+// SetConfig applies runtime configuration to the authenticator.
+func (a *GeminiAuthenticator) SetConfig(cfg cliauth.AuthenticatorConfig) error {
+	if a == nil {
+		return fmt.Errorf("gemini: authenticator is nil")
+	}
+	if cfg.DeviceFlow {
+		return fmt.Errorf("device flow is not supported by gemini authenticator")
+	}
+	cfg.Defaults()
+	a.AuthenticatorConfig = cfg
+	a.client = nil
+	return nil
 }
 
 // Login initiates the Gemini CLI login flow and returns a new Credential on success.
@@ -185,8 +210,8 @@ func (a *GeminiAuthenticator) refreshTokens(ctx context.Context, refreshToken st
 	}
 
 	httpCtx := ctx
-	if a.HTTPClient != nil {
-		httpCtx = context.WithValue(ctx, oauth2.HTTPClient, a.HTTPClient)
+	if client := a.httpClient(); client != nil {
+		httpCtx = context.WithValue(ctx, oauth2.HTTPClient, client)
 	}
 
 	ts := conf.TokenSource(httpCtx, expired)
@@ -195,6 +220,17 @@ func (a *GeminiAuthenticator) refreshTokens(ctx context.Context, refreshToken st
 		return nil, fmt.Errorf("failed to refresh token: %w", err)
 	}
 	return token, nil
+}
+
+func (a *GeminiAuthenticator) httpClient() *http.Client {
+	if a.HTTPClient != nil {
+		return a.HTTPClient
+	}
+	if a.client != nil {
+		return a.client
+	}
+	a.client = internalhttpclient.BuildHTTPClient(a.Network)
+	return a.client
 }
 
 func (a *GeminiAuthenticator) refreshTokensWithRetry(ctx context.Context, refreshToken string, maxRetries int) (*oauth2.Token, error) {

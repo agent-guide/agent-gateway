@@ -12,9 +12,25 @@ import (
 type testRefreshAuthenticator struct {
 	providerType string
 	refreshFn    func(context.Context, *Credential) (*Credential, error)
+	config       AuthenticatorConfig
 }
 
 func (a *testRefreshAuthenticator) ProviderType() string { return a.providerType }
+
+func (a *testRefreshAuthenticator) GetConfig() AuthenticatorConfig {
+	if a == nil {
+		return AuthenticatorConfig{}
+	}
+	return a.config
+}
+
+func (a *testRefreshAuthenticator) SetConfig(cfg AuthenticatorConfig) error {
+	if a == nil {
+		return nil
+	}
+	a.config = cfg
+	return nil
+}
 
 func (a *testRefreshAuthenticator) Login(context.Context, LoginStatusReporter) (*Credential, error) {
 	return nil, errors.New("not implemented")

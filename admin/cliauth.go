@@ -4,6 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -32,13 +35,50 @@ type cliAuthRefresherStatus struct {
 	Enabled bool `json:"enabled"`
 }
 
+type cliAuthAuthenticatorView struct {
+	Name         string                      `json:"name"`
+	ProviderType string                      `json:"provider_type,omitempty"`
+	Enabled      bool                        `json:"enabled"`
+	Config       cliauth.AuthenticatorConfig `json:"config"`
+}
+
+type enableCLIAuthAuthenticatorRequest struct {
+	Config *cliauth.AuthenticatorConfig `json:"config"`
+}
+
 func (h *Handler) handleListCLIAuthAuthenticators(w http.ResponseWriter, r *http.Request) {
 	if h.cliauthManager == nil {
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, "auth manager not configured")
 		return
 	}
 
-	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": h.cliauthManager.ListAuthenticatorStates()})
+	states := h.cliauthManager.ListAuthenticatorStates()
+	items := make([]cliAuthAuthenticatorView, 0, len(states))
+	for _, state := range states {
+		view, err := h.cliAuthAuthenticatorView(state.Name)
+		if err != nil {
+			_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		items = append(items, view)
+	}
+
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (h *Handler) handleGetCLIAuthAuthenticator(w http.ResponseWriter, r *http.Request) {
+	if h.cliauthManager == nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "auth manager not configured")
+		return
+	}
+
+	view, err := h.cliAuthAuthenticatorView(r.PathValue("authenticator_name"))
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	_ = httpjson.Write(w, http.StatusOK, view)
 }
 
 func (h *Handler) handleEnableCLIAuthAuthenticator(w http.ResponseWriter, r *http.Request) {
@@ -53,14 +93,19 @@ func (h *Handler) handleEnableCLIAuthAuthenticator(w http.ResponseWriter, r *htt
 		return
 	}
 
-	_, existed := h.cliauthManager.AuthenticatorState(name)
-	state, err := h.cliauthManager.EnableAuthenticator(name)
+	cfg, err := decodeRequiredCLIAuthAuthenticatorConfig(r)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	state, created, err := h.enableCLIAuthAuthenticator(name, cfg)
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusNotFound, err.Error())
 		return
 	}
 	status := http.StatusCreated
-	if existed {
+	if !created {
 		status = http.StatusOK
 	}
 	_ = httpjson.Write(w, status, map[string]any{"status": "enabled", "authenticator": state})
@@ -82,6 +127,33 @@ func (h *Handler) handleDisableCLIAuthAuthenticator(w http.ResponseWriter, r *ht
 		return
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "disabled", "authenticator_name": name})
+}
+
+func (h *Handler) enableCLIAuthAuthenticator(name string, cfg cliauth.AuthenticatorConfig) (cliauth.AuthenticatorState, bool, error) {
+	previous, ok := h.cliauthManager.GetAuthenticatorState(name)
+	state, err := h.cliauthManager.EnableAuthenticator(name, cfg)
+	if err != nil {
+		return cliauth.AuthenticatorState{}, false, err
+	}
+	return state, !ok || !previous.Enabled, nil
+}
+
+func decodeRequiredCLIAuthAuthenticatorConfig(r *http.Request) (cliauth.AuthenticatorConfig, error) {
+	if r == nil || r.Body == nil {
+		return cliauth.AuthenticatorConfig{}, fmt.Errorf("config is required")
+	}
+
+	var req enableCLIAuthAuthenticatorRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err == io.EOF {
+			return cliauth.AuthenticatorConfig{}, fmt.Errorf("config is required")
+		}
+		return cliauth.AuthenticatorConfig{}, fmt.Errorf("invalid request body")
+	}
+	if req.Config == nil {
+		return cliauth.AuthenticatorConfig{}, fmt.Errorf("config is required")
+	}
+	return *req.Config, nil
 }
 
 func (h *Handler) handleGetCLIAuthRefresherStatus(w http.ResponseWriter, r *http.Request) {
@@ -321,4 +393,27 @@ func generateCLIAuthLoginID() (string, error) {
 		return "", err
 	}
 	return "clilogin-" + base64.RawURLEncoding.EncodeToString(b[:]), nil
+}
+
+func (h *Handler) cliAuthAuthenticatorView(rawName string) (cliAuthAuthenticatorView, error) {
+	if h == nil || h.cliauthManager == nil {
+		return cliAuthAuthenticatorView{}, fmt.Errorf("auth manager not configured")
+	}
+
+	name := strings.ToLower(strings.TrimSpace(rawName))
+	if name == "" {
+		return cliAuthAuthenticatorView{}, fmt.Errorf("authenticator_name is required")
+	}
+
+	state, ok := h.cliauthManager.GetAuthenticatorState(name)
+	if ok {
+		return cliAuthAuthenticatorView{
+			Name:         state.Name,
+			ProviderType: state.ProviderType,
+			Enabled:      state.Enabled,
+			Config:       state.Config,
+		}, nil
+	}
+
+	return cliAuthAuthenticatorView{}, fmt.Errorf("unknown authenticator: %s", name)
 }

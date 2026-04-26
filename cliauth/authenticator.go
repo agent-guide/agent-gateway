@@ -14,6 +14,10 @@ import (
 type Authenticator interface {
 	// ProviderType returns the unique provider type this authenticator handles (e.g. "openai", "anthropic").
 	ProviderType() string
+	// GetConfig returns the runtime configuration currently applied to this authenticator instance.
+	GetConfig() AuthenticatorConfig
+	// SetConfig applies runtime configuration to this authenticator instance.
+	SetConfig(cfg AuthenticatorConfig) error
 	// Login initiates the interactive CLI login flow and returns a new Credential on success.
 	Login(ctx context.Context, reporter LoginStatusReporter) (*Credential, error)
 	// Refresh attempts to refresh the given credential before it expires.
@@ -23,14 +27,6 @@ type Authenticator interface {
 	RefreshLeadTime() time.Duration
 }
 
-// LoginStatusUpdate describes a user-visible state transition during an interactive login flow.
-type LoginStatusUpdate struct {
-	Phase           string `json:"phase,omitempty"`
-	Message         string `json:"message,omitempty"`
-	VerificationURL string `json:"verification_url,omitempty"`
-	UserCode        string `json:"user_code,omitempty"`
-}
-
 // LoginStatusReporter receives login progress updates suitable for surfacing via the admin API.
 type LoginStatusReporter interface {
 	UpdateLoginStatus(update LoginStatusUpdate)
@@ -38,18 +34,6 @@ type LoginStatusReporter interface {
 
 // AuthenticatorFactory creates an Authenticator instance.
 type AuthenticatorFactory func() (Authenticator, error)
-
-// AuthenticatorState describes a supported or enabled Authenticator.
-type AuthenticatorState struct {
-	Name         string `json:"name"`
-	ProviderType string `json:"provider_type,omitempty"`
-	Enabled      bool   `json:"enabled"`
-}
-
-type authenticatorEntry struct {
-	state AuthenticatorState
-	auth  Authenticator
-}
 
 var (
 	authFactoryMu sync.RWMutex

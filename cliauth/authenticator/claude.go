@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/cliauth"
+	internalhttpclient "github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/google/uuid"
 )
@@ -56,17 +57,19 @@ type claudeTokenResponse struct {
 // ClaudeAuthenticator implements manager.Authenticator for the Anthropic Claude CLI login flow.
 // It uses browser-based OAuth PKCE authentication against the Anthropic OAuth endpoints.
 type ClaudeAuthenticator struct {
-	// CallbackPort is the local port for the OAuth callback server (default: 54545).
-	CallbackPort int
-	// NoBrowser suppresses automatic browser opening and prints the URL instead.
-	NoBrowser bool
+	cliauth.AuthenticatorConfig
 	// HTTPClient is the HTTP client used for token requests. If nil, http.DefaultClient is used.
 	HTTPClient *http.Client
+	client     *http.Client
 }
 
 // NewClaudeAuthenticator creates a ClaudeAuthenticator with default settings.
 func NewClaudeAuthenticator() (cliauth.Authenticator, error) {
-	return &ClaudeAuthenticator{CallbackPort: claudeDefaultCallbackPort}, nil
+	return &ClaudeAuthenticator{
+		AuthenticatorConfig: cliauth.AuthenticatorConfig{
+			CallbackPort: claudeDefaultCallbackPort,
+		},
+	}, nil
 }
 
 // ProviderType returns the provider type this authenticator handles.
@@ -77,6 +80,28 @@ func (a *ClaudeAuthenticator) ProviderType() string {
 // RefreshLeadTime returns how far in advance of token expiry to refresh Claude credentials.
 func (a *ClaudeAuthenticator) RefreshLeadTime() time.Duration {
 	return 5 * time.Minute
+}
+
+// GetConfig returns the current runtime configuration for the authenticator.
+func (a *ClaudeAuthenticator) GetConfig() cliauth.AuthenticatorConfig {
+	if a == nil {
+		return cliauth.AuthenticatorConfig{}
+	}
+	return a.AuthenticatorConfig
+}
+
+// SetConfig applies runtime configuration to the authenticator.
+func (a *ClaudeAuthenticator) SetConfig(cfg cliauth.AuthenticatorConfig) error {
+	if a == nil {
+		return fmt.Errorf("claude: authenticator is nil")
+	}
+	if cfg.DeviceFlow {
+		return fmt.Errorf("device flow is not supported by claude authenticator")
+	}
+	cfg.Defaults()
+	a.AuthenticatorConfig = cfg
+	a.client = nil
+	return nil
 }
 
 // Login initiates the Claude CLI login flow and returns a new Credential on success.
@@ -314,7 +339,11 @@ func (a *ClaudeAuthenticator) httpClient() *http.Client {
 	if a.HTTPClient != nil {
 		return a.HTTPClient
 	}
-	return http.DefaultClient
+	if a.client != nil {
+		return a.client
+	}
+	a.client = internalhttpclient.BuildHTTPClient(a.Network)
+	return a.client
 }
 
 // ---- Authorization URL ----

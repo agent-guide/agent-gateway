@@ -10,14 +10,14 @@ import (
 // Manager orchestrates authenticator lifecycle: registration, enable/disable, and selection.
 type Manager struct {
 	mu             sync.RWMutex
-	authenticators map[string]*authenticatorEntry // cli key -> Authenticator
-	providerAuths  map[string]string              // providerType key -> cli key
+	authenticators map[string]Authenticator // cli key -> Authenticator
+	providerAuths  map[string]string        // providerType key -> cli key
 }
 
 // NewManager constructs a CLI Authenticators Manager.
 func NewManager() *Manager {
 	return &Manager{
-		authenticators: make(map[string]*authenticatorEntry),
+		authenticators: make(map[string]Authenticator),
 		providerAuths:  make(map[string]string),
 	}
 }
@@ -35,20 +35,13 @@ func (m *Manager) RegisterAuthenticator(cliname string, auth Authenticator) {
 	}
 	providerTypeKey := strings.ToLower(strings.TrimSpace(auth.ProviderType()))
 	m.mu.Lock()
-	if previous := m.authenticators[cliKey]; previous != nil && previous.state.ProviderType != "" {
-		previousProviderKey := strings.ToLower(previous.state.ProviderType)
+	if previous := m.authenticators[cliKey]; previous != nil && previous.ProviderType() != "" {
+		previousProviderKey := strings.ToLower(previous.ProviderType())
 		if m.providerAuths[previousProviderKey] == cliKey {
 			delete(m.providerAuths, previousProviderKey)
 		}
 	}
-	m.authenticators[cliKey] = &authenticatorEntry{
-		state: AuthenticatorState{
-			Name:         cliKey,
-			ProviderType: providerTypeKey,
-			Enabled:      true,
-		},
-		auth: auth,
-	}
+	m.authenticators[cliKey] = auth
 	if providerTypeKey != "" {
 		m.providerAuths[providerTypeKey] = cliKey
 	}
@@ -56,20 +49,19 @@ func (m *Manager) RegisterAuthenticator(cliname string, auth Authenticator) {
 }
 
 // EnableAuthenticator creates and registers a runtime Authenticator by CLI name.
-func (m *Manager) EnableAuthenticator(cliname string) (AuthenticatorState, error) {
+// The provided config is applied to the runtime authenticator on top of the
+// factory defaults before registration.
+func (m *Manager) EnableAuthenticator(cliname string, cfg AuthenticatorConfig) (AuthenticatorState, error) {
 	cliKey := strings.ToLower(strings.TrimSpace(cliname))
 	if cliKey == "" {
 		return AuthenticatorState{}, fmt.Errorf("manager: authenticator name is empty")
 	}
-	if state, ok := m.AuthenticatorState(cliKey); ok && state.Enabled {
-		return state, nil
-	}
-	auth, err := NewAuthenticator(cliKey)
+	auth, err := m.buildAuthenticatorWithConfig(cliKey, cfg)
 	if err != nil {
 		return AuthenticatorState{}, err
 	}
 	m.RegisterAuthenticator(cliKey, auth)
-	state, _ := m.AuthenticatorState(cliKey)
+	state, _ := m.GetAuthenticatorState(cliKey)
 	return state, nil
 }
 
@@ -85,8 +77,8 @@ func (m *Manager) DisableAuthenticator(cliname string) error {
 	if entry == nil {
 		return nil
 	}
-	if entry.state.ProviderType != "" {
-		providerKey := strings.ToLower(entry.state.ProviderType)
+	if entry.ProviderType() != "" {
+		providerKey := strings.ToLower(entry.ProviderType())
 		if m.providerAuths[providerKey] == cliKey {
 			delete(m.providerAuths, providerKey)
 		}
@@ -101,38 +93,55 @@ func (m *Manager) GetAuthenticator(cliname string) (Authenticator, bool) {
 	m.mu.RLock()
 	entry, ok := m.authenticators[key]
 	m.mu.RUnlock()
-	if !ok || entry == nil || entry.auth == nil {
+	if !ok || entry == nil {
 		return nil, false
 	}
-	return entry.auth, true
+	return entry, true
 }
 
-// AuthenticatorState returns lifecycle metadata for the given CLI name.
-func (m *Manager) AuthenticatorState(cliname string) (AuthenticatorState, bool) {
+// GetAuthenticatorState returns lifecycle metadata for the given CLI name.
+// If the authenticator is not enabled but its factory is registered, a disabled
+// state with the factory defaults is returned.
+func (m *Manager) GetAuthenticatorState(cliname string) (AuthenticatorState, bool) {
 	key := strings.ToLower(strings.TrimSpace(cliname))
+	if key == "" {
+		return AuthenticatorState{}, false
+	}
 	m.mu.RLock()
 	entry, ok := m.authenticators[key]
 	m.mu.RUnlock()
-	if !ok || entry == nil {
-		return AuthenticatorState{Name: key}, false
+	if ok && entry != nil {
+		return AuthenticatorState{
+			Name:         key,
+			ProviderType: strings.ToLower(strings.TrimSpace(entry.ProviderType())),
+			Enabled:      true,
+			Config:       entry.GetConfig(),
+		}, true
 	}
-	return entry.state, true
+
+	auth, err := NewAuthenticator(key)
+	if err != nil || auth == nil {
+		return AuthenticatorState{}, false
+	}
+	return AuthenticatorState{
+		Name:         key,
+		ProviderType: strings.ToLower(strings.TrimSpace(auth.ProviderType())),
+		Enabled:      false,
+		Config:       auth.GetConfig(),
+	}, true
 }
 
 // ListAuthenticatorStates returns all supported authenticators, marking the
 // ones that are currently enabled with their runtime metadata.
 func (m *Manager) ListAuthenticatorStates() []AuthenticatorState {
 	cliauthTypes := ListAuthenticatorTypes()
-	out := make([]AuthenticatorState, 0, len(m.authenticators))
-	m.mu.RLock()
+	out := make([]AuthenticatorState, 0, len(cliauthTypes))
 	for _, cliauthName := range cliauthTypes {
-		if entry := m.authenticators[cliauthName]; entry != nil {
-			out = append(out, entry.state)
-			continue
+		state, ok := m.GetAuthenticatorState(cliauthName)
+		if ok {
+			out = append(out, state)
 		}
-		out = append(out, AuthenticatorState{Name: cliauthName})
 	}
-	m.mu.RUnlock()
 
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].Name < out[j].Name
@@ -146,8 +155,22 @@ func (m *Manager) resolveAuthenticator(providerType string) Authenticator {
 	cliKey, ok := m.providerAuths[key]
 	entry := m.authenticators[cliKey]
 	m.mu.RUnlock()
-	if ok && entry != nil && entry.auth != nil {
-		return entry.auth
+	if ok && entry != nil {
+		return entry
 	}
 	return nil
+}
+
+func (m *Manager) buildAuthenticatorWithConfig(cliname string, cfg AuthenticatorConfig) (Authenticator, error) {
+	auth, err := NewAuthenticator(cliname)
+	if err != nil {
+		return nil, err
+	}
+	if auth == nil {
+		return nil, fmt.Errorf("authenticator is nil")
+	}
+	if err := ApplyAuthenticatorConfigOverrides(auth, cfg); err != nil {
+		return nil, err
+	}
+	return auth, nil
 }

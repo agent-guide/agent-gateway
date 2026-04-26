@@ -17,6 +17,7 @@ import (
 type testAuthenticator struct {
 	providerType string
 	loginFn      func(context.Context, cliauth.LoginStatusReporter) (*cliauth.Credential, error)
+	config       cliauth.AuthenticatorConfig
 }
 
 type cliAuthLoginStartResponse struct {
@@ -29,6 +30,13 @@ type cliAuthLoginStartResponse struct {
 type cliAuthRefresherResponse struct {
 	Status  string `json:"status"`
 	Enabled bool   `json:"enabled"`
+}
+
+type cliAuthAuthenticatorResponse struct {
+	Name         string                      `json:"name"`
+	ProviderType string                      `json:"provider_type"`
+	Enabled      bool                        `json:"enabled"`
+	Config       cliauth.AuthenticatorConfig `json:"config"`
 }
 
 func (a *testAuthenticator) ProviderType() string {
@@ -47,6 +55,21 @@ func (a *testAuthenticator) Refresh(context.Context, *cliauth.Credential) (*clia
 }
 
 func (a *testAuthenticator) RefreshLeadTime() time.Duration { return 0 }
+
+func (a *testAuthenticator) GetConfig() cliauth.AuthenticatorConfig {
+	if a == nil {
+		return cliauth.AuthenticatorConfig{}
+	}
+	return a.config
+}
+
+func (a *testAuthenticator) SetConfig(cfg cliauth.AuthenticatorConfig) error {
+	if a == nil {
+		return nil
+	}
+	a.config = cfg
+	return nil
+}
 
 func containsAll(s string, subs ...string) bool {
 	for _, sub := range subs {
@@ -454,8 +477,9 @@ func TestCLIAuthEnableAndListAuthenticators(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	enableReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/"+authName+"/enable", nil)
+	enableReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/"+authName+"/enable", strings.NewReader(`{"config":{}}`))
 	enableReq.Header.Set("Authorization", "Bearer "+token)
+	enableReq.Header.Set("Content-Type", "application/json")
 	enableRec := httptest.NewRecorder()
 	handler.ServeHTTP(enableRec, enableReq)
 
@@ -476,7 +500,7 @@ func TestCLIAuthEnableAndListAuthenticators(t *testing.T) {
 	}
 
 	var body struct {
-		Items []cliauth.AuthenticatorState `json:"items"`
+		Items []cliAuthAuthenticatorResponse `json:"items"`
 	}
 	if err := json.NewDecoder(listRec.Body).Decode(&body); err != nil {
 		t.Fatalf("decode list response: %v", err)
@@ -490,6 +514,232 @@ func TestCLIAuthEnableAndListAuthenticators(t *testing.T) {
 		}
 	}
 	t.Fatalf("authenticator %q not found in list: %#v", authName, body.Items)
+}
+
+func TestCLIAuthEnableAuthenticatorRequiresConfigBody(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	const authName = "test-admin-required-config-authenticator"
+	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
+		return &testAuthenticator{providerType: "openai"}, nil
+	})
+
+	cliauthMgr := cliauth.NewManager()
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	enableReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/"+authName+"/enable", nil)
+	enableReq.Header.Set("Authorization", "Bearer "+token)
+	enableRec := httptest.NewRecorder()
+	handler.ServeHTTP(enableRec, enableReq)
+
+	if enableRec.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected enable status: got %d want %d body=%s", enableRec.Code, http.StatusBadRequest, enableRec.Body.String())
+	}
+}
+
+func TestCLIAuthEnableAuthenticatorRequiresConfigField(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	const authName = "test-admin-required-config-field-authenticator"
+	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
+		return &testAuthenticator{providerType: "openai"}, nil
+	})
+
+	cliauthMgr := cliauth.NewManager()
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	enableReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/"+authName+"/enable", strings.NewReader(`{}`))
+	enableReq.Header.Set("Authorization", "Bearer "+token)
+	enableReq.Header.Set("Content-Type", "application/json")
+	enableRec := httptest.NewRecorder()
+	handler.ServeHTTP(enableRec, enableReq)
+
+	if enableRec.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected enable status: got %d want %d body=%s", enableRec.Code, http.StatusBadRequest, enableRec.Body.String())
+	}
+}
+
+func TestCLIAuthListAuthenticatorsReturnsDefaultConfigForDisabledItems(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	const enabledAuthName = "test-admin-list-enabled-authenticator"
+	cliauth.RegisterAuthenticatorFactory(enabledAuthName, func() (cliauth.Authenticator, error) {
+		return &testAuthenticator{
+			providerType: "openai",
+			config: cliauth.AuthenticatorConfig{
+				CallbackPort: 9002,
+				NoBrowser:    true,
+			},
+		}, nil
+	})
+
+	const disabledAuthName = "test-admin-list-disabled-authenticator"
+	cliauth.RegisterAuthenticatorFactory(disabledAuthName, func() (cliauth.Authenticator, error) {
+		return &testAuthenticator{
+			providerType: "openai",
+			config: cliauth.AuthenticatorConfig{
+				CallbackPort: 1455,
+				DeviceFlow:   true,
+			},
+		}, nil
+	})
+
+	cliauthMgr := cliauth.NewManager()
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	enableBody := strings.NewReader(`{"config":{"callback_port":9002,"no_browser":true}}`)
+	enableReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/"+enabledAuthName+"/enable", enableBody)
+	enableReq.Header.Set("Authorization", "Bearer "+token)
+	enableReq.Header.Set("Content-Type", "application/json")
+	enableRec := httptest.NewRecorder()
+	handler.ServeHTTP(enableRec, enableReq)
+	if enableRec.Code != http.StatusCreated {
+		t.Fatalf("unexpected enable status: got %d want %d", enableRec.Code, http.StatusCreated)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/cliauth/authenticators", nil)
+	listReq.Header.Set("Authorization", "Bearer "+token)
+	listRec := httptest.NewRecorder()
+	handler.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("unexpected list status: got %d want %d", listRec.Code, http.StatusOK)
+	}
+
+	var body struct {
+		Items []cliAuthAuthenticatorResponse `json:"items"`
+	}
+	if err := json.NewDecoder(listRec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+
+	var sawEnabled bool
+	var sawDisabled bool
+	for _, item := range body.Items {
+		switch item.Name {
+		case enabledAuthName:
+			sawEnabled = true
+			if !item.Enabled {
+				t.Fatalf("expected %q to be enabled", enabledAuthName)
+			}
+			if item.Config.CallbackPort != 9002 || !item.Config.NoBrowser {
+				t.Fatalf("unexpected enabled config: %+v", item.Config)
+			}
+		case disabledAuthName:
+			sawDisabled = true
+			if item.Enabled {
+				t.Fatalf("expected %q to be disabled", disabledAuthName)
+			}
+			if item.Config.CallbackPort != 1455 || item.Config.NoBrowser || !item.Config.DeviceFlow {
+				t.Fatalf("expected disabled authenticator to expose default config, got %+v", item.Config)
+			}
+		}
+	}
+
+	if !sawEnabled || !sawDisabled {
+		t.Fatalf("missing expected authenticators in list: enabled=%v disabled=%v items=%#v", sawEnabled, sawDisabled, body.Items)
+	}
+}
+
+func TestCLIAuthEnableAuthenticatorAcceptsConfig(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	const authName = "test-admin-configurable-enable-authenticator"
+	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
+		return &testAuthenticator{providerType: "openai"}, nil
+	})
+
+	cliauthMgr := cliauth.NewManager()
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	body := strings.NewReader(`{"config":{"callback_port":9002,"no_browser":true,"device_flow":true}}`)
+	enableReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/"+authName+"/enable", body)
+	enableReq.Header.Set("Authorization", "Bearer "+token)
+	enableReq.Header.Set("Content-Type", "application/json")
+	enableRec := httptest.NewRecorder()
+	handler.ServeHTTP(enableRec, enableReq)
+
+	if enableRec.Code != http.StatusCreated {
+		t.Fatalf("unexpected enable status: got %d want %d body=%s", enableRec.Code, http.StatusCreated, enableRec.Body.String())
+	}
+
+	auth, ok := cliauthMgr.GetAuthenticator(authName)
+	if !ok {
+		t.Fatal("expected authenticator to be enabled")
+	}
+	cfg := auth.GetConfig()
+	if cfg.CallbackPort != 9002 || !cfg.NoBrowser || !cfg.DeviceFlow {
+		t.Fatalf("unexpected runtime config: %+v", cfg)
+	}
+}
+
+func TestCLIAuthEnableAuthenticatorReplacesExistingConfig(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	const authName = "test-admin-replace-config-authenticator"
+	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
+		return &testAuthenticator{
+			providerType: "openai",
+			config: cliauth.AuthenticatorConfig{
+				CallbackPort: 1455,
+			},
+		}, nil
+	})
+
+	cliauthMgr := cliauth.NewManager()
+	if _, err := cliauthMgr.EnableAuthenticator(authName, cliauth.AuthenticatorConfig{
+		NoBrowser:  true,
+		DeviceFlow: true,
+	}); err != nil {
+		t.Fatalf("initial enable: %v", err)
+	}
+
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	body := strings.NewReader(`{"config":{"callback_port":9002,"no_browser":false}}`)
+	enableReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/"+authName+"/enable", body)
+	enableReq.Header.Set("Authorization", "Bearer "+token)
+	enableReq.Header.Set("Content-Type", "application/json")
+	enableRec := httptest.NewRecorder()
+	handler.ServeHTTP(enableRec, enableReq)
+
+	if enableRec.Code != http.StatusOK {
+		t.Fatalf("unexpected enable status: got %d want %d body=%s", enableRec.Code, http.StatusOK, enableRec.Body.String())
+	}
+
+	auth, ok := cliauthMgr.GetAuthenticator(authName)
+	if !ok {
+		t.Fatal("expected authenticator to remain enabled")
+	}
+	cfg := auth.GetConfig()
+	if cfg.CallbackPort != 9002 {
+		t.Fatalf("CallbackPort = %d, want 9002", cfg.CallbackPort)
+	}
+	if cfg.NoBrowser {
+		t.Fatalf("NoBrowser = true, want false")
+	}
+	if cfg.DeviceFlow {
+		t.Fatalf("DeviceFlow = true, want false")
+	}
 }
 
 func TestCLIAuthDisableRuntimeAuthenticator(t *testing.T) {
@@ -514,5 +764,91 @@ func TestCLIAuthDisableRuntimeAuthenticator(t *testing.T) {
 	}
 	if _, ok := cliauthMgr.GetAuthenticator("codex"); ok {
 		t.Fatal("authenticator was not disabled")
+	}
+}
+
+func TestCLIAuthGetAuthenticatorReturnsConfig(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	cliauthMgr := cliauth.NewManager()
+	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
+		providerType: "openai",
+		config: cliauth.AuthenticatorConfig{
+			CallbackPort: 1455,
+			NoBrowser:    true,
+			DeviceFlow:   true,
+		},
+	})
+
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/cliauth/authenticators/codex", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusOK)
+	}
+
+	var resp cliAuthAuthenticatorResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Name != "codex" || resp.ProviderType != "openai" || !resp.Enabled {
+		t.Fatalf("unexpected authenticator view: %+v", resp)
+	}
+	if resp.Config.CallbackPort != 1455 || !resp.Config.NoBrowser || !resp.Config.DeviceFlow {
+		t.Fatalf("unexpected config: %+v", resp.Config)
+	}
+}
+
+func TestCLIAuthGetDisabledAuthenticatorReturnsDefaultConfig(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	const authName = "test-admin-disabled-authenticator"
+	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
+		return &testAuthenticator{
+			providerType: "openai",
+			config: cliauth.AuthenticatorConfig{
+				CallbackPort: 1455,
+				NoBrowser:    true,
+				DeviceFlow:   true,
+			},
+		}, nil
+	})
+
+	cliauthMgr := cliauth.NewManager()
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/cliauth/authenticators/"+authName, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var resp cliAuthAuthenticatorResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Name != authName || resp.Enabled {
+		t.Fatalf("unexpected authenticator view: %+v", resp)
+	}
+	if resp.ProviderType != "openai" {
+		t.Fatalf("expected provider type to be exposed for disabled authenticator, got %q", resp.ProviderType)
+	}
+	if resp.Config.CallbackPort != 1455 || !resp.Config.NoBrowser || !resp.Config.DeviceFlow {
+		t.Fatalf("expected default config for disabled authenticator, got %+v", resp.Config)
 	}
 }

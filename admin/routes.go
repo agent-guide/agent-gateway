@@ -110,6 +110,7 @@ func (h *Handler) Routes() []Route {
 
 		// CLI Auth Authenticators
 		{Method: http.MethodGet, Path: "/admin/cliauth/authenticators", Handler: h.handleListCLIAuthAuthenticators, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/cliauth/authenticators/{authenticator_name}", Handler: h.handleGetCLIAuthAuthenticator, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/cliauth/authenticators/{authenticator_name}/enable", Handler: h.handleEnableCLIAuthAuthenticator, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/cliauth/authenticators/{authenticator_name}/disable", Handler: h.handleDisableCLIAuthAuthenticator, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/cliauth/authenticators/{authenticator_name}/login", Handler: h.handleStartCLIAuthAuthenticatorLogin, RequireAuth: true},

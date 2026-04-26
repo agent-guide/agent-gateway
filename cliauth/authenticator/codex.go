@@ -133,21 +133,18 @@ type codexAuthInfo struct {
 // CodexAuthenticator implements manager.Authenticator for the OpenAI Codex CLI login flow.
 // It supports both browser-based OAuth PKCE and headless device flow authentication.
 type CodexAuthenticator struct {
-	// CallbackPort is the local port for the OAuth callback server (default: 1455).
-	CallbackPort int
-	// UseDeviceFlow forces device-code authentication instead of browser-based OAuth.
-	UseDeviceFlow bool
-	// NoBrowser suppresses automatic browser opening and prints the URL instead.
-	NoBrowser bool
-	// NetworkConfig controls the HTTP behavior for outbound token requests.
-	NetworkConfig internalhttpclient.NetworkConfig
+	cliauth.AuthenticatorConfig
 
 	client *http.Client // lazily initialized from NetworkConfig
 }
 
 // NewCodexAuthenticator creates a CodexAuthenticator with default settings.
 func NewCodexAuthenticator() (cliauth.Authenticator, error) {
-	return &CodexAuthenticator{CallbackPort: codexDefaultCallbackPort}, nil
+	return &CodexAuthenticator{
+		AuthenticatorConfig: cliauth.AuthenticatorConfig{
+			CallbackPort: codexDefaultCallbackPort,
+		},
+	}, nil
 }
 
 // ProviderType returns the provider type this authenticator handles.
@@ -161,13 +158,32 @@ func (a *CodexAuthenticator) RefreshLeadTime() time.Duration {
 	return 5 * 24 * time.Hour
 }
 
+// GetConfig returns the current runtime configuration for the authenticator.
+func (a *CodexAuthenticator) GetConfig() cliauth.AuthenticatorConfig {
+	if a == nil {
+		return cliauth.AuthenticatorConfig{}
+	}
+	return a.AuthenticatorConfig
+}
+
+// SetConfig applies runtime configuration to the authenticator.
+func (a *CodexAuthenticator) SetConfig(cfg cliauth.AuthenticatorConfig) error {
+	if a == nil {
+		return fmt.Errorf("codex: authenticator is nil")
+	}
+	cfg.Defaults()
+	a.AuthenticatorConfig = cfg
+	a.client = nil
+	return nil
+}
+
 // Login initiates the Codex CLI login flow and returns a new Credential on success.
 // It uses browser-based OAuth PKCE by default; set UseDeviceFlow for headless environments.
 func (a *CodexAuthenticator) Login(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if a.UseDeviceFlow {
+	if a.DeviceFlow {
 		return a.loginWithDeviceFlow(ctx, reporter)
 	}
 	return a.loginWithBrowser(ctx, reporter)
@@ -538,7 +554,7 @@ func (a *CodexAuthenticator) httpClient() *http.Client {
 	if a.client != nil {
 		return a.client
 	}
-	a.client = internalhttpclient.BuildHTTPClient(a.NetworkConfig)
+	a.client = internalhttpclient.BuildHTTPClient(a.Network)
 	return a.client
 }
 

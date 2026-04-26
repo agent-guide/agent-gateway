@@ -327,6 +327,7 @@ CLI login flow:
 
 ```text
 POST /admin/cliauth/authenticators/{authenticator_name}/enable
+  -> request body must include config; use {"config":{}} for factory defaults
   -> create runtime authenticator from registered factory
   -> register authenticator in auth manager
 POST /admin/cliauth/authenticators/{authenticator_name}/login

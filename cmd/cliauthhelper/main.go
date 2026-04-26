@@ -12,7 +12,6 @@ import (
 	"syscall"
 
 	"github.com/agent-guide/caddy-agent-gateway/cliauth"
-	authenticator "github.com/agent-guide/caddy-agent-gateway/cliauth/authenticator"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/google/uuid"
 )
@@ -95,10 +94,10 @@ func runLogin(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := configureAuthenticator(auth, authenticatorConfig{
-		callbackPort: *callbackPort,
-		noBrowser:    *noBrowser,
-		deviceFlow:   *useDeviceFlow,
+	if err := configureAuthenticator(auth, cliauth.AuthenticatorConfig{
+		CallbackPort: *callbackPort,
+		NoBrowser:    *noBrowser,
+		DeviceFlow:   *useDeviceFlow,
 	}); err != nil {
 		return err
 	}
@@ -249,42 +248,8 @@ func runDelete(args []string) error {
 	return nil
 }
 
-type authenticatorConfig struct {
-	callbackPort int
-	noBrowser    bool
-	deviceFlow   bool
-}
-
-func configureAuthenticator(auth cliauth.Authenticator, cfg authenticatorConfig) error {
-	switch a := auth.(type) {
-	case *authenticator.CodexAuthenticator:
-		if cfg.callbackPort > 0 {
-			a.CallbackPort = cfg.callbackPort
-		}
-		a.NoBrowser = cfg.noBrowser
-		a.UseDeviceFlow = cfg.deviceFlow
-	case *authenticator.ClaudeAuthenticator:
-		if cfg.deviceFlow {
-			return fmt.Errorf("device flow is not supported by claude authenticator")
-		}
-		if cfg.callbackPort > 0 {
-			a.CallbackPort = cfg.callbackPort
-		}
-		a.NoBrowser = cfg.noBrowser
-	case *authenticator.GeminiAuthenticator:
-		if cfg.deviceFlow {
-			return fmt.Errorf("device flow is not supported by gemini authenticator")
-		}
-		if cfg.callbackPort > 0 {
-			a.CallbackPort = cfg.callbackPort
-		}
-		a.NoBrowser = cfg.noBrowser
-	default:
-		if cfg.callbackPort > 0 || cfg.noBrowser || cfg.deviceFlow {
-			return fmt.Errorf("authenticator %T does not support CLI option overrides", auth)
-		}
-	}
-	return nil
+func configureAuthenticator(auth cliauth.Authenticator, overrides cliauth.AuthenticatorConfig) error {
+	return cliauth.ApplyAuthenticatorConfigOverrides(auth, overrides)
 }
 
 func newManagers(storePath string) (*cliauth.AutoRefresher, *CredentialManager, error) {

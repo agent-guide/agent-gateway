@@ -455,12 +455,32 @@ curl -X POST http://127.0.0.1:8081/admin/credentials \
 ### CLI Auth
 
 - `GET /admin/cliauth/authenticators`
+- `GET /admin/cliauth/authenticators/{authenticator_name}`
+- `PUT /admin/cliauth/authenticators/{authenticator_name}`
 - `POST /admin/cliauth/authenticators/{authenticator_name}/enable`
 - `POST /admin/cliauth/authenticators/{authenticator_name}/disable`
 - `POST /admin/cliauth/authenticators/{authenticator_name}/login`
 - `GET /admin/cliauth/logins/{login_id}`
 
 CLI auth login runs asynchronously on the server. The login endpoint returns `202 Accepted`; poll the status endpoint for completion.
+Authenticator config set through the admin API is runtime-only. Disabling an authenticator or restarting the server resets it to factory defaults.
+The enable endpoint requires a JSON body with `config`. Use `{"config":{}}` to keep factory defaults. The runtime authenticator is recreated from its factory defaults, then the provided config is applied.
+
+Examples:
+
+```sh
+curl -X POST http://localhost:2019/admin/cliauth/authenticators/codex/enable \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  --data '{"config":{}}'
+```
+
+```sh
+curl -X POST http://localhost:2019/admin/cliauth/authenticators/codex/enable \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  --data '{"config":{"callback_port":9002,"no_browser":true,"device_flow":true}}'
+```
 
 ### Registered but Not Implemented
 
