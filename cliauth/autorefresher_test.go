@@ -2,11 +2,30 @@ package cliauth
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 )
+
+type testRefreshAuthenticator struct {
+	providerType string
+	refreshFn    func(context.Context, *Credential) (*Credential, error)
+}
+
+func (a *testRefreshAuthenticator) ProviderType() string { return a.providerType }
+
+func (a *testRefreshAuthenticator) Login(context.Context, LoginStatusReporter) (*Credential, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (a *testRefreshAuthenticator) RefreshLead(ctx context.Context, cred *Credential) (*Credential, error) {
+	if a.refreshFn == nil {
+		return cred, nil
+	}
+	return a.refreshFn(ctx, cred)
+}
 
 type stubCredentialManager struct {
 	getFn      func(string) *credentialmgr.Credential
@@ -190,10 +209,143 @@ func TestAutoRefresherAcceptsCredentialManagerInterface(t *testing.T) {
 	if err := refresher.Load(context.Background()); err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if got := refresher.snapshotForRefresh(time.Time{}); len(got) != 0 {
-		t.Fatalf("snapshotForRefresh() loaded unexpected refresh candidate count: got %d want 0", len(got))
+	if n := len(refresher.dispatcher.heapIndex); n != 0 {
+		t.Fatalf("heap should have no scheduled credentials (no expiry set), got %d", n)
 	}
 	if _, ok := refresher.creds["cred-1"]; !ok {
 		t.Fatal("Load did not store credential from interface-backed manager")
+	}
+}
+
+func TestNextScheduleAtEncodesRefreshReadiness(t *testing.T) {
+	now := time.Date(2026, 4, 26, 12, 0, 0, 0, time.UTC)
+	future := now.Add(30 * time.Minute)
+
+	tests := []struct {
+		name          string
+		cred          *Credential
+		wantNext      time.Time
+		wantScheduled bool
+		wantRefresh   bool
+	}{
+		{
+			name:          "disabled credential is not scheduled",
+			cred:          &Credential{Status: StatusDisabled},
+			wantScheduled: false,
+			wantRefresh:   false,
+		},
+		{
+			name: "next refresh after in future delays refresh",
+			cred: &Credential{
+				NextRefreshAfter: future,
+			},
+			wantNext:      future,
+			wantScheduled: true,
+			wantRefresh:   false,
+		},
+		{
+			name: "expiration inside lead time refreshes now",
+			cred: &Credential{
+				Credential: credentialmgr.Credential{
+					Metadata: map[string]any{
+						"expires_at": now.Add(2 * time.Minute).Format(time.RFC3339),
+					},
+				},
+			},
+			wantNext:      now,
+			wantScheduled: true,
+			wantRefresh:   true,
+		},
+		{
+			name: "expiration outside lead time waits until due",
+			cred: &Credential{
+				Credential: credentialmgr.Credential{
+					Metadata: map[string]any{
+						"expires_at": future.Format(time.RFC3339),
+					},
+				},
+			},
+			wantNext:      future.Add(-defaultRefreshLeadTime),
+			wantScheduled: true,
+			wantRefresh:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotNext, gotScheduled := nextScheduleAt(tt.cred, now)
+			if gotScheduled != tt.wantScheduled {
+				t.Fatalf("nextScheduleAt scheduled = %v, want %v", gotScheduled, tt.wantScheduled)
+			}
+			if !gotNext.Equal(tt.wantNext) {
+				t.Fatalf("nextScheduleAt next = %v, want %v", gotNext, tt.wantNext)
+			}
+			if got := gotScheduled && !gotNext.After(now); got != tt.wantRefresh {
+				t.Fatalf("refresh readiness = %v, want %v", got, tt.wantRefresh)
+			}
+		})
+	}
+}
+
+func TestAutoRefresherWorkerUsesConsistentCredentialSnapshot(t *testing.T) {
+	refresher := NewAutoRefresher(nil, NewManager())
+	now := time.Now().UTC()
+
+	usedCred := make(chan *Credential, 1)
+	refresher.manager.RegisterAuthenticator("codex", &testRefreshAuthenticator{
+		providerType: "openai",
+		refreshFn: func(ctx context.Context, cred *Credential) (*Credential, error) {
+			usedCred <- cred.Clone()
+			return cred.Clone(), nil
+		},
+	})
+	refresher.manager.RegisterAuthenticator("claude", &testRefreshAuthenticator{
+		providerType: "anthropic",
+		refreshFn: func(context.Context, *Credential) (*Credential, error) {
+			t.Fatal("worker resolved authenticator from a newer provider type instead of the credential snapshot")
+			return nil, nil
+		},
+	})
+
+	refresher.mu.Lock()
+	refresher.creds["cred-1"] = &Credential{
+		Credential: credentialmgr.Credential{
+			ID:           "cred-1",
+			ProviderType: "openai",
+			Metadata: map[string]any{
+				"expires_at": now.Add(2 * time.Minute).Format(time.RFC3339),
+			},
+		},
+		Status: StatusActive,
+	}
+	refresher.mu.Unlock()
+
+	targetCred, auth := refresher.resolveRefreshTarget("cred-1")
+	if targetCred == nil || auth == nil {
+		t.Fatal("resolveRefreshTarget returned nil target")
+	}
+
+	refresher.mu.Lock()
+	refresher.creds["cred-1"] = &Credential{
+		Credential: credentialmgr.Credential{
+			ID:           "cred-1",
+			ProviderType: "anthropic",
+			Metadata: map[string]any{
+				"expires_at": now.Add(2 * time.Minute).Format(time.RFC3339),
+			},
+		},
+		Status: StatusActive,
+	}
+	refresher.mu.Unlock()
+
+	refresher.refreshOne(context.Background(), targetCred, auth, now)
+
+	select {
+	case got := <-usedCred:
+		if got.ProviderType != "openai" {
+			t.Fatalf("refresh credential provider type = %q, want openai", got.ProviderType)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("refresh authenticator was not invoked")
 	}
 }

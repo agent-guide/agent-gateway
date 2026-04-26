@@ -14,6 +14,7 @@ import (
 const (
 	defaultRefreshCheckInterval = 5 * time.Second
 	defaultRefreshMaxConcurrent = 8
+	defaultRefreshLeadTime      = 5 * time.Minute
 )
 
 // AutoRefresher manages credential lifecycle: loading, registration, update,
@@ -25,19 +26,30 @@ type AutoRefresher struct {
 	mu    sync.RWMutex
 	creds map[string]*Credential
 
-	refreshCancel    context.CancelFunc
-	refreshSemaphore chan struct{}
+	dispatcher *RefreshJobDispatcher
+	jobs       chan string
+
+	refreshCancel context.CancelFunc
+	concurrency   int
 }
 
 // NewAutoRefresher constructs an AutoRefresher.
 // manager may be nil when authenticator-backed refresh is not needed.
 func NewAutoRefresher(credMgr CredentialManager, manager *Manager) *AutoRefresher {
-	return &AutoRefresher{
-		manager:          manager,
-		credentialMgr:    credMgr,
-		creds:            make(map[string]*Credential),
-		refreshSemaphore: make(chan struct{}, defaultRefreshMaxConcurrent),
+	concurrency := defaultRefreshMaxConcurrent
+	jobBuffer := concurrency * 4
+	if jobBuffer < 64 {
+		jobBuffer = 64
 	}
+	r := &AutoRefresher{
+		manager:       manager,
+		credentialMgr: credMgr,
+		creds:         make(map[string]*Credential),
+		jobs:          make(chan string, jobBuffer),
+		concurrency:   concurrency,
+	}
+	r.dispatcher = newRefreshJobDispatcher(r.jobs, r.nextScheduleAt)
+	return r
 }
 
 // Load reads all CLI-auth credentials from the store and registers them in memory.
@@ -57,6 +69,7 @@ func (r *AutoRefresher) Load(ctx context.Context) error {
 		r.creds[cred.ID] = cred
 		r.mu.Unlock()
 	}
+	r.rebuildHeap()
 	return nil
 }
 
@@ -90,6 +103,7 @@ func (r *AutoRefresher) RegisterLoginCredential(ctx context.Context, cred *Crede
 	r.mu.Lock()
 	r.creds[cred.ID] = cred
 	r.mu.Unlock()
+	r.dispatcher.Enqueue(cred.ID)
 	return nil
 }
 
@@ -111,10 +125,11 @@ func (r *AutoRefresher) updateCredential(ctx context.Context, cred *Credential) 
 	r.mu.Lock()
 	r.creds[cred.ID] = cred
 	r.mu.Unlock()
+	r.dispatcher.Enqueue(cred.ID)
 	return nil
 }
 
-// Start starts the background goroutine that periodically refreshes expiring credentials.
+// Start starts the background goroutines that periodically refresh expiring credentials.
 // Call Stop to shut it down.
 func (r *AutoRefresher) Start(ctx context.Context) {
 	r.mu.Lock()
@@ -126,10 +141,13 @@ func (r *AutoRefresher) Start(ctx context.Context) {
 	r.refreshCancel = cancel
 	r.mu.Unlock()
 
-	go r.refreshLoop(loopCtx)
+	for i := 0; i < r.concurrency; i++ {
+		go r.worker(loopCtx)
+	}
+	go r.dispatcher.DispatchLoop(loopCtx)
 }
 
-// Stop stops the background refresh goroutine.
+// Stop stops the background refresh goroutines.
 func (r *AutoRefresher) Stop() {
 	r.mu.Lock()
 	cancel := r.refreshCancel
@@ -140,72 +158,61 @@ func (r *AutoRefresher) Stop() {
 	}
 }
 
-func (r *AutoRefresher) refreshLoop(ctx context.Context) {
-	ticker := time.NewTicker(defaultRefreshCheckInterval)
-	defer ticker.Stop()
+func (r *AutoRefresher) worker(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			r.runRefreshCycle(ctx)
+		case credID := <-r.jobs:
+			if credID == "" {
+				continue
+			}
+			cred, auth := r.resolveRefreshTarget(credID)
+			if cred != nil && auth != nil {
+				r.refreshOne(ctx, cred, auth, time.Now())
+			}
+			r.dispatcher.Enqueue(credID)
 		}
 	}
 }
 
-func (r *AutoRefresher) runRefreshCycle(ctx context.Context) {
+// rebuildHeap scans all loaded credentials and initialises the scheduler heap.
+func (r *AutoRefresher) rebuildHeap() {
 	now := time.Now()
-	candidates := r.snapshotForRefresh(now)
-	for _, cred := range candidates {
-		if r.manager == nil {
-			continue
-		}
-		auth := r.manager.resolveAuthenticator(cred.ProviderType)
-		if auth == nil {
-			continue
-		}
-
-		select {
-		case r.refreshSemaphore <- struct{}{}:
-		default:
-			// Semaphore full; skip this cycle.
-			return
-		}
-		go func(c *Credential, a Authenticator) {
-			defer func() { <-r.refreshSemaphore }()
-			r.refreshOne(ctx, c, a, now)
-		}(cred, auth)
-	}
-}
-
-func (r *AutoRefresher) snapshotForRefresh(now time.Time) []*Credential {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	var candidates []*Credential
-	for _, cred := range r.creds {
-		if cred.IsDisabled() {
-			continue
+	ids := make([]string, 0, len(r.creds))
+	for id, cred := range r.creds {
+		if cred != nil {
+			ids = append(ids, id)
 		}
-		if !needsRefresh(cred, now) {
-			continue
-		}
-		candidates = append(candidates, cred.Clone())
 	}
-	return candidates
+	r.mu.RUnlock()
+
+	r.dispatcher.Reset(ids, now)
 }
 
-func needsRefresh(cred *Credential, now time.Time) bool {
-	if cred.Status == StatusRefreshing {
-		return false
+func (r *AutoRefresher) nextScheduleAt(credID string, now time.Time) (time.Time, bool) {
+	r.mu.RLock()
+	cred := r.creds[credID]
+	r.mu.RUnlock()
+	return nextScheduleAt(cred, now)
+}
+
+func (r *AutoRefresher) resolveRefreshTarget(credID string) (*Credential, Authenticator) {
+	if strings.TrimSpace(credID) == "" {
+		return nil, nil
 	}
-	if !cred.NextRefreshAfter.IsZero() && now.Before(cred.NextRefreshAfter) {
-		return false
+	r.mu.RLock()
+	cred := r.creds[credID]
+	r.mu.RUnlock()
+	if cred == nil {
+		return nil, nil
 	}
-	if exp, ok := cred.ExpirationTime(); ok {
-		// Refresh 5 minutes before expiration.
-		return now.After(exp.Add(-5 * time.Minute))
+	cred = cred.Clone()
+	if r.manager == nil {
+		return cred, nil
 	}
-	return false
+	return cred, r.manager.resolveAuthenticator(cred.ProviderType)
 }
 
 func (r *AutoRefresher) refreshOne(ctx context.Context, cred *Credential, auth Authenticator, now time.Time) {
@@ -219,7 +226,7 @@ func (r *AutoRefresher) refreshOne(ctx context.Context, cred *Credential, auth A
 		failed := cred.Clone()
 		failed.Status = StatusError
 		failed.StatusMessage = err.Error()
-		failed.NextRefreshAfter = time.Now().Add(5 * time.Minute)
+		failed.NextRefreshAfter = time.Now().Add(defaultRefreshLeadTime)
 		_ = r.updateCredential(ctx, failed)
 		return
 	}
@@ -236,6 +243,29 @@ func (r *AutoRefresher) refreshOne(ctx context.Context, cred *Credential, auth A
 		updated.Status = StatusActive
 	}
 	_ = r.updateCredential(ctx, updated)
+}
+
+// nextScheduleAt returns when to next wake up and evaluate this credential.
+// Returns (zero, false) if the credential should not be tracked by the scheduler.
+func nextScheduleAt(cred *Credential, now time.Time) (time.Time, bool) {
+	if cred == nil || cred.IsDisabled() {
+		return time.Time{}, false
+	}
+	// While a refresh is in flight the worker will reschedule on completion.
+	if cred.Status == StatusRefreshing {
+		return time.Time{}, false
+	}
+	if !cred.NextRefreshAfter.IsZero() && now.Before(cred.NextRefreshAfter) {
+		return cred.NextRefreshAfter, true
+	}
+	if exp, ok := cred.ExpirationTime(); ok {
+		dueAt := exp.Add(-defaultRefreshLeadTime)
+		if !dueAt.After(now) {
+			return now, true
+		}
+		return dueAt, true
+	}
+	return time.Time{}, false
 }
 
 func toCommonCred(c *Credential, source string) *credentialmgr.Credential {
