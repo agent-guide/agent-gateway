@@ -3,12 +3,9 @@ package gateway
 import (
 	"context"
 	"errors"
-	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/cliauth"
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
-	"github.com/caddyserver/caddy/v2"
 )
 
 type testProvisionVirtualKeyStore struct {
@@ -76,19 +73,4 @@ func (s *testProvisionVirtualKeyStore) Get(_ context.Context, key string) (any, 
 		return nil, configstoreintf.ErrNotFound
 	}
 	return item, nil
-}
-
-func TestProvisionAuthenticatorsWithEmptyConfig(t *testing.T) {
-	app := &App{cliauthManager: cliauth.NewManager()}
-
-	if err := app.provisionAuthenticators(caddy.Context{}); err != nil {
-		t.Fatalf("provisionAuthenticators() error = %v", err)
-	}
-
-	if _, ok := app.cliauthManager.GetAuthenticator("codex"); ok {
-		t.Fatal("expected codex authenticator to remain disabled without configuration")
-	}
-	if _, ok := app.cliauthManager.GetAuthenticator("claude"); ok {
-		t.Fatal("expected claude authenticator to remain disabled without configuration")
-	}
 }

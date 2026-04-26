@@ -26,13 +26,6 @@ func NewManager() *Manager {
 // It also indexes the same Authenticator by its provider type so refresh lookups
 // can continue resolving via credential.ProviderType.
 func (m *Manager) RegisterAuthenticator(cliname string, auth Authenticator) {
-	m.RegisterAuthenticatorWithOptions(cliname, auth, RegisterAuthenticatorOptions{
-		Source: AuthenticatorSourceRuntime,
-	})
-}
-
-// RegisterAuthenticatorWithOptions registers an Authenticator with lifecycle metadata.
-func (m *Manager) RegisterAuthenticatorWithOptions(cliname string, auth Authenticator, opts RegisterAuthenticatorOptions) {
 	if auth == nil {
 		return
 	}
@@ -41,9 +34,6 @@ func (m *Manager) RegisterAuthenticatorWithOptions(cliname string, auth Authenti
 		return
 	}
 	providerTypeKey := strings.ToLower(strings.TrimSpace(auth.ProviderType()))
-	if opts.Source == "" {
-		opts.Source = AuthenticatorSourceRuntime
-	}
 	m.mu.Lock()
 	if previous := m.authenticators[cliKey]; previous != nil && previous.state.ProviderType != "" {
 		previousProviderKey := strings.ToLower(previous.state.ProviderType)
@@ -55,8 +45,6 @@ func (m *Manager) RegisterAuthenticatorWithOptions(cliname string, auth Authenti
 		state: AuthenticatorState{
 			Name:         cliKey,
 			ProviderType: providerTypeKey,
-			Source:       opts.Source,
-			ReadOnly:     opts.ReadOnly,
 			Enabled:      true,
 		},
 		auth: auth,
@@ -80,14 +68,12 @@ func (m *Manager) EnableAuthenticator(cliname string) (AuthenticatorState, error
 	if err != nil {
 		return AuthenticatorState{}, err
 	}
-	m.RegisterAuthenticatorWithOptions(cliKey, auth, RegisterAuthenticatorOptions{
-		Source: AuthenticatorSourceRuntime,
-	})
+	m.RegisterAuthenticator(cliKey, auth)
 	state, _ := m.AuthenticatorState(cliKey)
 	return state, nil
 }
 
-// DisableAuthenticator deregisters a runtime Authenticator by CLI name.
+// DisableAuthenticator deregisters an Authenticator by CLI name.
 func (m *Manager) DisableAuthenticator(cliname string) error {
 	cliKey := strings.ToLower(strings.TrimSpace(cliname))
 	if cliKey == "" {
@@ -98,9 +84,6 @@ func (m *Manager) DisableAuthenticator(cliname string) error {
 	entry := m.authenticators[cliKey]
 	if entry == nil {
 		return nil
-	}
-	if entry.state.ReadOnly {
-		return ErrAuthenticatorReadOnly
 	}
 	if entry.state.ProviderType != "" {
 		providerKey := strings.ToLower(entry.state.ProviderType)

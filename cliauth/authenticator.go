@@ -2,7 +2,6 @@ package cliauth
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -40,30 +39,11 @@ type LoginStatusReporter interface {
 // AuthenticatorFactory creates an Authenticator instance.
 type AuthenticatorFactory func() (Authenticator, error)
 
-// AuthenticatorSource identifies where an enabled Authenticator came from.
-type AuthenticatorSource string
-
-const (
-	AuthenticatorSourceCaddyfile AuthenticatorSource = "caddyfile"
-	AuthenticatorSourceRuntime   AuthenticatorSource = "runtime"
-)
-
-// ErrAuthenticatorReadOnly is returned when a read-only Authenticator is modified.
-var ErrAuthenticatorReadOnly = errors.New("authenticator is read-only")
-
-// RegisterAuthenticatorOptions controls how an Authenticator is registered.
-type RegisterAuthenticatorOptions struct {
-	Source   AuthenticatorSource
-	ReadOnly bool
-}
-
 // AuthenticatorState describes a supported or enabled Authenticator.
 type AuthenticatorState struct {
-	Name         string              `json:"name"`
-	ProviderType string              `json:"provider_type,omitempty"`
-	Source       AuthenticatorSource `json:"source,omitempty"`
-	ReadOnly     bool                `json:"read_only"`
-	Enabled      bool                `json:"enabled"`
+	Name         string `json:"name"`
+	ProviderType string `json:"provider_type,omitempty"`
+	Enabled      bool   `json:"enabled"`
 }
 
 type authenticatorEntry struct {

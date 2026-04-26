@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -75,10 +74,6 @@ func (h *Handler) handleDisableCLIAuthAuthenticator(w http.ResponseWriter, r *ht
 		return
 	}
 	if err := h.cliauthManager.DisableAuthenticator(name); err != nil {
-		if errors.Is(err, cliauth.ErrAuthenticatorReadOnly) {
-			_ = httpjson.Error(w, http.StatusConflict, err.Error())
-			return
-		}
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}

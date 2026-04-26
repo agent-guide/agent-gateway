@@ -41,10 +41,6 @@ func parseApp(d *caddyfile.Dispenser, existingVal any) (any, error) {
 			if err := parseConfigStore(d, app); err != nil {
 				return nil, err
 			}
-		case "authenticator":
-			if err := parseAuthenticator(d, app); err != nil {
-				return nil, err
-			}
 		case "route":
 			if err := parseRoute(d, app); err != nil {
 				return nil, err
@@ -142,24 +138,6 @@ func parseConfigStore(d *caddyfile.Dispenser, app *App) error {
 	app.ConfigStoreRaw = caddy.ModuleMap{
 		name: caddyconfig.JSON(unm, nil),
 	}
-	return nil
-}
-
-func parseAuthenticator(d *caddyfile.Dispenser, app *App) error {
-	if !d.NextArg() {
-		return d.ArgErr()
-	}
-	name := d.Val()
-	modID := "llm.authenticators." + name
-	unm, err := caddyfile.UnmarshalModule(d, modID)
-	if err != nil {
-		return err
-	}
-
-	if app.AuthenticatorsRaw == nil {
-		app.AuthenticatorsRaw = make(map[string]json.RawMessage)
-	}
-	app.AuthenticatorsRaw[name] = caddyconfig.JSON(unm, nil)
 	return nil
 }
 

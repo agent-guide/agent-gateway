@@ -423,31 +423,3 @@ func TestCLIAuthDisableRuntimeAuthenticator(t *testing.T) {
 		t.Fatal("authenticator was not disabled")
 	}
 }
-
-func TestCLIAuthDisableCaddyfileAuthenticatorReturnsConflict(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
-	cliauthMgr := cliauth.NewManager()
-	cliauthMgr.RegisterAuthenticatorWithOptions("codex", &testAuthenticator{providerType: "openai"}, cliauth.RegisterAuthenticatorOptions{
-		Source:   cliauth.AuthenticatorSourceCaddyfile,
-		ReadOnly: true,
-	})
-
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
-	token := loginForTest(t, handler, "admin", "secret-pass")
-
-	req := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/disable", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusConflict)
-	}
-	if _, ok := cliauthMgr.GetAuthenticator("codex"); !ok {
-		t.Fatal("read-only authenticator was disabled")
-	}
-}

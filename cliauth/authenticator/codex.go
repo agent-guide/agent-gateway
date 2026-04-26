@@ -25,8 +25,6 @@ import (
 	"github.com/agent-guide/caddy-agent-gateway/cliauth"
 	internalhttpclient "github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
-	"github.com/caddyserver/caddy/v2"
-	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/google/uuid"
 )
 
@@ -81,7 +79,6 @@ func newAuthError(code AuthErrorCode, err error) error {
 }
 
 func init() {
-	caddy.RegisterModule(CodexAuthenticator{})
 	cliauth.RegisterAuthenticatorFactory("codex", NewCodexAuthenticator)
 }
 
@@ -145,74 +142,12 @@ type CodexAuthenticator struct {
 	// NetworkConfig controls the HTTP behavior for outbound token requests.
 	NetworkConfig internalhttpclient.NetworkConfig
 
-	client *http.Client // initialized in Provision; lazily rebuilt for non-Caddy construction paths
-}
-
-// CaddyModule returns the Caddy module information.
-func (CodexAuthenticator) CaddyModule() caddy.ModuleInfo {
-	return caddy.ModuleInfo{
-		ID:  "llm.authenticators.codex",
-		New: func() caddy.Module { return new(CodexAuthenticator) },
-	}
+	client *http.Client // lazily initialized from NetworkConfig
 }
 
 // NewCodexAuthenticator creates a CodexAuthenticator with default settings.
 func NewCodexAuthenticator() (cliauth.Authenticator, error) {
 	return &CodexAuthenticator{CallbackPort: codexDefaultCallbackPort}, nil
-}
-
-// Provision applies default settings after the module is loaded.
-func (a *CodexAuthenticator) Provision(caddy.Context) error {
-	if a.CallbackPort <= 0 {
-		a.CallbackPort = codexDefaultCallbackPort
-	}
-	a.client = internalhttpclient.BuildHTTPClient(a.NetworkConfig)
-	return nil
-}
-
-// UnmarshalCaddyfile configures the authenticator from Caddyfile tokens.
-func (a *CodexAuthenticator) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	for d.Next() {
-		for d.NextBlock(0) {
-			switch d.Val() {
-			case "callback_port":
-				if !d.NextArg() {
-					return d.ArgErr()
-				}
-				port, err := strconv.Atoi(d.Val())
-				if err != nil {
-					return d.Errf("invalid callback_port: %v", err)
-				}
-				a.CallbackPort = port
-			case "use_device_flow":
-				if !d.NextArg() {
-					return d.ArgErr()
-				}
-				val, err := strconv.ParseBool(d.Val())
-				if err != nil {
-					return d.Errf("invalid use_device_flow: %v", err)
-				}
-				a.UseDeviceFlow = val
-			case "no_browser":
-				if !d.NextArg() {
-					return d.ArgErr()
-				}
-				val, err := strconv.ParseBool(d.Val())
-				if err != nil {
-					return d.Errf("invalid no_browser: %v", err)
-				}
-				a.NoBrowser = val
-			case "proxy_url":
-				if !d.NextArg() {
-					return d.ArgErr()
-				}
-				a.NetworkConfig.ProxyURL = d.Val()
-			default:
-				return d.Errf("unknown subdirective: %s", d.Val())
-			}
-		}
-	}
-	return nil
 }
 
 // ProviderType returns the provider type this authenticator handles.

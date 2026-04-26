@@ -61,23 +61,6 @@ func TestDisableAuthenticatorRemovesRuntimeAuthenticator(t *testing.T) {
 	}
 }
 
-func TestDisableAuthenticatorRejectsReadOnlyAuthenticator(t *testing.T) {
-	mgr := NewManager()
-	auth := &stubAuthenticator{providerType: "openai"}
-
-	mgr.RegisterAuthenticatorWithOptions("codex", auth, RegisterAuthenticatorOptions{
-		Source:   AuthenticatorSourceCaddyfile,
-		ReadOnly: true,
-	})
-
-	if err := mgr.DisableAuthenticator("codex"); err != ErrAuthenticatorReadOnly {
-		t.Fatalf("DisableAuthenticator error = %v, want %v", err, ErrAuthenticatorReadOnly)
-	}
-	if got, ok := mgr.GetAuthenticator("codex"); !ok || got.ProviderType() != auth.ProviderType() {
-		t.Fatalf("GetAuthenticator(codex) = (%v, %v), want read-only authenticator", got, ok)
-	}
-}
-
 func TestRegisterAuthenticatorFactoryListsNames(t *testing.T) {
 	authFactoryMu.Lock()
 	originalFactories := authFactories
@@ -131,19 +114,16 @@ func TestListAuthenticatorStatesListsSupportedAuthenticators(t *testing.T) {
 	})
 
 	mgr := NewManager()
-	mgr.RegisterAuthenticatorWithOptions("codex", &stubAuthenticator{providerType: "openai"}, RegisterAuthenticatorOptions{
-		Source:   AuthenticatorSourceCaddyfile,
-		ReadOnly: true,
-	})
+	mgr.RegisterAuthenticator("codex", &stubAuthenticator{providerType: "openai"})
 
 	states := mgr.ListAuthenticatorStates()
 	if len(states) != 2 {
 		t.Fatalf("ListAuthenticatorStates() = %#v, want 2 states", states)
 	}
-	if states[0].Name != "claude" || states[0].Enabled || states[0].ProviderType != "" || states[0].Source != "" || states[0].ReadOnly {
+	if states[0].Name != "claude" || states[0].Enabled || states[0].ProviderType != "" {
 		t.Fatalf("first state = %#v, want disabled placeholder claude", states[0])
 	}
-	if states[1].Name != "codex" || !states[1].Enabled || !states[1].ReadOnly || states[1].Source != AuthenticatorSourceCaddyfile {
-		t.Fatalf("second state = %#v, want read-only enabled codex", states[1])
+	if states[1].Name != "codex" || !states[1].Enabled || states[1].ProviderType != "openai" {
+		t.Fatalf("second state = %#v, want enabled codex", states[1])
 	}
 }

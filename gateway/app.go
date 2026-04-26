@@ -26,8 +26,6 @@ func init() {
 type App struct {
 	// Providers lists the configured LLM providers.
 	ProvidersRaw caddy.ModuleMap `json:"providers,omitempty" caddy:"namespace=llm.providers inline_key=provider_type"`
-	// Authenticators configures CLI credential authenticators under the llm.authenticators namespace.
-	AuthenticatorsRaw caddy.ModuleMap `json:"authenticators,omitempty" caddy:"namespace=llm.authenticators"`
 	// ConfigStore configures persistent admin/auth state storage.
 	ConfigStoreRaw caddy.ModuleMap `json:"config_store,omitempty" caddy:"namespace=agent_gateway.config_stores"`
 	// Routes lists statically configured gateway routes from the Caddyfile app block.
@@ -70,9 +68,6 @@ func (a *App) Provision(ctx caddy.Context) error {
 	a.cliauthRefresher = cliauth.NewAutoRefresher(cliauth.WrapSharedCredentialManager(a.credentialMgr), a.cliauthManager)
 	if err := a.provisionProviders(ctx); err != nil {
 		return fmt.Errorf("provision providers: %w", err)
-	}
-	if err := a.provisionAuthenticators(ctx); err != nil {
-		return fmt.Errorf("provision authenticators: %w", err)
 	}
 	if err := a.credentialMgr.Load(ctx); err != nil {
 		return fmt.Errorf("load credentials: %w", err)
@@ -196,33 +191,6 @@ func (a *App) provisionConfigStore(ctx caddy.Context) error {
 	}
 
 	return fmt.Errorf("no config store module loaded")
-}
-
-func (a *App) provisionAuthenticators(ctx caddy.Context) error {
-	if len(a.AuthenticatorsRaw) == 0 {
-		return nil
-	}
-
-	modules, err := ctx.LoadModule(a, "AuthenticatorsRaw")
-	if err != nil {
-		return err
-	}
-
-	loaded, ok := modules.(map[string]any)
-	if !ok {
-		return fmt.Errorf("unexpected authenticator module type %T", modules)
-	}
-	for name, mod := range loaded {
-		auth, ok := mod.(cliauth.Authenticator)
-		if !ok {
-			return fmt.Errorf("authenticator module %q does not implement cliauth.Authenticator", name)
-		}
-		a.cliauthManager.RegisterAuthenticatorWithOptions(name, auth, cliauth.RegisterAuthenticatorOptions{
-			Source:   cliauth.AuthenticatorSourceCaddyfile,
-			ReadOnly: true,
-		})
-	}
-	return nil
 }
 
 func (a *App) provisionProviders(ctx caddy.Context) error {

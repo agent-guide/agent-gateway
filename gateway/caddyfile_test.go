@@ -1,64 +1,15 @@
 package gateway
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/cliauth"
 	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/configstore/sqlite"
 	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/ollama"
-	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 )
-
-func init() {
-	caddy.RegisterModule(testAuthenticatorModule{})
-}
-
-type testAuthenticatorModule struct {
-	Foo string `json:"foo,omitempty"`
-}
-
-func (testAuthenticatorModule) CaddyModule() caddy.ModuleInfo {
-	return caddy.ModuleInfo{
-		ID:  "llm.authenticators.test",
-		New: func() caddy.Module { return new(testAuthenticatorModule) },
-	}
-}
-
-func (m *testAuthenticatorModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	for d.Next() {
-		for d.NextBlock(0) {
-			switch d.Val() {
-			case "foo":
-				if !d.NextArg() {
-					return d.ArgErr()
-				}
-				m.Foo = d.Val()
-			default:
-				return d.Errf("unknown subdirective: %s", d.Val())
-			}
-		}
-	}
-	return nil
-}
-
-func (testAuthenticatorModule) ProviderType() string { return "test" }
-
-func (testAuthenticatorModule) Login(context.Context, cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
-	return nil, nil
-}
-
-func (testAuthenticatorModule) Refresh(context.Context, *cliauth.Credential) (*cliauth.Credential, error) {
-	return nil, nil
-}
-
-func (testAuthenticatorModule) RefreshLeadTime() time.Duration { return 0 }
-
-var _ cliauth.Authenticator = (*testAuthenticatorModule)(nil)
 
 func TestParseAppFromCaddyfile(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`
@@ -71,10 +22,6 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 
 		config_store sqlite {
 			path /tmp/caddy-agent-gateway.db
-		}
-
-		authenticator test {
-			foo bar
 		}
 
 		virtualkey key1 {
@@ -151,24 +98,11 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	if cfg.SQLitePath != "/tmp/caddy-agent-gateway.db" {
 		t.Fatalf("sqlite path = %q, want /tmp/caddy-agent-gateway.db", cfg.SQLitePath)
 	}
-	if len(app.AuthenticatorsRaw) != 1 {
-		t.Fatalf("authenticator count = %d, want 1", len(app.AuthenticatorsRaw))
-	}
 	if len(app.Routes) != 1 {
 		t.Fatalf("route count = %d, want 1", len(app.Routes))
 	}
 	if len(app.VirtualKeys) != 1 {
 		t.Fatalf("virtual key count = %d, want 1", len(app.VirtualKeys))
-	}
-
-	var codex struct {
-		Foo string `json:"foo,omitempty"`
-	}
-	if err := json.Unmarshal(app.AuthenticatorsRaw["test"], &codex); err != nil {
-		t.Fatalf("unmarshal test authenticator: %v", err)
-	}
-	if codex.Foo != "bar" {
-		t.Fatalf("unexpected test authenticator config: %+v", codex)
 	}
 
 	route := app.Routes[0]
@@ -222,6 +156,18 @@ func TestParseAppRejectsUnknownConfigStore(t *testing.T) {
 
 	if _, err := parseApp(d, nil); err == nil {
 		t.Fatal("expected unsupported config_store type to fail")
+	}
+}
+
+func TestParseAppRejectsAuthenticatorDirective(t *testing.T) {
+	d := caddyfile.NewTestDispenser(`
+	agent_gateway {
+		authenticator codex
+	}
+	`)
+
+	if _, err := parseApp(d, nil); err == nil {
+		t.Fatal("expected authenticator directive to fail")
 	}
 }
 
