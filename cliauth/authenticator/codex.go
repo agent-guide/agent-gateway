@@ -2,6 +2,7 @@
 package authenticator
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -13,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -21,6 +23,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/cliauth"
+	internalhttpclient "github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -45,7 +48,37 @@ const (
 	codexDefaultCallbackPort = 1455
 	codexDefaultPollInterval = 5 * time.Second
 	codexRefreshMaxRetries   = 3
+	codexManualPromptDelay   = 15 * time.Second
 )
+
+// ---- Structured error types ----
+
+// AuthErrorCode identifies the category of a login-flow error.
+type AuthErrorCode string
+
+const (
+	ErrPortInUse          AuthErrorCode = "port_in_use"
+	ErrServerStartFailed  AuthErrorCode = "server_start_failed"
+	ErrCallbackTimeout    AuthErrorCode = "callback_timeout"
+	ErrInvalidState       AuthErrorCode = "invalid_state"
+	ErrCodeExchangeFailed AuthErrorCode = "code_exchange_failed"
+)
+
+// AuthenticationError carries a typed error code alongside the underlying cause.
+type AuthenticationError struct {
+	Code    AuthErrorCode
+	Wrapped error
+}
+
+func (e *AuthenticationError) Error() string {
+	return fmt.Sprintf("codex [%s]: %v", e.Code, e.Wrapped)
+}
+
+func (e *AuthenticationError) Unwrap() error { return e.Wrapped }
+
+func newAuthError(code AuthErrorCode, err error) error {
+	return &AuthenticationError{Code: code, Wrapped: err}
+}
 
 func init() {
 	caddy.RegisterModule(CodexAuthenticator{})
@@ -109,8 +142,10 @@ type CodexAuthenticator struct {
 	UseDeviceFlow bool
 	// NoBrowser suppresses automatic browser opening and prints the URL instead.
 	NoBrowser bool
-	// HTTPClient is the HTTP client used for token requests. If nil, http.DefaultClient is used.
-	HTTPClient *http.Client
+	// NetworkConfig controls the HTTP behavior for outbound token requests.
+	NetworkConfig internalhttpclient.NetworkConfig
+
+	client *http.Client // initialized in Provision; lazily rebuilt for non-Caddy construction paths
 }
 
 // CaddyModule returns the Caddy module information.
@@ -131,6 +166,7 @@ func (a *CodexAuthenticator) Provision(caddy.Context) error {
 	if a.CallbackPort <= 0 {
 		a.CallbackPort = codexDefaultCallbackPort
 	}
+	a.client = internalhttpclient.BuildHTTPClient(a.NetworkConfig)
 	return nil
 }
 
@@ -166,6 +202,11 @@ func (a *CodexAuthenticator) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.Errf("invalid no_browser: %v", err)
 				}
 				a.NoBrowser = val
+			case "proxy_url":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				a.NetworkConfig.ProxyURL = d.Val()
 			default:
 				return d.Errf("unknown subdirective: %s", d.Val())
 			}
@@ -180,8 +221,9 @@ func (a *CodexAuthenticator) ProviderType() string {
 }
 
 // RefreshLeadTime returns how far in advance of token expiry to refresh Codex credentials.
+// Five days gives ample runway for CLI tokens whose refresh window is typically 30 days.
 func (a *CodexAuthenticator) RefreshLeadTime() time.Duration {
-	return 5 * time.Minute
+	return 5 * 24 * time.Hour
 }
 
 // Login initiates the Codex CLI login flow and returns a new Credential on success.
@@ -241,7 +283,10 @@ func (a *CodexAuthenticator) loginWithBrowser(ctx context.Context, reporter clia
 
 	srv := newOAuthCallbackServer(port)
 	if err = srv.start(); err != nil {
-		return nil, fmt.Errorf("codex: failed to start callback server on port %d: %w", port, err)
+		if strings.Contains(err.Error(), "already in use") {
+			return nil, newAuthError(ErrPortInUse, err)
+		}
+		return nil, newAuthError(ErrServerStartFailed, err)
 	}
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -272,17 +317,71 @@ func (a *CodexAuthenticator) loginWithBrowser(ctx context.Context, reporter clia
 		VerificationURL: authURL,
 	})
 
-	code, gotState, err := srv.waitForCallback(codexCallbackTimeout)
-	if err != nil {
-		return nil, fmt.Errorf("codex: callback error: %w", err)
-	}
-	if gotState != state {
-		return nil, fmt.Errorf("codex: OAuth state mismatch (CSRF check failed)")
+	// Run the callback wait in a goroutine so we can also offer a manual URL-paste
+	// fallback after codexManualPromptDelay (useful for SSH / tunnelled environments).
+	type cbResult struct{ code, state string }
+	cbCh := make(chan cbResult, 1)
+	cbErrCh := make(chan error, 1)
+	go func() {
+		code, gotState, waitErr := srv.waitForCallback(codexCallbackTimeout)
+		if waitErr != nil {
+			cbErrCh <- waitErr
+			return
+		}
+		cbCh <- cbResult{code, gotState}
+	}()
+
+	manualTimer := time.NewTimer(codexManualPromptDelay)
+	defer manualTimer.Stop()
+	var manualLineCh <-chan string
+	var manualLineErrCh <-chan error
+
+	var outcome cbResult
+waitLoop:
+	for {
+		select {
+		case outcome = <-cbCh:
+			break waitLoop
+		case waitErr := <-cbErrCh:
+			return nil, newAuthError(ErrCallbackTimeout, waitErr)
+		case <-manualTimer.C:
+			// Drain the callback channel one more time before prompting.
+			select {
+			case outcome = <-cbCh:
+				break waitLoop
+			case waitErr := <-cbErrCh:
+				return nil, newAuthError(ErrCallbackTimeout, waitErr)
+			default:
+			}
+			manualLineCh, manualLineErrCh = asyncReadLine(
+				"Paste the Codex callback URL (or press Enter to keep waiting): ")
+		case line := <-manualLineCh:
+			manualLineCh = nil
+			manualLineErrCh = nil
+			if strings.TrimSpace(line) == "" {
+				// Re-issue the prompt so the user can try again.
+				manualLineCh, manualLineErrCh = asyncReadLine(
+					"Paste the Codex callback URL (or press Enter to keep waiting): ")
+				continue
+			}
+			code, gotState, parseErr := parseCallbackURL(line)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			outcome = cbResult{code, gotState}
+			break waitLoop
+		case readErr := <-manualLineErrCh:
+			return nil, readErr
+		}
 	}
 
-	tokenResp, err := a.exchangeCode(ctx, code, codexRedirectURI, codeVerifier)
+	if outcome.state != state {
+		return nil, newAuthError(ErrInvalidState, fmt.Errorf("state mismatch"))
+	}
+
+	tokenResp, err := a.exchangeCode(ctx, outcome.code, codexRedirectURI, codeVerifier)
 	if err != nil {
-		return nil, fmt.Errorf("codex: token exchange failed: %w", err)
+		return nil, newAuthError(ErrCodeExchangeFailed, err)
 	}
 
 	return a.buildCredential(tokenResp)
@@ -338,8 +437,9 @@ func (a *CodexAuthenticator) loginWithDeviceFlow(ctx context.Context, reporter c
 
 	authCode := strings.TrimSpace(devTokenResp.AuthorizationCode)
 	codeVerifier := strings.TrimSpace(devTokenResp.CodeVerifier)
-	if authCode == "" || codeVerifier == "" {
-		return nil, fmt.Errorf("codex device: token response missing required fields")
+	codeChallenge := strings.TrimSpace(devTokenResp.CodeChallenge)
+	if authCode == "" || codeVerifier == "" || codeChallenge == "" {
+		return nil, fmt.Errorf("codex device: token response missing required fields (authorization_code, code_verifier, code_challenge)")
 	}
 
 	tokenResp, err := a.exchangeCode(ctx, authCode, codexDeviceRedirectURI, codeVerifier)
@@ -500,10 +600,11 @@ func (a *CodexAuthenticator) applyTokenToMetadata(cred *cliauth.Credential, toke
 }
 
 func (a *CodexAuthenticator) httpClient() *http.Client {
-	if a.HTTPClient != nil {
-		return a.HTTPClient
+	if a.client != nil {
+		return a.client
 	}
-	return http.DefaultClient
+	a.client = internalhttpclient.BuildHTTPClient(a.NetworkConfig)
+	return a.client
 }
 
 // ---- Authorization URL ----
@@ -747,7 +848,11 @@ func requestDeviceUserCode(ctx context.Context, client *http.Client) (*codexDevi
 		return nil, fmt.Errorf("device flow endpoint unavailable (status 404)")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("device code request returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		trimmed := strings.TrimSpace(string(respBody))
+		if trimmed == "" {
+			trimmed = "empty response body"
+		}
+		return nil, fmt.Errorf("device code request returned status %d: %s", resp.StatusCode, trimmed)
 	}
 
 	var parsed codexDeviceUserCodeResp
@@ -790,15 +895,14 @@ func pollDeviceToken(ctx context.Context, client *http.Client, deviceAuthID, use
 			return nil, fmt.Errorf("failed to read device poll response: %w", readErr)
 		}
 
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		switch {
+		case resp.StatusCode >= 200 && resp.StatusCode < 300:
 			var parsed codexDeviceTokenResp
 			if err = json.Unmarshal(respBody, &parsed); err != nil {
 				return nil, fmt.Errorf("failed to parse device token response: %w", err)
 			}
 			return &parsed, nil
-		}
-
-		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound {
+		case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound:
 			// Still pending; wait and retry.
 			select {
 			case <-ctx.Done():
@@ -806,9 +910,13 @@ func pollDeviceToken(ctx context.Context, client *http.Client, deviceAuthID, use
 			case <-time.After(interval):
 				continue
 			}
+		default:
+			trimmed := strings.TrimSpace(string(respBody))
+			if trimmed == "" {
+				trimmed = "empty response body"
+			}
+			return nil, fmt.Errorf("device token polling returned status %d: %s", resp.StatusCode, trimmed)
 		}
-
-		return nil, fmt.Errorf("device token polling returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 }
 
@@ -827,6 +935,44 @@ func parseDevicePollInterval(raw json.RawMessage) time.Duration {
 		return time.Duration(asInt) * time.Second
 	}
 	return codexDefaultPollInterval
+}
+
+// ---- Manual callback URL input helpers ----
+
+// asyncReadLine prints prompt and reads one line from stdin in a goroutine.
+func asyncReadLine(prompt string) (<-chan string, <-chan error) {
+	ch := make(chan string, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		fmt.Print(prompt)
+		scanner := bufio.NewScanner(os.Stdin)
+		if scanner.Scan() {
+			ch <- scanner.Text()
+		} else if err := scanner.Err(); err != nil {
+			errCh <- err
+		} else {
+			ch <- ""
+		}
+	}()
+	return ch, errCh
+}
+
+// parseCallbackURL extracts the OAuth code and state from a pasted callback URL.
+func parseCallbackURL(rawURL string) (code, state string, err error) {
+	u, parseErr := url.Parse(strings.TrimSpace(rawURL))
+	if parseErr != nil {
+		return "", "", fmt.Errorf("codex: failed to parse callback URL: %w", parseErr)
+	}
+	q := u.Query()
+	if errParam := q.Get("error"); errParam != "" {
+		return "", "", fmt.Errorf("codex: OAuth error from callback URL: %s", errParam)
+	}
+	code = q.Get("code")
+	if code == "" {
+		return "", "", fmt.Errorf("codex: callback URL missing 'code' parameter")
+	}
+	state = q.Get("state")
+	return code, state, nil
 }
 
 // ---- Success page ----
