@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	einoollama "github.com/cloudwego/eino-ext/components/model/ollama"
@@ -101,7 +102,7 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.GenerateReque
 	cfg := &einoollama.ChatModelConfig{
 		BaseURL:    baseURL,
 		Model:      state.ModelName,
-		HTTPClient: provider.BuildHTTPClient(p.ProviderConfig, nil),
+		HTTPClient: httpclient.BuildHTTPClient(p.ProviderConfig.Network),
 	}
 
 	chatModel, err := einoollama.NewChatModel(ctx, cfg)

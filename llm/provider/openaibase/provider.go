@@ -6,9 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
-	"time"
 
+	"github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 )
 
@@ -27,22 +26,9 @@ type Base struct {
 // Call config.Network.Defaults() before passing it here.
 // Proxy is configured automatically from config.Network.ProxyURL when non-empty.
 func NewBase(config provider.ProviderConfig) *Base {
-	transport := &http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 20,
-		IdleConnTimeout:     90 * time.Second,
-	}
-	if config.Network.ProxyURL != "" {
-		if proxyURL, err := url.Parse(config.Network.ProxyURL); err == nil {
-			transport.Proxy = http.ProxyURL(proxyURL)
-		}
-	}
 	return &Base{
 		ProviderConfig: config,
-		client: &http.Client{
-			Timeout:   config.Network.Timeout(),
-			Transport: transport,
-		},
+		client:         httpclient.BuildHTTPClient(config.Network),
 	}
 }
 

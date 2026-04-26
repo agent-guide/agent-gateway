@@ -42,7 +42,7 @@ func UnmarshalCaddyfileConfig(d *caddyfile.Dispenser, cfg *ProviderConfig) error
 					return d.ArgErr()
 				}
 				cfg.DefaultModel = d.Val()
-			case "timeout_seconds":
+			case "request_timeout_seconds":
 				if !d.NextArg() {
 					return d.ArgErr()
 				}
@@ -50,7 +50,7 @@ func UnmarshalCaddyfileConfig(d *caddyfile.Dispenser, cfg *ProviderConfig) error
 				if err != nil {
 					return err
 				}
-				cfg.Network.TimeoutSeconds = v
+				cfg.Network.RequestTimeoutSeconds = v
 			case "max_retries":
 				if !d.NextArg() {
 					return d.ArgErr()
@@ -69,6 +69,33 @@ func UnmarshalCaddyfileConfig(d *caddyfile.Dispenser, cfg *ProviderConfig) error
 					return err
 				}
 				cfg.Network.RetryDelaySeconds = v
+			case "max_idle_connections":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				v, err := strconv.Atoi(d.Val())
+				if err != nil {
+					return err
+				}
+				cfg.Network.MaxIdleConnections = v
+			case "max_idle_connections_per_host":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				v, err := strconv.Atoi(d.Val())
+				if err != nil {
+					return err
+				}
+				cfg.Network.MaxIdleConnectionsPerHost = v
+			case "idle_keep_alive_timeout_seconds":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				v, err := strconv.Atoi(d.Val())
+				if err != nil {
+					return err
+				}
+				cfg.Network.IdleKeepAliveTimeoutSeconds = v
 			case "proxy_url":
 				if !d.NextArg() {
 					return d.ArgErr()

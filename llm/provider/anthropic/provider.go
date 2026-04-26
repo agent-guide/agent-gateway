@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 
+	"github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	einoclaude "github.com/cloudwego/eino-ext/components/model/claude"
@@ -38,14 +38,7 @@ func New(config provider.ProviderConfig) (provider.Provider, error) {
 
 	return &Provider{
 		ProviderConfig: config,
-		client: &http.Client{
-			Timeout: config.Network.Timeout(),
-			Transport: &http.Transport{
-				MaxIdleConns:        100,
-				MaxIdleConnsPerHost: 20,
-				IdleConnTimeout:     90 * time.Second,
-			},
-		},
+		client:         httpclient.BuildHTTPClient(config.Network),
 	}, nil
 }
 
@@ -165,7 +158,7 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.GenerateReque
 		APIKey:     state.APIKey,
 		Model:      state.ModelName,
 		MaxTokens:  maxTokens,
-		HTTPClient: provider.BuildHTTPClient(p.ProviderConfig, nil),
+		HTTPClient: httpclient.BuildHTTPClient(p.ProviderConfig.Network),
 	}
 	if state.BaseURL != "" {
 		cfg.BaseURL = &state.BaseURL

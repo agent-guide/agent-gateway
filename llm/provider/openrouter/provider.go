@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	einoopenrouter "github.com/cloudwego/eino-ext/components/model/openrouter"
@@ -101,7 +102,7 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.GenerateReque
 		APIKey:     state.APIKey,
 		BaseURL:    state.BaseURL,
 		Model:      state.ModelName,
-		HTTPClient: provider.BuildHTTPClient(p.ProviderConfig, nil),
+		HTTPClient: httpclient.BuildHTTPClient(p.ProviderConfig.Network),
 	}
 
 	chatModel, err := einoopenrouter.NewChatModel(ctx, cfg)

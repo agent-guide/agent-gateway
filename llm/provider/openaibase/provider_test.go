@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 )
 
@@ -24,7 +25,7 @@ func TestBaseUsesEmbeddedProviderConfig(t *testing.T) {
 	cfg := provider.ProviderConfig{
 		APIKey:       "test-key",
 		BaseURL:      "http://127.0.0.1:1",
-		Network:      provider.NetworkConfig{TimeoutSeconds: 5},
+		Network:      httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
 		AuthStrategy: provider.AuthStrategyManagedAPIKeyFirst,
 	}
 	base := NewBase(cfg)

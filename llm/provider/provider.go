@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
+	"github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 )
@@ -89,41 +89,8 @@ type ProviderConfig struct {
 	AuthStrategy AuthStrategy `json:"auth_strategy,omitempty"`
 }
 
-// NetworkConfig controls HTTP client behavior for a provider.
-// Borrowed from Bifrost's NetworkConfig, simplified for our needs.
-type NetworkConfig struct {
-	// TimeoutSeconds is the per-request HTTP timeout. Default: 120.
-	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
-	// MaxRetries is the number of automatic retries on transient errors. Default: 3.
-	MaxRetries int `json:"max_retries,omitempty"`
-	// RetryDelaySeconds is the base delay between retries. Default: 1.
-	RetryDelaySeconds int `json:"retry_delay_seconds,omitempty"`
-	// ProxyURL is an optional HTTP/HTTPS/SOCKS5 proxy URL.
-	ProxyURL string `json:"proxy_url,omitempty"`
-	// ExtraHeaders are additional HTTP headers sent with every provider request.
-	ExtraHeaders map[string]string `json:"extra_headers,omitempty"`
-}
-
-// Defaults fills in zero values with sensible defaults.
-func (c *NetworkConfig) Defaults() {
-	if c.TimeoutSeconds == 0 {
-		c.TimeoutSeconds = 120
-	}
-	if c.MaxRetries == 0 {
-		c.MaxRetries = 3
-	}
-	if c.RetryDelaySeconds == 0 {
-		c.RetryDelaySeconds = 1
-	}
-}
-
-// Timeout returns the configured timeout as a time.Duration.
-func (c *NetworkConfig) Timeout() time.Duration {
-	if c.TimeoutSeconds == 0 {
-		return 120 * time.Second
-	}
-	return time.Duration(c.TimeoutSeconds) * time.Second
-}
+// NetworkConfig re-exports the shared HTTP network config type for provider configs.
+type NetworkConfig = httpclient.NetworkConfig
 
 // Defaults fills in zero values with sensible defaults.
 func (c *ProviderConfig) Defaults() {

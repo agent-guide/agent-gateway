@@ -209,9 +209,12 @@ provider openai-main {
 	api_key {$OPENAI_API_KEY}
 	base_url https://api.openai.com/v1
 	default_model gpt-4.1
-	timeout_seconds 120
+	request_timeout_seconds 120
 	max_retries 3
 	retry_delay_seconds 1
+	max_idle_connections 100
+	max_idle_connections_per_host 20
+	idle_keep_alive_timeout_seconds 90
 	proxy_url http://127.0.0.1:7890
 	header X-Custom value
 	option organization org_...
@@ -353,8 +356,11 @@ curl -X POST http://127.0.0.1:8081/admin/providers \
     "base_url": "https://openrouter.ai/api/v1",
     "default_model": "openai/gpt-4o-mini",
     "network": {
-      "timeout_seconds": 120,
-      "max_retries": 3
+      "request_timeout_seconds": 120,
+      "max_retries": 3,
+      "max_idle_connections": 100,
+      "max_idle_connections_per_host": 20,
+      "idle_keep_alive_timeout_seconds": 90
     }
   }'
 ```

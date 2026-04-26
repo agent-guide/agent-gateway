@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -14,19 +13,6 @@ import (
 )
 
 type credentialKey struct{}
-
-type headerRoundTripper struct {
-	base    http.RoundTripper
-	headers map[string]string
-}
-
-func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	cloned := req.Clone(req.Context())
-	for k, v := range h.headers {
-		cloned.Header.Set(k, v)
-	}
-	return h.base.RoundTrip(cloned)
-}
 
 // WithCredential attaches a credential to the context for per-request auth override.
 // The openaibase Base reads this in setHeaders to replace the static APIKey.
@@ -63,38 +49,6 @@ func CheckResponse(resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	return NewStatusError(resp.StatusCode,
 		fmt.Sprintf("upstream %d: %s", resp.StatusCode, string(body)))
-}
-
-func BuildHTTPClient(config ProviderConfig, extraHeaders map[string]string) *http.Client {
-	transport := &http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 20,
-		IdleConnTimeout:     90 * time.Second,
-	}
-	proxyURL := config.Network.ProxyURL
-	if proxyURL != "" {
-		if parsed, err := url.Parse(proxyURL); err == nil {
-			transport.Proxy = http.ProxyURL(parsed)
-		}
-	}
-
-	headers := make(map[string]string, len(config.Network.ExtraHeaders)+len(extraHeaders))
-	for k, v := range config.Network.ExtraHeaders {
-		headers[k] = v
-	}
-	for k, v := range extraHeaders {
-		headers[k] = v
-	}
-
-	rt := http.RoundTripper(transport)
-	if len(headers) > 0 {
-		rt = &headerRoundTripper{base: rt, headers: headers}
-	}
-
-	return &http.Client{
-		Timeout:   config.Network.Timeout(),
-		Transport: rt,
-	}
 }
 
 // WrapEinoError wraps an error from an eino provider call as a StatusError.

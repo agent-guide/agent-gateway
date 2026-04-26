@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	einodeepseek "github.com/cloudwego/eino-ext/components/model/deepseek"
@@ -104,8 +105,8 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.GenerateReque
 		APIKey:     state.APIKey,
 		BaseURL:    state.BaseURL,
 		Model:      state.ModelName,
-		Timeout:    p.ProviderConfig.Network.Timeout(),
-		HTTPClient: provider.BuildHTTPClient(p.ProviderConfig, nil),
+		Timeout:    p.ProviderConfig.Network.RequestTimeout(),
+		HTTPClient: httpclient.BuildHTTPClient(p.ProviderConfig.Network),
 	}
 	applyOptions(cfg, p.ProviderConfig.Options)
 

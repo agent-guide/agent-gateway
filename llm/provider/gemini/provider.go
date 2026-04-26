@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	einogemini "github.com/cloudwego/eino-ext/components/model/gemini"
@@ -75,9 +76,9 @@ func (p *Provider) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 
 // buildGenaiClient constructs a genai.Client with the given credentials and network config.
 // This is the single path for creating Gemini API clients in this package.
-func buildGenaiClient(ctx context.Context, apiKey, baseURL string, network provider.NetworkConfig, cred *credentialmgr.Credential) (*genai.Client, error) {
-	httpClient := provider.BuildHTTPClient(provider.ProviderConfig{Network: network}, nil)
-	timeout := network.Timeout()
+func buildGenaiClient(ctx context.Context, apiKey, baseURL string, network httpclient.NetworkConfig, cred *credentialmgr.Credential) (*genai.Client, error) {
+	httpClient := httpclient.BuildHTTPClient(network)
+	timeout := network.RequestTimeout()
 	return genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey:     apiKey,
 		HTTPClient: httpClient,
@@ -124,7 +125,7 @@ func (p *Provider) ListModels(ctx context.Context) ([]provider.ModelInfo, error)
 	}
 	p.setHeaders(httpReq)
 
-	httpClient := provider.BuildHTTPClient(p.ProviderConfig, nil)
+	httpClient := httpclient.BuildHTTPClient(p.ProviderConfig.Network)
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("gemini: request failed: %w", err)
