@@ -6,10 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/cliauth"
@@ -30,6 +28,7 @@ const (
 	geminiCallbackTimeout     = 5 * time.Minute
 	geminiDefaultCallbackPort = 8085
 	geminiRefreshMaxRetries   = 3
+	geminiManualPromptDelay   = 15 * time.Second
 )
 
 func init() {
@@ -71,9 +70,9 @@ func (a *GeminiAuthenticator) ProviderType() string {
 	return "gemini"
 }
 
-// RefreshLeadTime returns how far in advance of token expiry to refresh Gemini credentials.
-func (a *GeminiAuthenticator) RefreshLeadTime() time.Duration {
-	return 5 * time.Minute
+// RefreshLeadTime returns nil to disable provider-level background pre-refresh for Gemini.
+func (a *GeminiAuthenticator) RefreshLeadTime() *time.Duration {
+	return nil
 }
 
 // GetConfig returns the current runtime configuration for the authenticator.
@@ -139,6 +138,10 @@ func (a *GeminiAuthenticator) loginWithBrowser(ctx context.Context, reporter cli
 		port = geminiDefaultCallbackPort
 	}
 	callbackURL := fmt.Sprintf("http://localhost:%d/oauth2callback", port)
+	state, err := generateState()
+	if err != nil {
+		return nil, fmt.Errorf("gemini: state generation failed: %w", err)
+	}
 
 	conf := &oauth2.Config{
 		ClientID:     geminiClientID,
@@ -149,8 +152,11 @@ func (a *GeminiAuthenticator) loginWithBrowser(ctx context.Context, reporter cli
 	}
 
 	srv := newGeminiCallbackServer(port)
-	if err := srv.start(); err != nil {
-		return nil, fmt.Errorf("gemini: failed to start callback server on port %d: %w", port, err)
+	if err = srv.start(); err != nil {
+		if strings.Contains(err.Error(), "already in use") {
+			return nil, newAuthError(ErrPortInUse, err)
+		}
+		return nil, newAuthError(ErrServerStartFailed, err)
 	}
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -158,37 +164,32 @@ func (a *GeminiAuthenticator) loginWithBrowser(ctx context.Context, reporter cli
 		_ = srv.stop(stopCtx)
 	}()
 
-	authURL := conf.AuthCodeURL("state-token", oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent"))
-	reportLoginStatus(reporter, cliauth.LoginStatusUpdate{
-		Phase:           "awaiting_browser_auth",
-		Message:         "Open the verification URL in a browser and complete the Gemini login flow.",
-		VerificationURL: authURL,
+	authURL := conf.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent"))
+	outcome, err := runOAuthBrowserFlow(oauthBrowserFlowOptions{
+		ProviderName:              "Gemini",
+		AuthURL:                   authURL,
+		NoBrowser:                 a.NoBrowser,
+		Reporter:                  reporter,
+		AwaitingBrowserMessage:    "Open the verification URL in a browser and complete the Gemini login flow.",
+		WaitingForCallbackMessage: "Waiting for the Gemini OAuth callback after browser verification.",
+		ManualCallbackMessage:     "If the browser cannot reach localhost, paste the full Gemini callback URL to continue.",
+		ManualCallbackPrompt:      "Paste the Gemini callback URL (or press Enter to keep waiting): ",
+		CallbackTimeout:           geminiCallbackTimeout,
+		ManualPromptDelay:         geminiManualPromptDelay,
+		WaitForCallback:           srv.waitForCallback,
+		ParseCallbackURL:          parseGeminiCallbackURL,
 	})
-
-	if a.NoBrowser || reporter != nil {
-		fmt.Printf("Visit the following URL to authenticate with Gemini:\n%s\n", authURL)
-	} else {
-		fmt.Println("Opening browser for Gemini authentication...")
-		if openErr := openBrowser(authURL); openErr != nil {
-			fmt.Printf("Could not open browser automatically. Please visit:\n%s\n", authURL)
-		}
+	if err != nil {
+		return nil, err
 	}
 
-	fmt.Println("Waiting for Gemini authentication callback...")
-	reportLoginStatus(reporter, cliauth.LoginStatusUpdate{
-		Phase:           "waiting_for_callback",
-		Message:         "Waiting for the Gemini OAuth callback after browser verification.",
-		VerificationURL: authURL,
-	})
-
-	code, err := srv.waitForCallback(geminiCallbackTimeout)
-	if err != nil {
-		return nil, fmt.Errorf("gemini: callback error: %w", err)
+	if outcome.State != state {
+		return nil, newAuthError(ErrInvalidState, fmt.Errorf("state mismatch"))
 	}
 
-	token, err := conf.Exchange(ctx, code)
+	token, err := conf.Exchange(ctx, outcome.Code)
 	if err != nil {
-		return nil, fmt.Errorf("gemini: token exchange failed: %w", err)
+		return nil, newAuthError(ErrCodeExchangeFailed, err)
 	}
 
 	return a.buildCredential(ctx, conf, token)
@@ -334,77 +335,19 @@ func fetchGeminiUserEmail(ctx context.Context, client *http.Client) (string, err
 // ---- OAuth2 callback server for Gemini ----
 
 type geminiCallbackServer struct {
-	port     int
-	srv      *http.Server
-	resultCh chan geminiCallbackResult
-	mu       sync.Mutex
-	running  bool
-}
-
-type geminiCallbackResult struct {
-	code string
-	err  string
+	*callbackHTTPServer
 }
 
 func newGeminiCallbackServer(port int) *geminiCallbackServer {
 	return &geminiCallbackServer{
-		port:     port,
-		resultCh: make(chan geminiCallbackResult, 1),
+		callbackHTTPServer: newCallbackHTTPServer(port),
 	}
 }
 
 func (s *geminiCallbackServer) start() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.running {
-		return fmt.Errorf("callback server already running")
-	}
-
-	addr := fmt.Sprintf(":%d", s.port)
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("port %d already in use: %w", s.port, err)
-	}
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/oauth2callback", s.handleCallback)
-
-	s.srv = &http.Server{
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-	}
-	s.running = true
-
-	go func() {
-		_ = s.srv.Serve(ln)
-	}()
-	return nil
-}
-
-func (s *geminiCallbackServer) stop(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.running || s.srv == nil {
-		return nil
-	}
-	err := s.srv.Shutdown(ctx)
-	s.running = false
-	s.srv = nil
-	return err
-}
-
-func (s *geminiCallbackServer) waitForCallback(timeout time.Duration) (code string, err error) {
-	select {
-	case result := <-s.resultCh:
-		if result.err != "" {
-			return "", fmt.Errorf("OAuth callback error: %s", result.err)
-		}
-		return result.code, nil
-	case <-time.After(timeout):
-		return "", fmt.Errorf("timed out waiting for OAuth callback after %s", timeout)
-	}
+	return s.callbackHTTPServer.start(mux)
 }
 
 func (s *geminiCallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) {
@@ -416,15 +359,19 @@ func (s *geminiCallbackServer) handleCallback(w http.ResponseWriter, r *http.Req
 	q := r.URL.Query()
 	errParam := q.Get("error")
 	code := q.Get("code")
+	state := q.Get("state")
 
-	var result geminiCallbackResult
+	var result oauthCallbackResult
 	switch {
 	case errParam != "":
 		result.err = errParam
 	case code == "":
 		result.err = "no_code"
+	case state == "":
+		result.err = "no_state"
 	default:
 		result.code = code
+		result.state = state
 	}
 
 	select {
@@ -437,41 +384,13 @@ func (s *geminiCallbackServer) handleCallback(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(geminiSuccessHTML))
+	writeOAuthSuccessHTML(w, geminiSuccessHTML)
+}
+
+func parseGeminiCallbackURL(rawURL string) (code, state string, err error) {
+	return parseOAuthCallbackURL("gemini", rawURL, true)
 }
 
 // ---- Success page ----
 
-const geminiSuccessHTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Authentication Successful</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-               display: flex; justify-content: center; align-items: center;
-               min-height: 100vh; margin: 0;
-               background: linear-gradient(135deg, #4285F4 0%, #0F9D58 100%); }
-        .card { background: white; padding: 2.5rem; border-radius: 12px;
-                box-shadow: 0 10px 25px rgba(0,0,0,0.1); max-width: 420px; text-align: center; }
-        .icon { font-size: 3rem; }
-        h1 { color: #1f2937; margin: 1rem 0 0.5rem; }
-        p { color: #6b7280; }
-        .countdown { margin-top: 1.5rem; color: #9ca3af; font-size: 0.85rem; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="icon">&#10003;</div>
-        <h1>Authentication Successful</h1>
-        <p>You can close this window and return to your terminal.</p>
-        <div class="countdown">Closing in <span id="t">10</span>s</div>
-    </div>
-    <script>
-        let n = 10;
-        const el = document.getElementById('t');
-        const iv = setInterval(() => { el.textContent = --n; if (n <= 0) { clearInterval(iv); window.close(); } }, 1000);
-    </script>
-</body>
-</html>`
+var geminiSuccessHTML = buildOAuthSuccessHTML("&#10003;", "#4285F4", "#0F9D58")

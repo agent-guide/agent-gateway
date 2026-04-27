@@ -24,7 +24,8 @@ type Authenticator interface {
 	// Returns nil to indicate no refresh is needed; returns an updated Credential on success.
 	Refresh(ctx context.Context, cred *Credential) (*Credential, error)
 	// RefreshLeadTime returns how far in advance of token expiry to attempt a refresh.
-	RefreshLeadTime() time.Duration
+	// Returning nil disables provider-level background pre-refresh scheduling.
+	RefreshLeadTime() *time.Duration
 }
 
 // LoginStatusReporter receives login progress updates suitable for surfacing via the admin API.

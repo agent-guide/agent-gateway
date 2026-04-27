@@ -43,7 +43,7 @@ func (a *testRefreshAuthenticator) Refresh(ctx context.Context, cred *Credential
 	return a.refreshFn(ctx, cred)
 }
 
-func (a *testRefreshAuthenticator) RefreshLeadTime() time.Duration { return 0 }
+func (a *testRefreshAuthenticator) RefreshLeadTime() *time.Duration { return nil }
 
 type stubCredentialManager struct {
 	getFn      func(string) *credentialmgr.Credential
@@ -291,7 +291,8 @@ func TestNextScheduleAtEncodesRefreshReadiness(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotNext, gotScheduled := nextScheduleAt(tt.cred, now, 0)
+			lead := defaultRefreshLeadTime
+			gotNext, gotScheduled := nextScheduleAt(tt.cred, now, &lead)
 			if gotScheduled != tt.wantScheduled {
 				t.Fatalf("nextScheduleAt scheduled = %v, want %v", gotScheduled, tt.wantScheduled)
 			}
@@ -302,6 +303,25 @@ func TestNextScheduleAtEncodesRefreshReadiness(t *testing.T) {
 				t.Fatalf("refresh readiness = %v, want %v", got, tt.wantRefresh)
 			}
 		})
+	}
+}
+
+func TestNextScheduleAtDisabledWhenLeadTimeNil(t *testing.T) {
+	now := time.Now().UTC()
+	cred := &Credential{
+		Credential: credentialmgr.Credential{
+			Metadata: map[string]any{
+				"expires_at": now.Add(time.Hour).Format(time.RFC3339),
+			},
+		},
+	}
+
+	gotNext, gotScheduled := nextScheduleAt(cred, now, nil)
+	if gotScheduled {
+		t.Fatalf("nextScheduleAt scheduled = %v, want false", gotScheduled)
+	}
+	if !gotNext.IsZero() {
+		t.Fatalf("nextScheduleAt next = %v, want zero", gotNext)
 	}
 }
 

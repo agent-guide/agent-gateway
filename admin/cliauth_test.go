@@ -54,7 +54,7 @@ func (a *testAuthenticator) Refresh(context.Context, *cliauth.Credential) (*clia
 	return nil, nil
 }
 
-func (a *testAuthenticator) RefreshLeadTime() time.Duration { return 0 }
+func (a *testAuthenticator) RefreshLeadTime() *time.Duration { return nil }
 
 func (a *testAuthenticator) GetConfig() cliauth.AuthenticatorConfig {
 	if a == nil {

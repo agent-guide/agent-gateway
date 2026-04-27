@@ -6,11 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/cliauth"
@@ -21,15 +19,15 @@ import (
 
 // OAuth constants for Anthropic Claude CLI authentication.
 const (
-	claudeAuthURL     = "https://claude.ai/oauth/authorize"
-	claudeTokenURL    = "https://api.anthropic.com/v1/oauth/token"
-	claudeClientID    = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-	claudeRedirectURI = "http://localhost:54545/callback"
-	claudeScopes      = "org:create_api_key user:profile user:inference"
+	claudeAuthURL  = "https://claude.ai/oauth/authorize"
+	claudeTokenURL = "https://api.anthropic.com/v1/oauth/token"
+	claudeClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+	claudeScopes   = "org:create_api_key user:profile user:inference"
 
 	claudeCallbackTimeout     = 5 * time.Minute
 	claudeDefaultCallbackPort = 54545
 	claudeRefreshMaxRetries   = 3
+	claudeManualPromptDelay   = 15 * time.Second
 )
 
 func init() {
@@ -78,8 +76,9 @@ func (a *ClaudeAuthenticator) ProviderType() string {
 }
 
 // RefreshLeadTime returns how far in advance of token expiry to refresh Claude credentials.
-func (a *ClaudeAuthenticator) RefreshLeadTime() time.Duration {
-	return 5 * time.Minute
+func (a *ClaudeAuthenticator) RefreshLeadTime() *time.Duration {
+	lead := 4 * time.Hour
+	return &lead
 }
 
 // GetConfig returns the current runtime configuration for the authenticator.
@@ -154,10 +153,14 @@ func (a *ClaudeAuthenticator) loginWithBrowser(ctx context.Context, reporter cli
 	if port <= 0 {
 		port = claudeDefaultCallbackPort
 	}
+	redirectURI := buildClaudeRedirectURI(port)
 
 	srv := newClaudeCallbackServer(port)
 	if err = srv.start(); err != nil {
-		return nil, fmt.Errorf("claude: failed to start callback server on port %d: %w", port, err)
+		if strings.Contains(err.Error(), "already in use") {
+			return nil, newAuthError(ErrPortInUse, err)
+		}
+		return nil, newAuthError(ErrServerStartFailed, err)
 	}
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -165,40 +168,32 @@ func (a *ClaudeAuthenticator) loginWithBrowser(ctx context.Context, reporter cli
 		_ = srv.stop(stopCtx)
 	}()
 
-	authURL := buildClaudeAuthURL(state, codeChallenge)
-	reportLoginStatus(reporter, cliauth.LoginStatusUpdate{
-		Phase:           "awaiting_browser_auth",
-		Message:         "Open the verification URL in a browser and complete the Claude login flow.",
-		VerificationURL: authURL,
+	authURL := buildClaudeAuthURL(state, codeChallenge, redirectURI)
+	outcome, err := runOAuthBrowserFlow(oauthBrowserFlowOptions{
+		ProviderName:              "Claude",
+		AuthURL:                   authURL,
+		NoBrowser:                 a.NoBrowser,
+		Reporter:                  reporter,
+		AwaitingBrowserMessage:    "Open the verification URL in a browser and complete the Claude login flow.",
+		WaitingForCallbackMessage: "Waiting for the Claude OAuth callback after browser verification.",
+		ManualCallbackMessage:     "If the browser cannot reach localhost, paste the full Claude callback URL to continue.",
+		ManualCallbackPrompt:      "Paste the Claude callback URL (or press Enter to keep waiting): ",
+		CallbackTimeout:           claudeCallbackTimeout,
+		ManualPromptDelay:         claudeManualPromptDelay,
+		WaitForCallback:           srv.waitForCallback,
+		ParseCallbackURL:          parseClaudeCallbackURL,
 	})
-
-	if a.NoBrowser || reporter != nil {
-		fmt.Printf("Visit the following URL to authenticate with Claude:\n%s\n", authURL)
-	} else {
-		fmt.Println("Opening browser for Claude authentication...")
-		if openErr := openBrowser(authURL); openErr != nil {
-			fmt.Printf("Could not open browser automatically. Please visit:\n%s\n", authURL)
-		}
-	}
-
-	fmt.Println("Waiting for Claude authentication callback...")
-	reportLoginStatus(reporter, cliauth.LoginStatusUpdate{
-		Phase:           "waiting_for_callback",
-		Message:         "Waiting for the Claude OAuth callback after browser verification.",
-		VerificationURL: authURL,
-	})
-
-	code, gotState, err := srv.waitForCallback(claudeCallbackTimeout)
 	if err != nil {
-		return nil, fmt.Errorf("claude: callback error: %w", err)
-	}
-	if gotState != state {
-		return nil, fmt.Errorf("claude: OAuth state mismatch (CSRF check failed)")
+		return nil, err
 	}
 
-	tokenResp, err := a.exchangeCode(ctx, code, state, codeVerifier)
+	if outcome.State != state {
+		return nil, newAuthError(ErrInvalidState, fmt.Errorf("state mismatch"))
+	}
+
+	tokenResp, err := a.exchangeCode(ctx, outcome.Code, state, redirectURI, codeVerifier)
 	if err != nil {
-		return nil, fmt.Errorf("claude: token exchange failed: %w", err)
+		return nil, newAuthError(ErrCodeExchangeFailed, err)
 	}
 
 	return a.buildCredential(tokenResp)
@@ -206,7 +201,7 @@ func (a *ClaudeAuthenticator) loginWithBrowser(ctx context.Context, reporter cli
 
 // ---- Token exchange & refresh ----
 
-func (a *ClaudeAuthenticator) exchangeCode(ctx context.Context, code, state, codeVerifier string) (*claudeTokenResponse, error) {
+func (a *ClaudeAuthenticator) exchangeCode(ctx context.Context, code, state, redirectURI, codeVerifier string) (*claudeTokenResponse, error) {
 	// The code parameter may contain an embedded state fragment (e.g. "code#state").
 	parsedCode, parsedState := parseClaudeCodeParam(code)
 	if parsedState != "" {
@@ -218,7 +213,7 @@ func (a *ClaudeAuthenticator) exchangeCode(ctx context.Context, code, state, cod
 		"state":         state,
 		"grant_type":    "authorization_code",
 		"client_id":     claudeClientID,
-		"redirect_uri":  claudeRedirectURI,
+		"redirect_uri":  redirectURI,
 		"code_verifier": codeVerifier,
 	}
 
@@ -348,12 +343,19 @@ func (a *ClaudeAuthenticator) httpClient() *http.Client {
 
 // ---- Authorization URL ----
 
-func buildClaudeAuthURL(state, codeChallenge string) string {
+func buildClaudeRedirectURI(port int) string {
+	if port <= 0 {
+		port = claudeDefaultCallbackPort
+	}
+	return fmt.Sprintf("http://localhost:%d/callback", port)
+}
+
+func buildClaudeAuthURL(state, codeChallenge, redirectURI string) string {
 	params := url.Values{
 		"code":                  {"true"},
 		"client_id":             {claudeClientID},
 		"response_type":         {"code"},
-		"redirect_uri":          {claudeRedirectURI},
+		"redirect_uri":          {redirectURI},
 		"scope":                 {claudeScopes},
 		"state":                 {state},
 		"code_challenge":        {codeChallenge},
@@ -373,76 +375,27 @@ func parseClaudeCodeParam(code string) (parsedCode, parsedState string) {
 	return
 }
 
+func parseClaudeCallbackURL(rawURL string) (code, state string, err error) {
+	return parseOAuthCallbackURL("claude", rawURL, true)
+}
+
 // ---- OAuth callback server for Claude ----
 
 type claudeCallbackServer struct {
-	port     int
-	srv      *http.Server
-	resultCh chan oauthCallbackResult
-	mu       sync.Mutex
-	running  bool
+	*callbackHTTPServer
 }
 
 func newClaudeCallbackServer(port int) *claudeCallbackServer {
 	return &claudeCallbackServer{
-		port:     port,
-		resultCh: make(chan oauthCallbackResult, 1),
+		callbackHTTPServer: newCallbackHTTPServer(port),
 	}
 }
 
 func (s *claudeCallbackServer) start() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.running {
-		return fmt.Errorf("callback server already running")
-	}
-
-	addr := fmt.Sprintf(":%d", s.port)
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("port %d already in use: %w", s.port, err)
-	}
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", s.handleCallback)
 	mux.HandleFunc("/success", s.handleSuccess)
-
-	s.srv = &http.Server{
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-	}
-	s.running = true
-
-	go func() {
-		_ = s.srv.Serve(ln)
-	}()
-	return nil
-}
-
-func (s *claudeCallbackServer) stop(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.running || s.srv == nil {
-		return nil
-	}
-	err := s.srv.Shutdown(ctx)
-	s.running = false
-	s.srv = nil
-	return err
-}
-
-func (s *claudeCallbackServer) waitForCallback(timeout time.Duration) (code, state string, err error) {
-	select {
-	case result := <-s.resultCh:
-		if result.err != "" {
-			return "", "", fmt.Errorf("OAuth callback error: %s", result.err)
-		}
-		return result.code, result.state, nil
-	case <-time.After(timeout):
-		return "", "", fmt.Errorf("timed out waiting for OAuth callback after %s", timeout)
-	}
+	return s.callbackHTTPServer.start(mux)
 }
 
 func (s *claudeCallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) {
@@ -482,41 +435,9 @@ func (s *claudeCallbackServer) handleCallback(w http.ResponseWriter, r *http.Req
 }
 
 func (s *claudeCallbackServer) handleSuccess(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(claudeSuccessHTML))
+	writeOAuthSuccessHTML(w, claudeSuccessHTML)
 }
 
 // ---- Success page ----
 
-const claudeSuccessHTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Authentication Successful</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-               display: flex; justify-content: center; align-items: center;
-               min-height: 100vh; margin: 0;
-               background: linear-gradient(135deg, #d97706 0%, #b45309 100%); }
-        .card { background: white; padding: 2.5rem; border-radius: 12px;
-                box-shadow: 0 10px 25px rgba(0,0,0,0.1); max-width: 420px; text-align: center; }
-        .icon { font-size: 3rem; }
-        h1 { color: #1f2937; margin: 1rem 0 0.5rem; }
-        p { color: #6b7280; }
-        .countdown { margin-top: 1.5rem; color: #9ca3af; font-size: 0.85rem; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="icon">✅</div>
-        <h1>Authentication Successful</h1>
-        <p>You can close this window and return to your terminal.</p>
-        <div class="countdown">Closing in <span id="t">10</span>s</div>
-    </div>
-    <script>
-        let n = 10;
-        const el = document.getElementById('t');
-        const iv = setInterval(() => { el.textContent = --n; if (n <= 0) { clearInterval(iv); window.close(); } }, 1000);
-    </script>
-</body>
-</html>`
+var claudeSuccessHTML = buildOAuthSuccessHTML("✅", "#d97706", "#b45309")

@@ -205,7 +205,7 @@ func (r *AutoRefresher) nextScheduleAt(credID string, now time.Time) (time.Time,
 	cred := r.creds[credID]
 	r.mu.RUnlock()
 
-	var leadTime time.Duration
+	var leadTime *time.Duration
 	if r.manager != nil && cred != nil {
 		if auth := r.manager.resolveAuthenticator(cred.ProviderType); auth != nil {
 			leadTime = auth.RefreshLeadTime()
@@ -263,9 +263,9 @@ func (r *AutoRefresher) refreshOne(ctx context.Context, cred *Credential, auth A
 
 // nextScheduleAt returns when to next wake up and evaluate this credential.
 // leadTime controls how early before token expiry to schedule a refresh;
-// pass 0 to use defaultRefreshLeadTime.
+// pass nil to disable background pre-refresh scheduling for this credential.
 // Returns (zero, false) if the credential should not be tracked by the scheduler.
-func nextScheduleAt(cred *Credential, now time.Time, leadTime time.Duration) (time.Time, bool) {
+func nextScheduleAt(cred *Credential, now time.Time, leadTime *time.Duration) (time.Time, bool) {
 	if cred == nil || cred.IsDisabled() {
 		return time.Time{}, false
 	}
@@ -276,11 +276,15 @@ func nextScheduleAt(cred *Credential, now time.Time, leadTime time.Duration) (ti
 	if !cred.NextRefreshAfter.IsZero() && now.Before(cred.NextRefreshAfter) {
 		return cred.NextRefreshAfter, true
 	}
-	if leadTime <= 0 {
-		leadTime = defaultRefreshLeadTime
+	if leadTime == nil {
+		return time.Time{}, false
+	}
+	lead := *leadTime
+	if lead <= 0 {
+		lead = defaultRefreshLeadTime
 	}
 	if exp, ok := cred.ExpirationTime(); ok {
-		dueAt := exp.Add(-leadTime)
+		dueAt := exp.Add(-lead)
 		if !dueAt.After(now) {
 			return now, true
 		}

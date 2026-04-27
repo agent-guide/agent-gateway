@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -19,7 +18,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/cliauth"
@@ -154,8 +152,9 @@ func (a *CodexAuthenticator) ProviderType() string {
 
 // RefreshLeadTime returns how far in advance of token expiry to refresh Codex credentials.
 // Five days gives ample runway for CLI tokens whose refresh window is typically 30 days.
-func (a *CodexAuthenticator) RefreshLeadTime() time.Duration {
-	return 5 * 24 * time.Hour
+func (a *CodexAuthenticator) RefreshLeadTime() *time.Duration {
+	lead := 5 * 24 * time.Hour
+	return &lead
 }
 
 // GetConfig returns the current runtime configuration for the authenticator.
@@ -246,91 +245,28 @@ func (a *CodexAuthenticator) loginWithBrowser(ctx context.Context, reporter clia
 	}()
 
 	authURL := buildAuthURL(state, codeChallenge)
-	reportLoginStatus(reporter, cliauth.LoginStatusUpdate{
-		Phase:           "awaiting_browser_auth",
-		Message:         "Open the verification URL in a browser and complete the Codex login flow.",
-		VerificationURL: authURL,
+	outcome, err := runOAuthBrowserFlow(oauthBrowserFlowOptions{
+		ProviderName:              "Codex",
+		AuthURL:                   authURL,
+		NoBrowser:                 a.NoBrowser,
+		Reporter:                  reporter,
+		AwaitingBrowserMessage:    "Open the verification URL in a browser and complete the Codex login flow.",
+		WaitingForCallbackMessage: "Waiting for the Codex OAuth callback after browser verification.",
+		ManualCallbackPrompt:      "Paste the Codex callback URL (or press Enter to keep waiting): ",
+		CallbackTimeout:           codexCallbackTimeout,
+		ManualPromptDelay:         codexManualPromptDelay,
+		WaitForCallback:           srv.waitForCallback,
+		ParseCallbackURL:          parseCallbackURL,
 	})
-
-	if a.NoBrowser || reporter != nil {
-		fmt.Printf("Visit the following URL to authenticate with Codex:\n%s\n", authURL)
-	} else {
-		fmt.Println("Opening browser for Codex authentication...")
-		if openErr := openBrowser(authURL); openErr != nil {
-			fmt.Printf("Could not open browser automatically. Please visit:\n%s\n", authURL)
-		}
+	if err != nil {
+		return nil, err
 	}
 
-	fmt.Println("Waiting for Codex authentication callback...")
-	reportLoginStatus(reporter, cliauth.LoginStatusUpdate{
-		Phase:           "waiting_for_callback",
-		Message:         "Waiting for the Codex OAuth callback after browser verification.",
-		VerificationURL: authURL,
-	})
-
-	// Run the callback wait in a goroutine so we can also offer a manual URL-paste
-	// fallback after codexManualPromptDelay (useful for SSH / tunnelled environments).
-	type cbResult struct{ code, state string }
-	cbCh := make(chan cbResult, 1)
-	cbErrCh := make(chan error, 1)
-	go func() {
-		code, gotState, waitErr := srv.waitForCallback(codexCallbackTimeout)
-		if waitErr != nil {
-			cbErrCh <- waitErr
-			return
-		}
-		cbCh <- cbResult{code, gotState}
-	}()
-
-	manualTimer := time.NewTimer(codexManualPromptDelay)
-	defer manualTimer.Stop()
-	var manualLineCh <-chan string
-	var manualLineErrCh <-chan error
-
-	var outcome cbResult
-waitLoop:
-	for {
-		select {
-		case outcome = <-cbCh:
-			break waitLoop
-		case waitErr := <-cbErrCh:
-			return nil, newAuthError(ErrCallbackTimeout, waitErr)
-		case <-manualTimer.C:
-			// Drain the callback channel one more time before prompting.
-			select {
-			case outcome = <-cbCh:
-				break waitLoop
-			case waitErr := <-cbErrCh:
-				return nil, newAuthError(ErrCallbackTimeout, waitErr)
-			default:
-			}
-			manualLineCh, manualLineErrCh = asyncReadLine(
-				"Paste the Codex callback URL (or press Enter to keep waiting): ")
-		case line := <-manualLineCh:
-			manualLineCh = nil
-			manualLineErrCh = nil
-			if strings.TrimSpace(line) == "" {
-				// Re-issue the prompt so the user can try again.
-				manualLineCh, manualLineErrCh = asyncReadLine(
-					"Paste the Codex callback URL (or press Enter to keep waiting): ")
-				continue
-			}
-			code, gotState, parseErr := parseCallbackURL(line)
-			if parseErr != nil {
-				return nil, parseErr
-			}
-			outcome = cbResult{code, gotState}
-			break waitLoop
-		case readErr := <-manualLineErrCh:
-			return nil, readErr
-		}
-	}
-
-	if outcome.state != state {
+	if outcome.State != state {
 		return nil, newAuthError(ErrInvalidState, fmt.Errorf("state mismatch"))
 	}
 
-	tokenResp, err := a.exchangeCode(ctx, outcome.code, codexRedirectURI, codeVerifier)
+	tokenResp, err := a.exchangeCode(ctx, outcome.Code, codexRedirectURI, codeVerifier)
 	if err != nil {
 		return nil, newAuthError(ErrCodeExchangeFailed, err)
 	}
@@ -628,80 +564,21 @@ func parseJWTClaims(idToken string) (*codexJWTClaims, error) {
 
 // ---- OAuth callback server ----
 
-type oauthCallbackResult struct {
-	code  string
-	state string
-	err   string
-}
-
 type oauthCallbackServer struct {
-	port     int
-	srv      *http.Server
-	resultCh chan oauthCallbackResult
-	mu       sync.Mutex
-	running  bool
+	*callbackHTTPServer
 }
 
 func newOAuthCallbackServer(port int) *oauthCallbackServer {
 	return &oauthCallbackServer{
-		port:     port,
-		resultCh: make(chan oauthCallbackResult, 1),
+		callbackHTTPServer: newCallbackHTTPServer(port),
 	}
 }
 
 func (s *oauthCallbackServer) start() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.running {
-		return fmt.Errorf("callback server already running")
-	}
-
-	addr := fmt.Sprintf(":%d", s.port)
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("port %d already in use: %w", s.port, err)
-	}
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/auth/callback", s.handleCallback)
 	mux.HandleFunc("/success", s.handleSuccess)
-
-	s.srv = &http.Server{
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-	}
-	s.running = true
-
-	go func() {
-		_ = s.srv.Serve(ln)
-	}()
-	return nil
-}
-
-func (s *oauthCallbackServer) stop(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.running || s.srv == nil {
-		return nil
-	}
-	err := s.srv.Shutdown(ctx)
-	s.running = false
-	s.srv = nil
-	return err
-}
-
-func (s *oauthCallbackServer) waitForCallback(timeout time.Duration) (code, state string, err error) {
-	select {
-	case result := <-s.resultCh:
-		if result.err != "" {
-			return "", "", fmt.Errorf("OAuth callback error: %s", result.err)
-		}
-		return result.code, result.state, nil
-	case <-time.After(timeout):
-		return "", "", fmt.Errorf("timed out waiting for OAuth callback after %s", timeout)
-	}
+	return s.callbackHTTPServer.start(mux)
 }
 
 func (s *oauthCallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) {
@@ -741,8 +618,7 @@ func (s *oauthCallbackServer) handleCallback(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *oauthCallbackServer) handleSuccess(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(codexSuccessHTML))
+	writeOAuthSuccessHTML(w, codexSuccessHTML)
 }
 
 // ---- Browser opener ----
@@ -910,53 +786,9 @@ func asyncReadLine(prompt string) (<-chan string, <-chan error) {
 
 // parseCallbackURL extracts the OAuth code and state from a pasted callback URL.
 func parseCallbackURL(rawURL string) (code, state string, err error) {
-	u, parseErr := url.Parse(strings.TrimSpace(rawURL))
-	if parseErr != nil {
-		return "", "", fmt.Errorf("codex: failed to parse callback URL: %w", parseErr)
-	}
-	q := u.Query()
-	if errParam := q.Get("error"); errParam != "" {
-		return "", "", fmt.Errorf("codex: OAuth error from callback URL: %s", errParam)
-	}
-	code = q.Get("code")
-	if code == "" {
-		return "", "", fmt.Errorf("codex: callback URL missing 'code' parameter")
-	}
-	state = q.Get("state")
-	return code, state, nil
+	return parseOAuthCallbackURL("codex", rawURL, false)
 }
 
 // ---- Success page ----
 
-const codexSuccessHTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Authentication Successful</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-               display: flex; justify-content: center; align-items: center;
-               min-height: 100vh; margin: 0;
-               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-        .card { background: white; padding: 2.5rem; border-radius: 12px;
-                box-shadow: 0 10px 25px rgba(0,0,0,0.1); max-width: 420px; text-align: center; }
-        .icon { font-size: 3rem; }
-        h1 { color: #1f2937; margin: 1rem 0 0.5rem; }
-        p { color: #6b7280; }
-        .countdown { margin-top: 1.5rem; color: #9ca3af; font-size: 0.85rem; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="icon">✅</div>
-        <h1>Authentication Successful</h1>
-        <p>You can close this window and return to your terminal.</p>
-        <div class="countdown">Closing in <span id="t">10</span>s</div>
-    </div>
-    <script>
-        let n = 10;
-        const el = document.getElementById('t');
-        const iv = setInterval(() => { el.textContent = --n; if (n <= 0) { clearInterval(iv); window.close(); } }, 1000);
-    </script>
-</body>
-</html>`
+var codexSuccessHTML = buildOAuthSuccessHTML("✅", "#667eea", "#764ba2")

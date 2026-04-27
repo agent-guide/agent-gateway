@@ -39,7 +39,7 @@ func (a *stubAuthenticator) Refresh(context.Context, *Credential) (*Credential, 
 	return nil, nil
 }
 
-func (a *stubAuthenticator) RefreshLeadTime() time.Duration { return 0 }
+func (a *stubAuthenticator) RefreshLeadTime() *time.Duration { return nil }
 
 func TestRegisterAuthenticatorIndexesProviderKey(t *testing.T) {
 	mgr := NewManager()
