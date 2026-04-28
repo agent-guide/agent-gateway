@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"strings"
 
-	apipkg "github.com/agent-guide/caddy-agent-gateway/api"
 	"github.com/agent-guide/caddy-agent-gateway/configstore/intf"
+	dispatcherpkg "github.com/agent-guide/caddy-agent-gateway/dispatcher"
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
@@ -186,10 +186,10 @@ func (h *Handler) handleListProviderTypes(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) handleListLLMApiHandlerTypes(w http.ResponseWriter, r *http.Request) {
-	types := apipkg.ListLLMApiHandlerTypes()
+	types := dispatcherpkg.ListLLMApiHandlerTypes()
 	items := make([]LLMApiHandlerTypeView, 0, len(types))
 	for _, handlerType := range types {
-		enabled, ok := apipkg.IsLLMApiHandlerTypeEnabled(handlerType)
+		enabled, ok := dispatcherpkg.IsLLMApiHandlerTypeEnabled(handlerType)
 		if !ok {
 			continue
 		}
@@ -218,9 +218,9 @@ func (h *Handler) handleSetLLMApiHandlerTypeEnabled(w http.ResponseWriter, r *ht
 
 	var err error
 	if enabled {
-		err = apipkg.EnableLLMApiHandlerType(handlerType)
+		err = dispatcherpkg.EnableLLMApiHandlerType(handlerType)
 	} else {
-		err = apipkg.DisableLLMApiHandlerType(handlerType)
+		err = dispatcherpkg.DisableLLMApiHandlerType(handlerType)
 	}
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusNotFound, err.Error())

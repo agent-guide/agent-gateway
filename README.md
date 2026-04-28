@@ -38,7 +38,7 @@ The request path today is centered on LLM routing. MCP, memory, metrics, and age
 
 - `cmd/` - custom Caddy entrypoint and module imports
 - `gateway/` - `agent_gateway` app, runtime managers, route selection, provider resolution, virtual key validation
-- `api/` - `agent_route_dispatcher` and protocol handlers
+- `dispatcher/` - `agent_route_dispatcher` and protocol handlers
 - `admin/` - `agent_gateway_admin`, Admin API routes, session auth, Caddy management proxy
 - `llm/provider/` - provider interface and built-in provider implementations
 - `cliauth/` - CLI login authenticators and manager

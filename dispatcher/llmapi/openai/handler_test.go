@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/api"
+	dispatcher "github.com/agent-guide/caddy-agent-gateway/dispatcher"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/cloudwego/eino/schema"
@@ -172,8 +172,8 @@ func TestServeLLMApiMapsClientCanceledStreamTo499(t *testing.T) {
 	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
 		t.Fatalf("ServeLLMApi returned error: %v", err)
 	}
-	if rec.Code != api.StatusClientClosedRequest {
-		t.Fatalf("unexpected status code: got %d want %d", rec.Code, api.StatusClientClosedRequest)
+	if rec.Code != dispatcher.StatusClientClosedRequest {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, dispatcher.StatusClientClosedRequest)
 	}
 	if !strings.Contains(rec.Body.String(), "client canceled request") {
 		t.Fatalf("unexpected error body: %q", rec.Body.String())

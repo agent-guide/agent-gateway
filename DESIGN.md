@@ -72,9 +72,9 @@ The app owns both:
 
 This is the key design choice in the project: the HTTP handlers are intentionally thin, while the app owns the reusable gateway services.
 
-### 4.2 `api/`: Compatible LLM Ingress
+### 4.2 `dispatcher/`: Compatible LLM Ingress
 
-The `api/` package registers the `agent_route_dispatcher` Caddyfile directive. That directive currently accepts dispatcher-local LLM API protocol modules:
+The `dispatcher/` package registers the `agent_route_dispatcher` Caddyfile directive. That directive currently accepts dispatcher-local LLM API protocol modules:
 
 ```caddy
 agent_route_dispatcher {

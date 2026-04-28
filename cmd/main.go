@@ -8,9 +8,9 @@ import (
 
 	// LLM Gateway modules
 	_ "github.com/agent-guide/caddy-agent-gateway/admin"
-	_ "github.com/agent-guide/caddy-agent-gateway/api"
-	_ "github.com/agent-guide/caddy-agent-gateway/api/llmapi/anthropic"
-	_ "github.com/agent-guide/caddy-agent-gateway/api/llmapi/openai"
+	_ "github.com/agent-guide/caddy-agent-gateway/dispatcher"
+	_ "github.com/agent-guide/caddy-agent-gateway/dispatcher/llmapi/anthropic"
+	_ "github.com/agent-guide/caddy-agent-gateway/dispatcher/llmapi/openai"
 	_ "github.com/agent-guide/caddy-agent-gateway/gateway"
 
 	// CLI authenticators (register as factory + Caddy modules via init())

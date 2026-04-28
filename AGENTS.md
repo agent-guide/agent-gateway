@@ -59,8 +59,8 @@ Responsibilities:
 ### HTTP middleware
 
 - Module ID: `http.handlers.agent_route_dispatcher`
-- Package: `api/`
-- Main entry: `api/dispatcher.go`
+- Package: `dispatcher/`
+- Main entry: `dispatcher/dispatcher.go`
 
 Responsibilities:
 
@@ -74,9 +74,9 @@ Responsibilities:
 ### Protocol handler modules
 
 - Module ID: `agent_route_dispatcher.llm_apis.openai`
-  - Package: `api/llmapi/openai/`
+  - Package: `dispatcher/llmapi/openai/`
 - Module ID: `agent_route_dispatcher.llm_apis.anthropic`
-  - Package: `api/llmapi/anthropic/`
+  - Package: `dispatcher/llmapi/anthropic/`
 
 Responsibilities:
 

@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/api"
+	dispatcher "github.com/agent-guide/caddy-agent-gateway/dispatcher"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httplog"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
@@ -23,7 +23,7 @@ type Handler struct {
 }
 
 func init() {
-	api.RegisterLLMApiHandlerType("openai")
+	dispatcher.RegisterLLMApiHandlerType("openai")
 	caddy.RegisterModule(Handler{})
 }
 
@@ -55,7 +55,7 @@ func (h *Handler) MatchLLMApi(r *http.Request) bool {
 		r.URL.Path == "/v1/embeddings" || r.URL.Path == "/embeddings"
 }
 
-func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*api.PreparedLLMApiRequest, error) {
+func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLMApiRequest, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read request body")
@@ -68,7 +68,7 @@ func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*api.PreparedLLMApiRequ
 	}
 
 	conv := &Converter{}
-	return &api.PreparedLLMApiRequest{
+	return &dispatcher.PreparedLLMApiRequest{
 		GenerateRequest: conv.ToInternal(&req),
 		Stream:          req.Stream,
 		RawRequest:      &req,
@@ -76,9 +76,9 @@ func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*api.PreparedLLMApiRequ
 }
 
 // ServeLLMApi handles OpenAI-compatible API requests.
-func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provider.Provider, prepared *api.PreparedLLMApiRequest) error {
+func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provider.Provider, prepared *dispatcher.PreparedLLMApiRequest) error {
 	if r.Method != http.MethodPost {
-		_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "openai"}, w, r, http.StatusMethodNotAllowed, "method not allowed", fmt.Errorf("method %s not allowed", r.Method))
+		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "openai"}, w, r, http.StatusMethodNotAllowed, "method not allowed", fmt.Errorf("method %s not allowed", r.Method))
 		return nil
 	}
 
@@ -88,13 +88,13 @@ func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provi
 		req, ok = prepared.RawRequest.(*ChatCompletionRequest)
 	}
 	if !ok || req == nil || prepared == nil || prepared.GenerateRequest == nil {
-		_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "openai"}, w, r, http.StatusBadRequest, "invalid request", fmt.Errorf("prepare request returned invalid openai payload"))
+		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "openai"}, w, r, http.StatusBadRequest, "invalid request", fmt.Errorf("prepare request returned invalid openai payload"))
 		return nil
 	}
 
 	genReq := prepared.GenerateRequest
 	if prov == nil {
-		_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "openai", Model: genReq.Model}, w, r, http.StatusServiceUnavailable, "provider is not configured", fmt.Errorf("provider is not configured"))
+		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: genReq.Model}, w, r, http.StatusServiceUnavailable, "provider is not configured", fmt.Errorf("provider is not configured"))
 		return nil
 	}
 
@@ -105,7 +105,7 @@ func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provi
 
 	resp, err := prov.Generate(r.Context(), genReq)
 	if err != nil {
-		_ = api.WriteProviderError(h.logger, api.ErrorContext{Protocol: "openai", Model: genReq.Model}, w, r, err, "generate response")
+		_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: genReq.Model}, w, r, err, "generate response")
 		return nil
 	}
 	conv := &Converter{}
@@ -117,7 +117,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 	ctx := r.Context()
 	stream, err := prov.Stream(ctx, genReq)
 	if err != nil {
-		_ = api.WriteProviderError(h.logger, api.ErrorContext{Protocol: "openai", Model: genReq.Model}, w, r, err, "start stream")
+		_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: genReq.Model}, w, r, err, "start stream")
 		return
 	}
 	defer stream.Close()
@@ -203,6 +203,6 @@ func toStreamChunk(model string, msg *schema.Message) *chatCompletionChunk {
 }
 
 var (
-	_ caddy.Provisioner = (*Handler)(nil)
-	_ api.LLMApiHandler = (*Handler)(nil)
+	_ caddy.Provisioner        = (*Handler)(nil)
+	_ dispatcher.LLMApiHandler = (*Handler)(nil)
 )

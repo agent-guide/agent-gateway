@@ -1,12 +1,12 @@
-package api_test
+package dispatcher_test
 
 import (
 	"strings"
 	"testing"
 
-	api "github.com/agent-guide/caddy-agent-gateway/api"
-	_ "github.com/agent-guide/caddy-agent-gateway/api/llmapi/anthropic"
-	_ "github.com/agent-guide/caddy-agent-gateway/api/llmapi/openai"
+	dispatcher "github.com/agent-guide/caddy-agent-gateway/dispatcher"
+	_ "github.com/agent-guide/caddy-agent-gateway/dispatcher/llmapi/anthropic"
+	_ "github.com/agent-guide/caddy-agent-gateway/dispatcher/llmapi/openai"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	caddyfileadapter "github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
@@ -35,22 +35,22 @@ func TestParseAgentRouteDispatcher(t *testing.T) {
 	}
 	`)
 
-	handler, err := api.ParseAgentRouteDispatcherForTest(httpcaddyfile.Helper{Dispenser: d})
+	handler, err := dispatcher.ParseAgentRouteDispatcherForTest(httpcaddyfile.Helper{Dispenser: d})
 	if err != nil {
 		t.Fatalf("parseAgentRouteDispatcher() error = %v", err)
 	}
 
-	dispatcher, ok := handler.(*api.AgentRouteDispatcher)
+	dispatcherHandler, ok := handler.(*dispatcher.AgentRouteDispatcher)
 	if !ok {
-		t.Fatalf("handler type = %T, want *api.AgentRouteDispatcher", handler)
+		t.Fatalf("handler type = %T, want *dispatcher.AgentRouteDispatcher", handler)
 	}
-	if len(dispatcher.APIHandlersRaw) != 2 {
-		t.Fatalf("api handler count = %d, want 2", len(dispatcher.APIHandlersRaw))
+	if len(dispatcherHandler.APIHandlersRaw) != 2 {
+		t.Fatalf("api handler count = %d, want 2", len(dispatcherHandler.APIHandlersRaw))
 	}
-	if _, ok := dispatcher.APIHandlersRaw["openai"]; !ok {
+	if _, ok := dispatcherHandler.APIHandlersRaw["openai"]; !ok {
 		t.Fatal("missing openai api handler")
 	}
-	if _, ok := dispatcher.APIHandlersRaw["anthropic"]; !ok {
+	if _, ok := dispatcherHandler.APIHandlersRaw["anthropic"]; !ok {
 		t.Fatal("missing anthropic api handler")
 	}
 }

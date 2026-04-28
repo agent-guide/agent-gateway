@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/api"
+	dispatcher "github.com/agent-guide/caddy-agent-gateway/dispatcher"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httplog"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
@@ -25,7 +25,7 @@ type Handler struct {
 }
 
 func init() {
-	api.RegisterLLMApiHandlerType("anthropic")
+	dispatcher.RegisterLLMApiHandlerType("anthropic")
 	caddy.RegisterModule(Handler{})
 }
 
@@ -55,7 +55,7 @@ func (h *Handler) MatchLLMApi(r *http.Request) bool {
 	return r.URL.Path == "/v1/messages" || r.URL.Path == "/v1/messages/count_tokens"
 }
 
-func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*api.PreparedLLMApiRequest, error) {
+func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLMApiRequest, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read request body")
@@ -68,7 +68,7 @@ func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*api.PreparedLLMApiRequ
 	}
 
 	conv := &Converter{}
-	return &api.PreparedLLMApiRequest{
+	return &dispatcher.PreparedLLMApiRequest{
 		GenerateRequest: conv.ToInternal(&req),
 		Stream:          req.Stream,
 		RawRequest:      &req,
@@ -76,9 +76,9 @@ func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*api.PreparedLLMApiRequ
 }
 
 // ServeLLMApi handles Anthropic-compatible API requests.
-func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provider.Provider, prepared *api.PreparedLLMApiRequest) error {
+func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provider.Provider, prepared *dispatcher.PreparedLLMApiRequest) error {
 	if r.Method != http.MethodPost {
-		_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "anthropic"}, w, r, http.StatusMethodNotAllowed, "method not allowed", fmt.Errorf("method %s not allowed", r.Method))
+		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic"}, w, r, http.StatusMethodNotAllowed, "method not allowed", fmt.Errorf("method %s not allowed", r.Method))
 		return nil
 	}
 
@@ -90,7 +90,7 @@ func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provi
 	return nil
 }
 
-func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request, prov provider.Provider, prepared *api.PreparedLLMApiRequest) {
+func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request, prov provider.Provider, prepared *dispatcher.PreparedLLMApiRequest) {
 	var req *MessagesRequest
 	ok := false
 	if prepared != nil {
@@ -100,20 +100,20 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request, prov pr
 		var err error
 		prepared, err = h.PrepareLLMApiRequest(r)
 		if err != nil {
-			_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "anthropic"}, w, r, statuserr.StatusCode(err, http.StatusBadGateway), err.Error(), fmt.Errorf("prepare request: %w", err))
+			_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic"}, w, r, statuserr.StatusCode(err, http.StatusBadGateway), err.Error(), fmt.Errorf("prepare request: %w", err))
 			return
 		}
 		var castOK bool
 		req, castOK = prepared.RawRequest.(*MessagesRequest)
 		if !castOK || req == nil || prepared.GenerateRequest == nil {
-			_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "anthropic"}, w, r, http.StatusBadRequest, "invalid request", fmt.Errorf("prepare request returned invalid anthropic payload"))
+			_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic"}, w, r, http.StatusBadRequest, "invalid request", fmt.Errorf("prepare request returned invalid anthropic payload"))
 			return
 		}
 	}
 
 	genReq := prepared.GenerateRequest
 	if prov == nil {
-		_ = api.WriteLoggedError(h.logger, api.ErrorContext{Protocol: "anthropic", Model: genReq.Model}, w, r, http.StatusServiceUnavailable, "provider is not configured", fmt.Errorf("provider is not configured"))
+		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic", Model: genReq.Model}, w, r, http.StatusServiceUnavailable, "provider is not configured", fmt.Errorf("provider is not configured"))
 		return
 	}
 
@@ -124,7 +124,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request, prov pr
 
 	resp, err := prov.Generate(r.Context(), genReq)
 	if err != nil {
-		_ = api.WriteProviderError(h.logger, api.ErrorContext{Protocol: "anthropic", Model: genReq.Model}, w, r, err, "generate response")
+		_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic", Model: genReq.Model}, w, r, err, "generate response")
 		return
 	}
 	conv := &Converter{}
@@ -135,7 +135,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 	ctx := r.Context()
 	stream, err := prov.Stream(ctx, genReq)
 	if err != nil {
-		_ = api.WriteProviderError(h.logger, api.ErrorContext{Protocol: "anthropic", Model: genReq.Model}, w, r, err, "start stream")
+		_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic", Model: genReq.Model}, w, r, err, "start stream")
 		return
 	}
 	defer stream.Close()
@@ -221,6 +221,6 @@ func writeSSEEvent(w http.ResponseWriter, event string, data any) {
 }
 
 var (
-	_ caddy.Provisioner = (*Handler)(nil)
-	_ api.LLMApiHandler = (*Handler)(nil)
+	_ caddy.Provisioner        = (*Handler)(nil)
+	_ dispatcher.LLMApiHandler = (*Handler)(nil)
 )

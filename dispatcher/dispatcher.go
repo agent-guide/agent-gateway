@@ -1,4 +1,4 @@
-package api
+package dispatcher
 
 import (
 	"fmt"
@@ -56,7 +56,7 @@ func (h *AgentRouteDispatcher) Provision(ctx caddy.Context) error {
 	for name, mod := range loaded {
 		apiHandler, ok := mod.(LLMApiHandler)
 		if !ok {
-			return fmt.Errorf("agent_route_dispatcher: api handler %q does not implement api.LLMApiHandler: %T", name, mod)
+			return fmt.Errorf("agent_route_dispatcher: api handler %q does not implement dispatcher.LLMApiHandler: %T", name, mod)
 		}
 		h.apiHandlers[name] = apiHandler
 	}

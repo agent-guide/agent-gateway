@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	apipkg "github.com/agent-guide/caddy-agent-gateway/api"
 	"github.com/agent-guide/caddy-agent-gateway/cliauth"
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
+	dispatcherpkg "github.com/agent-guide/caddy-agent-gateway/dispatcher"
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
@@ -660,9 +660,9 @@ func TestProviderTypeListEnableDisable(t *testing.T) {
 
 func TestLLMApiHandlerTypeListEnableDisable(t *testing.T) {
 	const handlerType = "test-admin-llm-api-handler"
-	apipkg.RegisterLLMApiHandlerType(handlerType)
+	dispatcherpkg.RegisterLLMApiHandlerType(handlerType)
 	defer func() {
-		if err := apipkg.EnableLLMApiHandlerType(handlerType); err != nil {
+		if err := dispatcherpkg.EnableLLMApiHandlerType(handlerType); err != nil {
 			t.Fatalf("restore llm api handler type: %v", err)
 		}
 	}()
