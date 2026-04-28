@@ -15,6 +15,8 @@ The project is built around four practical goals:
 - Centralize provider configuration, upstream credentials, and gateway-side API keys
 - Leave room for richer agent runtime features such as MCP, memory, and orchestration without forcing them into every caller
 
+Related extension design notes live in `docs/` when a topic needs more detail than this architecture overview. The model catalog proposal is documented in [docs/model-catalog-design.md](docs/model-catalog-design.md).
+
 ## 3. Top-Level Architecture
 
 The runtime is split into three active layers and several partially integrated subsystems:
