@@ -240,16 +240,19 @@ func (h *Handler) listProviderStaticCredentials(ctx context.Context, filter cred
 }
 
 func (h *Handler) getProviderStaticCredential(ctx context.Context, id string) *credentialmgr.Credential {
-	id = strings.TrimSpace(id)
-	if id == "" {
+	providerID, ok := provider.StaticAPIKeyCredentialProviderID(id)
+	if !ok {
 		return nil
 	}
-	for _, item := range h.listProviderStaticCredentials(ctx, credentialmgr.Filter{}) {
-		if item != nil && item.ID == id {
-			return item
-		}
+	manager := h.providerManagerForRoutes()
+	if manager == nil {
+		return nil
 	}
-	return nil
+	cfg, err := manager.GetConfig(ctx, providerID)
+	if err != nil {
+		return nil
+	}
+	return provider.StaticAPIKeyCredential(cfg, cfg.Id)
 }
 
 func matchesCredentialFilter(cred *credentialmgr.Credential, filter credentialmgr.Filter) bool {

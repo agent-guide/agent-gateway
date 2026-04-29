@@ -164,3 +164,15 @@ func StaticAPIKeyCredentialID(cfg ProviderConfig) string {
 	}
 	return staticAPIKeyCredentialIDPrefix + id
 }
+
+func StaticAPIKeyCredentialProviderID(credentialID string) (string, bool) {
+	credentialID = strings.TrimSpace(credentialID)
+	if credentialID == "" || !strings.HasPrefix(credentialID, staticAPIKeyCredentialIDPrefix) {
+		return "", false
+	}
+	providerID := strings.TrimSpace(strings.TrimPrefix(credentialID, staticAPIKeyCredentialIDPrefix))
+	if providerID == "" {
+		return "", false
+	}
+	return providerID, true
+}
