@@ -79,6 +79,37 @@ func TestDisableAuthenticatorRemovesRuntimeAuthenticator(t *testing.T) {
 	}
 }
 
+func TestRegisterAuthenticatorMaintainsManualRefresherMap(t *testing.T) {
+	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	mgr := NewManager()
+	mgr.SetCredentialManager(credMgr)
+
+	auth := &stubAuthenticator{providerType: "openai"}
+	mgr.RegisterAuthenticator("codex", auth)
+
+	refresher := credMgr.ManualRefresher("codex")
+	if refresher == nil {
+		t.Fatal("ManualRefresher(codex) = nil, want registered refresher")
+	}
+	if refresher != auth {
+		t.Fatal("ManualRefresher(codex) did not return the registered authenticator")
+	}
+}
+
+func TestDisableAuthenticatorRemovesManualRefresher(t *testing.T) {
+	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	mgr := NewManager()
+	mgr.SetCredentialManager(credMgr)
+
+	mgr.RegisterAuthenticator("codex", &stubAuthenticator{providerType: "openai"})
+	if err := mgr.DisableAuthenticator("codex"); err != nil {
+		t.Fatalf("DisableAuthenticator returned error: %v", err)
+	}
+	if refresher := credMgr.ManualRefresher("codex"); refresher != nil {
+		t.Fatalf("ManualRefresher(codex) = %T, want nil", refresher)
+	}
+}
+
 func TestEnableAuthenticatorAppliesConfig(t *testing.T) {
 	authFactoryMu.Lock()
 	originalFactories := authFactories

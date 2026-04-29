@@ -10,6 +10,17 @@ import (
 	"time"
 )
 
+type testManualRefresher struct {
+	refreshFn func(context.Context, *Credential) (*Credential, error)
+}
+
+func (r *testManualRefresher) Refresh(ctx context.Context, cred *Credential) (*Credential, error) {
+	if r == nil || r.refreshFn == nil {
+		return nil, nil
+	}
+	return r.refreshFn(ctx, cred)
+}
+
 func TestPickWithFilterSelectsRequestedSource(t *testing.T) {
 	mgr := NewManager(nil, nil, nil)
 	for _, cred := range []*Credential{
@@ -226,6 +237,123 @@ func TestMarkResultAppliesQuotaCooldown(t *testing.T) {
 	state := cred.ModelStates["gpt-test"]
 	if state == nil || !state.Unavailable || !state.Quota.Exceeded {
 		t.Fatalf("model state was not marked cooling down: %+v", state)
+	}
+}
+
+func TestRefreshCredentialIfNeededRefreshesExpiredCLIAuthCredential(t *testing.T) {
+	mgr := NewManager(nil, nil, nil)
+	mgr.SetManualRefresher("codex", &testManualRefresher{
+		refreshFn: func(_ context.Context, cred *Credential) (*Credential, error) {
+			updated := cred.Clone()
+			updated.Attributes["api_key"] = "fresh-key"
+			updated.Metadata["expired"] = time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+			return updated, nil
+		},
+	})
+
+	expired := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
+	if err := mgr.RegisterCredential(context.Background(), &Credential{
+		ID:           "cli-1",
+		ProviderType: "openai",
+		ProviderID:   "openai",
+		Source:       SourceCLIAuthToken,
+		Attributes: map[string]string{
+			"api_key": "stale-key",
+		},
+		Metadata: map[string]any{
+			MetadataManualRefreshNameKey: "codex",
+			"expired":                    expired,
+		},
+	}); err != nil {
+		t.Fatalf("register credential: %v", err)
+	}
+
+	updated, err := mgr.RefreshCredentialIfNeeded(context.Background(), "cli-1")
+	if err != nil {
+		t.Fatalf("RefreshCredentialIfNeeded returned error: %v", err)
+	}
+	if updated == nil {
+		t.Fatal("RefreshCredentialIfNeeded returned nil credential")
+	}
+	if got := updated.Attributes["api_key"]; got != "fresh-key" {
+		t.Fatalf("api_key = %q, want fresh-key", got)
+	}
+}
+
+func TestRefreshCredentialIfNeededSkipsWhenNoMatchingManualRefresher(t *testing.T) {
+	mgr := NewManager(nil, nil, nil)
+
+	expired := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
+	if err := mgr.RegisterCredential(context.Background(), &Credential{
+		ID:           "cli-1",
+		ProviderType: "openai",
+		ProviderID:   "openai",
+		Source:       SourceCLIAuthToken,
+		Attributes: map[string]string{
+			"api_key": "stale-key",
+		},
+		Metadata: map[string]any{
+			MetadataManualRefreshNameKey: "codex",
+			"expired":                    expired,
+		},
+	}); err != nil {
+		t.Fatalf("register credential: %v", err)
+	}
+
+	updated, err := mgr.RefreshCredentialIfNeeded(context.Background(), "cli-1")
+	if err != nil {
+		t.Fatalf("RefreshCredentialIfNeeded returned error: %v", err)
+	}
+	if updated == nil {
+		t.Fatal("RefreshCredentialIfNeeded returned nil credential")
+	}
+	if got := updated.Attributes["api_key"]; got != "stale-key" {
+		t.Fatalf("api_key = %q, want stale-key", got)
+	}
+}
+
+func TestRefreshCredentialIfNeededHonorsCredentialSpecificExpiryDelta(t *testing.T) {
+	mgr := NewManager(nil, nil, nil)
+	refreshed := false
+	mgr.SetManualRefresher("gemini", &testManualRefresher{
+		refreshFn: func(_ context.Context, cred *Credential) (*Credential, error) {
+			refreshed = true
+			updated := cred.Clone()
+			updated.Attributes["api_key"] = "fresh-key"
+			return updated, nil
+		},
+	})
+
+	expiry := time.Now().UTC().Add(20 * time.Second).Format(time.RFC3339)
+	if err := mgr.RegisterCredential(context.Background(), &Credential{
+		ID:           "cli-1",
+		ProviderType: "gemini",
+		ProviderID:   "gemini",
+		Source:       SourceCLIAuthToken,
+		Attributes: map[string]string{
+			"api_key": "stale-key",
+		},
+		Metadata: map[string]any{
+			MetadataManualRefreshNameKey:     "gemini",
+			MetadataManualRefreshExpiryDelta: "10s",
+			"expired":                        expiry,
+		},
+	}); err != nil {
+		t.Fatalf("register credential: %v", err)
+	}
+
+	updated, err := mgr.RefreshCredentialIfNeeded(context.Background(), "cli-1")
+	if err != nil {
+		t.Fatalf("RefreshCredentialIfNeeded returned error: %v", err)
+	}
+	if updated == nil {
+		t.Fatal("RefreshCredentialIfNeeded returned nil credential")
+	}
+	if refreshed {
+		t.Fatal("expected credential-specific delta to skip refresh")
+	}
+	if got := updated.Attributes["api_key"]; got != "stale-key" {
+		t.Fatalf("api_key = %q, want stale-key", got)
 	}
 }
 

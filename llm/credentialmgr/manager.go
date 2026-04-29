@@ -68,8 +68,9 @@ type Manager struct {
 	providerScope string
 	hook          Hook
 
-	mu    sync.RWMutex
-	creds map[string]*ManagedCredential
+	mu               sync.RWMutex
+	creds            map[string]*ManagedCredential
+	manualRefreshers map[string]ManualRefresher
 
 	quotaCooldownDisabled bool
 }
@@ -80,11 +81,12 @@ func NewManager(store intf.CredentialStorer, selector sched.CredentialSelector, 
 	}
 
 	m := &Manager{
-		store:         store,
-		selector:      selector,
-		providerScope: ProviderScopeProviderID,
-		hook:          hook,
-		creds:         make(map[string]*ManagedCredential),
+		store:            store,
+		selector:         selector,
+		providerScope:    ProviderScopeProviderID,
+		hook:             hook,
+		creds:            make(map[string]*ManagedCredential),
+		manualRefreshers: make(map[string]ManualRefresher),
 	}
 
 	credentialProviderKey := func(cred *ManagedCredential) string {
@@ -124,6 +126,49 @@ func (m *Manager) SetQuotaCooldownDisabled(disable bool) {
 	m.mu.Lock()
 	m.quotaCooldownDisabled = disable
 	m.mu.Unlock()
+}
+
+func (m *Manager) SetManualRefresher(manualRefreshName string, refresher ManualRefresher) {
+	if m == nil {
+		return
+	}
+	key := normalizeManualRefreshName(manualRefreshName)
+	if key == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if refresher == nil {
+		delete(m.manualRefreshers, key)
+		return
+	}
+	m.manualRefreshers[key] = refresher
+}
+
+func (m *Manager) RemoveManualRefresher(manualRefreshName string) {
+	if m == nil {
+		return
+	}
+	key := normalizeManualRefreshName(manualRefreshName)
+	if key == "" {
+		return
+	}
+	m.mu.Lock()
+	delete(m.manualRefreshers, key)
+	m.mu.Unlock()
+}
+
+func (m *Manager) ManualRefresher(manualRefreshName string) ManualRefresher {
+	if m == nil {
+		return nil
+	}
+	key := normalizeManualRefreshName(manualRefreshName)
+	if key == "" {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.manualRefreshers[key]
 }
 
 func (m *Manager) Load(ctx context.Context) error {
@@ -320,6 +365,72 @@ func (m *Manager) PickWithFilter(ctx context.Context, filter Filter, tried map[s
 		}
 		return stored.Clone(), nil
 	}
+}
+
+func (m *Manager) RefreshCredentialIfNeeded(ctx context.Context, credID string) (*ManagedCredential, error) {
+	if m == nil {
+		return nil, &Error{Code: "manager_nil", Message: "credential manager not initialized"}
+	}
+	credID = strings.TrimSpace(credID)
+	if credID == "" {
+		return nil, &Error{Code: "credential_id_empty", Message: "credential id is empty"}
+	}
+
+	m.mu.RLock()
+	stored := m.creds[credID]
+	m.mu.RUnlock()
+	if stored == nil {
+		return nil, &Error{Code: "credential_not_found", Message: "credential not found"}
+	}
+
+	current := stored.Clone()
+	if current.Source != SourceCLIAuthToken {
+		return current, nil
+	}
+
+	manualRefreshName := current.ManualRefreshName()
+	if manualRefreshName == "" {
+		return current, nil
+	}
+	refresher := m.ManualRefresher(manualRefreshName)
+	if refresher == nil || !credentialNeedsManualRefresh(&current.Credential, time.Now().UTC()) {
+		return current, nil
+	}
+
+	updated, err := refresher.Refresh(ctx, current.Credential.Clone())
+	if err != nil {
+		return nil, err
+	}
+	if updated == nil {
+		return current, nil
+	}
+
+	updated = updated.Clone().Normalize()
+	if updated.ID == "" {
+		updated.ID = current.ID
+	}
+	if updated.ProviderType == "" {
+		updated.ProviderType = current.ProviderType
+	}
+	if updated.ProviderID == "" {
+		updated.ProviderID = current.ProviderID
+	}
+	if updated.Source == "" {
+		updated.Source = current.Source
+	}
+	if updated.Label == "" {
+		updated.Label = current.Label
+	}
+	if updated.Metadata == nil {
+		updated.Metadata = make(map[string]any)
+	}
+	if updated.ManualRefreshName() == "" && manualRefreshName != "" {
+		updated.Metadata[MetadataManualRefreshNameKey] = manualRefreshName
+	}
+	if err := m.UpdateCredential(ctx, updated); err != nil {
+		return nil, err
+	}
+	return m.GetCredential(updated.ID), nil
 }
 
 func matchFilter(cred *ManagedCredential, filter Filter) bool {

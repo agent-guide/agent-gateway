@@ -82,6 +82,12 @@ func (p *authManagedProvider) pickManagedCredential(ctx context.Context, source 
 	if err != nil {
 		return nil
 	}
+	if source == credentialmgr.SourceCLIAuthToken {
+		cred, err = p.credentialMgr.RefreshCredentialIfNeeded(ctx, cred.ID)
+		if err != nil {
+			return nil
+		}
+	}
 	return cred
 }
 

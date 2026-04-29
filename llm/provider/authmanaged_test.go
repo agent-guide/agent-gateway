@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/cloudwego/eino/schema"
@@ -370,4 +371,106 @@ func TestWrapWithCredentialManagerPreservesManagedRoundRobin(t *testing.T) {
 	if first != "cred-a" || second != "cred-b" {
 		t.Fatalf("round robin credentials = %q, %q; want cred-a, cred-b", first, second)
 	}
+}
+
+func TestWrapWithCredentialManagerRefreshesExpiredCLIAuthCredentialBeforeUse(t *testing.T) {
+	credMgr := newTestCredentialManager()
+	credMgr.SetManualRefresher("codex", &testProviderManualRefresher{
+		refreshFn: func(_ context.Context, cred *credentialmgr.Credential) (*credentialmgr.Credential, error) {
+			updated := cred.Clone()
+			updated.Attributes["api_key"] = "fresh-cli-key"
+			updated.Metadata["expired"] = time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+			return updated, nil
+		},
+	})
+	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
+		ID:           "cliauth-1",
+		ProviderType: "openai",
+		ProviderID:   "openai",
+		Source:       credentialmgr.SourceCLIAuthToken,
+		Attributes: map[string]string{
+			"api_key": "stale-cli-key",
+		},
+		Metadata: map[string]any{
+			credentialmgr.MetadataManualRefreshNameKey: "codex",
+			"expired": time.Now().UTC().Add(-time.Minute).Format(time.RFC3339),
+		},
+	}); err != nil {
+		t.Fatalf("register cli auth token: %v", err)
+	}
+
+	base := &testConfigurableProvider{
+		cfg: ProviderConfig{
+			Id:           "openai",
+			ProviderType: "openai",
+			AuthStrategy: AuthStrategyManagedCLIAuthTokenFirst,
+		},
+	}
+	wrapped := WrapWithCredentialManager(base, credMgr)
+	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if base.lastCred == nil {
+		t.Fatal("expected managed credential override")
+	}
+	if base.lastAPIKey != "fresh-cli-key" {
+		t.Fatalf("api key = %q, want fresh-cli-key", base.lastAPIKey)
+	}
+}
+
+func TestWrapWithCredentialManagerRefreshesGeminiCredentialUsingCustomExpiryDelta(t *testing.T) {
+	credMgr := newTestCredentialManager()
+	credMgr.SetManualRefresher("gemini", &testProviderManualRefresher{
+		refreshFn: func(_ context.Context, cred *credentialmgr.Credential) (*credentialmgr.Credential, error) {
+			updated := cred.Clone()
+			updated.Attributes["api_key"] = "fresh-gemini-key"
+			updated.Metadata["expired"] = time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+			return updated, nil
+		},
+	})
+	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
+		ID:           "gemini-1",
+		ProviderType: "gemini",
+		ProviderID:   "gemini",
+		Source:       credentialmgr.SourceCLIAuthToken,
+		Attributes: map[string]string{
+			"api_key": "stale-gemini-key",
+		},
+		Metadata: map[string]any{
+			credentialmgr.MetadataManualRefreshNameKey:     "gemini",
+			credentialmgr.MetadataManualRefreshExpiryDelta: 10 * time.Second,
+			"expired": time.Now().UTC().Add(5 * time.Second).Format(time.RFC3339),
+		},
+	}); err != nil {
+		t.Fatalf("register cli auth token: %v", err)
+	}
+
+	base := &testConfigurableProvider{
+		cfg: ProviderConfig{
+			Id:           "gemini",
+			ProviderType: "gemini",
+			AuthStrategy: AuthStrategyManagedCLIAuthTokenFirst,
+		},
+	}
+	wrapped := WrapWithCredentialManager(base, credMgr)
+	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if base.lastCred == nil {
+		t.Fatal("expected managed credential override")
+	}
+	if base.lastAPIKey != "fresh-gemini-key" {
+		t.Fatalf("api key = %q, want fresh-gemini-key", base.lastAPIKey)
+	}
+}
+
+type testProviderManualRefresher struct {
+	refreshFn func(context.Context, *credentialmgr.Credential) (*credentialmgr.Credential, error)
+}
+
+func (r *testProviderManualRefresher) Refresh(ctx context.Context, cred *credentialmgr.Credential) (*credentialmgr.Credential, error) {
+	if r == nil || r.refreshFn == nil {
+		return nil, nil
+	}
+	return r.refreshFn(ctx, cred)
 }

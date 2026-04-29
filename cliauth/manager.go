@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 )
 
 // Manager orchestrates authenticator lifecycle: registration, enable/disable, and selection.
@@ -12,6 +14,7 @@ type Manager struct {
 	mu             sync.RWMutex
 	authenticators map[string]Authenticator // cli key -> Authenticator
 	providerAuths  map[string]string        // providerType key -> cli key
+	credentialMgr  *credentialmgr.Manager
 }
 
 // NewManager constructs a CLI Authenticators Manager.
@@ -19,6 +22,26 @@ func NewManager() *Manager {
 	return &Manager{
 		authenticators: make(map[string]Authenticator),
 		providerAuths:  make(map[string]string),
+	}
+}
+
+func (m *Manager) SetCredentialManager(credentialMgr *credentialmgr.Manager) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.credentialMgr = credentialMgr
+	authenticators := make(map[string]Authenticator, len(m.authenticators))
+	for key, auth := range m.authenticators {
+		authenticators[key] = auth
+	}
+	m.mu.Unlock()
+
+	if credentialMgr == nil {
+		return
+	}
+	for key, auth := range authenticators {
+		credentialMgr.SetManualRefresher(key, auth)
 	}
 }
 
@@ -45,7 +68,11 @@ func (m *Manager) RegisterAuthenticator(cliname string, auth Authenticator) {
 	if providerTypeKey != "" {
 		m.providerAuths[providerTypeKey] = cliKey
 	}
+	credentialMgr := m.credentialMgr
 	m.mu.Unlock()
+	if credentialMgr != nil {
+		credentialMgr.SetManualRefresher(cliKey, auth)
+	}
 }
 
 // EnableAuthenticator creates and registers a runtime Authenticator by CLI name.
@@ -84,6 +111,10 @@ func (m *Manager) DisableAuthenticator(cliname string) error {
 		}
 	}
 	delete(m.authenticators, cliKey)
+	credentialMgr := m.credentialMgr
+	if credentialMgr != nil {
+		credentialMgr.RemoveManualRefresher(cliKey)
+	}
 	return nil
 }
 

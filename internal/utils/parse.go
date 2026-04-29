@@ -150,3 +150,40 @@ func ParseIntAny(val any) (int, bool) {
 		return 0, false
 	}
 }
+
+// ParseDurationAny converts an arbitrary value to time.Duration.
+// Accepts time.Duration, numeric nanoseconds, and duration strings like "10s".
+func ParseDurationAny(val any) (time.Duration, bool) {
+	switch typed := val.(type) {
+	case time.Duration:
+		return typed, true
+	case int:
+		return time.Duration(typed), true
+	case int32:
+		return time.Duration(typed), true
+	case int64:
+		return time.Duration(typed), true
+	case float64:
+		return time.Duration(typed), true
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err != nil {
+			return 0, false
+		}
+		return time.Duration(parsed), true
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if trimmed == "" {
+			return 0, false
+		}
+		if parsed, err := time.ParseDuration(trimmed); err == nil {
+			return parsed, true
+		}
+		if parsed, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
+			return time.Duration(parsed), true
+		}
+		return 0, false
+	default:
+		return 0, false
+	}
+}

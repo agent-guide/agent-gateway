@@ -1,9 +1,14 @@
 package authenticator
 
 import (
+	"context"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
+	"golang.org/x/oauth2"
 )
 
 func TestParseGeminiCallbackURL(t *testing.T) {
@@ -53,5 +58,29 @@ func TestGeminiCallbackServerHandleCallbackRequiresState(t *testing.T) {
 	}
 	if rec.Code != 400 {
 		t.Fatalf("response status = %d, want 400", rec.Code)
+	}
+}
+
+func TestGeminiBuildCredentialSetsManualRefreshMetadata(t *testing.T) {
+	auth := &GeminiAuthenticator{}
+	token := &oauth2.Token{
+		AccessToken:  "access-token",
+		RefreshToken: "refresh-token",
+		TokenType:    "Bearer",
+		Expiry:       time.Now().UTC().Add(time.Hour),
+	}
+
+	cred, err := auth.buildCredential(context.Background(), nil, token)
+	if err != nil {
+		t.Fatalf("buildCredential() error = %v", err)
+	}
+	if cred == nil {
+		t.Fatal("buildCredential() returned nil credential")
+	}
+	if got := cred.Metadata[credentialmgr.MetadataManualRefreshNameKey]; got != "gemini" {
+		t.Fatalf("manual_refresh_name = %#v, want gemini", got)
+	}
+	if got := cred.Metadata[credentialmgr.MetadataManualRefreshExpiryDelta]; got != 10*time.Second {
+		t.Fatalf("manual_refresh_expiry_delta = %#v, want %v", got, 10*time.Second)
 	}
 }

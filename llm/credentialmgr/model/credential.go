@@ -155,6 +155,35 @@ func (c *Credential) ExpirationTime() (time.Time, bool) {
 	return utils.ExpirationFromMap(c.Metadata)
 }
 
+// ManualRefreshName returns the manual refresher name associated with this credential.
+func (c *Credential) ManualRefreshName() string {
+	if c == nil || c.Metadata == nil {
+		return ""
+	}
+	if val, ok := c.Metadata["manual_refresh_name"]; ok {
+		if s, ok := val.(string); ok {
+			return strings.ToLower(strings.TrimSpace(s))
+		}
+	}
+	return ""
+}
+
+// ManualRefreshExpiryDelta returns the per-credential manual refresh lead time.
+func (c *Credential) ManualRefreshExpiryDelta() (time.Duration, bool) {
+	if c == nil || c.Metadata == nil {
+		return 0, false
+	}
+	val, ok := c.Metadata["manual_refresh_expiry_delta"]
+	if !ok {
+		return 0, false
+	}
+	parsed, ok := utils.ParseDurationAny(val)
+	if !ok || parsed < 0 {
+		return 0, false
+	}
+	return parsed, true
+}
+
 // DisableCoolingOverride returns the per-credential disable_cooling override when present.
 func (c *Credential) DisableCoolingOverride() (bool, bool) {
 	if c == nil || c.Metadata == nil {

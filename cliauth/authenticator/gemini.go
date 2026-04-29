@@ -262,6 +262,8 @@ func (a *GeminiAuthenticator) buildCredential(ctx context.Context, conf *oauth2.
 		Metadata:     make(map[string]any),
 		Attributes:   make(map[string]string),
 	}
+	cred.Metadata[credentialmgr.MetadataManualRefreshNameKey] = "gemini"
+	cred.Metadata[credentialmgr.MetadataManualRefreshExpiryDelta] = 10 * time.Second
 
 	applyGeminiTokenToMetadata(cred, token)
 
