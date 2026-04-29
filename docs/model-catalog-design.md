@@ -433,7 +433,7 @@ Execution flow should become:
 2. validate route policy against the logical route model
 3. select target
 4. map `route model -> upstream model` using `target.model_map`
-5. mutate `GenerateRequest.Model` to the upstream model
+5. mutate `ChatRequest.Model` to the upstream model
 6. execute the provider request
 
 Without this step, `model_map` remains config-only and does not affect requests.

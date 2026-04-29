@@ -90,8 +90,8 @@ func buildGenaiClient(ctx context.Context, apiKey, baseURL string, network httpc
 	})
 }
 
-func (p *Provider) Generate(ctx context.Context, req *provider.GenerateRequest) (*provider.GenerateResponse, error) {
-	return provider.RetryGenerate(p.ProviderConfig.Network, func() (*provider.GenerateResponse, error) {
+func (p *Provider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+	return provider.RetryGenerate(p.ProviderConfig.Network, func() (*provider.ChatResponse, error) {
 		chatModel, messages, opts, err := p.newChatModel(ctx, req)
 		if err != nil {
 			return nil, err
@@ -100,11 +100,11 @@ func (p *Provider) Generate(ctx context.Context, req *provider.GenerateRequest) 
 		if err != nil {
 			return nil, provider.WrapEinoError(err)
 		}
-		return provider.FromEinoMessage(msg), nil
+		return provider.ChatResponseFromEinoMessage(msg), nil
 	})
 }
 
-func (p *Provider) Stream(ctx context.Context, req *provider.GenerateRequest) (*schema.StreamReader[*schema.Message], error) {
+func (p *Provider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*schema.StreamReader[*schema.Message], error) {
 	chatModel, messages, opts, err := p.newChatModel(ctx, req)
 	if err != nil {
 		return nil, err
@@ -173,7 +173,7 @@ func (p *Provider) Config() provider.ProviderConfig {
 	return p.ProviderConfig
 }
 
-func (p *Provider) newChatModel(ctx context.Context, req *provider.GenerateRequest) (einomodel.ToolCallingChatModel, []*schema.Message, []einomodel.Option, error) {
+func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) (einomodel.ToolCallingChatModel, []*schema.Message, []einomodel.Option, error) {
 	state, err := provider.ResolveChatRequest(ctx, p.ProviderConfig, req)
 	if err != nil {
 		return nil, nil, nil, err

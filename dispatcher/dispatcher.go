@@ -104,20 +104,16 @@ func (h AgentRouteDispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 
 	prepared, err := apiHandler.PrepareLLMApiRequest(rewritten)
 	if err != nil {
-		model := ""
-		if prepared != nil && prepared.GenerateRequest != nil {
-			model = prepared.GenerateRequest.Model
-		}
-		return WriteError(h.logger, apiHandler.Name(), route.ID, model, w, rewritten, err, "prepare request")
+		return WriteError(h.logger, apiHandler.Name(), route.ID, prepared.Model(), w, rewritten, err, "prepare request")
 	}
-	if prepared == nil || prepared.GenerateRequest == nil {
-		return WriteError(h.logger, apiHandler.Name(), route.ID, "", w, rewritten, fmt.Errorf("llm api handler returned nil generate request"), "prepare request")
+	if !prepared.IsValid() {
+		return WriteError(h.logger, apiHandler.Name(), route.ID, "", w, rewritten, fmt.Errorf("llm api handler returned invalid prepared request"), "prepare request")
 	}
 
 	routeResolveReq := routeResolveRequest(prepared)
 	prov, err := h.gateway.ResolveProvider(rewritten.Context(), route, routeResolveReq)
 	if err != nil {
-		return WriteError(h.logger, apiHandler.Name(), route.ID, prepared.GenerateRequest.Model, w, rewritten, err, "resolve provider")
+		return WriteError(h.logger, apiHandler.Name(), route.ID, prepared.Model(), w, rewritten, err, "resolve provider")
 	}
 
 	return apiHandler.ServeLLMApi(w, rewritten, prov, prepared)
@@ -143,17 +139,9 @@ func rewriteRoutePath(r *http.Request, prefix string) *http.Request {
 }
 
 func routeResolveRequest(prepared *PreparedLLMApiRequest) routepkg.RouteResolveRequest {
-	model := ""
-	stream := false
-	if prepared != nil {
-		stream = prepared.Stream
-		if prepared.GenerateRequest != nil {
-			model = prepared.GenerateRequest.Model
-		}
-	}
 	return routepkg.RouteResolveRequest{
-		Model:  model,
-		Stream: stream,
+		Model:  prepared.Model(),
+		Stream: prepared.Stream(),
 	}
 }
 

@@ -23,9 +23,56 @@ type LLMApiHandler interface {
 }
 
 type PreparedLLMApiRequest struct {
-	GenerateRequest *provider.GenerateRequest
-	Stream          bool
-	RawRequest      any
+	Type             provider.LLMApiRequestType
+	ChatRequest      *provider.ChatRequest
+	EmbeddingRequest *provider.EmbeddingRequest
+	ResponsesRequest *provider.ResponsesRequest
+	StreamRequested  bool
+	RawRequest       any
+}
+
+func (r *PreparedLLMApiRequest) Model() string {
+	if r == nil {
+		return ""
+	}
+	switch r.Type {
+	case provider.LLMApiRequestTypeEmbedding:
+		if r.EmbeddingRequest != nil {
+			return r.EmbeddingRequest.Model
+		}
+	case provider.LLMApiRequestTypeResponses:
+		if r.ResponsesRequest != nil {
+			return r.ResponsesRequest.Model
+		}
+	default:
+		if r.ChatRequest != nil {
+			return r.ChatRequest.Model
+		}
+	}
+	return ""
+}
+
+func (r *PreparedLLMApiRequest) Stream() bool {
+	if r == nil {
+		return false
+	}
+	return r.StreamRequested
+}
+
+func (r *PreparedLLMApiRequest) IsValid() bool {
+	if r == nil {
+		return false
+	}
+	switch r.Type {
+	case provider.LLMApiRequestTypeEmbedding:
+		return r.EmbeddingRequest != nil
+	case provider.LLMApiRequestTypeResponses:
+		return r.ResponsesRequest != nil
+	case provider.LLMApiRequestTypeChat:
+		return r.ChatRequest != nil
+	default:
+		return r.ChatRequest != nil || r.EmbeddingRequest != nil || r.ResponsesRequest != nil
+	}
 }
 
 type ErrorContext struct {

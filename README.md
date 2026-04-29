@@ -129,9 +129,11 @@ The Python OpenAI SDK example uses `http://127.0.0.1:8082/v1`, the `test-key` Vi
 python3 -m pip install openai
 python3 examples/test_openai_client.py
 python3 examples/test_openai_client.py --stream
+python3 examples/test_openai_client.py --api responses
+python3 examples/test_openai_client.py --api responses --stream
 ```
 
-Override example defaults with `AGENT_GATEWAY_BASE_URL`, `AGENT_GATEWAY_API_KEY`, `AGENT_GATEWAY_MODEL`, or CLI flags.
+Override example defaults with `AGENT_GATEWAY_BASE_URL`, `AGENT_GATEWAY_API_KEY`, `AGENT_GATEWAY_MODEL`, `AGENT_GATEWAY_OPENAI_API`, or CLI flags.
 
 ## Admin API Setup
 

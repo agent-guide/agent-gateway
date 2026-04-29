@@ -2,6 +2,15 @@
 // still used for model listing and embeddings.
 package openaibase
 
+type responseStreamEventEnvelope struct {
+	Type         string `json:"type"`
+	Delta        string `json:"delta,omitempty"`
+	ItemID       string `json:"item_id,omitempty"`
+	OutputIndex  int    `json:"output_index,omitempty"`
+	ContentIndex int    `json:"content_index,omitempty"`
+	Response     any    `json:"response,omitempty"`
+}
+
 // Usage holds token counts from a response.
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
@@ -26,15 +35,15 @@ type ModelData struct {
 
 // --- Embeddings ---
 
-// EmbedRequest is the request body for POST /v1/embeddings.
-type EmbedRequest struct {
+// EmbeddingRequest is the request body for POST /v1/embeddings.
+type EmbeddingRequest struct {
 	Model          string   `json:"model"`
 	Input          []string `json:"input"`
 	EncodingFormat string   `json:"encoding_format,omitempty"`
 }
 
-// EmbedResponse is the response from POST /v1/embeddings.
-type EmbedResponse struct {
+// EmbeddingResponse is the response from POST /v1/embeddings.
+type EmbeddingResponse struct {
 	Data  []EmbedData `json:"data"`
 	Model string      `json:"model"`
 	Usage Usage       `json:"usage"`

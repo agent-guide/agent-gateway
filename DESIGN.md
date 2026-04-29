@@ -119,8 +119,8 @@ Providers implement a shared interface:
 
 ```go
 type Provider interface {
-    Generate(ctx context.Context, req *GenerateRequest) (*GenerateResponse, error)
-    Stream(ctx context.Context, req *GenerateRequest) (*schema.StreamReader[*schema.Message], error)
+    Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error)
+    StreamChat(ctx context.Context, req *ChatRequest) (*schema.StreamReader[*schema.Message], error)
     ListModels(ctx context.Context) ([]ModelInfo, error)
     Capabilities() ProviderCapabilities
     Config() ProviderConfig
@@ -303,7 +303,7 @@ HTTP request
   -> select route llm_api protocol handler
   -> validate virtual key if required
   -> resolve target provider
-  -> convert request into provider.Generate/Stream input
+  -> convert request into provider.Chat/StreamChat input
   -> call upstream provider
   -> translate provider response back to dialect response
 ```

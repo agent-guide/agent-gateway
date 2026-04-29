@@ -4,6 +4,7 @@
 import argparse
 import os
 import sys
+from typing import Any
 
 try:
     from openai import OpenAI
@@ -14,6 +15,12 @@ except ImportError:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Test caddy-agent-gateway with the OpenAI Python SDK.")
+    parser.add_argument(
+        "--api",
+        choices=("chat", "responses"),
+        default=os.getenv("AGENT_GATEWAY_OPENAI_API", "chat"),
+        help="OpenAI API surface to test.",
+    )
     parser.add_argument(
         "--base-url",
         default=os.getenv("AGENT_GATEWAY_BASE_URL", "http://127.0.0.1:8082/v1"),
@@ -59,15 +66,22 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> int:
-    args = parse_args()
-    client = OpenAI(api_key=args.api_key, base_url=args.base_url, timeout=args.timeout, max_retries=0)
+def print_response_output(resp: Any) -> None:
+    output_text = getattr(resp, "output_text", None)
+    if output_text:
+        print(output_text)
+        return
 
-    messages = []
-    if args.system:
-        messages.append({"role": "system", "content": args.system})
-    messages.append({"role": "user", "content": args.prompt})
+    for item in getattr(resp, "output", []) or []:
+        if getattr(item, "type", "") != "message":
+            continue
+        for part in getattr(item, "content", []) or []:
+            text = getattr(part, "text", None)
+            if text:
+                print(text)
 
+
+def run_chat_completions(client: OpenAI, args: argparse.Namespace, messages: list[dict[str, Any]]) -> int:
     request = {
         "model": args.model,
         "messages": messages,
@@ -77,7 +91,7 @@ def main() -> int:
         request["temperature"] = 0.2
 
     if args.stream:
-        print(f"Streaming response (timeout={args.timeout}s, max_tokens={args.max_tokens}):")
+        print(f"Streaming chat completion (timeout={args.timeout}s, max_tokens={args.max_tokens}):")
         stream = client.chat.completions.create(**request, stream=True)
         for chunk in stream:
             if not chunk.choices:
@@ -88,12 +102,55 @@ def main() -> int:
         print()
         return 0
 
-    print(f"Requesting completion (timeout={args.timeout}s, max_tokens={args.max_tokens})...")
+    print(f"Requesting chat completion (timeout={args.timeout}s, max_tokens={args.max_tokens})...")
     completion = client.chat.completions.create(**request)
     print(completion.choices[0].message.content)
     if completion.usage:
         print(f"usage: {completion.usage}")
     return 0
+
+
+def run_responses(client: OpenAI, args: argparse.Namespace, messages: list[dict[str, Any]]) -> int:
+    request = {
+        "model": args.model,
+        "input": messages,
+        "max_output_tokens": args.max_tokens,
+    }
+
+    try:
+        responses_api = client.responses
+    except AttributeError:
+        print("This OpenAI SDK does not expose client.responses; upgrade with `python3 -m pip install -U openai`.", file=sys.stderr)
+        return 1
+
+    if args.stream:
+        print(f"Streaming response (timeout={args.timeout}s, max_output_tokens={args.max_tokens}):")
+        stream = responses_api.create(**request, stream=True)
+        for event in stream:
+            if getattr(event, "type", "") == "response.output_text.delta":
+                print(getattr(event, "delta", ""), end="", flush=True)
+        print()
+        return 0
+
+    print(f"Requesting response (timeout={args.timeout}s, max_output_tokens={args.max_tokens})...")
+    resp = responses_api.create(**request)
+    print_response_output(resp)
+    if getattr(resp, "usage", None):
+        print(f"usage: {resp.usage}")
+    return 0
+
+
+def main() -> int:
+    args = parse_args()
+    client = OpenAI(api_key=args.api_key, base_url=args.base_url, timeout=args.timeout, max_retries=0)
+
+    messages = []
+    if args.system:
+        messages.append({"role": "system", "content": args.system})
+    messages.append({"role": "user", "content": args.prompt})
+    if args.api == "responses":
+        return run_responses(client, args, messages)
+    return run_chat_completions(client, args, messages)
 
 
 if __name__ == "__main__":

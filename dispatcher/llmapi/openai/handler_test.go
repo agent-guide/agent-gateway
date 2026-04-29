@@ -16,22 +16,22 @@ import (
 )
 
 type testProvider struct {
-	generateResp *provider.GenerateResponse
-	generateErr  error
-	streamResp   *schema.StreamReader[*schema.Message]
-	streamErr    error
-	cfg          provider.ProviderConfig
+	chatResp    *provider.ChatResponse
+	generateErr error
+	streamResp  *schema.StreamReader[*schema.Message]
+	streamErr   error
+	cfg         provider.ProviderConfig
 
-	lastGenerateReq *provider.GenerateRequest
-	lastStreamReq   *provider.GenerateRequest
+	lastChatReq   *provider.ChatRequest
+	lastStreamReq *provider.ChatRequest
 }
 
-func (p *testProvider) Generate(_ context.Context, req *provider.GenerateRequest) (*provider.GenerateResponse, error) {
-	p.lastGenerateReq = req
-	return p.generateResp, p.generateErr
+func (p *testProvider) Chat(_ context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+	p.lastChatReq = req
+	return p.chatResp, p.generateErr
 }
 
-func (p *testProvider) Stream(_ context.Context, req *provider.GenerateRequest) (*schema.StreamReader[*schema.Message], error) {
+func (p *testProvider) StreamChat(_ context.Context, req *provider.ChatRequest) (*schema.StreamReader[*schema.Message], error) {
 	p.lastStreamReq = req
 	return p.streamResp, p.streamErr
 }
@@ -46,6 +46,25 @@ func (p *testProvider) Capabilities() provider.ProviderCapabilities {
 
 func (p *testProvider) Config() provider.ProviderConfig {
 	return p.cfg
+}
+
+type testResponsesProvider struct {
+	*testProvider
+	responseResp      *provider.ResponsesResponse
+	responseErr       error
+	responseStream    *schema.StreamReader[*provider.ResponsesStreamEvent]
+	responseStreamErr error
+	lastResponseReq   *provider.ResponsesRequest
+}
+
+func (p *testResponsesProvider) CreateResponses(_ context.Context, req *provider.ResponsesRequest) (*provider.ResponsesResponse, error) {
+	p.lastResponseReq = req
+	return p.responseResp, p.responseErr
+}
+
+func (p *testResponsesProvider) StreamResponses(_ context.Context, req *provider.ResponsesRequest) (*schema.StreamReader[*provider.ResponsesStreamEvent], error) {
+	p.lastResponseReq = req
+	return p.responseStream, p.responseStreamErr
 }
 
 type testStatusError struct {
@@ -66,7 +85,7 @@ func withRouteInfo(req *http.Request) *http.Request {
 
 func TestMatchLLMApiRequiresVersionedOpenAIPath(t *testing.T) {
 	handler := newHandler()
-	for _, path := range []string{"/v1/chat/completions", "/v1/models", "/v1/embeddings"} {
+	for _, path := range []string{"/v1/chat/completions", "/v1/responses", "/v1/models", "/v1/embeddings"} {
 		req := httptest.NewRequest(http.MethodPost, path, nil)
 		if !handler.MatchLLMApi(req) {
 			t.Fatalf("MatchLLMApi(%q) = false, want true", path)
@@ -182,7 +201,7 @@ func TestServeLLMApiMapsClientCanceledStreamTo499(t *testing.T) {
 
 func TestServeLLMApiReturnsChatCompletionResponse(t *testing.T) {
 	prov := &testProvider{
-		generateResp: &provider.GenerateResponse{
+		chatResp: &provider.ChatResponse{
 			Message: &schema.Message{
 				Role:    schema.RoleType("assistant"),
 				Content: "hello back",
@@ -223,8 +242,8 @@ func TestServeLLMApiReturnsChatCompletionResponse(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusOK)
 	}
-	if prov.lastGenerateReq == nil || prov.lastGenerateReq.Model != "gpt-4o-mini" {
-		t.Fatalf("unexpected generate request: %+v", prov.lastGenerateReq)
+	if prov.lastChatReq == nil || prov.lastChatReq.Model != "gpt-4o-mini" {
+		t.Fatalf("unexpected chat request: %+v", prov.lastChatReq)
 	}
 
 	var resp ChatCompletionResponse
@@ -292,6 +311,306 @@ func TestServeLLMApiStreamsOpenAIChunks(t *testing.T) {
 	}
 	if chunk.Model != "gpt-4o-mini" || len(chunk.Choices) != 1 || chunk.Choices[0].Delta.Content != "hello stream" {
 		t.Fatalf("unexpected chunk: %+v", chunk)
+	}
+}
+
+func TestPrepareLLMApiRequestAllowsResponsesStateForProviderLevelHandling(t *testing.T) {
+	handler := newHandler()
+
+	body := `{"model":"gpt-4.1","input":"hello","previous_response_id":"resp_123"}`
+	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+
+	prepared, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if prepared == nil || prepared.Type != provider.LLMApiRequestTypeResponses || prepared.ChatRequest != nil || prepared.ResponsesRequest == nil || prepared.ResponsesRequest.Model != "gpt-4.1" {
+		t.Fatalf("unexpected prepared request: %+v", prepared)
+	}
+	if prepared.Model() != "gpt-4.1" {
+		t.Fatalf("prepared.Model() = %q, want gpt-4.1", prepared.Model())
+	}
+	if prepared.Stream() {
+		t.Fatal("prepared.Stream() = true, want false")
+	}
+}
+
+func TestServeLLMApiAllowsProviderResponsesRequestsThatFallbackCannotExpress(t *testing.T) {
+	prov := &testResponsesProvider{
+		testProvider: &testProvider{},
+		responseResp: &provider.ResponsesResponse{
+			ID:        "resp_provider",
+			Object:    "response",
+			CreatedAt: 1,
+			Model:     "gpt-4.1",
+			Output: []provider.ResponsesResponseOutput{{
+				ID:     "msg_provider",
+				Type:   "message",
+				Role:   "assistant",
+				Status: "completed",
+				Content: []provider.ResponsesResponseContentPart{{
+					Type:        "output_text",
+					Text:        "provider path",
+					Annotations: []any{},
+				}},
+			}},
+		},
+	}
+	handler := newHandler()
+
+	body := `{"model":"gpt-4.1","input":"hello","previous_response_id":"resp_123"}`
+	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+	prepared, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusOK)
+	}
+	if prov.lastResponseReq == nil || prov.lastResponseReq.PreviousResponseID != "resp_123" {
+		t.Fatalf("unexpected provider responses request: %+v", prov.lastResponseReq)
+	}
+	if prov.lastChatReq != nil {
+		t.Fatalf("expected no chat fallback, got %+v", prov.lastChatReq)
+	}
+}
+
+func TestServeLLMApiReturnsResponsesResponse(t *testing.T) {
+	prov := &testProvider{
+		chatResp: &provider.ChatResponse{
+			Message: &schema.Message{
+				Role:    schema.RoleType("assistant"),
+				Content: "hello response",
+				ResponseMeta: &schema.ResponseMeta{
+					FinishReason: "stop",
+					Usage: &schema.TokenUsage{
+						PromptTokens:     4,
+						CompletionTokens: 6,
+						TotalTokens:      10,
+					},
+				},
+			},
+		},
+	}
+	handler := newHandler()
+
+	body := `{"model":"gpt-4.1","input":"hello"}` + "\n"
+	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+	prepared, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusOK)
+	}
+	if prov.lastChatReq == nil || prov.lastChatReq.Model != "gpt-4.1" {
+		t.Fatalf("unexpected chat request: %+v", prov.lastChatReq)
+	}
+	if len(prov.lastChatReq.Messages) != 1 || prov.lastChatReq.Messages[0].Content != "hello" {
+		t.Fatalf("unexpected internal messages: %+v", prov.lastChatReq.Messages)
+	}
+
+	var resp provider.ResponsesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Object != "response" || resp.Model != "gpt-4.1" {
+		t.Fatalf("unexpected response envelope: %+v", resp)
+	}
+	if len(resp.Output) != 1 || len(resp.Output[0].Content) != 1 || resp.Output[0].Content[0].Text != "hello response" {
+		t.Fatalf("unexpected output: %+v", resp.Output)
+	}
+}
+
+func TestServeLLMApiStreamsResponsesEvents(t *testing.T) {
+	prov := &testProvider{
+		streamResp: schema.StreamReaderFromArray([]*schema.Message{{
+			Role:    schema.RoleType("assistant"),
+			Content: "hello response stream",
+		}}),
+	}
+	handler := newHandler()
+
+	body := `{"model":"gpt-4.1","input":"hello","stream":true}` + "\n"
+	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+	prepared, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusOK)
+	}
+	if prov.lastStreamReq == nil || prov.lastStreamReq.Model != "gpt-4.1" {
+		t.Fatalf("unexpected stream request: %+v", prov.lastStreamReq)
+	}
+
+	bodyText := rec.Body.String()
+	for _, want := range []string{"event: response.created", "event: response.output_text.delta", "event: response.completed"} {
+		if !strings.Contains(bodyText, want) {
+			t.Fatalf("expected %q in stream body, got %q", want, bodyText)
+		}
+	}
+}
+
+func TestServeLLMApiFallsBackWhenWrappedProviderResponsesCreateIsUnsupported(t *testing.T) {
+	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	baseProv := &testProvider{
+		chatResp: &provider.ChatResponse{
+			Message: &schema.Message{
+				Role:    schema.RoleType("assistant"),
+				Content: "hello wrapped fallback",
+			},
+		},
+		cfg: provider.ProviderConfig{
+			Id:           "zhipu-main",
+			ProviderType: "zhipu",
+		},
+	}
+	prov := provider.WrapWithCredentialManager(baseProv, credMgr)
+	handler := newHandler()
+
+	body := `{"model":"glm-4.7","input":"hello"}` + "\n"
+	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+	prepared, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusOK)
+	}
+	if baseProv.lastChatReq == nil || baseProv.lastChatReq.Model != "glm-4.7" {
+		t.Fatalf("expected chat fallback, got %+v", baseProv.lastChatReq)
+	}
+	if !strings.Contains(rec.Body.String(), "hello wrapped fallback") {
+		t.Fatalf("unexpected body: %q", rec.Body.String())
+	}
+}
+
+func TestServeLLMApiFallsBackWhenWrappedProviderResponsesStreamIsUnsupported(t *testing.T) {
+	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	baseProv := &testProvider{
+		streamResp: schema.StreamReaderFromArray([]*schema.Message{{
+			Role:    schema.RoleType("assistant"),
+			Content: "hello wrapped stream fallback",
+		}}),
+		cfg: provider.ProviderConfig{
+			Id:           "zhipu-main",
+			ProviderType: "zhipu",
+		},
+	}
+	prov := provider.WrapWithCredentialManager(baseProv, credMgr)
+	handler := newHandler()
+
+	body := `{"model":"glm-4.7","input":"hello","stream":true}` + "\n"
+	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+	prepared, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusOK)
+	}
+	if baseProv.lastStreamReq == nil || baseProv.lastStreamReq.Model != "glm-4.7" {
+		t.Fatalf("expected stream fallback, got %+v", baseProv.lastStreamReq)
+	}
+	bodyText := rec.Body.String()
+	for _, want := range []string{"event: response.created", "event: response.output_text.delta", "hello wrapped stream fallback", "event: response.completed"} {
+		if !strings.Contains(bodyText, want) {
+			t.Fatalf("expected %q in stream body, got %q", want, bodyText)
+		}
+	}
+}
+
+func TestServeLLMApiPrefersProviderResponsesInterface(t *testing.T) {
+	prov := &testResponsesProvider{
+		testProvider: &testProvider{},
+		responseResp: &provider.ResponsesResponse{
+			ID:        "resp_provider",
+			Object:    "response",
+			CreatedAt: 1,
+			Model:     "gpt-4.1",
+			Output: []provider.ResponsesResponseOutput{{
+				ID:     "msg_provider",
+				Type:   "message",
+				Role:   "assistant",
+				Status: "completed",
+				Content: []provider.ResponsesResponseContentPart{{
+					Type:        "output_text",
+					Text:        "provider path",
+					Annotations: []any{},
+				}},
+			}},
+		},
+	}
+	handler := newHandler()
+
+	body := `{"model":"gpt-4.1","input":"hello"}` + "\n"
+	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+	prepared, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	if prov.lastResponseReq == nil {
+		t.Fatal("expected provider Responses interface to be used")
+	}
+	if prov.lastChatReq != nil {
+		t.Fatalf("expected no chat fallback, got %+v", prov.lastChatReq)
+	}
+	if !strings.Contains(rec.Body.String(), "provider path") {
+		t.Fatalf("unexpected body: %q", rec.Body.String())
+	}
+}
+
+func TestServeLLMApiRejectsUnsupportedResponsesFallbackState(t *testing.T) {
+	prov := &testProvider{}
+	handler := newHandler()
+
+	body := `{"model":"gpt-4.1","input":"hello","previous_response_id":"resp_123"}` + "\n"
+	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+	prepared, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(rec.Body.String(), "previous_response_id is not supported") {
+		t.Fatalf("unexpected body: %q", rec.Body.String())
 	}
 }
 

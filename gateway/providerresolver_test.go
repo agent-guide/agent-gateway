@@ -99,11 +99,11 @@ type countingProvider struct {
 	cfg      provider.ProviderConfig
 }
 
-func (p *countingProvider) Generate(context.Context, *provider.GenerateRequest) (*provider.GenerateResponse, error) {
+func (p *countingProvider) Chat(context.Context, *provider.ChatRequest) (*provider.ChatResponse, error) {
 	return nil, nil
 }
 
-func (p *countingProvider) Stream(context.Context, *provider.GenerateRequest) (*schema.StreamReader[*schema.Message], error) {
+func (p *countingProvider) StreamChat(context.Context, *provider.ChatRequest) (*schema.StreamReader[*schema.Message], error) {
 	return nil, nil
 }
 

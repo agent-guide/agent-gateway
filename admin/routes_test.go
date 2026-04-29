@@ -197,11 +197,11 @@ type stubAdminProvider struct {
 	cfg provider.ProviderConfig
 }
 
-func (p *stubAdminProvider) Generate(context.Context, *provider.GenerateRequest) (*provider.GenerateResponse, error) {
+func (p *stubAdminProvider) Chat(context.Context, *provider.ChatRequest) (*provider.ChatResponse, error) {
 	return nil, nil
 }
 
-func (p *stubAdminProvider) Stream(context.Context, *provider.GenerateRequest) (*schema.StreamReader[*schema.Message], error) {
+func (p *stubAdminProvider) StreamChat(context.Context, *provider.ChatRequest) (*schema.StreamReader[*schema.Message], error) {
 	return nil, nil
 }
 

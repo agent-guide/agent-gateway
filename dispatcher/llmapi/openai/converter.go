@@ -51,8 +51,8 @@ type Usage struct {
 	TotalTokens      int `json:"total_tokens"`
 }
 
-// ToInternal converts an OpenAI ChatCompletionRequest to the internal GenerateRequest.
-func (c *Converter) ToInternal(req *ChatCompletionRequest) *provider.GenerateRequest {
+// ToInternal converts an OpenAI ChatCompletionRequest to the internal ChatRequest.
+func (c *Converter) ToInternal(req *ChatCompletionRequest) *provider.ChatRequest {
 	msgs := make([]*schema.Message, len(req.Messages))
 	for i, m := range req.Messages {
 		msgs[i] = &schema.Message{Role: schema.RoleType(m.Role), Content: m.Content}
@@ -70,16 +70,16 @@ func (c *Converter) ToInternal(req *ChatCompletionRequest) *provider.GenerateReq
 	if len(req.Stop) > 0 {
 		opts = append(opts, einomodel.WithStop(req.Stop))
 	}
-	genReq := &provider.GenerateRequest{
+	chatReq := &provider.ChatRequest{
 		Model:    req.Model,
 		Messages: msgs,
 		Options:  opts,
 	}
-	return genReq
+	return chatReq
 }
 
-// FromInternal converts an internal GenerateResponse to a ChatCompletionResponse.
-func (c *Converter) FromInternal(resp *provider.GenerateResponse, model string) *ChatCompletionResponse {
+// FromInternal converts an internal ChatResponse to a ChatCompletionResponse.
+func (c *Converter) FromInternal(resp *provider.ChatResponse, model string) *ChatCompletionResponse {
 	content := messageText(resp.Message)
 	usage := provider.UsageFromMessage(resp.Message)
 	return &ChatCompletionResponse{

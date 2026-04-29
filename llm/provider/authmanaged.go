@@ -29,16 +29,16 @@ func WrapWithCredentialManager(base Provider, credMgr *credentialmgr.Manager) Pr
 	return p
 }
 
-func (p *authManagedProvider) Generate(ctx context.Context, req *GenerateRequest) (*GenerateResponse, error) {
+func (p *authManagedProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	ctx, cred := p.pickCredential(ctx, req.Model)
-	resp, err := p.base.Generate(ctx, req)
+	resp, err := p.base.Chat(ctx, req)
 	p.markResult(ctx, cred, req.Model, err)
 	return resp, err
 }
 
-func (p *authManagedProvider) Stream(ctx context.Context, req *GenerateRequest) (*schema.StreamReader[*schema.Message], error) {
+func (p *authManagedProvider) StreamChat(ctx context.Context, req *ChatRequest) (*schema.StreamReader[*schema.Message], error) {
 	ctx, cred := p.pickCredential(ctx, req.Model)
-	stream, err := p.base.Stream(ctx, req)
+	stream, err := p.base.StreamChat(ctx, req)
 	p.markResult(ctx, cred, req.Model, err)
 	return stream, err
 }
@@ -53,6 +53,28 @@ func (p *authManagedProvider) Capabilities() ProviderCapabilities {
 
 func (p *authManagedProvider) Config() ProviderConfig {
 	return p.base.Config()
+}
+
+func (p *authManagedProvider) CreateResponses(ctx context.Context, req *ResponsesRequest) (*ResponsesResponse, error) {
+	base, ok := p.base.(ResponsesProvider)
+	if !ok {
+		return nil, NewStatusError(http.StatusNotImplemented, "responses api is not supported by this provider")
+	}
+	ctx, cred := p.pickCredential(ctx, req.Model)
+	resp, err := base.CreateResponses(ctx, req)
+	p.markResult(ctx, cred, req.Model, err)
+	return resp, err
+}
+
+func (p *authManagedProvider) StreamResponses(ctx context.Context, req *ResponsesRequest) (*schema.StreamReader[*ResponsesStreamEvent], error) {
+	base, ok := p.base.(ResponsesProvider)
+	if !ok {
+		return nil, NewStatusError(http.StatusNotImplemented, "responses api is not supported by this provider")
+	}
+	ctx, cred := p.pickCredential(ctx, req.Model)
+	stream, err := base.StreamResponses(ctx, req)
+	p.markResult(ctx, cred, req.Model, err)
+	return stream, err
 }
 
 func (p *authManagedProvider) pickCredential(ctx context.Context, model string) (context.Context, *credentialmgr.ManagedCredential) {

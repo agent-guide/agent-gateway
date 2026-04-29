@@ -23,7 +23,10 @@ func (stubLLMApiHandler) Name() string { return "stub" }
 func (stubLLMApiHandler) MatchLLMApi(*http.Request) bool { return true }
 
 func (stubLLMApiHandler) PrepareLLMApiRequest(*http.Request) (*PreparedLLMApiRequest, error) {
-	return &PreparedLLMApiRequest{GenerateRequest: &provider.GenerateRequest{}}, nil
+	return &PreparedLLMApiRequest{
+		Type:        provider.LLMApiRequestTypeChat,
+		ChatRequest: &provider.ChatRequest{},
+	}, nil
 }
 
 func (stubLLMApiHandler) ServeLLMApi(http.ResponseWriter, *http.Request, provider.Provider, *PreparedLLMApiRequest) error {
@@ -146,8 +149,9 @@ func TestRewriteRoutePathStripsMatchedPrefix(t *testing.T) {
 
 func TestRouteResolveRequestUsesPreparedModelAndStream(t *testing.T) {
 	got := routeResolveRequest(&PreparedLLMApiRequest{
-		GenerateRequest: &provider.GenerateRequest{Model: "gpt-4o-mini"},
-		Stream:          true,
+		Type:            provider.LLMApiRequestTypeChat,
+		ChatRequest:     &provider.ChatRequest{Model: "gpt-4o-mini"},
+		StreamRequested: true,
 	})
 
 	if got.Model != "gpt-4o-mini" {

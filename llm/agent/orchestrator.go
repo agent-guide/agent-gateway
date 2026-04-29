@@ -72,12 +72,12 @@ func (o *Orchestrator) Process(ctx context.Context, req *Request) (*Response, er
 		if len(req.Tools) > 0 {
 			opts = append(opts, einomodel.WithTools(req.Tools))
 		}
-		genReq := &provider.GenerateRequest{
+		chatReq := &provider.ChatRequest{
 			Messages: messages,
 			Options:  opts,
 		}
 
-		resp, err := o.provider.Generate(ctx, genReq)
+		resp, err := o.provider.Chat(ctx, chatReq)
 		if err != nil {
 			return nil, fmt.Errorf("agent: generate: %w", err)
 		}

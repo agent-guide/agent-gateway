@@ -81,7 +81,7 @@ Responsibilities:
 Responsibilities:
 
 - parse wire-format requests
-- convert HTTP payloads into `provider.GenerateRequest`
+- convert HTTP payloads into `provider.ChatRequest`
 - convert provider responses back to protocol-specific JSON or SSE
 
 These modules are not standalone `http.handlers.*` modules. They are loaded by `agent_route_dispatcher`.
@@ -231,7 +231,7 @@ HTTP request
   -> AgentGateway.ResolveVirtualKey(...)
   -> protocol handler PrepareLLMApiRequest(...)
   -> AgentGateway.ResolveProvider(...)
-  -> provider.Generate(...) or provider.Stream(...)
+  -> provider.Chat(...) or provider.StreamChat(...)
   -> protocol handler writes JSON or SSE response
 ```
 

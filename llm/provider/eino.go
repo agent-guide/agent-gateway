@@ -16,7 +16,7 @@ type ChatRequestState struct {
 	CommonOptions *einomodel.Options
 }
 
-func ResolveChatRequest(ctx context.Context, config ProviderConfig, req *GenerateRequest) (*ChatRequestState, error) {
+func ResolveChatRequest(ctx context.Context, config ProviderConfig, req *ChatRequest) (*ChatRequestState, error) {
 	apiKey, baseURL := ResolveCredential(ctx, config)
 	modelName := req.Model
 	if modelName == "" {
@@ -38,16 +38,16 @@ func ResolveChatRequest(ctx context.Context, config ProviderConfig, req *Generat
 	}, nil
 }
 
-func ToEinoOptions(req *GenerateRequest) ([]einomodel.Option, error) {
+func ToEinoOptions(req *ChatRequest) ([]einomodel.Option, error) {
 	return append([]einomodel.Option(nil), req.Options...), nil
 }
 
-func FromEinoMessage(msg *einoschema.Message) *GenerateResponse {
+func ChatResponseFromEinoMessage(msg *einoschema.Message) *ChatResponse {
 	if msg == nil {
-		return &GenerateResponse{}
+		return &ChatResponse{}
 	}
 
-	return &GenerateResponse{
+	return &ChatResponse{
 		Message: msg,
 	}
 }

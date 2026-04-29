@@ -53,7 +53,7 @@ func TestGenerateUsesDeepSeekAPI(t *testing.T) {
 	}
 	p := prov.(*Provider)
 
-	resp, err := p.Generate(context.Background(), &provider.GenerateRequest{
+	resp, err := p.Chat(context.Background(), &provider.ChatRequest{
 		Model: "deepseek-chat",
 		Messages: []*schema.Message{
 			{Role: schema.System, Content: "用中文回答"},

@@ -69,8 +69,9 @@ func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLM
 
 	conv := &Converter{}
 	return &dispatcher.PreparedLLMApiRequest{
-		GenerateRequest: conv.ToInternal(&req),
-		Stream:          req.Stream,
+		Type:            provider.LLMApiRequestTypeChat,
+		ChatRequest:     conv.ToInternal(&req),
+		StreamRequested: req.Stream,
 		RawRequest:      &req,
 	}, nil
 }
@@ -96,7 +97,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request, prov pr
 	if prepared != nil {
 		req, ok = prepared.RawRequest.(*MessagesRequest)
 	}
-	if !ok || req == nil || prepared == nil || prepared.GenerateRequest == nil {
+	if !ok || req == nil || prepared == nil || prepared.Type != provider.LLMApiRequestTypeChat || prepared.ChatRequest == nil {
 		var err error
 		prepared, err = h.PrepareLLMApiRequest(r)
 		if err != nil {
@@ -105,37 +106,37 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request, prov pr
 		}
 		var castOK bool
 		req, castOK = prepared.RawRequest.(*MessagesRequest)
-		if !castOK || req == nil || prepared.GenerateRequest == nil {
+		if !castOK || req == nil || prepared.Type != provider.LLMApiRequestTypeChat || prepared.ChatRequest == nil {
 			_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic"}, w, r, http.StatusBadRequest, "invalid request", fmt.Errorf("prepare request returned invalid anthropic payload"))
 			return
 		}
 	}
 
-	genReq := prepared.GenerateRequest
+	chatReq := prepared.ChatRequest
 	if prov == nil {
-		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic", Model: genReq.Model}, w, r, http.StatusServiceUnavailable, "provider is not configured", fmt.Errorf("provider is not configured"))
+		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic", Model: chatReq.Model}, w, r, http.StatusServiceUnavailable, "provider is not configured", fmt.Errorf("provider is not configured"))
 		return
 	}
 
-	if req.Stream {
-		h.serveStream(w, r, prov, genReq, req.Model)
+	if prepared.Stream() {
+		h.serveStream(w, r, prov, chatReq, req.Model)
 		return
 	}
 
-	resp, err := prov.Generate(r.Context(), genReq)
+	resp, err := prov.Chat(r.Context(), chatReq)
 	if err != nil {
-		_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic", Model: genReq.Model}, w, r, err, "generate response")
+		_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic", Model: chatReq.Model}, w, r, err, "generate response")
 		return
 	}
 	conv := &Converter{}
 	_ = httpjson.Write(w, http.StatusOK, conv.FromInternal(resp, req.Model))
 }
 
-func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provider.Provider, genReq *provider.GenerateRequest, model string) {
+func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provider.Provider, chatReq *provider.ChatRequest, model string) {
 	ctx := r.Context()
-	stream, err := prov.Stream(ctx, genReq)
+	stream, err := prov.StreamChat(ctx, chatReq)
 	if err != nil {
-		_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic", Model: genReq.Model}, w, r, err, "start stream")
+		_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic", Model: chatReq.Model}, w, r, err, "start stream")
 		return
 	}
 	defer stream.Close()
@@ -173,7 +174,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 		if err != nil {
 			httplog.Error(h.logger, "http request failed", r, http.StatusOK, fmt.Errorf("receive stream chunk: %w", err),
 				zap.String("protocol", "anthropic"),
-				zap.String("model", genReq.Model),
+				zap.String("model", chatReq.Model),
 			)
 			break
 		}

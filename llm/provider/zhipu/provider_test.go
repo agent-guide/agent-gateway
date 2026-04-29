@@ -82,7 +82,7 @@ func TestNewDefaults(t *testing.T) {
 	}
 }
 
-func generateAndCapture(t *testing.T, options map[string]any) (*provider.GenerateResponse, map[string]any) {
+func generateAndCapture(t *testing.T, options map[string]any) (*provider.ChatResponse, map[string]any) {
 	t.Helper()
 
 	var captured map[string]any
@@ -130,7 +130,7 @@ func generateAndCapture(t *testing.T, options map[string]any) (*provider.Generat
 	}
 	p := prov.(*Provider)
 
-	resp, err := p.Generate(context.Background(), &provider.GenerateRequest{
+	resp, err := p.Chat(context.Background(), &provider.ChatRequest{
 		Model: "glm-4.7",
 		Messages: []*schema.Message{
 			{Role: schema.System, Content: "用中文回答"},

@@ -12,8 +12,8 @@ import (
 // Converter converts between Anthropic API format and internal format.
 type Converter struct{}
 
-// ToInternal converts an Anthropic MessagesRequest to the internal GenerateRequest.
-func (c *Converter) ToInternal(req *MessagesRequest) *provider.GenerateRequest {
+// ToInternal converts an Anthropic MessagesRequest to the internal ChatRequest.
+func (c *Converter) ToInternal(req *MessagesRequest) *provider.ChatRequest {
 	msgs := make([]*schema.Message, 0, len(req.Messages)+1)
 	if req.System != "" {
 		msgs = append(msgs, schema.SystemMessage(req.System))
@@ -38,16 +38,16 @@ func (c *Converter) ToInternal(req *MessagesRequest) *provider.GenerateRequest {
 		opts = append(opts, einomodel.WithStop(req.StopSequences))
 	}
 
-	genReq := &provider.GenerateRequest{
+	chatReq := &provider.ChatRequest{
 		Model:    req.Model,
 		Messages: msgs,
 		Options:  opts,
 	}
-	return genReq
+	return chatReq
 }
 
-// FromInternal converts an internal GenerateResponse to an Anthropic MessagesResponse.
-func (c *Converter) FromInternal(resp *provider.GenerateResponse, model string) *MessagesResponse {
+// FromInternal converts an internal ChatResponse to an Anthropic MessagesResponse.
+func (c *Converter) FromInternal(resp *provider.ChatResponse, model string) *MessagesResponse {
 	content := convertResponseContent(resp)
 	usage := provider.UsageFromMessage(resp.Message)
 	return &MessagesResponse{
@@ -64,7 +64,7 @@ func (c *Converter) FromInternal(resp *provider.GenerateResponse, model string) 
 	}
 }
 
-func convertResponseContent(resp *provider.GenerateResponse) []ContentBlockResponse {
+func convertResponseContent(resp *provider.ChatResponse) []ContentBlockResponse {
 	return contentFromMessage(resp.Message)
 }
 
@@ -108,7 +108,7 @@ type MessagesRequest struct {
 }
 
 type MessageItem struct {
-	Role    string        `json:"role"`
+	Role    string         `json:"role"`
 	Content MessageContent `json:"content"`
 }
 

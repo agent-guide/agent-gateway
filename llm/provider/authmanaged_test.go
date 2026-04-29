@@ -10,11 +10,13 @@ import (
 )
 
 type testConfigurableProvider struct {
-	cfg        ProviderConfig
-	errs       []error
-	calls      int
-	lastAPIKey string
-	lastCred   *credentialmgr.Credential
+	cfg                ProviderConfig
+	errs               []error
+	calls              int
+	lastAPIKey         string
+	lastCred           *credentialmgr.Credential
+	lastResponseAPIKey string
+	lastResponseCred   *credentialmgr.Credential
 }
 
 func newTestCredentialManager() *credentialmgr.Manager {
@@ -25,7 +27,7 @@ func newProviderIDScopedCredentialManager() *credentialmgr.Manager {
 	return credentialmgr.NewManager(nil, nil, nil)
 }
 
-func (p *testConfigurableProvider) Generate(ctx context.Context, _ *GenerateRequest) (*GenerateResponse, error) {
+func (p *testConfigurableProvider) Chat(ctx context.Context, _ *ChatRequest) (*ChatResponse, error) {
 	apiKey, _ := ResolveCredential(ctx, p.cfg)
 	cred, _ := CredentialFromContext(ctx)
 	p.lastAPIKey = apiKey
@@ -36,10 +38,22 @@ func (p *testConfigurableProvider) Generate(ctx context.Context, _ *GenerateRequ
 		return nil, err
 	}
 	p.calls++
-	return &GenerateResponse{}, nil
+	return &ChatResponse{}, nil
 }
 
-func (p *testConfigurableProvider) Stream(context.Context, *GenerateRequest) (*schema.StreamReader[*schema.Message], error) {
+func (p *testConfigurableProvider) StreamChat(context.Context, *ChatRequest) (*schema.StreamReader[*schema.Message], error) {
+	return nil, nil
+}
+
+func (p *testConfigurableProvider) CreateResponses(ctx context.Context, _ *ResponsesRequest) (*ResponsesResponse, error) {
+	apiKey, _ := ResolveCredential(ctx, p.cfg)
+	cred, _ := CredentialFromContext(ctx)
+	p.lastResponseAPIKey = apiKey
+	p.lastResponseCred = cred
+	return &ResponsesResponse{}, nil
+}
+
+func (p *testConfigurableProvider) StreamResponses(context.Context, *ResponsesRequest) (*schema.StreamReader[*ResponsesStreamEvent], error) {
 	return nil, nil
 }
 
@@ -86,7 +100,7 @@ func TestWrapWithCredentialManagerUsesStaticAPIKeyAsFallback(t *testing.T) {
 		},
 	}
 	wrapped := WrapWithCredentialManager(base, credMgr)
-	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
+	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	if base.lastCred != nil {
@@ -126,7 +140,7 @@ func TestWrapWithCredentialManagerScopesManagedCredentialToProviderID(t *testing
 		},
 	}
 	wrapped := WrapWithCredentialManager(base, credMgr)
-	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
+	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	if base.lastCred != nil {
@@ -170,7 +184,7 @@ func TestWrapWithCredentialManagerUsesProviderIDScopedManagedCredential(t *testi
 		},
 	}
 	wrapped := WrapWithCredentialManager(base, credMgr)
-	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
+	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	if base.lastCred == nil {
@@ -195,7 +209,7 @@ func TestWrapWithCredentialManagerFallsBackToStaticAPIKeyWhenManagedCredentialMi
 		},
 	}
 	wrapped := WrapWithCredentialManager(base, credMgr)
-	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{Model: "gpt-test"}); err != nil {
+	if _, err := wrapped.Chat(context.Background(), &ChatRequest{Model: "gpt-test"}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	if base.lastCred != nil {
@@ -240,7 +254,7 @@ func TestWrapWithCredentialManagerPrefersManagedAPIKey(t *testing.T) {
 		},
 	}
 	wrapped := WrapWithCredentialManager(base, credMgr)
-	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
+	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	if base.lastCred == nil {
@@ -288,7 +302,7 @@ func TestWrapWithCredentialManagerPrefersManagedCLIAuthToken(t *testing.T) {
 		},
 	}
 	wrapped := WrapWithCredentialManager(base, credMgr)
-	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
+	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	if base.lastCred == nil {
@@ -299,6 +313,44 @@ func TestWrapWithCredentialManagerPrefersManagedCLIAuthToken(t *testing.T) {
 	}
 	if base.lastAPIKey != "managed-cli-key" {
 		t.Fatalf("unexpected api key: got %q want managed-cli-key", base.lastAPIKey)
+	}
+}
+
+func TestWrapWithCredentialManagerForwardsResponsesProvider(t *testing.T) {
+	credMgr := newTestCredentialManager()
+	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
+		ID:           "api-key-1",
+		ProviderType: "openai",
+		ProviderID:   "openai",
+		Source:       credentialmgr.SourceAPIKey,
+		Attributes: map[string]string{
+			"api_key": "managed-api-key",
+		},
+	}); err != nil {
+		t.Fatalf("register managed api key: %v", err)
+	}
+
+	base := &testConfigurableProvider{
+		cfg: ProviderConfig{
+			Id:           "openai",
+			ProviderType: "openai",
+			APIKey:       "static-key",
+			AuthStrategy: AuthStrategyManagedAPIKeyFirst,
+		},
+	}
+	wrapped := WrapWithCredentialManager(base, credMgr)
+	responsesProv, ok := wrapped.(ResponsesProvider)
+	if !ok {
+		t.Fatal("expected wrapped provider to implement ResponsesProvider")
+	}
+	if _, err := responsesProv.CreateResponses(context.Background(), &ResponsesRequest{Model: "gpt-test"}); err != nil {
+		t.Fatalf("create response: %v", err)
+	}
+	if base.lastResponseCred == nil || base.lastResponseCred.ID != "api-key-1" {
+		t.Fatalf("unexpected response credential: %+v", base.lastResponseCred)
+	}
+	if base.lastResponseAPIKey != "managed-api-key" {
+		t.Fatalf("unexpected response api key: got %q want managed-api-key", base.lastResponseAPIKey)
 	}
 }
 
@@ -325,7 +377,7 @@ func TestWrapWithCredentialManagerDoesNotFallbackBetweenManagedSources(t *testin
 		},
 	}
 	wrapped := WrapWithCredentialManager(base, credMgr)
-	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
+	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	if base.lastCred != nil {
@@ -360,11 +412,11 @@ func TestWrapWithCredentialManagerPreservesManagedRoundRobin(t *testing.T) {
 		},
 	}
 	wrapped := WrapWithCredentialManager(base, credMgr)
-	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
+	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("first generate: %v", err)
 	}
 	first := base.lastCred.ID
-	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
+	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("second generate: %v", err)
 	}
 	second := base.lastCred.ID
@@ -407,7 +459,7 @@ func TestWrapWithCredentialManagerRefreshesExpiredCLIAuthCredentialBeforeUse(t *
 		},
 	}
 	wrapped := WrapWithCredentialManager(base, credMgr)
-	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
+	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	if base.lastCred == nil {
@@ -453,7 +505,7 @@ func TestWrapWithCredentialManagerRefreshesGeminiCredentialUsingCustomExpiryDelt
 		},
 	}
 	wrapped := WrapWithCredentialManager(base, credMgr)
-	if _, err := wrapped.Generate(context.Background(), &GenerateRequest{}); err != nil {
+	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	if base.lastCred == nil {

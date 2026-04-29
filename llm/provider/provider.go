@@ -6,20 +6,18 @@ import (
 	"fmt"
 
 	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
-	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 )
 
-// Provider defines the interface for LLM providers, which is covering
-// the core operations every provider must support. Providers that support
-// additional capabilities (embeddings, image generation, etc.) may implement
-// optional capability interfaces (EmbeddingProvider, etc.).
+// Provider is the core interface implemented by all LLM providers.
+// Additional capabilities are exposed through optional interfaces such as
+// EmbeddingProvider and ResponsesProvider.
 type Provider interface {
-	// Generate performs a non-streaming completion and returns the full response.
-	Generate(ctx context.Context, req *GenerateRequest) (*GenerateResponse, error)
+	// Chat performs a non-streaming chat completion and returns the full response.
+	Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error)
 
-	// Stream performs a streaming completion and returns an Eino message stream.
-	Stream(ctx context.Context, req *GenerateRequest) (*schema.StreamReader[*schema.Message], error)
+	// StreamChat performs a streaming chat completion and returns an Eino message stream.
+	StreamChat(ctx context.Context, req *ChatRequest) (*schema.StreamReader[*schema.Message], error)
 
 	// ListModels returns the list of models available from this provider.
 	ListModels(ctx context.Context) ([]ModelInfo, error)
@@ -31,12 +29,16 @@ type Provider interface {
 	Config() ProviderConfig
 }
 
-// EmbeddingProvider is an optional interface for providers that support embeddings.
-// The memory module uses this to generate vectors for storage and search.
-type EmbeddingProvider interface {
-	Provider
-	Embed(ctx context.Context, req *EmbedRequest) (*EmbedResponse, error)
-}
+// LLMApiRequestType identifies the prepared provider-facing request kind.
+type LLMApiRequestType string
+
+const (
+	LLMApiRequestTypeChat      LLMApiRequestType = "chat"
+	LLMApiRequestTypeEmbedding LLMApiRequestType = "embedding"
+	LLMApiRequestTypeResponses LLMApiRequestType = "responses"
+)
+
+// Status and error types.
 
 // StatusError is implemented by errors that carry an HTTP status code.
 // Provider implementations should return StatusError so that the handler layer
@@ -46,6 +48,8 @@ type StatusError interface {
 	error
 	StatusCode() int
 }
+
+// Configuration and capability types.
 
 // AuthStrategy controls the preferred order between managed API keys and
 // managed CLI auth tokens. ProviderConfig.APIKey remains a fallback when no
@@ -92,6 +96,8 @@ type ProviderConfig struct {
 // NetworkConfig re-exports the shared HTTP network config type for provider configs.
 type NetworkConfig = httpclient.NetworkConfig
 
+// ProviderConfig helpers.
+
 // Defaults fills in zero values with sensible defaults.
 func (c *ProviderConfig) Defaults() {
 	c.Network.Defaults()
@@ -134,47 +140,4 @@ func DecodeStoredProviderConfig(data []byte) (any, error) {
 		return nil, err
 	}
 	return &providerConfig, nil
-}
-
-// --- Request / Response types ---
-
-// GenerateRequest is the unified internal request format passed to providers.
-type GenerateRequest struct {
-	Model    string
-	Messages []*schema.Message
-	Options  []einomodel.Option
-}
-
-// GenerateResponse is the unified internal response format returned by providers.
-type GenerateResponse struct {
-	Message *schema.Message
-}
-
-// EmbedRequest is the request to generate vector embeddings.
-type EmbedRequest struct {
-	// Model is the embedding model to use. Leave empty to use provider default.
-	Model string
-	// Texts are the strings to embed.
-	Texts []string
-}
-
-// EmbedResponse contains the generated embeddings.
-type EmbedResponse struct {
-	Embeddings [][]float64
-	Model      string
-	Usage      Usage
-}
-
-// ModelInfo describes a model available from a provider.
-type ModelInfo struct {
-	ID           string
-	Name         string
-	Description  string
-	Capabilities ProviderCapabilities
-}
-
-// Usage contains token consumption information.
-type Usage struct {
-	InputTokens  int
-	OutputTokens int
 }

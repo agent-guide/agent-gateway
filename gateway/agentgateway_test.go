@@ -31,11 +31,11 @@ func (s *countingSelector) SelectTarget(routepkg.AgentRoute, routepkg.RouteResol
 
 type testProvider struct{}
 
-func (testProvider) Generate(context.Context, *provider.GenerateRequest) (*provider.GenerateResponse, error) {
+func (testProvider) Chat(context.Context, *provider.ChatRequest) (*provider.ChatResponse, error) {
 	return nil, nil
 }
 
-func (testProvider) Stream(context.Context, *provider.GenerateRequest) (*schema.StreamReader[*schema.Message], error) {
+func (testProvider) StreamChat(context.Context, *provider.ChatRequest) (*schema.StreamReader[*schema.Message], error) {
 	return nil, nil
 }
 
@@ -64,9 +64,9 @@ func TestResolverUsesCustomSelector(t *testing.T) {
 	gw := NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
 		StaticRoutes: []routepkg.AgentRoute{route},
-			StaticProviders: map[string]provider.Provider{
-				"openrouter": staticTestProvider{id: "openrouter"},
-			},
+		StaticProviders: map[string]provider.Provider{
+			"openrouter": staticTestProvider{id: "openrouter"},
+		},
 		Selector: fixedSelector{target: routepkg.RouteTarget{ProviderID: "openrouter"}},
 	}); err != nil {
 		t.Fatalf("Bootstrap returned error: %v", err)
@@ -98,12 +98,12 @@ func TestResolveRejectsDisabledRoute(t *testing.T) {
 			Match:    routepkg.RouteMatch{PathPrefix: "/v1"},
 			Targets:  []routepkg.RouteTarget{{ProviderID: "openai"}},
 		}},
-			StaticProviders: map[string]provider.Provider{
-				"openai": staticTestProvider{id: "openai"},
-			},
-		}); err != nil {
-			t.Fatalf("Bootstrap returned error: %v", err)
-		}
+		StaticProviders: map[string]provider.Provider{
+			"openai": staticTestProvider{id: "openai"},
+		},
+	}); err != nil {
+		t.Fatalf("Bootstrap returned error: %v", err)
+	}
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	_, err := gw.ResolveRoute(context.Background(), req)
@@ -116,12 +116,12 @@ type staticTestProvider struct {
 	id string
 }
 
-func (p staticTestProvider) Generate(ctx context.Context, req *provider.GenerateRequest) (*provider.GenerateResponse, error) {
-	return testProvider{}.Generate(ctx, req)
+func (p staticTestProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+	return testProvider{}.Chat(ctx, req)
 }
 
-func (p staticTestProvider) Stream(ctx context.Context, req *provider.GenerateRequest) (*schema.StreamReader[*schema.Message], error) {
-	return testProvider{}.Stream(ctx, req)
+func (p staticTestProvider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*schema.StreamReader[*schema.Message], error) {
+	return testProvider{}.StreamChat(ctx, req)
 }
 
 func (p staticTestProvider) ListModels(ctx context.Context) ([]provider.ModelInfo, error) {

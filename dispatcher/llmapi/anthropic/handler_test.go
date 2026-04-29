@@ -18,11 +18,11 @@ type testProvider struct {
 	cfg       provider.ProviderConfig
 }
 
-func (p *testProvider) Generate(context.Context, *provider.GenerateRequest) (*provider.GenerateResponse, error) {
+func (p *testProvider) Chat(context.Context, *provider.ChatRequest) (*provider.ChatResponse, error) {
 	return nil, nil
 }
 
-func (p *testProvider) Stream(context.Context, *provider.GenerateRequest) (*schema.StreamReader[*schema.Message], error) {
+func (p *testProvider) StreamChat(context.Context, *provider.ChatRequest) (*schema.StreamReader[*schema.Message], error) {
 	return nil, p.streamErr
 }
 
