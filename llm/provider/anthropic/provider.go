@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	einoclaude "github.com/cloudwego/eino-ext/components/model/claude"
@@ -15,6 +14,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
 )
 
 const anthropicVersion = "2023-06-01"

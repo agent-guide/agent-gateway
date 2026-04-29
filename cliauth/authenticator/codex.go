@@ -21,8 +21,8 @@ import (
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/cliauth"
-	internalhttpclient "github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
 	"github.com/google/uuid"
 )
 
@@ -487,7 +487,7 @@ func (a *CodexAuthenticator) httpClient() *http.Client {
 	if a.client != nil {
 		return a.client
 	}
-	a.client = internalhttpclient.BuildHTTPClient(a.Network)
+	a.client = httpclient.BuildHTTPClient(a.Network)
 	return a.client
 }
 

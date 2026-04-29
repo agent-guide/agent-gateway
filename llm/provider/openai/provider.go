@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider/openaibase"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
 )
 
 func init() {

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 )

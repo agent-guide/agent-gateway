@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
 )
 
 // Base provides shared utilities for OpenAI-compatible providers.

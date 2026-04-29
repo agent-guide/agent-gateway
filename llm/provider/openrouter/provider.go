@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/httpclient"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	einoopenrouter "github.com/cloudwego/eino-ext/components/model/openrouter"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider/openaibase"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
 )
 
 func init() {
