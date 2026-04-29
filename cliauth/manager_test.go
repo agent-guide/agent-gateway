@@ -5,6 +5,8 @@ import (
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 )
 
 type stubAuthenticator struct {
@@ -31,11 +33,11 @@ func (a *stubAuthenticator) SetConfig(cfg AuthenticatorConfig) error {
 	return nil
 }
 
-func (a *stubAuthenticator) Login(context.Context, LoginStatusReporter) (*Credential, error) {
+func (a *stubAuthenticator) Login(context.Context, LoginStatusReporter) (*credentialmgr.Credential, error) {
 	return nil, nil
 }
 
-func (a *stubAuthenticator) Refresh(context.Context, *Credential) (*Credential, error) {
+func (a *stubAuthenticator) Refresh(context.Context, *credentialmgr.Credential) (*credentialmgr.Credential, error) {
 	return nil, nil
 }
 

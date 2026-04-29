@@ -124,7 +124,7 @@ func runLogin(args []string) error {
 		cred.Label = strings.TrimSpace(*label)
 	}
 
-	if err := refresher.RegisterLoginCredential(ctx, cred); err != nil {
+	if err := refresher.RegisterLoginCredential(ctx, cliauth.NewCLIAuthCredential(cred)); err != nil {
 		return err
 	}
 

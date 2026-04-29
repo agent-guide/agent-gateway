@@ -16,7 +16,7 @@ import (
 
 type testAuthenticator struct {
 	providerType string
-	loginFn      func(context.Context, cliauth.LoginStatusReporter) (*cliauth.Credential, error)
+	loginFn      func(context.Context, cliauth.LoginStatusReporter) (*credentialmgr.Credential, error)
 	config       cliauth.AuthenticatorConfig
 }
 
@@ -43,14 +43,14 @@ func (a *testAuthenticator) ProviderType() string {
 	return a.providerType
 }
 
-func (a *testAuthenticator) Login(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
+func (a *testAuthenticator) Login(ctx context.Context, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
 	if a.loginFn != nil {
 		return a.loginFn(ctx, reporter)
 	}
-	return &cliauth.Credential{Credential: credentialmgr.Credential{ProviderType: a.providerType}}, nil
+	return &credentialmgr.Credential{ProviderType: a.providerType}, nil
 }
 
-func (a *testAuthenticator) Refresh(context.Context, *cliauth.Credential) (*cliauth.Credential, error) {
+func (a *testAuthenticator) Refresh(context.Context, *credentialmgr.Credential) (*credentialmgr.Credential, error) {
 	return nil, nil
 }
 
@@ -91,14 +91,12 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 	cliauthRefresher := cliauth.NewAutoRefresher(cliauth.WrapSharedCredentialManager(credMgr), cliauthMgr)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
 		providerType: "openai",
-		loginFn: func(context.Context, cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
-			return &cliauth.Credential{
-				Credential: credentialmgr.Credential{
-					ID:           "cred-openai-1",
-					ProviderType: "openai",
-					ProviderID:   "openai-main",
-					Label:        "test@example.com",
-				},
+		loginFn: func(context.Context, cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
+			return &credentialmgr.Credential{
+				ID:           "cred-openai-1",
+				ProviderType: "openai",
+				ProviderID:   "openai-main",
+				Label:        "test@example.com",
 			}, nil
 		},
 	})
@@ -171,14 +169,12 @@ func TestCLIAuthStatusReportsCompletion(t *testing.T) {
 	cliauthRefresher := cliauth.NewAutoRefresher(nil, cliauthMgr)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
 		providerType: "openai",
-		loginFn: func(context.Context, cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
+		loginFn: func(context.Context, cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
 			time.Sleep(20 * time.Millisecond)
-			return &cliauth.Credential{
-				Credential: credentialmgr.Credential{
-					ID:           "cred-openai-2",
-					ProviderType: "openai",
-					ProviderID:   "openai-main",
-				},
+			return &credentialmgr.Credential{
+				ID:           "cred-openai-2",
+				ProviderType: "openai",
+				ProviderID:   "openai-main",
 			}, nil
 		},
 	})
@@ -246,19 +242,17 @@ func TestCLIAuthStatusIncludesInteractiveInstructions(t *testing.T) {
 	cliauthRefresher := cliauth.NewAutoRefresher(nil, cliauthMgr)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
 		providerType: "openai",
-		loginFn: func(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
+		loginFn: func(ctx context.Context, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
 			reporter.UpdateLoginStatus(cliauth.LoginStatusUpdate{
 				Phase:           "awaiting_browser_auth",
 				Message:         "Open the verification URL in a browser.",
 				VerificationURL: "https://example.com/login",
 			})
 			<-release
-			return &cliauth.Credential{
-				Credential: credentialmgr.Credential{
-					ID:           "cred-openai-3",
-					ProviderType: "openai",
-					ProviderID:   "openai-main",
-				},
+			return &credentialmgr.Credential{
+				ID:           "cred-openai-3",
+				ProviderType: "openai",
+				ProviderID:   "openai-main",
 			}, nil
 		},
 	})
@@ -413,18 +407,16 @@ func TestCLIAuthRejectsConcurrentLoginForSameAuthenticator(t *testing.T) {
 	cliauthRefresher := cliauth.NewAutoRefresher(nil, cliauthMgr)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
 		providerType: "openai",
-		loginFn: func(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
+		loginFn: func(ctx context.Context, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
 			reporter.UpdateLoginStatus(cliauth.LoginStatusUpdate{
 				Phase:           "awaiting_browser_auth",
 				Message:         "Open the verification URL in a browser.",
 				VerificationURL: "https://example.com/login",
 			})
 			<-release
-			return &cliauth.Credential{
-				Credential: credentialmgr.Credential{
-					ID:           "cred-openai-4",
-					ProviderType: "openai",
-				},
+			return &credentialmgr.Credential{
+				ID:           "cred-openai-4",
+				ProviderType: "openai",
 			}, nil
 		},
 	})

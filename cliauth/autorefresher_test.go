@@ -11,7 +11,7 @@ import (
 
 type testRefreshAuthenticator struct {
 	providerType string
-	refreshFn    func(context.Context, *Credential) (*Credential, error)
+	refreshFn    func(context.Context, *credentialmgr.Credential) (*credentialmgr.Credential, error)
 	config       AuthenticatorConfig
 }
 
@@ -32,11 +32,11 @@ func (a *testRefreshAuthenticator) SetConfig(cfg AuthenticatorConfig) error {
 	return nil
 }
 
-func (a *testRefreshAuthenticator) Login(context.Context, LoginStatusReporter) (*Credential, error) {
+func (a *testRefreshAuthenticator) Login(context.Context, LoginStatusReporter) (*credentialmgr.Credential, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (a *testRefreshAuthenticator) Refresh(ctx context.Context, cred *Credential) (*Credential, error) {
+func (a *testRefreshAuthenticator) Refresh(ctx context.Context, cred *credentialmgr.Credential) (*credentialmgr.Credential, error) {
 	if a.refreshFn == nil {
 		return cred, nil
 	}
@@ -129,7 +129,7 @@ func TestRegisterCredentialPersistsWithCreate(t *testing.T) {
 	credMgr := credentialmgr.NewManager(store, nil, nil)
 	refresher := NewAutoRefresher(WrapSharedCredentialManager(credMgr), nil)
 
-	if err := refresher.RegisterLoginCredential(context.Background(), &Credential{
+	if err := refresher.RegisterLoginCredential(context.Background(), &CLIAuthCredential{
 		Credential: credentialmgr.Credential{
 			ID:           "cred-1",
 			ProviderType: "openai",
@@ -152,7 +152,7 @@ func TestUpdateCredentialPersistsWithUpdate(t *testing.T) {
 	credMgr := credentialmgr.NewManager(store, nil, nil)
 	refresher := NewAutoRefresher(WrapSharedCredentialManager(credMgr), nil)
 
-	if err := refresher.updateCredential(context.Background(), &Credential{
+	if err := refresher.updateCredential(context.Background(), &CLIAuthCredential{
 		Credential: credentialmgr.Credential{
 			ID:           "cred-1",
 			ProviderType: "openai",
@@ -174,7 +174,7 @@ func TestCredentialManagerReturnsUpdatedCredentialSnapshot(t *testing.T) {
 	commonMgr := credentialmgr.NewManager(nil, nil, nil)
 	refresher := NewAutoRefresher(WrapSharedCredentialManager(commonMgr), nil)
 
-	if err := refresher.RegisterLoginCredential(context.Background(), &Credential{
+	if err := refresher.RegisterLoginCredential(context.Background(), &CLIAuthCredential{
 		Credential: credentialmgr.Credential{
 			ID:           "cred-1",
 			ProviderType: "openai",
@@ -187,7 +187,7 @@ func TestCredentialManagerReturnsUpdatedCredentialSnapshot(t *testing.T) {
 		t.Fatalf("RegisterLoginCredential returned error: %v", err)
 	}
 
-	if err := refresher.updateCredential(context.Background(), &Credential{
+	if err := refresher.updateCredential(context.Background(), &CLIAuthCredential{
 		Credential: credentialmgr.Credential{
 			ID:           "cred-1",
 			ProviderType: "openai",
@@ -241,20 +241,20 @@ func TestNextScheduleAtEncodesRefreshReadiness(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		cred          *Credential
+		cred          *CLIAuthCredential
 		wantNext      time.Time
 		wantScheduled bool
 		wantRefresh   bool
 	}{
 		{
 			name:          "disabled credential is not scheduled",
-			cred:          &Credential{Status: StatusDisabled},
+			cred:          &CLIAuthCredential{Status: StatusDisabled},
 			wantScheduled: false,
 			wantRefresh:   false,
 		},
 		{
 			name: "next refresh after in future delays refresh",
-			cred: &Credential{
+			cred: &CLIAuthCredential{
 				NextRefreshAfter: future,
 			},
 			wantNext:      future,
@@ -263,7 +263,7 @@ func TestNextScheduleAtEncodesRefreshReadiness(t *testing.T) {
 		},
 		{
 			name: "expiration inside lead time refreshes now",
-			cred: &Credential{
+			cred: &CLIAuthCredential{
 				Credential: credentialmgr.Credential{
 					Metadata: map[string]any{
 						"expires_at": now.Add(2 * time.Minute).Format(time.RFC3339),
@@ -276,7 +276,7 @@ func TestNextScheduleAtEncodesRefreshReadiness(t *testing.T) {
 		},
 		{
 			name: "expiration outside lead time waits until due",
-			cred: &Credential{
+			cred: &CLIAuthCredential{
 				Credential: credentialmgr.Credential{
 					Metadata: map[string]any{
 						"expires_at": future.Format(time.RFC3339),
@@ -308,7 +308,7 @@ func TestNextScheduleAtEncodesRefreshReadiness(t *testing.T) {
 
 func TestNextScheduleAtDisabledWhenLeadTimeNil(t *testing.T) {
 	now := time.Now().UTC()
-	cred := &Credential{
+	cred := &CLIAuthCredential{
 		Credential: credentialmgr.Credential{
 			Metadata: map[string]any{
 				"expires_at": now.Add(time.Hour).Format(time.RFC3339),
@@ -329,24 +329,24 @@ func TestAutoRefresherWorkerUsesConsistentCredentialSnapshot(t *testing.T) {
 	refresher := NewAutoRefresher(nil, NewManager())
 	now := time.Now().UTC()
 
-	usedCred := make(chan *Credential, 1)
+	usedCred := make(chan *credentialmgr.Credential, 1)
 	refresher.manager.RegisterAuthenticator("codex", &testRefreshAuthenticator{
 		providerType: "openai",
-		refreshFn: func(ctx context.Context, cred *Credential) (*Credential, error) {
+		refreshFn: func(ctx context.Context, cred *credentialmgr.Credential) (*credentialmgr.Credential, error) {
 			usedCred <- cred.Clone()
 			return cred.Clone(), nil
 		},
 	})
 	refresher.manager.RegisterAuthenticator("claude", &testRefreshAuthenticator{
 		providerType: "anthropic",
-		refreshFn: func(context.Context, *Credential) (*Credential, error) {
+		refreshFn: func(context.Context, *credentialmgr.Credential) (*credentialmgr.Credential, error) {
 			t.Fatal("worker resolved authenticator from a newer provider type instead of the credential snapshot")
 			return nil, nil
 		},
 	})
 
 	refresher.mu.Lock()
-	refresher.creds["cred-1"] = &Credential{
+	refresher.creds["cred-1"] = &CLIAuthCredential{
 		Credential: credentialmgr.Credential{
 			ID:           "cred-1",
 			ProviderType: "openai",
@@ -364,7 +364,7 @@ func TestAutoRefresherWorkerUsesConsistentCredentialSnapshot(t *testing.T) {
 	}
 
 	refresher.mu.Lock()
-	refresher.creds["cred-1"] = &Credential{
+	refresher.creds["cred-1"] = &CLIAuthCredential{
 		Credential: credentialmgr.Credential{
 			ID:           "cred-1",
 			ProviderType: "anthropic",

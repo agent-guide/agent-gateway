@@ -261,7 +261,7 @@ func (h *Handler) handleStartCLIAuthAuthenticatorLogin(w http.ResponseWriter, r 
 			h.logger.Error("cli login failed", zap.String("cliname", requestedName), zap.Error(err))
 			return
 		}
-		if regErr := h.cliauthRefresher.RegisterLoginCredential(ctx, cred); regErr != nil {
+		if regErr := h.cliauthRefresher.RegisterLoginCredential(ctx, cliauth.NewCLIAuthCredential(cred)); regErr != nil {
 			finished.Status = "failed"
 			finished.Error = regErr.Error()
 			h.finishCLIAuthSession(loginID, &finished)

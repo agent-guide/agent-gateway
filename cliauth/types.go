@@ -7,7 +7,7 @@ import (
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 )
 
-// Status represents the lifecycle state of a Credential entry.
+// Status represents the lifecycle state of a CLIAuthCredential entry.
 type Status string
 
 const (
@@ -25,8 +25,8 @@ const (
 	StatusDisabled Status = "disabled"
 )
 
-// Credential encapsulates the runtime state and metadata for a single upstream credential.
-type Credential struct {
+// CLIAuthCredential encapsulates the runtime state and metadata for a single upstream credential.
+type CLIAuthCredential struct {
 	credentialmgr.Credential
 	// Status is the lifecycle status managed by the Manager.
 	// Use StatusDisabled to mark a credential as intentionally disabled.
@@ -120,8 +120,8 @@ func applyNetworkConfigOverrides(dst *NetworkConfig, overrides NetworkConfig) {
 	}
 }
 
-// Clone shallow copies the Credential, duplicating maps to avoid accidental mutation.
-func (c *Credential) Clone() *Credential {
+// Clone shallow copies the CLIAuthCredential, duplicating maps to avoid accidental mutation.
+func (c *CLIAuthCredential) Clone() *CLIAuthCredential {
 	if c == nil {
 		return nil
 	}
@@ -131,6 +131,17 @@ func (c *Credential) Clone() *Credential {
 }
 
 // IsDisabled reports whether the credential has been intentionally disabled.
-func (c *Credential) IsDisabled() bool {
+func (c *CLIAuthCredential) IsDisabled() bool {
 	return c != nil && c.Status == StatusDisabled
+}
+
+// NewCLIAuthCredential wraps a shared credential with CLI-auth runtime state.
+func NewCLIAuthCredential(cred *credentialmgr.Credential) *CLIAuthCredential {
+	if cred == nil {
+		return nil
+	}
+	return &CLIAuthCredential{
+		Credential: *cred.Clone(),
+		Status:     StatusActive,
+	}
 }

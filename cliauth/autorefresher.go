@@ -23,7 +23,7 @@ type AutoRefresher struct {
 	credentialMgr CredentialManager
 
 	mu    sync.RWMutex
-	creds map[string]*Credential
+	creds map[string]*CLIAuthCredential
 
 	dispatcher *RefreshJobDispatcher
 	jobs       chan string
@@ -43,7 +43,7 @@ func NewAutoRefresher(credMgr CredentialManager, manager *Manager) *AutoRefreshe
 	r := &AutoRefresher{
 		manager:       manager,
 		credentialMgr: credMgr,
-		creds:         make(map[string]*Credential),
+		creds:         make(map[string]*CLIAuthCredential),
 		jobs:          make(chan string, jobBuffer),
 		concurrency:   concurrency,
 	}
@@ -73,7 +73,7 @@ func (r *AutoRefresher) Load(ctx context.Context) error {
 }
 
 // RegisterLoginCredential adds a new credential obtained from a CLI login flow.
-func (r *AutoRefresher) RegisterLoginCredential(ctx context.Context, cred *Credential) error {
+func (r *AutoRefresher) RegisterLoginCredential(ctx context.Context, cred *CLIAuthCredential) error {
 	if cred == nil {
 		return fmt.Errorf("cliauth: credential is nil")
 	}
@@ -107,7 +107,7 @@ func (r *AutoRefresher) RegisterLoginCredential(ctx context.Context, cred *Crede
 }
 
 // updateCredential merges new state into an existing credential and optionally persists.
-func (r *AutoRefresher) updateCredential(ctx context.Context, cred *Credential) error {
+func (r *AutoRefresher) updateCredential(ctx context.Context, cred *CLIAuthCredential) error {
 	if cred == nil {
 		return fmt.Errorf("cliauth: credential is nil")
 	}
@@ -214,7 +214,7 @@ func (r *AutoRefresher) nextScheduleAt(credID string, now time.Time) (time.Time,
 	return nextScheduleAt(cred, now, leadTime)
 }
 
-func (r *AutoRefresher) resolveRefreshTarget(credID string) (*Credential, Authenticator) {
+func (r *AutoRefresher) resolveRefreshTarget(credID string) (*CLIAuthCredential, Authenticator) {
 	if strings.TrimSpace(credID) == "" {
 		return nil, nil
 	}
@@ -231,13 +231,13 @@ func (r *AutoRefresher) resolveRefreshTarget(credID string) (*Credential, Authen
 	return cred, r.manager.resolveAuthenticator(cred.ProviderType)
 }
 
-func (r *AutoRefresher) refreshOne(ctx context.Context, cred *Credential, auth Authenticator, now time.Time) {
+func (r *AutoRefresher) refreshOne(ctx context.Context, cred *CLIAuthCredential, auth Authenticator, now time.Time) {
 	refreshing := cred.Clone()
 	refreshing.Status = StatusRefreshing
 	refreshing.UpdatedAt = now
 	_ = r.updateCredential(ctx, refreshing)
 
-	updated, err := auth.Refresh(ctx, cred)
+	updatedCommon, err := auth.Refresh(ctx, cred.Credential.Clone())
 	if err != nil {
 		failed := cred.Clone()
 		failed.Status = StatusError
@@ -246,7 +246,7 @@ func (r *AutoRefresher) refreshOne(ctx context.Context, cred *Credential, auth A
 		_ = r.updateCredential(ctx, failed)
 		return
 	}
-	if updated == nil {
+	if updatedCommon == nil {
 		// Authenticator returned nil: leave credential unchanged.
 		restored := cred.Clone()
 		restored.Status = StatusActive
@@ -254,6 +254,15 @@ func (r *AutoRefresher) refreshOne(ctx context.Context, cred *Credential, auth A
 		return
 	}
 
+	updated := fromCommonCred(updatedCommon)
+	if updated == nil {
+		restored := cred.Clone()
+		restored.Status = StatusActive
+		_ = r.updateCredential(ctx, restored)
+		return
+	}
+	updated.StatusMessage = ""
+	updated.NextRefreshAfter = time.Time{}
 	updated.LastRefreshedAt = time.Now().UTC()
 	if updated.Status == "" || updated.Status == StatusRefreshing {
 		updated.Status = StatusActive
@@ -265,7 +274,7 @@ func (r *AutoRefresher) refreshOne(ctx context.Context, cred *Credential, auth A
 // leadTime controls how early before token expiry to schedule a refresh;
 // pass nil to disable background pre-refresh scheduling for this credential.
 // Returns (zero, false) if the credential should not be tracked by the scheduler.
-func nextScheduleAt(cred *Credential, now time.Time, leadTime *time.Duration) (time.Time, bool) {
+func nextScheduleAt(cred *CLIAuthCredential, now time.Time, leadTime *time.Duration) (time.Time, bool) {
 	if cred == nil || cred.IsDisabled() {
 		return time.Time{}, false
 	}
@@ -293,7 +302,7 @@ func nextScheduleAt(cred *Credential, now time.Time, leadTime *time.Duration) (t
 	return time.Time{}, false
 }
 
-func toCommonCred(c *Credential, source string) *credentialmgr.Credential {
+func toCommonCred(c *CLIAuthCredential, source string) *credentialmgr.Credential {
 	if c == nil {
 		return nil
 	}
@@ -306,13 +315,10 @@ func toCommonCred(c *Credential, source string) *credentialmgr.Credential {
 	return sc
 }
 
-func fromCommonCred(c *credentialmgr.Credential) *Credential {
-	if c == nil {
+func fromCommonCred(c *credentialmgr.Credential) *CLIAuthCredential {
+	out := NewCLIAuthCredential(c)
+	if out == nil {
 		return nil
-	}
-	out := &Credential{
-		Credential: *c.Clone(),
-		Status:     StatusActive,
 	}
 	if c.Disabled {
 		out.Status = StatusDisabled

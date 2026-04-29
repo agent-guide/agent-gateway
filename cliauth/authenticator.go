@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 )
 
 // Authenticator handles the CLI login flow for a specific provider.
@@ -18,11 +20,11 @@ type Authenticator interface {
 	GetConfig() AuthenticatorConfig
 	// SetConfig applies runtime configuration to this authenticator instance.
 	SetConfig(cfg AuthenticatorConfig) error
-	// Login initiates the interactive CLI login flow and returns a new Credential on success.
-	Login(ctx context.Context, reporter LoginStatusReporter) (*Credential, error)
+	// Login initiates the interactive CLI login flow and returns a new credential on success.
+	Login(ctx context.Context, reporter LoginStatusReporter) (*credentialmgr.Credential, error)
 	// Refresh attempts to refresh the given credential before it expires.
-	// Returns nil to indicate no refresh is needed; returns an updated Credential on success.
-	Refresh(ctx context.Context, cred *Credential) (*Credential, error)
+	// Returns nil to indicate no refresh is needed; returns an updated credential on success.
+	Refresh(ctx context.Context, cred *credentialmgr.Credential) (*credentialmgr.Credential, error)
 	// RefreshLeadTime returns how far in advance of token expiry to attempt a refresh.
 	// Returning nil disables provider-level background pre-refresh scheduling.
 	RefreshLeadTime() *time.Duration

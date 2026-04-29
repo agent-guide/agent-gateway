@@ -176,9 +176,9 @@ func (a *CodexAuthenticator) SetConfig(cfg cliauth.AuthenticatorConfig) error {
 	return nil
 }
 
-// Login initiates the Codex CLI login flow and returns a new Credential on success.
+// Login initiates the Codex CLI login flow and returns a new credential on success.
 // It uses browser-based OAuth PKCE by default; set UseDeviceFlow for headless environments.
-func (a *CodexAuthenticator) Login(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
+func (a *CodexAuthenticator) Login(ctx context.Context, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -190,7 +190,7 @@ func (a *CodexAuthenticator) Login(ctx context.Context, reporter cliauth.LoginSt
 
 // Refresh refreshes the credential's access token before it expires.
 // Returns nil if no refresh token is present or the credential has no expiry metadata.
-func (a *CodexAuthenticator) Refresh(ctx context.Context, cred *cliauth.Credential) (*cliauth.Credential, error) {
+func (a *CodexAuthenticator) Refresh(ctx context.Context, cred *credentialmgr.Credential) (*credentialmgr.Credential, error) {
 	if cred == nil {
 		return nil, fmt.Errorf("codex: credential is nil")
 	}
@@ -215,7 +215,7 @@ func (a *CodexAuthenticator) Refresh(ctx context.Context, cred *cliauth.Credenti
 
 // ---- Browser-based OAuth PKCE flow ----
 
-func (a *CodexAuthenticator) loginWithBrowser(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
+func (a *CodexAuthenticator) loginWithBrowser(ctx context.Context, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
 	codeVerifier, codeChallenge, err := generatePKCECodes()
 	if err != nil {
 		return nil, fmt.Errorf("codex: PKCE generation failed: %w", err)
@@ -276,7 +276,7 @@ func (a *CodexAuthenticator) loginWithBrowser(ctx context.Context, reporter clia
 
 // ---- Device flow ----
 
-func (a *CodexAuthenticator) loginWithDeviceFlow(ctx context.Context, reporter cliauth.LoginStatusReporter) (*cliauth.Credential, error) {
+func (a *CodexAuthenticator) loginWithDeviceFlow(ctx context.Context, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
 	client := a.httpClient()
 
 	userCodeResp, err := requestDeviceUserCode(ctx, client)
@@ -437,15 +437,12 @@ func (a *CodexAuthenticator) refreshTokensWithRetry(ctx context.Context, refresh
 
 // ---- Credential builder ----
 
-func (a *CodexAuthenticator) buildCredential(tokenResp *codexTokenResponse) (*cliauth.Credential, error) {
-	cred := &cliauth.Credential{
-		Credential: credentialmgr.Credential{
-			ID:           uuid.New().String(),
-			ProviderType: a.ProviderType(),
-			Metadata:     make(map[string]any),
-			Attributes:   make(map[string]string),
-		},
-		Status: cliauth.StatusActive,
+func (a *CodexAuthenticator) buildCredential(tokenResp *codexTokenResponse) (*credentialmgr.Credential, error) {
+	cred := &credentialmgr.Credential{
+		ID:           uuid.New().String(),
+		ProviderType: a.ProviderType(),
+		Metadata:     make(map[string]any),
+		Attributes:   make(map[string]string),
 	}
 
 	a.applyTokenToMetadata(cred, tokenResp)
@@ -471,7 +468,7 @@ func (a *CodexAuthenticator) buildCredential(tokenResp *codexTokenResponse) (*cl
 }
 
 // applyTokenToMetadata writes token fields into cred.Metadata.
-func (a *CodexAuthenticator) applyTokenToMetadata(cred *cliauth.Credential, tokenResp *codexTokenResponse) {
+func (a *CodexAuthenticator) applyTokenToMetadata(cred *credentialmgr.Credential, tokenResp *codexTokenResponse) {
 	if cred.Metadata == nil {
 		cred.Metadata = make(map[string]any)
 	}
