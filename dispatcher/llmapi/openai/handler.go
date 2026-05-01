@@ -13,6 +13,7 @@ import (
 	dispatcher "github.com/agent-guide/caddy-agent-gateway/dispatcher"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httplog"
+	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/cloudwego/eino/schema"
@@ -345,7 +346,7 @@ func (h *Handler) writeProviderResponsesStream(w http.ResponseWriter, r *http.Re
 }
 
 func isResponsesUnsupported(err error) bool {
-	var se provider.StatusError
+	var se statuserr.StatusError
 	if !errors.As(err, &se) || se.StatusCode() != http.StatusNotImplemented {
 		return false
 	}

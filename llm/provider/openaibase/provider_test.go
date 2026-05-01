@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
 )
@@ -44,8 +45,47 @@ func TestBaseUsesEmbeddedProviderConfig(t *testing.T) {
 	}
 }
 
+func TestBaseEmbeddingUsesCredentialOverrideForAPIKeyAndBaseURL(t *testing.T) {
+	var authHeader string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/embeddings" {
+			t.Fatalf("request path = %q, want /embeddings", r.URL.Path)
+		}
+		authHeader = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"embedding":[0.1,0.2]}],"model":"text-embedding-3-large","usage":{"prompt_tokens":1,"completion_tokens":0}}`))
+	}))
+	defer server.Close()
+
+	base := NewBase(provider.ProviderConfig{
+		APIKey:       "static-key",
+		BaseURL:      "https://static.example/v1",
+		Network:      httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
+		AuthStrategy: provider.AuthStrategyManagedAPIKeyFirst,
+	})
+
+	ctx := provider.WithCredential(context.Background(), providerCredential{
+		apiKey:  "managed-key",
+		baseURL: server.URL,
+	}.toCredential())
+	resp, err := base.Embedding(ctx, &provider.EmbeddingRequest{
+		Model: "text-embedding-3-large",
+		Texts: []string{"hello"},
+	})
+	if err != nil {
+		t.Fatalf("Embedding() error = %v", err)
+	}
+	if resp == nil || resp.Model != "text-embedding-3-large" || len(resp.Embeddings) != 1 {
+		t.Fatalf("unexpected embedding response: %+v", resp)
+	}
+	if authHeader != "Bearer managed-key" {
+		t.Fatalf("authorization = %q, want Bearer managed-key", authHeader)
+	}
+}
+
 func TestBaseCreateResponseCallsResponsesEndpoint(t *testing.T) {
 	var body string
+	var authHeader string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/responses" {
 			t.Fatalf("request path = %q, want /responses", r.URL.Path)
@@ -53,6 +93,7 @@ func TestBaseCreateResponseCallsResponsesEndpoint(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("request method = %q, want POST", r.Method)
 		}
+		authHeader = r.Header.Get("Authorization")
 		raw, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatalf("read body: %v", err)
@@ -70,7 +111,11 @@ func TestBaseCreateResponseCallsResponsesEndpoint(t *testing.T) {
 		AuthStrategy: provider.AuthStrategyManagedAPIKeyFirst,
 	})
 
-	resp, err := base.DoCreateResponses(context.Background(), &provider.ResponsesRequest{
+	ctx := provider.WithCredential(context.Background(), providerCredential{
+		apiKey:  "managed-key",
+		baseURL: server.URL,
+	}.toCredential())
+	resp, err := base.DoCreateResponses(ctx, &provider.ResponsesRequest{
 		Model: "gpt-4.1",
 		Input: "hello",
 	})
@@ -83,13 +128,18 @@ func TestBaseCreateResponseCallsResponsesEndpoint(t *testing.T) {
 	if body == "" {
 		t.Fatal("expected request body to be sent")
 	}
+	if authHeader != "Bearer managed-key" {
+		t.Fatalf("authorization = %q, want Bearer managed-key", authHeader)
+	}
 }
 
 func TestBaseStreamResponseParsesSSEEvents(t *testing.T) {
+	var authHeader string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/responses" {
 			t.Fatalf("request path = %q, want /responses", r.URL.Path)
 		}
+		authHeader = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte("event: response.created\n"))
 		_, _ = w.Write([]byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":1,\"model\":\"gpt-4.1\",\"output\":[]}}\n\n"))
@@ -107,7 +157,11 @@ func TestBaseStreamResponseParsesSSEEvents(t *testing.T) {
 		AuthStrategy: provider.AuthStrategyManagedAPIKeyFirst,
 	})
 
-	stream, err := base.DoStreamResponses(context.Background(), &provider.ResponsesRequest{
+	ctx := provider.WithCredential(context.Background(), providerCredential{
+		apiKey:  "managed-key",
+		baseURL: server.URL,
+	}.toCredential())
+	stream, err := base.DoStreamResponses(ctx, &provider.ResponsesRequest{
 		Model:  "gpt-4.1",
 		Input:  "hello",
 		Stream: true,
@@ -137,5 +191,22 @@ func TestBaseStreamResponseParsesSSEEvents(t *testing.T) {
 	}
 	if third.Type != "response.completed" || third.Response == nil || third.Response.ID != "resp_1" {
 		t.Fatalf("unexpected third event: %+v", third)
+	}
+	if authHeader != "Bearer managed-key" {
+		t.Fatalf("authorization = %q, want Bearer managed-key", authHeader)
+	}
+}
+
+type providerCredential struct {
+	apiKey  string
+	baseURL string
+}
+
+func (c providerCredential) toCredential() *credentialmgr.Credential {
+	return &credentialmgr.Credential{
+		Attributes: map[string]string{
+			"api_key":  c.apiKey,
+			"base_url": c.baseURL,
+		},
 	}
 }

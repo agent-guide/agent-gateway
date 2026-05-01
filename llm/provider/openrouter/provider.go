@@ -11,6 +11,7 @@ import (
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
+	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider/openaibase"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
@@ -66,14 +67,14 @@ func (p *Provider) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 
 func (p *Provider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
 	p.ensureBase()
-	return provider.RetryGenerate(p.ProviderConfig.Network, func() (*provider.ChatResponse, error) {
+	return provider.RetryProviderCall(p.ProviderConfig.Network, func() (*provider.ChatResponse, error) {
 		chatModel, messages, opts, err := p.newChatModel(ctx, req)
 		if err != nil {
 			return nil, err
 		}
 		msg, err := chatModel.Generate(ctx, messages, opts...)
 		if err != nil {
-			return nil, provider.WrapEinoError(err)
+			return nil, statuserr.Wrap(err, 502)
 		}
 		return provider.ChatResponseFromEinoMessage(msg), nil
 	})
@@ -87,7 +88,7 @@ func (p *Provider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*
 	}
 	stream, err := chatModel.Stream(ctx, messages, opts...)
 	if err != nil {
-		return nil, provider.WrapEinoError(err)
+		return nil, statuserr.Wrap(err, 502)
 	}
 	return stream, nil
 }

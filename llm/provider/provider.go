@@ -38,17 +38,6 @@ const (
 	LLMApiRequestTypeResponses LLMApiRequestType = "responses"
 )
 
-// Status and error types.
-
-// StatusError is implemented by errors that carry an HTTP status code.
-// Provider implementations should return StatusError so that the handler layer
-// can make informed retry and degradation decisions (e.g. 401→disable key,
-// 429→backoff, 503→try next provider).
-type StatusError interface {
-	error
-	StatusCode() int
-}
-
 // Configuration and capability types.
 
 // AuthStrategy controls the preferred order between managed API keys and

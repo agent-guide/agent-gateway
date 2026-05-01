@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 )
 
@@ -26,20 +27,6 @@ func CredentialFromContext(ctx context.Context) (*credentialmgr.Credential, bool
 	return cred, ok && cred != nil
 }
 
-// httpStatusError is a simple StatusError implementation for use by providers.
-type httpStatusError struct {
-	code    int
-	message string
-}
-
-// NewStatusError creates a StatusError with the given HTTP status code.
-func NewStatusError(code int, message string) StatusError {
-	return &httpStatusError{code: code, message: message}
-}
-
-func (e *httpStatusError) Error() string   { return e.message }
-func (e *httpStatusError) StatusCode() int { return e.code }
-
 // CheckResponse returns a StatusError if the HTTP response status is not 2xx.
 // It reads up to 4 KB of the body to include in the error message.
 func CheckResponse(resp *http.Response) error {
@@ -47,29 +34,14 @@ func CheckResponse(resp *http.Response) error {
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	return NewStatusError(resp.StatusCode,
+	return statuserr.New(resp.StatusCode,
 		fmt.Sprintf("upstream %d: %s", resp.StatusCode, string(body)))
 }
 
-// WrapEinoError wraps an error from an eino provider call as a StatusError.
-// If the error already implements StatusError it is returned unchanged.
-// Otherwise it is wrapped with a 502 Bad Gateway so the handler layer can
-// make retry/degradation decisions based on a status code.
-func WrapEinoError(err error) error {
-	if err == nil {
-		return nil
-	}
-	var se StatusError
-	if errors.As(err, &se) {
-		return err
-	}
-	return NewStatusError(http.StatusBadGateway, err.Error())
-}
-
-// RetryGenerate retries fn up to NetworkConfig.MaxRetries times on retryable
+// RetryProviderCall retries fn up to NetworkConfig.MaxRetries times on retryable
 // errors (429, 5xx). Non-retryable 4xx errors are returned immediately.
-// Do NOT use this for streaming — retry semantics are undefined once a stream starts.
-func RetryGenerate[T any](config NetworkConfig, fn func() (T, error)) (T, error) {
+// Do NOT use this for streaming; retry semantics are undefined once a stream starts.
+func RetryProviderCall[T any](config NetworkConfig, fn func() (T, error)) (T, error) {
 	maxRetries := config.MaxRetries
 	if maxRetries <= 0 {
 		maxRetries = 3
@@ -85,7 +57,7 @@ func RetryGenerate[T any](config NetworkConfig, fn func() (T, error)) (T, error)
 		if err == nil {
 			return result, nil
 		}
-		last = WrapEinoError(err)
+		last = statuserr.Wrap(err, http.StatusBadGateway)
 		if !isRetryable(last) {
 			return zero, last
 		}
@@ -97,7 +69,7 @@ func RetryGenerate[T any](config NetworkConfig, fn func() (T, error)) (T, error)
 }
 
 func isRetryable(err error) bool {
-	var se StatusError
+	var se statuserr.StatusError
 	if errors.As(err, &se) {
 		code := se.StatusCode()
 		return code == http.StatusTooManyRequests || (code >= 500 && code < 600)

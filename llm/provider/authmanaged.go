@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/cloudwego/eino/schema"
 )
@@ -43,6 +44,17 @@ func (p *authManagedProvider) StreamChat(ctx context.Context, req *ChatRequest) 
 	return stream, err
 }
 
+func (p *authManagedProvider) Embedding(ctx context.Context, req *EmbeddingRequest) (*EmbeddingResponse, error) {
+	base, ok := p.base.(EmbeddingProvider)
+	if !ok {
+		return nil, statuserr.New(http.StatusNotImplemented, "embeddings api is not supported by this provider")
+	}
+	ctx, cred := p.pickCredential(ctx, req.Model)
+	resp, err := base.Embedding(ctx, req)
+	p.markResult(ctx, cred, req.Model, err)
+	return resp, err
+}
+
 func (p *authManagedProvider) ListModels(ctx context.Context) ([]ModelInfo, error) {
 	return p.base.ListModels(ctx)
 }
@@ -58,7 +70,7 @@ func (p *authManagedProvider) Config() ProviderConfig {
 func (p *authManagedProvider) CreateResponses(ctx context.Context, req *ResponsesRequest) (*ResponsesResponse, error) {
 	base, ok := p.base.(ResponsesProvider)
 	if !ok {
-		return nil, NewStatusError(http.StatusNotImplemented, "responses api is not supported by this provider")
+		return nil, statuserr.New(http.StatusNotImplemented, "responses api is not supported by this provider")
 	}
 	ctx, cred := p.pickCredential(ctx, req.Model)
 	resp, err := base.CreateResponses(ctx, req)
@@ -69,7 +81,7 @@ func (p *authManagedProvider) CreateResponses(ctx context.Context, req *Response
 func (p *authManagedProvider) StreamResponses(ctx context.Context, req *ResponsesRequest) (*schema.StreamReader[*ResponsesStreamEvent], error) {
 	base, ok := p.base.(ResponsesProvider)
 	if !ok {
-		return nil, NewStatusError(http.StatusNotImplemented, "responses api is not supported by this provider")
+		return nil, statuserr.New(http.StatusNotImplemented, "responses api is not supported by this provider")
 	}
 	ctx, cred := p.pickCredential(ctx, req.Model)
 	stream, err := base.StreamResponses(ctx, req)
@@ -125,7 +137,7 @@ func (p *authManagedProvider) markResult(ctx context.Context, cred *credentialmg
 		Success:      err == nil,
 	}
 	if err != nil {
-		var se StatusError
+		var se statuserr.StatusError
 		httpStatus := http.StatusBadGateway
 		if errors.As(err, &se) {
 			httpStatus = se.StatusCode()

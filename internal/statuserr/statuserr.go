@@ -10,6 +10,12 @@ type StatusCoder interface {
 	StatusCode() int
 }
 
+// StatusError is implemented by errors that carry an HTTP status code.
+type StatusError interface {
+	error
+	StatusCoder
+}
+
 // StatusCode returns the HTTP status carried by err, or fallback when none is available.
 func StatusCode(err error, fallback int) int {
 	var sc StatusCoder
@@ -25,16 +31,29 @@ func StatusCode(err error, fallback int) int {
 	return http.StatusBadGateway
 }
 
-// Error describes a failure with an HTTP status code.
-type Error struct {
+// HTTPStatusError describes a failure with an HTTP status code.
+type HTTPStatusError struct {
 	status int
 	msg    string
 }
 
-func (e *Error) Error() string   { return e.msg }
-func (e *Error) StatusCode() int { return e.status }
+func (e *HTTPStatusError) Error() string   { return e.msg }
+func (e *HTTPStatusError) StatusCode() int { return e.status }
 
 // New constructs an error with the given HTTP status and message.
-func New(status int, msg string) error {
-	return &Error{status: status, msg: msg}
+func New(status int, msg string) *HTTPStatusError {
+	return &HTTPStatusError{status: status, msg: msg}
+}
+
+// Wrap returns err unchanged if it already carries an HTTP status code.
+// Otherwise it wraps err with fallback so callers can handle it uniformly.
+func Wrap(err error, fallback int) error {
+	if err == nil {
+		return nil
+	}
+	var se StatusError
+	if errors.As(err, &se) {
+		return err
+	}
+	return New(fallback, err.Error())
 }

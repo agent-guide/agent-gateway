@@ -10,13 +10,18 @@ import (
 )
 
 type testConfigurableProvider struct {
-	cfg                ProviderConfig
-	errs               []error
-	calls              int
-	lastAPIKey         string
-	lastCred           *credentialmgr.Credential
-	lastResponseAPIKey string
-	lastResponseCred   *credentialmgr.Credential
+	cfg                  ProviderConfig
+	errs                 []error
+	calls                int
+	lastAPIKey           string
+	lastBaseURL          string
+	lastCred             *credentialmgr.Credential
+	lastEmbeddingAPIKey  string
+	lastEmbeddingBaseURL string
+	lastEmbeddingCred    *credentialmgr.Credential
+	lastResponseAPIKey   string
+	lastResponseBaseURL  string
+	lastResponseCred     *credentialmgr.Credential
 }
 
 func newTestCredentialManager() *credentialmgr.Manager {
@@ -28,9 +33,10 @@ func newProviderIDScopedCredentialManager() *credentialmgr.Manager {
 }
 
 func (p *testConfigurableProvider) Chat(ctx context.Context, _ *ChatRequest) (*ChatResponse, error) {
-	apiKey, _ := ResolveCredential(ctx, p.cfg)
+	apiKey, baseURL := ResolveCredential(ctx, p.cfg)
 	cred, _ := CredentialFromContext(ctx)
 	p.lastAPIKey = apiKey
+	p.lastBaseURL = baseURL
 	p.lastCred = cred
 	if p.calls < len(p.errs) {
 		err := p.errs[p.calls]
@@ -45,10 +51,20 @@ func (p *testConfigurableProvider) StreamChat(context.Context, *ChatRequest) (*s
 	return nil, nil
 }
 
+func (p *testConfigurableProvider) Embedding(ctx context.Context, _ *EmbeddingRequest) (*EmbeddingResponse, error) {
+	apiKey, baseURL := ResolveCredential(ctx, p.cfg)
+	cred, _ := CredentialFromContext(ctx)
+	p.lastEmbeddingAPIKey = apiKey
+	p.lastEmbeddingBaseURL = baseURL
+	p.lastEmbeddingCred = cred
+	return &EmbeddingResponse{}, nil
+}
+
 func (p *testConfigurableProvider) CreateResponses(ctx context.Context, _ *ResponsesRequest) (*ResponsesResponse, error) {
-	apiKey, _ := ResolveCredential(ctx, p.cfg)
+	apiKey, baseURL := ResolveCredential(ctx, p.cfg)
 	cred, _ := CredentialFromContext(ctx)
 	p.lastResponseAPIKey = apiKey
+	p.lastResponseBaseURL = baseURL
 	p.lastResponseCred = cred
 	return &ResponsesResponse{}, nil
 }
@@ -351,6 +367,49 @@ func TestWrapWithCredentialManagerForwardsResponsesProvider(t *testing.T) {
 	}
 	if base.lastResponseAPIKey != "managed-api-key" {
 		t.Fatalf("unexpected response api key: got %q want managed-api-key", base.lastResponseAPIKey)
+	}
+}
+
+func TestWrapWithCredentialManagerForwardsEmbeddingProvider(t *testing.T) {
+	credMgr := newTestCredentialManager()
+	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
+		ID:           "api-key-1",
+		ProviderType: "openai",
+		ProviderID:   "openai",
+		Source:       credentialmgr.SourceAPIKey,
+		Attributes: map[string]string{
+			"api_key":  "managed-api-key",
+			"base_url": "https://managed.example",
+		},
+	}); err != nil {
+		t.Fatalf("register managed api key: %v", err)
+	}
+
+	base := &testConfigurableProvider{
+		cfg: ProviderConfig{
+			Id:           "openai",
+			ProviderType: "openai",
+			APIKey:       "static-key",
+			BaseURL:      "https://static.example",
+			AuthStrategy: AuthStrategyManagedAPIKeyFirst,
+		},
+	}
+	wrapped := WrapWithCredentialManager(base, credMgr)
+	embeddingProv, ok := wrapped.(EmbeddingProvider)
+	if !ok {
+		t.Fatal("expected wrapped provider to implement EmbeddingProvider")
+	}
+	if _, err := embeddingProv.Embedding(context.Background(), &EmbeddingRequest{Model: "text-embedding-3-large"}); err != nil {
+		t.Fatalf("embedding: %v", err)
+	}
+	if base.lastEmbeddingCred == nil || base.lastEmbeddingCred.ID != "api-key-1" {
+		t.Fatalf("unexpected embedding credential: %+v", base.lastEmbeddingCred)
+	}
+	if base.lastEmbeddingAPIKey != "managed-api-key" {
+		t.Fatalf("unexpected embedding api key: got %q want managed-api-key", base.lastEmbeddingAPIKey)
+	}
+	if base.lastEmbeddingBaseURL != "https://managed.example" {
+		t.Fatalf("unexpected embedding base url: got %q want https://managed.example", base.lastEmbeddingBaseURL)
 	}
 }
 

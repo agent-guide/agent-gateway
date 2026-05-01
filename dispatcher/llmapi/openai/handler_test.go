@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	dispatcher "github.com/agent-guide/caddy-agent-gateway/dispatcher"
+	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/cloudwego/eino/schema"
@@ -165,7 +166,7 @@ func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 
 func TestServeLLMApiMapsClientCanceledStreamTo499(t *testing.T) {
 	prov := &testProvider{
-		streamErr: provider.NewStatusError(http.StatusBadGateway, "Post \"https://api.openai.com/v1/chat/completions\": context canceled"),
+		streamErr: statuserr.New(http.StatusBadGateway, "Post \"https://api.openai.com/v1/chat/completions\": context canceled"),
 	}
 	handler := newHandler()
 

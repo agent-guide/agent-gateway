@@ -38,12 +38,14 @@ func NewBase(config provider.ProviderConfig) *Base {
 
 // ListModels fetches the model list from GET /v1/models.
 func (b *Base) ListModels(ctx context.Context) ([]provider.ModelInfo, error) {
+	apiKey, baseURL := provider.ResolveCredential(ctx, b.ProviderConfig)
+	baseURL = strings.TrimRight(baseURL, "/")
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		b.BaseURL+"/models", nil)
+		baseURL+"/models", nil)
 	if err != nil {
 		return nil, fmt.Errorf("openaibase: build request: %w", err)
 	}
-	b.setHeaders(httpReq)
+	b.setHeaders(httpReq, apiKey)
 
 	resp, err := b.client.Do(httpReq)
 	if err != nil {
@@ -69,6 +71,8 @@ func (b *Base) ListModels(ctx context.Context) ([]provider.ModelInfo, error) {
 
 // Embed generates vector embeddings via POST /v1/embeddings.
 func (b *Base) Embedding(ctx context.Context, req *provider.EmbeddingRequest) (*provider.EmbeddingResponse, error) {
+	apiKey, baseURL := provider.ResolveCredential(ctx, b.ProviderConfig)
+	baseURL = strings.TrimRight(baseURL, "/")
 	model := req.Model
 	if model == "" {
 		model = b.DefaultModel
@@ -81,11 +85,11 @@ func (b *Base) Embedding(ctx context.Context, req *provider.EmbeddingRequest) (*
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		b.BaseURL+"/embeddings", bytes.NewReader(body))
+		baseURL+"/embeddings", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("openaibase: build embed request: %w", err)
 	}
-	b.setHeaders(httpReq)
+	b.setHeaders(httpReq, apiKey)
 
 	resp, err := b.client.Do(httpReq)
 	if err != nil {
@@ -118,7 +122,7 @@ func (b *Base) Embedding(ctx context.Context, req *provider.EmbeddingRequest) (*
 // DoCreateResponses sends a minimal OpenAI-compatible request to POST /responses.
 // Providers should expose this only when the upstream actually supports it.
 func (b *Base) DoCreateResponses(ctx context.Context, req *provider.ResponsesRequest) (*provider.ResponsesResponse, error) {
-	return provider.RetryGenerate(b.ProviderConfig.Network, func() (*provider.ResponsesResponse, error) {
+	return provider.RetryProviderCall(b.ProviderConfig.Network, func() (*provider.ResponsesResponse, error) {
 		httpReq, err := b.newResponsesRequest(ctx, req)
 		if err != nil {
 			return nil, err
@@ -166,16 +170,18 @@ func (b *Base) DoStreamResponses(ctx context.Context, req *provider.ResponsesReq
 }
 
 func (b *Base) newResponsesRequest(ctx context.Context, req *provider.ResponsesRequest) (*http.Request, error) {
+	apiKey, baseURL := provider.ResolveCredential(ctx, b.ProviderConfig)
+	baseURL = strings.TrimRight(baseURL, "/")
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("openaibase: marshal responses request: %w", err)
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		b.BaseURL+"/responses", bytes.NewReader(body))
+		baseURL+"/responses", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("openaibase: build responses request: %w", err)
 	}
-	b.setHeaders(httpReq)
+	b.setHeaders(httpReq, apiKey)
 	return httpReq, nil
 }
 
@@ -251,7 +257,7 @@ func decodeResponsesStreamEvent(eventName string, payload string) (*provider.Res
 	return out, nil
 }
 
-func (b *Base) setHeaders(req *http.Request) {
+func (b *Base) setHeaders(req *http.Request, apiKey string) {
 	req.Header.Set("Content-Type", "application/json")
 
 	// Per-request credential override: use OAuth access_token from CLI login.
@@ -265,8 +271,8 @@ func (b *Base) setHeaders(req *http.Request) {
 		}
 	}
 
-	if b.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+b.APIKey)
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 	for k, v := range b.Network.ExtraHeaders {
 		req.Header.Set(k, v)
