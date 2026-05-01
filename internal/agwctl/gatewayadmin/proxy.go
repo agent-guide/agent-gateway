@@ -24,7 +24,7 @@ type Proxy struct {
 
 func NewProxy(gatewayAddr, adminUser, adminPass string) *Proxy {
 	if gatewayAddr == "" {
-		gatewayAddr = "http://localhost:8080"
+		gatewayAddr = "http://localhost:8019"
 	}
 	return &Proxy{
 		gatewayAddr: strings.TrimRight(gatewayAddr, "/"),

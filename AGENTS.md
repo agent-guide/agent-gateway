@@ -274,7 +274,7 @@ Minimal example:
     }
 }
 
-http://127.0.0.1:8082 {
+http://127.0.0.1:8080 {
     agent_route_dispatcher {
         llm_api openai
         llm_api anthropic

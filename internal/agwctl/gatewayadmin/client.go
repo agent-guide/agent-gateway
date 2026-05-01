@@ -19,7 +19,7 @@ type Client struct {
 
 func NewClient(baseURL, username, password string) *Client {
 	if baseURL == "" {
-		baseURL = "http://localhost:8080"
+		baseURL = "http://localhost:8019"
 	}
 	return &Client{
 		baseURL:  strings.TrimRight(baseURL, "/"),
@@ -85,8 +85,11 @@ func (c *Client) login() (string, error) {
 	var result struct {
 		Token string `json:"token"`
 	}
-	if err := json.Unmarshal(raw, &result); err != nil || result.Token == "" {
-		return "", fmt.Errorf("parse token from response")
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return "", fmt.Errorf("parse token from response: %w; body=%q", err, strings.TrimSpace(string(raw)))
+	}
+	if result.Token == "" {
+		return "", fmt.Errorf("parse token from response: missing token; body=%q", strings.TrimSpace(string(raw)))
 	}
 	return result.Token, nil
 }

@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	baseURL = "http://localhost:8082"
+	baseURL = "http://localhost:8080"
 	apiKey  = "test-key" // Not validated in development mode
 )
 

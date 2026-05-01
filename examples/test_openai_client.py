@@ -23,7 +23,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--base-url",
-        default=os.getenv("AGENT_GATEWAY_BASE_URL", "http://127.0.0.1:8082/v1"),
+        default=os.getenv("AGENT_GATEWAY_BASE_URL", "http://127.0.0.1:8080/v1"),
         help="Gateway OpenAI-compatible base URL.",
     )
     parser.add_argument(

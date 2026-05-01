@@ -16,6 +16,6 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&globalCaddyAdmin, "caddy-admin", envOr("CADDY_ADMIN_ADDR", "http://localhost:2019"), "Caddy admin API address")
-	rootCmd.PersistentFlags().StringVar(&globalGatewayAddr, "gateway-addr", envOr("GATEWAY_ADDR", "http://localhost:8080"), "caddy-agent-gateway admin API address")
+	rootCmd.PersistentFlags().StringVar(&globalGatewayAddr, "gateway-addr", envOr("GATEWAY_ADDR", "http://localhost:8019"), "caddy-agent-gateway admin API address")
 	initOutputFlag()
 }
