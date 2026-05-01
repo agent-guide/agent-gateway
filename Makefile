@@ -2,8 +2,9 @@
 
 .PHONY: all build build-xcaddy clean deps fmt
 
-# Binary name
-BINARY_NAME=caddy-agent-gateway
+# Binary names
+BINARY_NAME=agw
+CLI_BINARY_NAME=agwctl
 
 # Go parameters
 GOCMD=go
@@ -20,7 +21,7 @@ all: clean deps build
 build:
 	@echo "Building $(BINARY_NAME)..."
 	$(GOBUILD) -o $(BINARY_NAME) ./cmd/main.go
-	$(GOBUILD) -o cliauthhelper ./cmd/cliauthhelper
+	$(GOBUILD) -o $(CLI_BINARY_NAME) ./cmd/agwctl
 
 build-xcaddy:
 	@echo "Buiding with xcaddy..."
@@ -31,6 +32,7 @@ clean:
 	@echo "Cleaning..."
 	$(GOCLEAN)
 	rm -f $(BINARY_NAME)
+	rm -f $(CLI_BINARY_NAME)
 	rm -rf buildenv_*
 
 # Download dependencies

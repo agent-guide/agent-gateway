@@ -1,4 +1,4 @@
-package main
+package cliauthstore
 
 import (
 	"context"
@@ -21,21 +21,20 @@ type credentialFile struct {
 	Credentials []*credentialmgr.Credential `json:"credentials"`
 }
 
-// CredentialManager stores credentials in a local JSON file.
-type CredentialManager struct {
+type Manager struct {
 	path string
 
 	mu    sync.RWMutex
 	creds map[string]*credentialmgr.Credential
 }
 
-func NewCredentialManager(path string) (*CredentialManager, error) {
+func New(path string) (*Manager, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return nil, fmt.Errorf("credential manager: path is empty")
 	}
 
-	mgr := &CredentialManager{
+	mgr := &Manager{
 		path:  path,
 		creds: make(map[string]*credentialmgr.Credential),
 	}
@@ -45,7 +44,7 @@ func NewCredentialManager(path string) (*CredentialManager, error) {
 	return mgr, nil
 }
 
-func (m *CredentialManager) GetCredential(id string) *credentialmgr.Credential {
+func (m *Manager) GetCredential(id string) *credentialmgr.Credential {
 	if m == nil {
 		return nil
 	}
@@ -58,7 +57,7 @@ func (m *CredentialManager) GetCredential(id string) *credentialmgr.Credential {
 	return nil
 }
 
-func (m *CredentialManager) ListCredentials(filter credentialmgr.Filter) []*credentialmgr.Credential {
+func (m *Manager) ListCredentials(filter credentialmgr.Filter) []*credentialmgr.Credential {
 	if m == nil {
 		return nil
 	}
@@ -85,7 +84,7 @@ func (m *CredentialManager) ListCredentials(filter credentialmgr.Filter) []*cred
 	return out
 }
 
-func (m *CredentialManager) RegisterCredential(_ context.Context, cred *credentialmgr.Credential) error {
+func (m *Manager) RegisterCredential(_ context.Context, cred *credentialmgr.Credential) error {
 	if m == nil {
 		return fmt.Errorf("credential manager: manager is nil")
 	}
@@ -116,7 +115,7 @@ func (m *CredentialManager) RegisterCredential(_ context.Context, cred *credenti
 	return m.persistLocked()
 }
 
-func (m *CredentialManager) UpdateCredential(_ context.Context, cred *credentialmgr.Credential) error {
+func (m *Manager) UpdateCredential(_ context.Context, cred *credentialmgr.Credential) error {
 	if m == nil {
 		return fmt.Errorf("credential manager: manager is nil")
 	}
@@ -152,7 +151,7 @@ func (m *CredentialManager) UpdateCredential(_ context.Context, cred *credential
 	return m.persistLocked()
 }
 
-func (m *CredentialManager) DeregisterCredential(_ context.Context, id string) error {
+func (m *Manager) DeregisterCredential(_ context.Context, id string) error {
 	if m == nil {
 		return nil
 	}
@@ -170,7 +169,7 @@ func (m *CredentialManager) DeregisterCredential(_ context.Context, id string) e
 	return m.persistLocked()
 }
 
-func (m *CredentialManager) load() error {
+func (m *Manager) load() error {
 	data, err := os.ReadFile(m.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -227,7 +226,7 @@ func decodeCredentialsFile(data []byte) ([]*credentialmgr.Credential, error) {
 	return nil, fmt.Errorf("unsupported credential file format")
 }
 
-func (m *CredentialManager) persistLocked() error {
+func (m *Manager) persistLocked() error {
 	dir := filepath.Dir(m.path)
 	if dir == "" {
 		dir = "."
@@ -284,6 +283,44 @@ func (m *CredentialManager) persistLocked() error {
 	}
 
 	return nil
+}
+
+func DefaultStorePath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	return filepath.Join(home, ".cliauthhelper", "credentials.json"), nil
+}
+
+func NewFromPath(storePath string) (*Manager, error) {
+	expanded, err := ExpandPath(storePath)
+	if err != nil {
+		return nil, err
+	}
+	return New(expanded)
+}
+
+func ExpandPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", fmt.Errorf("path is empty")
+	}
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve home dir: %w", err)
+		}
+		if path == "~" {
+			return home, nil
+		}
+		path = filepath.Join(home, path[2:])
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve absolute path for %s: %w", path, err)
+	}
+	return abs, nil
 }
 
 func normalizeFilter(filter credentialmgr.Filter) credentialmgr.Filter {

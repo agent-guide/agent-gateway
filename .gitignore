@@ -32,10 +32,18 @@ go.work.sum
 .env
 .env.local
 
+# config file
+Caddyfile*
+
 # Build output
 caddy-agent-gateway
 caddy
+agw
+agwctl
 dist/
+
+# Data
+data/
 
 # Logs
 *.log

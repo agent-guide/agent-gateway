@@ -49,7 +49,7 @@ The request path today is centered on LLM routing. MCP, memory, metrics, and age
 ## Build
 
 ```bash
-go build -o caddy-agent-gateway ./cmd/main.go
+go build -o agw ./cmd/main.go
 ```
 
 or:
@@ -58,7 +58,50 @@ or:
 make build
 ```
 
-The binary includes Caddy standard modules, the gateway app, the admin handler, LLM API handlers, built-in providers, and CLI authenticators.
+The `agw` binary includes Caddy standard modules, the gateway app, the admin handler, LLM API handlers, built-in providers, and CLI authenticators. `make build` also builds the management CLI as `agwctl`.
+
+## Binary Names
+
+- `agw`: the main gateway runtime binary
+- `agwctl`: the management CLI for gateway admin, Caddy admin, and local CLI auth operations
+
+## Management CLI
+
+`agwctl` is the management CLI for the gateway Admin API, the Caddy admin API, and local CLI auth credentials.
+
+Show available commands:
+
+```bash
+./agwctl --help
+```
+
+List gateway routes through the gateway Admin API:
+
+```bash
+./agwctl --gateway-addr http://127.0.0.1:8081 \
+  gateway route list \
+  --user admin \
+  --password your-password
+```
+
+List Caddy HTTP servers through the Caddy admin API:
+
+```bash
+./agwctl --caddy-admin http://127.0.0.1:2019 caddy server list
+```
+
+List supported local CLI authenticators and saved credentials:
+
+```bash
+./agwctl cliauth authenticators
+./agwctl cliauth list
+```
+
+Start the optional agwctl management server:
+
+```bash
+./agwctl serve --addr :8090
+```
 
 ## Quick Start
 
@@ -106,7 +149,7 @@ http://127.0.0.1:8082 {
 Run the gateway:
 
 ```bash
-OPENAI_API_KEY=sk-... ./caddy-agent-gateway run --config ./Caddyfile
+OPENAI_API_KEY=sk-... ./agw run --config ./Caddyfile
 ```
 
 Call the OpenAI-compatible endpoint:
@@ -159,7 +202,7 @@ http://127.0.0.1:8081 {
 Generate the bcrypt hash with Caddy:
 
 ```bash
-./caddy-agent-gateway hash-password --plaintext 'your-password'
+./agw hash-password --plaintext 'your-password'
 ```
 
 Log in:
@@ -535,6 +578,6 @@ go test ./llm/provider/...
 ```
 
 ```bash
-./caddy-agent-gateway adapt --config ./Caddyfile
-./caddy-agent-gateway run --config ./Caddyfile
+./agw adapt --config ./Caddyfile
+./agw run --config ./Caddyfile
 ```

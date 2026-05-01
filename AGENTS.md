@@ -16,14 +16,17 @@ MCP, memory, agent, and metrics areas exist in the repo, but the main implemente
 ## Build & Run
 
 ```bash
-# Build the main binary and the helper CLI
+# Build the main gateway binary and the management CLI
 make build
 
-# Or build only the Caddy binary
-go build -o caddy-agent-gateway ./cmd/main.go
+# Or build only the gateway binary
+go build -o agw ./cmd/main.go
+
+# Or build only the management CLI
+go build -o agwctl ./cmd/agwctl
 
 # Run with a Caddyfile
-./caddy-agent-gateway run --config ./Caddyfile.example
+./agw run --config ./Caddyfile.example
 
 # Format
 go fmt ./...
@@ -38,7 +41,7 @@ go test ./path/to/package -run TestName -v
 
 Notes:
 
-- `make build` also builds `cliauthhelper` from `cmd/cliauthhelper`.
+- `make build` builds both `agw` from `cmd/main.go` and `agwctl` from `cmd/agwctl`.
 - The resulting binary is a standard Caddy binary with custom modules compiled in, so normal Caddy subcommands such as `run`, `reload`, `validate`, and `hash-password` work.
 
 ## Core Modules
