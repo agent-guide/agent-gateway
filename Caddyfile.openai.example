@@ -1,11 +1,11 @@
 # Caddy Agent Gateway
 # Caddy App module ID: "agent_gateway"
 # HTTP handler module IDs:
+# - "http.handlers.agent_gateway_admin" (Caddyfile directive: "agent_gateway_admin")
 # - "http.handlers.agent_route_dispatcher" (Caddyfile directive: "agent_route_dispatcher")
 # Dispatcher LLM API module IDs:
 # - "agent_route_dispatcher.llm_apis.openai"
 # - "agent_route_dispatcher.llm_apis.anthropic"
-# - "http.handlers.agent_gateway_admin" (Caddyfile directive: "agent_gateway_admin")
 
 {
 	admin localhost:2019
@@ -15,31 +15,30 @@
 			path ./data/configstore.db
 		}
 
-		provider zhipu-main {
-			provider_type zhipu
-			api_key {$ZHIPU_API_KEY}
-			base_url https://open.bigmodel.cn/api/paas/v4
-			default_model glm-4.7
-			option thinking_type disabled
+		provider deepseek-main {
+			provider_type deepseek
+			api_key {$DEEPSEEK_API_KEY}
+			base_url https://api.deepseek.com
+			default_model deepseek-chat
 		}
 
 		virtualkey test-key {
 			tag local-test
 			name "Local Python test key"
-			allowed_route anthropic-chat
+			allowed_route my-openai-chat
 		}
 
-		route anthropic-chat {
-			llm_api anthropic
-			path_prefix /myanthropicprefix
+		route my-openai-chat {
+			llm_api openai
+			path_prefix /
 			require_virtual_key
-			allowed_model glm-4.7
-			target provider zhipu-main
+			allowed_model deepseek-chat
+			target provider deepseek-main
 		}
 	}
 }
 
-http://localhost:8019 {
+http://127.0.0.1:8019 {
 	# Admin routes
 	route /admin/* {
 		agent_gateway_admin {
@@ -58,6 +57,5 @@ http://127.0.0.1:8080 {
 	# LLM API routes
 	agent_route_dispatcher {
 		llm_api openai
-		llm_api anthropic
 	}
 }

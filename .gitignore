@@ -33,13 +33,12 @@ go.work.sum
 .env.local
 
 # config file
-Caddyfile*
+Caddyfile1
 
 # Build output
 caddy-agent-gateway
 caddy
 agw
-agwctl
 dist/
 
 # Data

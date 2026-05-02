@@ -1,11 +1,11 @@
 # Caddy Agent Gateway
 # Caddy App module ID: "agent_gateway"
 # HTTP handler module IDs:
+# - "http.handlers.agent_gateway_admin" (Caddyfile directive: "agent_gateway_admin")
 # - "http.handlers.agent_route_dispatcher" (Caddyfile directive: "agent_route_dispatcher")
 # Dispatcher LLM API module IDs:
 # - "agent_route_dispatcher.llm_apis.openai"
 # - "agent_route_dispatcher.llm_apis.anthropic"
-# - "http.handlers.agent_gateway_admin" (Caddyfile directive: "agent_gateway_admin")
 
 {
 	admin localhost:2019
@@ -23,31 +23,15 @@
 			option thinking_type disabled
 		}
 
-		provider deepseek-main {
-			provider_type deepseek
-			api_key {$DEEPSEEK_API_KEY}
-			base_url https://api.deepseek.com
-			default_model deepseek-chat
-		}
-
 		virtualkey test-key {
 			tag local-test
 			name "Local Python test key"
-			allowed_route zhipu-openai-chat
-			allowed_route zhipu-anthropic-chat
+			allowed_route my-anthropic-chat
 		}
 
-		route zhipu-openai-chat {
-			llm_api openai
-			path_prefix /myopenaiprefix
-			require_virtual_key
-			allowed_model deepseek-chat
-			target provider deepseek-main
-		}
-
-		route zhipu-anthropic-chat {
+		route my-anthropic-chat {
 			llm_api anthropic
-			path_prefix /myanthropicprefix
+			path_prefix /
 			require_virtual_key
 			allowed_model glm-4.7
 			target provider zhipu-main
@@ -73,7 +57,6 @@ http://127.0.0.1:8080 {
 
 	# LLM API routes
 	agent_route_dispatcher {
-		llm_api openai
 		llm_api anthropic
 	}
 }
