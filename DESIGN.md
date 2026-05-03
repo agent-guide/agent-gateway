@@ -228,7 +228,6 @@ The parser currently supports:
 Static route parsing is intentionally small right now. Supported route subdirectives are:
 
 - `require_virtual_key`
-- `allowed_model`
 - `target provider <provider-id> [weight]`
 
 The Go route model is richer than the current Caddyfile grammar. That mismatch is intentional for now: the data model has been opened up earlier than the human-facing config syntax.
@@ -258,21 +257,24 @@ The primary routing configuration is `gateway/route.AgentRoute`.
 
 Important fields include:
 
-- `ID`, `Name`
-- `Targets`
-- `Policy`
+- `ID`
 - `Match`
+- `LLMAPI`
+- `TargetPolicy`
+- `Policy`
 - timestamps and disabled state
 
 The richer route model already supports ideas such as:
 
-- weighted and failover targets
+- logical-model and direct-provider routing
 - route-level auth
 - allowed model restrictions
 - timeout, retry, fallback, quota, and rate-limit policy
 - caller-specific policy overrides through `VirtualKey`
 
 Only part of this model is enforced today, but the shape of the runtime data model is already defined.
+
+Current runtime resolution treats `TargetPolicy.ProviderTarget.ProviderID` as the direct-provider switch. If that field is set, the route resolves in direct-provider mode; otherwise it resolves through `TargetPolicy.ModelTargets`.
 
 ### 6.2 Selection and Resolution
 

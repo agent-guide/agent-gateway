@@ -75,6 +75,26 @@ func (r *PreparedLLMApiRequest) IsValid() bool {
 	}
 }
 
+func (r *PreparedLLMApiRequest) SetModel(model string) {
+	if r == nil {
+		return
+	}
+	switch r.Type {
+	case provider.LLMApiRequestTypeEmbedding:
+		if r.EmbeddingRequest != nil {
+			r.EmbeddingRequest.Model = model
+		}
+	case provider.LLMApiRequestTypeResponses:
+		if r.ResponsesRequest != nil {
+			r.ResponsesRequest.Model = model
+		}
+	default:
+		if r.ChatRequest != nil {
+			r.ChatRequest.Model = model
+		}
+	}
+}
+
 type ErrorContext struct {
 	Protocol string
 	RouteID  string

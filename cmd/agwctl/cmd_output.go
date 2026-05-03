@@ -143,22 +143,22 @@ func printGatewayProvidersTable(items []map[string]any) {
 }
 
 // printGatewayRoutesTable renders a list of RouteView items.
-// Fields: id, llm_api, path_prefix (from match), disabled, targets, source.
+// Fields: id, llm_api, path_prefix (from match), disabled, target, source.
 func printGatewayRoutesTable(items []map[string]any) {
-	headers := []string{"ID", "LLM-API", "PATH-PREFIX", "DISABLED", "TARGETS", "SOURCE"}
+	headers := []string{"ID", "LLM-API", "PATH-PREFIX", "DISABLED", "TARGET", "SOURCE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
 		pathPrefix := "-"
 		if match, ok := item["match"].(map[string]any); ok {
 			pathPrefix = dash(strField(match, "path_prefix"))
 		}
-		targets := extractTargetIDs(item)
+		target := extractTargetID(item)
 		rows = append(rows, []string{
 			dash(strField(item, "id")),
 			dash(strField(item, "llm_api")),
 			pathPrefix,
 			boolStr(boolField(item, "disabled")),
-			joinOrDash(targets, ","),
+			dash(target),
 			dash(strField(item, "source")),
 		})
 	}
@@ -231,20 +231,14 @@ func strSliceField(m map[string]any, key string) []string {
 	return out
 }
 
-func extractTargetIDs(item map[string]any) []string {
-	raw, ok := item["targets"].([]any)
+func extractTargetID(item map[string]any) string {
+	targetPolicy, ok := item["target_policy"].(map[string]any)
 	if !ok {
-		return nil
+		return ""
 	}
-	var ids []string
-	for _, t := range raw {
-		tm, ok := t.(map[string]any)
-		if !ok {
-			continue
-		}
-		if id := strField(tm, "provider_id"); id != "" {
-			ids = append(ids, id)
-		}
+	raw, ok := targetPolicy["provider_target"].(map[string]any)
+	if !ok {
+		return ""
 	}
-	return ids
+	return strField(raw, "provider_id")
 }

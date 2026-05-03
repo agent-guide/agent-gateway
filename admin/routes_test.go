@@ -14,6 +14,7 @@ import (
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	dispatcherpkg "github.com/agent-guide/caddy-agent-gateway/dispatcher"
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
+	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
@@ -27,6 +28,7 @@ type testConfigStore struct {
 	providerStore   configstoreintf.ProviderConfigStorer
 	routeStore      configstoreintf.RouteStorer
 	virtualKeyStore configstoreintf.VirtualKeyStorer
+	modelStore      configstoreintf.ModelStorer
 }
 
 func newTestAgentGateway(configStore configstoreintf.ConfigStorer, cliauthMgr *cliauth.Manager, cliauthRefresher *cliauth.AutoRefresher, staticRoutes []routepkg.AgentRoute, staticVirtualKeys []virtualkeypkg.VirtualKey, staticProviders ...map[string]provider.Provider) *gateway.AgentGateway {
@@ -62,6 +64,50 @@ func (s *testConfigStore) GetVirtualKeyStore(context.Context, configstoreintf.Co
 
 func (s *testConfigStore) GetRouteStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.RouteStorer, error) {
 	return s.routeStore, nil
+}
+
+func (s *testConfigStore) GetModelStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.ModelStorer, error) {
+	return s.modelStore, nil
+}
+
+type testModelStore struct {
+	items map[string]*modelcatalog.ManagedModel
+}
+
+func (s *testModelStore) List(_ context.Context) ([]any, error) {
+	out := make([]any, 0, len(s.items))
+	for _, item := range s.items {
+		cloned := *item
+		out = append(out, &cloned)
+	}
+	return out, nil
+}
+
+func (s *testModelStore) Get(_ context.Context, providerID string, upstreamModel string) (any, bool, error) {
+	item, ok := s.items[providerID+"\x00"+upstreamModel]
+	if !ok {
+		return nil, false, nil
+	}
+	cloned := *item
+	return &cloned, true, nil
+}
+
+func (s *testModelStore) Upsert(_ context.Context, obj any) error {
+	item, ok := obj.(*modelcatalog.ManagedModel)
+	if !ok {
+		return errors.New("unexpected type")
+	}
+	if s.items == nil {
+		s.items = map[string]*modelcatalog.ManagedModel{}
+	}
+	cloned := *item
+	s.items[item.ProviderID+"\x00"+item.UpstreamModel] = &cloned
+	return nil
+}
+
+func (s *testModelStore) Delete(_ context.Context, providerID string, upstreamModel string) error {
+	delete(s.items, providerID+"\x00"+upstreamModel)
+	return nil
 }
 
 type testRouteStore struct {
@@ -194,7 +240,8 @@ func (s *testProviderConfigStore) Get(_ context.Context, id string) (string, any
 }
 
 type stubAdminProvider struct {
-	cfg provider.ProviderConfig
+	cfg    provider.ProviderConfig
+	models []provider.ModelInfo
 }
 
 func (p *stubAdminProvider) Chat(context.Context, *provider.ChatRequest) (*provider.ChatResponse, error) {
@@ -206,7 +253,7 @@ func (p *stubAdminProvider) StreamChat(context.Context, *provider.ChatRequest) (
 }
 
 func (p *stubAdminProvider) ListModels(context.Context) ([]provider.ModelInfo, error) {
-	return nil, nil
+	return append([]provider.ModelInfo(nil), p.models...), nil
 }
 
 func (p *stubAdminProvider) Capabilities() provider.ProviderCapabilities {
@@ -275,11 +322,9 @@ func TestRouteCRUD(t *testing.T) {
 	createBody, err := json.Marshal(routepkg.AgentRoute{
 		ID:     "chat-prod",
 		LLMAPI: "openai",
-		Targets: []routepkg.RouteTarget{{
-			ProviderID: "openai",
-			Mode:       routepkg.TargetModeWeighted,
-			Weight:     1,
-		}},
+		TargetPolicy: routepkg.RouteTargetPolicy{
+			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
+		},
 	})
 	if err != nil {
 		t.Fatalf("marshal route: %v", err)
@@ -308,8 +353,8 @@ func TestRouteCRUD(t *testing.T) {
 	if got.ID != "chat-prod" {
 		t.Fatalf("unexpected route id: got %q want %q", got.ID, "chat-prod")
 	}
-	if len(got.Targets) != 1 || got.Targets[0].ProviderID != "openai" {
-		t.Fatalf("unexpected targets: %#v", got.Targets)
+	if got.TargetPolicy.ProviderTarget.ProviderID != "openai" {
+		t.Fatalf("unexpected provider_target: %#v", got.TargetPolicy.ProviderTarget)
 	}
 	if got.Source != "store" || got.ReadOnly {
 		t.Fatalf("unexpected route metadata: %#v", got)
@@ -742,9 +787,9 @@ func TestRouteEnableDisable(t *testing.T) {
 		routeStore: &testRouteStore{items: map[string]*routepkg.AgentRoute{
 			"chat-prod": {
 				ID: "chat-prod",
-				Targets: []routepkg.RouteTarget{{
-					ProviderID: "openai",
-				}},
+				TargetPolicy: routepkg.RouteTargetPolicy{
+					ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
+				},
 			},
 		}},
 	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
@@ -1223,14 +1268,18 @@ func TestRouteGetPrefersStaticAgentRouteManager(t *testing.T) {
 	store := &testRouteStore{
 		items: map[string]*routepkg.AgentRoute{
 			"chat-prod": {
-				ID:      "chat-prod",
-				Targets: []routepkg.RouteTarget{{ProviderID: "openai"}},
+				ID: "chat-prod",
+				TargetPolicy: routepkg.RouteTargetPolicy{
+					ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
+				},
 			},
 		},
 	}
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []routepkg.AgentRoute{{
-		ID:      "chat-prod",
-		Targets: []routepkg.RouteTarget{{ProviderID: "anthropic"}},
+		ID: "chat-prod",
+		TargetPolicy: routepkg.RouteTargetPolicy{
+			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "anthropic"},
+		},
 	}}, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -1264,14 +1313,18 @@ func TestRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 	store := &testRouteStore{
 		items: map[string]*routepkg.AgentRoute{
 			"chat-dynamic": {
-				ID:      "chat-dynamic",
-				Targets: []routepkg.RouteTarget{{ProviderID: "openai"}},
+				ID: "chat-dynamic",
+				TargetPolicy: routepkg.RouteTargetPolicy{
+					ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
+				},
 			},
 		},
 	}
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []routepkg.AgentRoute{{
-		ID:      "chat-static",
-		Targets: []routepkg.RouteTarget{{ProviderID: "anthropic"}},
+		ID: "chat-static",
+		TargetPolicy: routepkg.RouteTargetPolicy{
+			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "anthropic"},
+		},
 	}}, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -1303,6 +1356,65 @@ func TestRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 	}
 	if byID["chat-dynamic"].Source != "store" || byID["chat-dynamic"].ReadOnly {
 		t.Fatalf("unexpected dynamic route metadata: %#v", byID["chat-dynamic"])
+	}
+}
+
+func TestManagedModelViewIncludesResolvedAndSnapshotFields(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		modelStore: &testModelStore{
+			items: map[string]*modelcatalog.ManagedModel{
+				"openai-main\x00gpt-4.1-mini": {
+					ProviderID:    "openai-main",
+					UpstreamModel: "gpt-4.1-mini",
+					Enabled:       true,
+				},
+			},
+		},
+	}, nil, nil, nil, nil, map[string]provider.Provider{
+		"openai-main": &stubAdminProvider{
+			cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai"},
+			models: []provider.ModelInfo{{
+				ID:          "gpt-4.1-mini",
+				DisplayName: "GPT 4.1 Mini",
+				Description: "fast chat",
+				Capabilities: provider.ModelCapabilities{
+					Streaming: true,
+					Tools:     true,
+				},
+			}},
+		},
+	}), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/models/managed/openai-main/gpt-4.1-mini", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected get status: got %d want %d", rec.Code, http.StatusOK)
+	}
+
+	var got ManagedConcreteModelView
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode managed model view: %v", err)
+	}
+	if got.ProviderType != "openai" {
+		t.Fatalf("ProviderType = %q, want openai", got.ProviderType)
+	}
+	if got.DisplayName != "GPT 4.1 Mini" {
+		t.Fatalf("DisplayName = %q, want %q", got.DisplayName, "GPT 4.1 Mini")
+	}
+	if !got.Capabilities.Streaming || !got.Capabilities.Tools {
+		t.Fatalf("Capabilities = %#v, want streaming+tools", got.Capabilities)
+	}
+	if got.SnapshotState != modelcatalog.SnapshotStatusOK {
+		t.Fatalf("SnapshotState = %q, want %q", got.SnapshotState, modelcatalog.SnapshotStatusOK)
 	}
 }
 

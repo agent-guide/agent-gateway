@@ -243,7 +243,6 @@ func (m *AgentRouteManager) Validate(ctx context.Context, routeID string, resolv
 	if resolver == nil {
 		return fmt.Errorf("provider resolver is not configured")
 	}
-
 	for _, providerID := range route.ProviderIDs() {
 		if _, _, err := resolver.ResolveProvider(ctx, providerID); err != nil {
 			return fmt.Errorf("provider %q is not configured", providerID)

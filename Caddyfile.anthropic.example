@@ -33,7 +33,6 @@
 			llm_api anthropic
 			path_prefix /
 			require_virtual_key
-			allowed_model glm-4.7
 			target provider zhipu-main
 		}
 	}

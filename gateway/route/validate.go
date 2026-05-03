@@ -2,13 +2,9 @@ package route
 
 import (
 	"fmt"
-	"net/http"
 	"slices"
-
-	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 )
 
-// ValidateDefinition checks static route definition correctness without external dependencies.
 func (r AgentRoute) ValidateDefinition() error {
 	if r.ID == "" {
 		return fmt.Errorf("route_id is required")
@@ -17,64 +13,65 @@ func (r AgentRoute) ValidateDefinition() error {
 		return fmt.Errorf("route %q llm_api is required", r.ID)
 	}
 
-	hasEligibleTarget := false
-	for _, target := range r.Targets {
-		if target.Disabled {
-			continue
+	usesDirect := r.usesDirectProvider()
+	if usesDirect {
+		return nil
+	}
+
+	if len(r.TargetPolicy.ModelTargets) == 0 {
+		return fmt.Errorf("route %q targets are required in model-target mode", r.ID)
+	}
+
+	targetNames := make([]string, 0, len(r.TargetPolicy.ModelTargets))
+	seenNames := map[string]struct{}{}
+	for _, target := range r.TargetPolicy.ModelTargets {
+		if target.Name == "" {
+			return fmt.Errorf("route %q target name is required", r.ID)
 		}
-		hasEligibleTarget = true
-		if target.ProviderID == "" {
-			return fmt.Errorf("route %q has target with empty provider_id", r.ID)
+		if _, exists := seenNames[target.Name]; exists {
+			return fmt.Errorf("route %q target %q is duplicated", r.ID, target.Name)
+		}
+		seenNames[target.Name] = struct{}{}
+		targetNames = append(targetNames, target.Name)
+		if len(target.Candidates) == 0 {
+			return fmt.Errorf("route %q target %q must define at least one candidate", r.ID, target.Name)
+		}
+		candidateIDs := map[string]struct{}{}
+		for _, candidate := range target.Candidates {
+			if candidate.ProviderID == "" || candidate.UpstreamModel == "" {
+				return fmt.Errorf("route %q target %q candidates require provider_id and upstream_model", r.ID, target.Name)
+			}
+			key := candidate.ProviderID + "/" + candidate.UpstreamModel
+			if _, exists := candidateIDs[key]; exists {
+				return fmt.Errorf("route %q target %q duplicates candidate %q", r.ID, target.Name, key)
+			}
+			candidateIDs[key] = struct{}{}
 		}
 	}
-	if !hasEligibleTarget {
-		return fmt.Errorf("route %q has no enabled targets", r.ID)
+	if r.TargetPolicy.DefaultModel != "" && !slices.Contains(targetNames, r.TargetPolicy.DefaultModel) {
+		return fmt.Errorf("route %q default_model %q must appear in targets", r.ID, r.TargetPolicy.DefaultModel)
 	}
 
 	return nil
 }
 
-// ProviderIDs returns unique enabled provider IDs declared by the route.
 func (r AgentRoute) ProviderIDs() []string {
-	ids := make([]string, 0, len(r.Targets))
-	seen := make(map[string]struct{}, len(r.Targets))
-	for _, target := range r.Targets {
-		if target.Disabled || target.ProviderID == "" {
-			continue
-		}
-		if _, ok := seen[target.ProviderID]; ok {
-			continue
-		}
-		seen[target.ProviderID] = struct{}{}
-		ids = append(ids, target.ProviderID)
+	ids := map[string]struct{}{}
+	if r.TargetPolicy.ProviderTarget.ProviderID != "" {
+		ids[r.TargetPolicy.ProviderTarget.ProviderID] = struct{}{}
 	}
-	return ids
-}
-
-// ValidateRequestPolicy validates the request against route-level policy.
-func (r AgentRoute) ValidateRequestPolicy(req RouteResolveRequest) error {
-	if req.Model != "" {
-		if len(r.Policy.AllowedModels) > 0 && !slices.Contains(r.Policy.AllowedModels, req.Model) {
-			return statuserr.New(http.StatusForbidden, fmt.Sprintf("model %q is not allowed on route %q", req.Model, r.ID))
+	for _, target := range r.TargetPolicy.ModelTargets {
+		for _, candidate := range target.Candidates {
+			if candidate.ProviderID == "" {
+				continue
+			}
+			ids[candidate.ProviderID] = struct{}{}
 		}
 	}
-
-	if req.Stream {
-		if r.Policy.AllowStreaming != nil && !*r.Policy.AllowStreaming {
-			return statuserr.New(http.StatusForbidden, "streaming is disabled on this route")
-		}
+	out := make([]string, 0, len(ids))
+	for id := range ids {
+		out = append(out, id)
 	}
-
-	return nil
-}
-
-// matchesConditions checks whether a target's conditions are satisfied by the request.
-func matchesConditions(conditions TargetConditions, req RouteResolveRequest) bool {
-	if len(conditions.Models) > 0 && req.Model != "" && !slices.Contains(conditions.Models, req.Model) {
-		return false
-	}
-	if conditions.RequireStreaming != nil && *conditions.RequireStreaming != req.Stream {
-		return false
-	}
-	return true
+	slices.Sort(out)
+	return out
 }

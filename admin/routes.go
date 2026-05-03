@@ -87,6 +87,12 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodPost, Path: "/admin/providers/{id}/enable", Handler: h.handleEnableProvider, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/providers/{id}/disable", Handler: h.handleDisableProvider, RequireAuth: true},
 		{Method: http.MethodDelete, Path: "/admin/providers/{id}", Handler: h.handleDeleteProvider, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/models/providers/{provider_id}/discovered", Handler: h.handleListDiscoveredModels, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/models/providers/{provider_id}/refresh", Handler: h.handleRefreshProviderModels, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/models/managed", Handler: h.handleListManagedModels, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/models/managed/{provider_id}/{upstream_model}", Handler: h.handleGetManagedModel, RequireAuth: true},
+		{Method: http.MethodPut, Path: "/admin/models/managed/{provider_id}/{upstream_model}", Handler: h.handleUpsertManagedModel, RequireAuth: true},
+		{Method: http.MethodDelete, Path: "/admin/models/managed/{provider_id}/{upstream_model}", Handler: h.handleDeleteManagedModel, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/routes", Handler: h.handleListRoutes, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/routes", Handler: h.handleCreateRoute, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/routes/{id}", Handler: h.handleGetRoute, RequireAuth: true},
@@ -487,11 +493,7 @@ func (h *Handler) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusBadRequest, "id is required")
 		return
 	}
-	if len(route.Targets) == 0 {
-		_ = httpjson.Error(w, http.StatusBadRequest, "at least one target is required")
-		return
-	}
-	route.Policy.Defaults()
+	route.Normalize()
 	if err := route.ValidateDefinition(); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
@@ -552,11 +554,7 @@ func (h *Handler) handleUpdateRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusBadRequest, "route id in body must match path")
 		return
 	}
-	if len(route.Targets) == 0 {
-		_ = httpjson.Error(w, http.StatusBadRequest, "at least one target is required")
-		return
-	}
-	route.Policy.Defaults()
+	route.Normalize()
 	if err := route.ValidateDefinition(); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return

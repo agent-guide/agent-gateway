@@ -4,8 +4,9 @@ package provider
 type ModelInfo struct {
 	ID           string
 	Name         string
+	DisplayName  string
 	Description  string
-	Capabilities ProviderCapabilities
+	Capabilities ModelCapabilities
 }
 
 // Usage contains token consumption information.

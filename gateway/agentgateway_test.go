@@ -6,68 +6,67 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/cloudwego/eino/schema"
 )
 
-type fixedSelector struct {
-	target routepkg.RouteTarget
+type testProvider struct {
+	cfg provider.ProviderConfig
 }
 
-func (s fixedSelector) SelectTarget(routepkg.AgentRoute, routepkg.RouteResolveRequest) (*routepkg.RouteTarget, error) {
-	target := s.target
-	return &target, nil
-}
-
-type countingSelector struct {
-	calls int
-}
-
-func (s *countingSelector) SelectTarget(routepkg.AgentRoute, routepkg.RouteResolveRequest) (*routepkg.RouteTarget, error) {
-	s.calls++
-	return &routepkg.RouteTarget{ProviderID: "openai"}, nil
-}
-
-type testProvider struct{}
-
-func (testProvider) Chat(context.Context, *provider.ChatRequest) (*provider.ChatResponse, error) {
+func (p testProvider) Chat(context.Context, *provider.ChatRequest) (*provider.ChatResponse, error) {
 	return nil, nil
 }
 
-func (testProvider) StreamChat(context.Context, *provider.ChatRequest) (*schema.StreamReader[*schema.Message], error) {
+func (p testProvider) StreamChat(context.Context, *provider.ChatRequest) (*schema.StreamReader[*schema.Message], error) {
 	return nil, nil
 }
 
-func (testProvider) ListModels(context.Context) ([]provider.ModelInfo, error) {
-	return nil, nil
+func (p testProvider) ListModels(context.Context) ([]provider.ModelInfo, error) {
+	return []provider.ModelInfo{{
+		ID:           "gpt-4.1-mini",
+		DisplayName:  "gpt-4.1-mini",
+		Capabilities: provider.ModelCapabilities{Streaming: true},
+	}}, nil
 }
 
-func (testProvider) Capabilities() provider.ProviderCapabilities {
-	return provider.ProviderCapabilities{}
+func (p testProvider) Capabilities() provider.ProviderCapabilities {
+	return provider.ProviderCapabilities{Streaming: true}
 }
 
-func (testProvider) Config() provider.ProviderConfig {
-	return provider.ProviderConfig{Id: "test-provider"}
+func (p testProvider) Config() provider.ProviderConfig {
+	return p.cfg
 }
 
-func TestResolverUsesCustomSelector(t *testing.T) {
+func TestResolveRouteExecutionModelTargetRewritesToBinding(t *testing.T) {
 	route := routepkg.AgentRoute{
 		ID:     "chat-prod",
 		LLMAPI: "openai",
 		Match:  routepkg.RouteMatch{PathPrefix: "/v1"},
-		Targets: []routepkg.RouteTarget{
-			{ProviderID: "openai", Mode: routepkg.TargetModeWeighted, Weight: 1},
-			{ProviderID: "openrouter", Mode: routepkg.TargetModeWeighted, Weight: 1},
+		TargetPolicy: routepkg.RouteTargetPolicy{
+			ModelTargets: []routepkg.RouteModelTarget{{
+				Name: "chat-fast",
+				Candidates: []routepkg.RouteModelCandidate{{
+					ProviderID:    "openai",
+					UpstreamModel: "gpt-4.1-mini",
+				}},
+			}},
+			DefaultModel: "chat-fast",
 		},
 	}
 	gw := NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
 		StaticRoutes: []routepkg.AgentRoute{route},
 		StaticProviders: map[string]provider.Provider{
-			"openrouter": staticTestProvider{id: "openrouter"},
+			"openai": testProvider{cfg: provider.ProviderConfig{Id: "openai", ProviderType: "openai"}},
 		},
-		Selector: fixedSelector{target: routepkg.RouteTarget{ProviderID: "openrouter"}},
+		StaticModels: []modelcatalog.ManagedModel{{
+			ProviderID:    "openai",
+			UpstreamModel: "gpt-4.1-mini",
+			Enabled:       true,
+		}},
 	}); err != nil {
 		t.Fatalf("Bootstrap returned error: %v", err)
 	}
@@ -77,14 +76,15 @@ func TestResolverUsesCustomSelector(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRoute returned error: %v", err)
 	}
-	prov, err := gw.ResolveProvider(context.Background(), resolvedRoute, routepkg.RouteResolveRequest{
-		Model: "gpt-4o-mini",
-	})
+	exec, err := gw.ResolveRouteExecution(context.Background(), resolvedRoute, routepkg.RouteResolveRequest{})
 	if err != nil {
-		t.Fatalf("ResolveProvider returned error: %v", err)
+		t.Fatalf("ResolveRouteExecution returned error: %v", err)
 	}
-	if prov == nil {
-		t.Fatal("ResolveProvider returned nil provider")
+	if exec.Provider == nil {
+		t.Fatal("ResolveRouteExecution returned nil provider")
+	}
+	if exec.UpstreamModel != "gpt-4.1-mini" {
+		t.Fatalf("UpstreamModel = %q, want gpt-4.1-mini", exec.UpstreamModel)
 	}
 }
 
@@ -96,10 +96,12 @@ func TestResolveRejectsDisabledRoute(t *testing.T) {
 			Disabled: true,
 			LLMAPI:   "openai",
 			Match:    routepkg.RouteMatch{PathPrefix: "/v1"},
-			Targets:  []routepkg.RouteTarget{{ProviderID: "openai"}},
+			TargetPolicy: routepkg.RouteTargetPolicy{
+				ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
+			},
 		}},
 		StaticProviders: map[string]provider.Provider{
-			"openai": staticTestProvider{id: "openai"},
+			"openai": testProvider{cfg: provider.ProviderConfig{Id: "openai", ProviderType: "openai"}},
 		},
 	}); err != nil {
 		t.Fatalf("Bootstrap returned error: %v", err)
@@ -110,28 +112,4 @@ func TestResolveRejectsDisabledRoute(t *testing.T) {
 	if err == nil {
 		t.Fatal("ResolveRoute returned nil error, want disabled route rejection")
 	}
-}
-
-type staticTestProvider struct {
-	id string
-}
-
-func (p staticTestProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
-	return testProvider{}.Chat(ctx, req)
-}
-
-func (p staticTestProvider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*schema.StreamReader[*schema.Message], error) {
-	return testProvider{}.StreamChat(ctx, req)
-}
-
-func (p staticTestProvider) ListModels(ctx context.Context) ([]provider.ModelInfo, error) {
-	return testProvider{}.ListModels(ctx)
-}
-
-func (p staticTestProvider) Capabilities() provider.ProviderCapabilities {
-	return testProvider{}.Capabilities()
-}
-
-func (p staticTestProvider) Config() provider.ProviderConfig {
-	return provider.ProviderConfig{Id: p.id}
 }

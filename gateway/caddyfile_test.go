@@ -38,7 +38,6 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 			path_prefix /tenant-a
 			method POST
 			require_virtual_key
-			allowed_model gpt-4.1
 			target provider local-ollama
 		}
 	}
@@ -118,14 +117,11 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	if len(route.Match.Methods) != 1 || route.Match.Methods[0] != "POST" {
 		t.Fatalf("route methods = %#v", route.Match.Methods)
 	}
-	if !route.Policy.Auth.RequireVirtualKey {
+	if !route.AuthPolicy.RequireVirtualKey {
 		t.Fatal("expected route require_virtual_key to be true")
 	}
-	if len(route.Policy.AllowedModels) != 1 || route.Policy.AllowedModels[0] != "gpt-4.1" {
-		t.Fatalf("route allowed_models = %#v", route.Policy.AllowedModels)
-	}
-	if len(route.Targets) != 1 || route.Targets[0].ProviderID != "local-ollama" {
-		t.Fatalf("route targets = %#v", route.Targets)
+	if route.TargetPolicy.ProviderTarget.ProviderID != "local-ollama" {
+		t.Fatalf("route provider_target = %#v", route.TargetPolicy.ProviderTarget)
 	}
 
 	key := app.VirtualKeys[0]
@@ -199,6 +195,64 @@ func TestParseAppRejectsLegacyRouteTargetSyntax(t *testing.T) {
 
 	if _, err := parseApp(d, nil); err == nil {
 		t.Fatal("expected legacy route target syntax to fail")
+	}
+}
+
+func TestParseAppRejectsLogicalModelDirective(t *testing.T) {
+	d := caddyfile.NewTestDispenser(`
+	agent_gateway {
+		logical_model chat-fast {
+			bind openai-main gpt-4.1-mini
+		}
+	}
+	`)
+
+	if _, err := parseApp(d, nil); err == nil {
+		t.Fatal("expected logical_model directive to fail")
+	}
+}
+
+func TestParseAppInlineModelTargetsRegisterStaticManagedModels(t *testing.T) {
+	d := caddyfile.NewTestDispenser(`
+	agent_gateway {
+		route openai-chat {
+			llm_api openai
+			target model chat-fast openai-main gpt-4.1-mini weight 100 default
+			target model chat-fast zhipu-main glm-4.5-air weight 50
+		}
+	}
+	`)
+
+	val, err := parseApp(d, nil)
+	if err != nil {
+		t.Fatalf("parseApp() error = %v", err)
+	}
+
+	appVal := val.(httpcaddyfile.App)
+	var app App
+	if err := json.Unmarshal(appVal.Value, &app); err != nil {
+		t.Fatalf("unmarshal app json: %v", err)
+	}
+
+	if len(app.Routes) != 1 {
+		t.Fatalf("route count = %d, want 1", len(app.Routes))
+	}
+	if len(app.Models) != 2 {
+		t.Fatalf("managed model count = %d, want 2", len(app.Models))
+	}
+	if app.Routes[0].TargetPolicy.DefaultModel != "chat-fast" {
+		t.Fatalf("default model = %q, want chat-fast", app.Routes[0].TargetPolicy.DefaultModel)
+	}
+	if len(app.Routes[0].TargetPolicy.ModelTargets) != 1 {
+		t.Fatalf("target count = %d, want 1", len(app.Routes[0].TargetPolicy.ModelTargets))
+	}
+	if len(app.Routes[0].TargetPolicy.ModelTargets[0].Candidates) != 2 {
+		t.Fatalf("candidate count = %d, want 2", len(app.Routes[0].TargetPolicy.ModelTargets[0].Candidates))
+	}
+	for _, model := range app.Models {
+		if !model.Enabled {
+			t.Fatalf("managed model defaults = %#v, want enabled", model)
+		}
 	}
 }
 

@@ -32,7 +32,6 @@
 			llm_api openai
 			path_prefix /
 			require_virtual_key
-			allowed_model deepseek-chat
 			target provider deepseek-main
 		}
 	}

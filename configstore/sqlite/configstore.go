@@ -24,6 +24,7 @@ type SQLiteConfigStore struct {
 	providerStore   *ProviderConfigStore
 	virtualKeyStore *VirtualKeyStore
 	routeStore      *RouteStore
+	modelStore      *ModelStore
 }
 
 func init() {
@@ -135,6 +136,19 @@ func (s *SQLiteConfigStore) GetRouteStore(ctx context.Context, decodeRoute intf.
 	}
 	s.routeStore = routeStore
 	return routeStore, nil
+}
+
+func (s *SQLiteConfigStore) GetModelStore(ctx context.Context, decodeModel intf.ConfigObjectDecoder) (intf.ModelStorer, error) {
+	if s.modelStore != nil {
+		return s.modelStore, nil
+	}
+
+	modelStore, err := NewModelStore(ctx, s.db, decodeModel)
+	if err != nil {
+		return nil, fmt.Errorf("init model store: %w", err)
+	}
+	s.modelStore = modelStore
+	return modelStore, nil
 }
 
 var (

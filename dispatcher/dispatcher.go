@@ -111,12 +111,15 @@ func (h AgentRouteDispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 	}
 
 	routeResolveReq := routeResolveRequest(prepared)
-	prov, err := h.gateway.ResolveProvider(rewritten.Context(), route, routeResolveReq)
+	exec, err := h.gateway.ResolveRouteExecution(rewritten.Context(), route, routeResolveReq)
 	if err != nil {
 		return WriteError(h.logger, apiHandler.Name(), route.ID, prepared.Model(), w, rewritten, err, "resolve provider")
 	}
+	if exec.UpstreamModel != "" {
+		prepared.SetModel(exec.UpstreamModel)
+	}
 
-	return apiHandler.ServeLLMApi(w, rewritten, prov, prepared)
+	return apiHandler.ServeLLMApi(w, rewritten, exec.Provider, prepared)
 }
 
 func rewriteRoutePath(r *http.Request, prefix string) *http.Request {
@@ -140,8 +143,8 @@ func rewriteRoutePath(r *http.Request, prefix string) *http.Request {
 
 func routeResolveRequest(prepared *PreparedLLMApiRequest) routepkg.RouteResolveRequest {
 	return routepkg.RouteResolveRequest{
-		Model:  prepared.Model(),
-		Stream: prepared.Stream(),
+		Model:            prepared.Model(),
+		RequireStreaming: prepared.Stream(),
 	}
 }
 

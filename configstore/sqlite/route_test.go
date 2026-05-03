@@ -26,11 +26,9 @@ func TestRouteStoreTagColumn(t *testing.T) {
 
 	want := &route.AgentRoute{
 		ID: "chat-prod",
-		Targets: []route.RouteTarget{{
-			ProviderID: "openai",
-			Mode:       route.TargetModeWeighted,
-			Weight:     1,
-		}},
+		TargetPolicy: route.RouteTargetPolicy{
+			ProviderTarget: route.DirectProviderTarget{ProviderID: "openai"},
+		},
 	}
 
 	if err := store.Create(ctx, want.ID, defaultRouteTag, want); err != nil {
@@ -86,11 +84,9 @@ func TestRouteStoreCreateRejectsDuplicateID(t *testing.T) {
 
 	item := &route.AgentRoute{
 		ID: "chat-prod",
-		Targets: []route.RouteTarget{{
-			ProviderID: "openai",
-			Mode:       route.TargetModeWeighted,
-			Weight:     1,
-		}},
+		TargetPolicy: route.RouteTargetPolicy{
+			ProviderTarget: route.DirectProviderTarget{ProviderID: "openai"},
+		},
 	}
 
 	if err := store.Create(ctx, item.ID, defaultRouteTag, item); err != nil {
@@ -118,11 +114,9 @@ func TestRouteStoreUpdateRejectsMissingID(t *testing.T) {
 
 	err = store.Update(ctx, "missing", &route.AgentRoute{
 		ID: "missing",
-		Targets: []route.RouteTarget{{
-			ProviderID: "openai",
-			Mode:       route.TargetModeWeighted,
-			Weight:     1,
-		}},
+		TargetPolicy: route.RouteTargetPolicy{
+			ProviderTarget: route.DirectProviderTarget{ProviderID: "openai"},
+		},
 	})
 	if !errors.Is(err, configstoreintf.ErrNotFound) {
 		t.Fatalf("update missing route error = %v, want %v", err, configstoreintf.ErrNotFound)

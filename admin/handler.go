@@ -7,6 +7,7 @@ import (
 	"github.com/agent-guide/caddy-agent-gateway/cliauth"
 	"github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
+	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpcapture"
@@ -24,6 +25,7 @@ type Handler struct {
 	routeManager      *routepkg.AgentRouteManager
 	virtualKeyManager *virtualkeypkg.VirtualKeyManager
 	providerManager   *gateway.ProviderManager
+	modelCatalog      modelcatalog.Service
 	mux               *http.ServeMux
 	logger            *zap.Logger
 	cliAuthMu         sync.RWMutex
@@ -48,6 +50,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 	var routeManager *routepkg.AgentRouteManager
 	var virtualKeyManager *virtualkeypkg.VirtualKeyManager
 	var providerManager *gateway.ProviderManager
+	var modelCatalogSvc modelcatalog.Service
 	if agentGateway != nil {
 		cliauthMgr = agentGateway.CLIAuthManager()
 		cliauthRefresher = agentGateway.CLIAuthRefresher()
@@ -56,6 +59,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 		routeManager = agentGateway.AgentRouteManager()
 		virtualKeyManager = agentGateway.VirtualKeyManager()
 		providerManager = agentGateway.ProviderManager()
+		modelCatalogSvc = agentGateway.ModelCatalog()
 	}
 
 	h := &Handler{
@@ -66,6 +70,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 		routeManager:      routeManager,
 		virtualKeyManager: virtualKeyManager,
 		providerManager:   providerManager,
+		modelCatalog:      modelCatalogSvc,
 		logger:            logger,
 		cliAuthSessions:   map[string]cliAuthStatus{},
 		cliAuthActive:     map[string]string{},

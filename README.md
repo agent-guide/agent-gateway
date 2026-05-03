@@ -3,9 +3,9 @@
 `caddy-agent-gateway` is a Caddy-native AI gateway for LLM and agent workloads. It is built as a custom Caddy binary and provides:
 
 - OpenAI-compatible and Anthropic-compatible HTTP APIs
-- route-based dispatch to upstream providers
+- route-based dispatch to logical models or direct upstream providers
 - static Caddyfile configuration plus SQLite-backed dynamic configuration
-- admin APIs for providers, routes, virtual keys, upstream credentials, CLI auth, and Caddy server management
+- admin APIs for providers, model catalog, routes, virtual keys, upstream credentials, CLI auth, and Caddy server management
 - early MCP, memory, metrics, and agent endpoint scaffolding
 
 The request path today is centered on LLM routing. MCP, memory, metrics, and agent Admin API routes are registered, but they currently return `501 not implemented`.
@@ -132,8 +132,7 @@ Create a minimal `Caddyfile`:
 			llm_api openai
 			path_prefix /
 			require_virtual_key
-			allowed_model gpt-4.1
-			target provider openai-main
+			target model chat-default openai-main gpt-4.1 weight 100 default
 		}
 	}
 }
@@ -159,14 +158,14 @@ curl http://127.0.0.1:8080/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer test-key' \
   -d '{
-    "model": "gpt-4.1",
+    "model": "chat-default",
     "messages": [{"role": "user", "content": "hello"}]
   }'
 ```
 
 The VirtualKey may be sent as either `x-api-key: <key>` or `Authorization: Bearer <key>`.
 
-The Python OpenAI SDK example uses `http://127.0.0.1:8080/v1`, the `test-key` VirtualKey, and `gpt-4.1` by default:
+The Python OpenAI SDK example uses `http://127.0.0.1:8080/v1`, the `test-key` VirtualKey, and `chat-default` by default:
 
 ```bash
 python3 -m pip install openai
@@ -227,7 +226,6 @@ The gateway is configured in the global `agent_gateway` block:
 	agent_gateway {
 		config_store sqlite { ... }
 		provider <provider-id> { ... }
-		authenticator <name> { ... }
 		virtualkey <key> { ... }
 		route <route-id> { ... }
 	}
@@ -287,8 +285,9 @@ route openai-chat {
 	path_prefix /v1
 	method POST
 	require_virtual_key
-	allowed_model gpt-4.1 gpt-4.1-mini
-	target provider openai-main 1
+	target model chat-default openai-main gpt-4.1 weight 100 default
+	target model chat-fast openai-main gpt-4.1-mini weight 100
+	target model chat-fast zhipu-main glm-4.5-air weight 50
 }
 ```
 
@@ -299,10 +298,12 @@ Supported route subdirectives:
 - `path_prefix <prefix>`
 - `method <method> [more-methods...]`
 - `require_virtual_key [true|false]`
-- `allowed_model <model> [more-models...]`
-- `target provider <provider-id> [weight]`
+- `target model <route-model> <provider-id> <upstream-model> [weight <n>] [priority <n>] [strategy <auto|weighted|failover|conditional>] [default]`
+- `target provider <provider-id>`
 
-Static Caddyfile targets are weighted targets. The Go route model and Admin API also contain fields for failover, conditional targets, selection strategy, retry, fallback, quota, and rate limits, but not every field is exposed in Caddyfile syntax.
+`target model` enables route-local model routing. In that mode the request `model` is interpreted as a route target name, and each `target model` line contributes one concrete candidate `(provider_id, upstream_model)` for that target.
+
+`target provider` is the simple pass-through escape hatch and may appear at most once per route. If a route defines both `target provider` and one or more `target model` entries, the route is treated as direct-provider mode at runtime and the model-target entries are ignored for request resolution.
 
 ### Virtual Keys
 
@@ -338,8 +339,9 @@ If `allowed_route` is omitted, the key can be used on any route that requires vi
 4. The route manager lists static routes plus persisted routes from SQLite, caching persisted routes as it loads them.
 5. If required, the virtual key is extracted from `x-api-key` or `Authorization: Bearer`.
 6. The protocol handler converts the request into the internal provider request.
-7. The route target selector chooses an upstream provider.
-8. The provider sends the upstream request and the protocol handler translates the response.
+7. If the route configures `target_policy.provider_target.provider_id`, the route runs in direct-provider mode. The request is forwarded to that provider and the request model is treated as the upstream model name.
+8. Otherwise the route runs in logical-model mode, the model catalog resolves the logical model to one concrete provider/model binding, and the gateway rewrites the upstream request model.
+9. The provider sends the upstream request and the protocol handler translates the response.
 
 Supported request endpoints today:
 
@@ -357,7 +359,15 @@ Configuration comes from two places:
 - static Caddyfile config under `agent_gateway`
 - persisted SQLite records managed through the Admin API
 
-Static providers, routes, virtual keys, and authenticators are loaded during provisioning. Persisted provider, route, credential, and virtual key records can be changed through the Admin API without rebuilding the Caddy binary.
+Static providers, logical model bindings, routes, and virtual keys are loaded during provisioning. Persisted provider, managed model, route, credential, and virtual key records can be changed through the Admin API without rebuilding the Caddy binary.
+
+Model catalog Admin API families:
+
+- `GET /admin/models/providers/{provider_id}/discovered`
+- `POST /admin/models/providers/{provider_id}/refresh`
+- `GET /admin/models/managed`
+- `PUT /admin/models/managed/{provider_id}/{upstream_model}`
+- `GET /admin/models/logical`
 
 Static records are exposed through Admin API list/read responses with source/read-only metadata where applicable. Attempts to mutate static providers or routes return conflict errors.
 
@@ -433,21 +443,20 @@ curl -X POST http://localhost:8019/admin/routes \
       "path_prefix": "/",
       "methods": ["POST"]
     },
-    "targets": [
-      {
-        "provider_id": "openrouter-main",
-        "mode": "weighted",
-        "weight": 1
+    "target_policy": {
+      "provider_target": {
+        "provider_id": "openrouter-main"
       }
-    ],
+    },
     "policy": {
       "auth": {
         "require_virtual_key": true
-      },
-      "allowed_models": ["openai/gpt-4o-mini"]
+      }
     }
   }'
 ```
+
+When `target_policy.provider_target.provider_id` is present, the route is resolved in direct-provider mode. Any `target_policy.model_targets` on the same route are ignored during request routing.
 
 ### Virtual Keys
 

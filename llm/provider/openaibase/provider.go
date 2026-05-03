@@ -64,7 +64,12 @@ func (b *Base) ListModels(ctx context.Context) ([]provider.ModelInfo, error) {
 
 	out := make([]provider.ModelInfo, len(modelsResp.Data))
 	for i, m := range modelsResp.Data {
-		out[i] = provider.ModelInfo{ID: m.ID, Name: m.ID}
+		out[i] = provider.ModelInfo{
+			ID:           m.ID,
+			Name:         m.ID,
+			DisplayName:  m.ID,
+			Capabilities: provider.ModelCapabilitiesFromProviderSummary(provider.ProviderCapabilities{Streaming: true, Tools: true, Vision: true, Embeddings: true}),
+		}
 	}
 	return out, nil
 }

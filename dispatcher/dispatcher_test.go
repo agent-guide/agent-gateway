@@ -68,10 +68,12 @@ func TestAgentRouteDispatcherDefersVirtualKeyUntilLLMApiMatch(t *testing.T) {
 			ID:     "broad-route",
 			LLMAPI: "stub",
 			Match:  routepkg.RouteMatch{PathPrefix: "/"},
-			Policy: routepkg.RoutePolicy{
-				Auth: routepkg.AuthPolicy{RequireVirtualKey: true},
+			TargetPolicy: routepkg.RouteTargetPolicy{
+				ProviderTarget: routepkg.DirectProviderTarget{
+					ProviderID: "openai",
+				},
 			},
-			Targets: []routepkg.RouteTarget{{ProviderID: "openai"}},
+			AuthPolicy: routepkg.RouteAuthPolicy{RequireVirtualKey: true},
 		}},
 	}); err != nil {
 		t.Fatalf("Bootstrap returned error: %v", err)
@@ -111,10 +113,14 @@ func TestAgentRouteDispatcherRejectsDisabledLLMApiHandlerType(t *testing.T) {
 	gw := gateway.NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
 		StaticRoutes: []routepkg.AgentRoute{{
-			ID:      "disabled-api-route",
-			LLMAPI:  handlerType,
-			Match:   routepkg.RouteMatch{PathPrefix: "/"},
-			Targets: []routepkg.RouteTarget{{ProviderID: "openai"}},
+			ID:     "disabled-api-route",
+			LLMAPI: handlerType,
+			Match:  routepkg.RouteMatch{PathPrefix: "/"},
+			TargetPolicy: routepkg.RouteTargetPolicy{
+				ProviderTarget: routepkg.DirectProviderTarget{
+					ProviderID: "openai",
+				},
+			},
 		}},
 	}); err != nil {
 		t.Fatalf("Bootstrap returned error: %v", err)
@@ -157,8 +163,8 @@ func TestRouteResolveRequestUsesPreparedModelAndStream(t *testing.T) {
 	if got.Model != "gpt-4o-mini" {
 		t.Fatalf("Model = %q, want gpt-4o-mini", got.Model)
 	}
-	if !got.Stream {
-		t.Fatal("Stream = false, want true")
+	if !got.RequireStreaming {
+		t.Fatal("RequireStreaming = false, want true")
 	}
 }
 
@@ -168,7 +174,7 @@ func TestRouteResolveRequestHandlesNilPreparedRequest(t *testing.T) {
 	if got.Model != "" {
 		t.Fatalf("Model = %q, want empty", got.Model)
 	}
-	if got.Stream {
-		t.Fatal("Stream = true, want false")
+	if got.RequireStreaming {
+		t.Fatal("RequireStreaming = true, want false")
 	}
 }

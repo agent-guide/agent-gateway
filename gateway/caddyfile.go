@@ -2,10 +2,12 @@ package gateway
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/caddyserver/caddy/v2"
@@ -45,6 +47,8 @@ func parseApp(d *caddyfile.Dispenser, existingVal any) (any, error) {
 			if err := parseRoute(d, app); err != nil {
 				return nil, err
 			}
+		case "logical_model":
+			return nil, d.Err("logical_model is no longer supported; define model targets inline within route blocks")
 		case "virtualkey":
 			if err := parseVirtualKey(d, app); err != nil {
 				return nil, err
@@ -142,7 +146,7 @@ func parseConfigStore(d *caddyfile.Dispenser, app *App) error {
 }
 
 func parseRoute(d *caddyfile.Dispenser, app *App) error {
-	route, err := parseRouteSegment(d)
+	route, err := parseRouteSegment(d, app)
 	if err != nil {
 		return err
 	}
@@ -249,7 +253,7 @@ func parseVirtualKeySegment(d *caddyfile.Dispenser) (virtualkeypkg.VirtualKey, e
 
 // ParseRouteSegment parses a route declaration from the current directive or subdirective.
 // The dispenser must already be positioned on the route directive token.
-func parseRouteSegment(d *caddyfile.Dispenser) (routepkg.AgentRoute, error) {
+func parseRouteSegment(d *caddyfile.Dispenser, app *App) (routepkg.AgentRoute, error) {
 	seg := d.NewFromNextSegment()
 	if !seg.Next() {
 		return routepkg.AgentRoute{}, d.Err("expected route directive")
@@ -263,9 +267,6 @@ func parseRouteSegment(d *caddyfile.Dispenser) (routepkg.AgentRoute, error) {
 	routeID := strings.Trim(args[0], "\"`")
 	route := routepkg.AgentRoute{
 		ID: routeID,
-		Policy: routepkg.RoutePolicy{
-			Selection: routepkg.SelectionPolicy{Strategy: routepkg.RouteSelectionStrategyAuto},
-		},
 	}
 
 	for seg.NextBlock(0) {
@@ -296,7 +297,7 @@ func parseRouteSegment(d *caddyfile.Dispenser) (routepkg.AgentRoute, error) {
 			}
 		case "require_virtual_key":
 			if len(args) == 0 {
-				route.Policy.Auth.RequireVirtualKey = true
+				route.AuthPolicy.RequireVirtualKey = true
 				continue
 			}
 			if len(args) != 1 {
@@ -306,36 +307,103 @@ func parseRouteSegment(d *caddyfile.Dispenser) (routepkg.AgentRoute, error) {
 			if err != nil {
 				return routepkg.AgentRoute{}, seg.Errf("invalid require_virtual_key value: %s", args[0])
 			}
-			route.Policy.Auth.RequireVirtualKey = v
-		case "allowed_model":
-			if len(args) == 0 {
-				return routepkg.AgentRoute{}, seg.ArgErr()
-			}
-			for _, arg := range args {
-				route.Policy.AllowedModels = append(route.Policy.AllowedModels, strings.Trim(arg, "\"`"))
-			}
+			route.AuthPolicy.RequireVirtualKey = v
 		case "target":
-			if len(args) < 2 || len(args) > 3 || strings.Trim(args[0], "\"`") != "provider" {
+			if len(args) < 2 {
 				return routepkg.AgentRoute{}, seg.ArgErr()
 			}
-			target := routepkg.RouteTarget{
-				ProviderID: strings.Trim(args[1], "\"`"),
-				Mode:       routepkg.TargetModeWeighted,
-				Weight:     1,
-			}
-			if len(args) == 3 {
-				weight, err := strconv.Atoi(strings.Trim(args[2], "\"`"))
-				if err != nil {
-					return routepkg.AgentRoute{}, seg.Errf("invalid target weight: %s", args[2])
+			switch strings.Trim(args[0], "\"`") {
+			case "provider":
+				if len(args) != 2 {
+					return routepkg.AgentRoute{}, seg.ArgErr()
 				}
-				target.Weight = weight
+				if route.TargetPolicy.ProviderTarget.ProviderID != "" {
+					return routepkg.AgentRoute{}, seg.Err("target provider may appear at most once")
+				}
+				route.TargetPolicy.ProviderTarget = routepkg.DirectProviderTarget{ProviderID: strings.Trim(args[1], "\"`")}
+			case "model":
+				if len(args) < 4 {
+					return routepkg.AgentRoute{}, seg.ArgErr()
+				}
+				modelName := strings.Trim(args[1], "\"`")
+				candidate := routepkg.RouteModelCandidate{
+					ProviderID:    strings.Trim(args[2], "\"`"),
+					UpstreamModel: strings.Trim(args[3], "\"`"),
+				}
+				target := routeModelTargetByName(&route, modelName)
+				if target == nil {
+					route.TargetPolicy.ModelTargets = append(route.TargetPolicy.ModelTargets, routepkg.RouteModelTarget{Name: modelName})
+					target = &route.TargetPolicy.ModelTargets[len(route.TargetPolicy.ModelTargets)-1]
+				}
+				for i := 4; i < len(args); i++ {
+					token := strings.Trim(args[i], "\"`")
+					switch token {
+					case "default":
+						route.TargetPolicy.DefaultModel = modelName
+					case "weight":
+						i++
+						if i >= len(args) {
+							return routepkg.AgentRoute{}, seg.ArgErr()
+						}
+						weight, err := strconv.Atoi(strings.Trim(args[i], "\"`"))
+						if err != nil {
+							return routepkg.AgentRoute{}, seg.Errf("invalid target model weight: %s", args[i])
+						}
+						candidate.Weight = weight
+					case "priority":
+						i++
+						if i >= len(args) {
+							return routepkg.AgentRoute{}, seg.ArgErr()
+						}
+						priority, err := strconv.Atoi(strings.Trim(args[i], "\"`"))
+						if err != nil {
+							return routepkg.AgentRoute{}, seg.Errf("invalid target model priority: %s", args[i])
+						}
+						candidate.Priority = priority
+					case "strategy":
+						i++
+						if i >= len(args) {
+							return routepkg.AgentRoute{}, seg.ArgErr()
+						}
+						target.Strategy = routepkg.RouteSelectionStrategy(strings.Trim(args[i], "\"`"))
+					default:
+						return routepkg.AgentRoute{}, fmt.Errorf("unknown target model option: %s", token)
+					}
+				}
+				target.Candidates = append(target.Candidates, candidate)
+				registerStaticManagedModel(app, candidate)
+			default:
+				return routepkg.AgentRoute{}, seg.ArgErr()
 			}
-			route.Targets = append(route.Targets, target)
 		default:
 			return routepkg.AgentRoute{}, seg.Errf("unknown subdirective: %s", name)
 		}
 	}
 
-	route.Policy.Defaults()
+	route.Normalize()
 	return route, nil
+}
+
+func routeModelTargetByName(route *routepkg.AgentRoute, name string) *routepkg.RouteModelTarget {
+	for i := range route.TargetPolicy.ModelTargets {
+		if route.TargetPolicy.ModelTargets[i].Name == name {
+			return &route.TargetPolicy.ModelTargets[i]
+		}
+	}
+	return nil
+}
+
+func registerStaticManagedModel(app *App, candidate routepkg.RouteModelCandidate) {
+	for i := range app.Models {
+		if app.Models[i].ProviderID == candidate.ProviderID && app.Models[i].UpstreamModel == candidate.UpstreamModel {
+			return
+		}
+	}
+	model := modelcatalog.ManagedModel{
+		ProviderID:    candidate.ProviderID,
+		UpstreamModel: candidate.UpstreamModel,
+		Enabled:       true,
+	}
+	model.Normalize()
+	app.Models = append(app.Models, model)
 }

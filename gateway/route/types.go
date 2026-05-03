@@ -1,19 +1,12 @@
 package route
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 )
 
-// TargetMode describes how a route target participates in routing.
-type TargetMode string
-
-const (
-	TargetModeWeighted    TargetMode = "weighted"
-	TargetModeFailover    TargetMode = "failover"
-	TargetModeConditional TargetMode = "conditional"
-)
-
-// RouteSelectionStrategy controls how a route prefers targets under SelectionPolicy.
+// RouteSelectionStrategy controls how a route prefers candidates during runtime selection.
 type RouteSelectionStrategy string
 
 const (
@@ -23,24 +16,60 @@ const (
 	RouteSelectionStrategyConditional RouteSelectionStrategy = "conditional"
 )
 
-// RouteResolveRequest captures the request attributes required for route resolution.
-type RouteResolveRequest struct {
-	Model  string
-	Stream bool
+// DecodeStoredRoute decodes a persisted route and fills missing runtime defaults.
+func DecodeStoredRoute(data []byte) (any, error) {
+	var r AgentRoute
+	if err := json.Unmarshal(data, &r); err != nil {
+		return nil, fmt.Errorf("decode route: %w", err)
+	}
+	r.Normalize()
+	now := time.Now().UTC()
+	if r.CreatedAt.IsZero() {
+		r.CreatedAt = now
+	}
+	if r.UpdatedAt.IsZero() {
+		r.UpdatedAt = now
+	}
+	return &r, nil
 }
 
 // AgentRoute is the primary gateway route configuration exposed to agent clients.
-// A route config owns request matching, target selection metadata, and default policy.
 type AgentRoute struct {
-	ID          string        `json:"id"`
-	Description string        `json:"description,omitempty"`
-	Disabled    bool          `json:"disabled"`
-	LLMAPI      string        `json:"llm_api,omitempty"`
-	Match       RouteMatch    `json:"match"`
-	Targets     []RouteTarget `json:"targets"`
-	Policy      RoutePolicy   `json:"policy"`
-	CreatedAt   time.Time     `json:"created_at"`
-	UpdatedAt   time.Time     `json:"updated_at"`
+	ID              string               `json:"id"`
+	Description     string               `json:"description,omitempty"`
+	Disabled        bool                 `json:"disabled"`
+	LLMAPI          string               `json:"llm_api,omitempty"`
+	Match           RouteMatch           `json:"match"`
+	TargetPolicy    RouteTargetPolicy    `json:"target_policy,omitempty"`
+	AuthPolicy      RouteAuthPolicy      `json:"auth_policy"`
+	RateLimitPolicy RouteRateLimitPolicy `json:"rate_limit_policy,omitempty"`
+	QuotaPolicy     RouteQuotaPolicy     `json:"quota_policy,omitempty"`
+	CreatedAt       time.Time            `json:"created_at"`
+	UpdatedAt       time.Time            `json:"updated_at"`
+}
+
+type RouteTargetPolicy struct {
+	ModelTargets   []RouteModelTarget   `json:"model_targets,omitempty"`
+	DefaultModel   string               `json:"default_model,omitempty"`
+	ProviderTarget DirectProviderTarget `json:"provider_target,omitempty"`
+}
+
+type RouteModelTarget struct {
+	Name             string                 `json:"name"`
+	Strategy         RouteSelectionStrategy `json:"strategy,omitempty"`
+	DefaultCandidate string                 `json:"default_candidate,omitempty"`
+	Candidates       []RouteModelCandidate  `json:"candidates,omitempty"`
+}
+
+type RouteModelCandidate struct {
+	ProviderID    string `json:"provider_id"`
+	UpstreamModel string `json:"upstream_model"`
+	Weight        int    `json:"weight,omitempty"`
+	Priority      int    `json:"priority,omitempty"`
+}
+
+type DirectProviderTarget struct {
+	ProviderID string `json:"provider_id"`
 }
 
 // RouteMatch contains transport-facing match fields for binding requests to a route.
@@ -50,68 +79,17 @@ type RouteMatch struct {
 	Methods    []string `json:"methods,omitempty"`
 }
 
-// RouteTarget references an upstream provider candidate under a route.
-type RouteTarget struct {
-	ProviderID string            `json:"provider_id"`
-	Mode       TargetMode        `json:"mode"`
-	Weight     int               `json:"weight,omitempty"`
-	Priority   int               `json:"priority,omitempty"`
-	ModelMap   map[string]string `json:"model_map,omitempty"`
-	Conditions TargetConditions  `json:"conditions,omitempty"`
-	Disabled   bool              `json:"disabled,omitempty"`
-}
-
-// TargetConditions express conditional target eligibility.
-type TargetConditions struct {
-	Models            []string `json:"models,omitempty"`
-	RequireStreaming  *bool    `json:"require_streaming,omitempty"`
-	RequireTools      *bool    `json:"require_tools,omitempty"`
-	RequireVision     *bool    `json:"require_vision,omitempty"`
-	RequireEmbeddings *bool    `json:"require_embeddings,omitempty"`
-	Regions           []string `json:"regions,omitempty"`
-	Tags              []string `json:"tags,omitempty"`
-}
-
-// RoutePolicy contains default route-level auth, quota, rate-limit, and execution controls.
-type RoutePolicy struct {
-	Auth AuthPolicy `json:"auth"`
-
-	RateLimit RateLimitPolicy `json:"rate_limit,omitempty"`
-	Quota     QuotaPolicy     `json:"quota,omitempty"`
-
-	AllowedModels []string `json:"allowed_models,omitempty"`
-
-	AllowStreaming  *bool `json:"allow_streaming,omitempty"`
-	AllowTools      *bool `json:"allow_tools,omitempty"`
-	AllowVision     *bool `json:"allow_vision,omitempty"`
-	AllowEmbeddings *bool `json:"allow_embeddings,omitempty"`
-
-	TimeoutSeconds int             `json:"timeout_seconds,omitempty"`
-	Selection      SelectionPolicy `json:"selection,omitempty"`
-	Retry          RetryPolicy     `json:"retry,omitempty"`
-	Fallback       FallbackPolicy  `json:"fallback,omitempty"`
-}
-
-// Defaults fills zero values with pragmatic route policy defaults.
-func (p *RoutePolicy) Defaults() {
-	if p.TimeoutSeconds == 0 {
-		p.TimeoutSeconds = 120
-	}
-	p.Selection.Defaults()
-	p.Retry.Defaults()
-}
-
-type AuthPolicy struct {
+type RouteAuthPolicy struct {
 	RequireVirtualKey bool `json:"require_virtual_key"`
 }
 
-type RateLimitPolicy struct {
+type RouteRateLimitPolicy struct {
 	RequestsPerMinute int `json:"requests_per_minute,omitempty"`
 	RequestsPerHour   int `json:"requests_per_hour,omitempty"`
 	ConcurrentLimit   int `json:"concurrent_limit,omitempty"`
 }
 
-type QuotaPolicy struct {
+type RouteQuotaPolicy struct {
 	DailyRequests   int `json:"daily_requests,omitempty"`
 	MonthlyRequests int `json:"monthly_requests,omitempty"`
 	DailyTokens     int `json:"daily_tokens,omitempty"`
@@ -124,17 +102,6 @@ type RetryPolicy struct {
 	RetryableStatusCodes []int `json:"retryable_status_codes,omitempty"`
 }
 
-type SelectionPolicy struct {
-	Strategy RouteSelectionStrategy `json:"strategy,omitempty"`
-}
-
-func (p *SelectionPolicy) Defaults() {
-	if p.Strategy == "" {
-		p.Strategy = RouteSelectionStrategyAuto
-	}
-}
-
-// Defaults fills zero values with pragmatic retry defaults for provider calls.
 func (p *RetryPolicy) Defaults() {
 	if p.MaxAttempts == 0 {
 		p.MaxAttempts = 1
@@ -150,4 +117,31 @@ func (p *RetryPolicy) Defaults() {
 type FallbackPolicy struct {
 	Enabled       bool  `json:"enabled,omitempty"`
 	OnStatusCodes []int `json:"on_status_codes,omitempty"`
+}
+
+// Normalize fills runtime defaults on a route value before it is used by the gateway.
+func (r *AgentRoute) Normalize() {
+	r.TargetPolicy.Normalize()
+}
+
+func (r AgentRoute) usesDirectProvider() bool {
+	return r.TargetPolicy.ProviderTarget.ProviderID != ""
+}
+
+func (p *RouteTargetPolicy) Normalize() {
+	if p == nil {
+		return
+	}
+	for i := range p.ModelTargets {
+		p.ModelTargets[i].Normalize()
+	}
+}
+
+func (t *RouteModelTarget) Normalize() {
+	if t == nil {
+		return
+	}
+	if t.Strategy == "" {
+		t.Strategy = RouteSelectionStrategyAuto
+	}
 }

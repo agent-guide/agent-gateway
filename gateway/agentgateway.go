@@ -9,6 +9,7 @@ import (
 
 	"github.com/agent-guide/caddy-agent-gateway/cliauth"
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
+	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
@@ -24,7 +25,7 @@ type BootstrapOptions struct {
 	CLIAuthManager    *cliauth.Manager
 	CLIAuthRefresher  *cliauth.AutoRefresher
 	CredentialManager *credentialmgr.Manager
-	Selector          routepkg.RouteTargetSelector
+	StaticModels      []modelcatalog.ManagedModel
 }
 
 type AgentGateway struct {
@@ -38,7 +39,7 @@ type AgentGateway struct {
 	cliauthManager    *cliauth.Manager
 	cliauthRefresher  *cliauth.AutoRefresher
 	credentialManager *credentialmgr.Manager
-	Selector          routepkg.RouteTargetSelector
+	modelCatalog      modelcatalog.Service
 }
 
 func NewAgentGateway() *AgentGateway {
@@ -64,7 +65,9 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	g.cliauthManager = opts.CLIAuthManager
 	g.cliauthRefresher = opts.CLIAuthRefresher
 	g.credentialManager = opts.CredentialManager
-	g.Selector = opts.Selector
+	if err := g.configureModelCatalog(ctx, opts.ConfigStore, opts.StaticModels); err != nil {
+		return err
+	}
 	g.configured = true
 	return nil
 }
@@ -81,7 +84,7 @@ func (g *AgentGateway) Reset() {
 	g.cliauthManager = nil
 	g.cliauthRefresher = nil
 	g.credentialManager = nil
-	g.Selector = nil
+	g.modelCatalog = nil
 }
 
 func (g *AgentGateway) ConfigStore() configstoreintf.ConfigStorer {
@@ -126,6 +129,12 @@ func (g *AgentGateway) ProviderManager() *ProviderManager {
 	return g.providerManager
 }
 
+func (g *AgentGateway) ModelCatalog() modelcatalog.Service {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.modelCatalog
+}
+
 func (g *AgentGateway) ResolveRoute(ctx context.Context, r *http.Request) (routepkg.AgentRoute, error) {
 	routeManager := g.AgentRouteManager()
 	if routeManager == nil {
@@ -147,49 +156,44 @@ func (g *AgentGateway) ResolveRoute(ctx context.Context, r *http.Request) (route
 	return route, nil
 }
 
-func (g *AgentGateway) resolveProviderID(route routepkg.AgentRoute, routeResolveReq routepkg.RouteResolveRequest) (string, error) {
-	if err := route.ValidateRequestPolicy(routeResolveReq); err != nil {
-		return "", err
-	}
-
-	selector := g.selector()
-	target, err := selector.SelectTarget(route, routeResolveReq)
-	if err != nil {
-		return "", err
-	}
-	if target == nil || target.ProviderID == "" {
-		return "", statuserr.New(http.StatusBadGateway, fmt.Sprintf("route %q has no eligible targets", route.ID))
-	}
-	return target.ProviderID, nil
+type ResolvedRouteExecution struct {
+	Provider       provider.Provider
+	ProviderID     string
+	RouteModelName string
+	UpstreamModel  string
 }
 
-func (g *AgentGateway) ResolveProvider(ctx context.Context, route routepkg.AgentRoute, routeResolveReq routepkg.RouteResolveRequest) (provider.Provider, error) {
+func (g *AgentGateway) ResolveRouteExecution(ctx context.Context, route routepkg.AgentRoute, routeResolveReq routepkg.RouteResolveRequest) (*ResolvedRouteExecution, error) {
 	resolver := g.providerResolver()
 	if resolver == nil {
 		return nil, statuserr.New(http.StatusServiceUnavailable, "provider resolver is not configured")
 	}
 
-	providerID, err := g.resolveProviderID(route, routeResolveReq)
+	target, err := route.ResolveTarget(ctx, g.ModelCatalog(), g.ProviderManager(), routeResolveReq)
 	if err != nil {
 		return nil, err
 	}
+	exec := &ResolvedRouteExecution{
+		ProviderID:     target.ProviderID,
+		RouteModelName: target.Model,
+		UpstreamModel:  target.UpstreamModel,
+	}
 
-	prov, err := resolver.ResolveProvider(ctx, providerID)
+	prov, err := resolver.ResolveProvider(ctx, exec.ProviderID)
 	if err != nil || prov == nil {
 		if errors.Is(err, ErrProviderDisabled) {
-			return nil, statuserr.New(http.StatusForbidden, fmt.Sprintf("route target provider %q is disabled", providerID))
+			return nil, statuserr.New(http.StatusForbidden, fmt.Sprintf("route target provider %q is disabled", exec.ProviderID))
 		}
-		return nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("route target provider %q is not configured", providerID))
+		return nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("route target provider %q is not configured", exec.ProviderID))
 	}
-	prov = g.wrapProvider(prov)
-
-	return prov, nil
+	exec.Provider = g.wrapProvider(prov)
+	return exec, nil
 }
 
 func (g *AgentGateway) ResolveVirtualKey(ctx context.Context, httpReq *http.Request, r routepkg.AgentRoute) (*virtualkeypkg.VirtualKey, error) {
 	rawKey := virtualkeypkg.ExtractAPIKey(httpReq)
 	if rawKey == "" {
-		if r.Policy.Auth.RequireVirtualKey {
+		if r.AuthPolicy.RequireVirtualKey {
 			return nil, statuserr.New(http.StatusUnauthorized, "virtual key is required")
 		}
 		return nil, nil
@@ -216,15 +220,6 @@ func (g *AgentGateway) providerResolver() ProviderResolver {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.providerManager
-}
-
-func (g *AgentGateway) selector() routepkg.RouteTargetSelector {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	if g.Selector == nil {
-		return routepkg.DefaultRouteSelector{}
-	}
-	return g.Selector
 }
 
 func (g *AgentGateway) wrapProvider(prov provider.Provider) provider.Provider {
@@ -295,5 +290,22 @@ func (g *AgentGateway) configureProviderResolver(ctx context.Context, configStor
 		return fmt.Errorf("init static providers: %w", err)
 	}
 	g.providerManager = providerManager
+	return nil
+}
+
+func (g *AgentGateway) configureModelCatalog(ctx context.Context, configStore configstoreintf.ConfigStorer, staticModels []modelcatalog.ManagedModel) error {
+	if g.modelCatalog != nil {
+		return fmt.Errorf("model catalog is not nil")
+	}
+
+	var modelStore configstoreintf.ModelStorer
+	if configStore != nil {
+		var err error
+		modelStore, err = configStore.GetModelStore(ctx, modelcatalog.DecodeStoredManagedModel)
+		if err != nil {
+			return fmt.Errorf("get model store: %w", err)
+		}
+	}
+	g.modelCatalog = modelcatalog.NewService(modelStore, g.providerManager, staticModels)
 	return nil
 }

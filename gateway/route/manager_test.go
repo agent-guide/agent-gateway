@@ -3,16 +3,29 @@ package route
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
+	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 )
 
 type testManagedRouteStore struct {
 	items    map[string]*AgentRoute
 	getCalls int
+}
+
+type testRouteProviderResolver struct {
+	configured map[string]bool
+}
+
+func (r testRouteProviderResolver) ResolveProvider(_ context.Context, providerID string) (provider.Provider, string, error) {
+	if r.configured[providerID] {
+		return nil, providerID, nil
+	}
+	return nil, "", fmt.Errorf("provider %q is not configured", providerID)
 }
 
 func (s *testManagedRouteStore) ListByTag(_ context.Context, _ string) ([]any, error) {
@@ -71,12 +84,9 @@ func TestAgentRouteManagerGetCachesDynamicRoute(t *testing.T) {
 	}
 	manager := NewAgentRouteManager(store)
 
-	got, err := manager.Get(context.Background(), "chat-prod")
+	_, err := manager.Get(context.Background(), "chat-prod")
 	if err != nil {
 		t.Fatalf("Get returned error: %v", err)
-	}
-	if got.Policy.TimeoutSeconds != 120 {
-		t.Fatalf("TimeoutSeconds = %d, want 120", got.Policy.TimeoutSeconds)
 	}
 
 	if _, err := manager.Get(context.Background(), "chat-prod"); err != nil {
@@ -113,8 +123,10 @@ func TestAgentRouteManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	manager := NewAgentRouteManager(store)
 
 	if err := manager.Create(context.Background(), AgentRoute{
-		ID:      "chat-prod",
-		Targets: []RouteTarget{{ProviderID: "openai"}},
+		ID: "chat-prod",
+		TargetPolicy: RouteTargetPolicy{
+			ProviderTarget: DirectProviderTarget{ProviderID: "openai"},
+		},
 	}, ""); err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
@@ -130,7 +142,9 @@ func TestAgentRouteManagerCreateUpdateDeleteManageCache(t *testing.T) {
 
 	if err := manager.Update(context.Background(), "chat-prod", AgentRoute{
 		Description: "updated",
-		Targets:     []RouteTarget{{ProviderID: "anthropic"}},
+		TargetPolicy: RouteTargetPolicy{
+			ProviderTarget: DirectProviderTarget{ProviderID: "anthropic"},
+		},
 	}); err != nil {
 		t.Fatalf("Update returned error: %v", err)
 	}
@@ -222,5 +236,56 @@ func TestAgentRouteManagerMatchReturnsDisabledRoute(t *testing.T) {
 	}
 	if got.ID != "disabled" {
 		t.Fatalf("matched route = %q, want disabled", got.ID)
+	}
+}
+
+func TestAgentRouteManagerValidateAcceptsDirectProviderRoute(t *testing.T) {
+	store := &testManagedRouteStore{
+		items: map[string]*AgentRoute{
+			"chat-prod": {
+				ID:     "chat-prod",
+				LLMAPI: "openai",
+				TargetPolicy: RouteTargetPolicy{
+					ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
+				},
+			},
+		},
+	}
+	manager := NewAgentRouteManager(store)
+
+	err := manager.Validate(context.Background(), "chat-prod", testRouteProviderResolver{
+		configured: map[string]bool{"openai-main": true},
+	})
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+}
+
+func TestAgentRouteManagerValidateChecksAllReferencedProviderIDs(t *testing.T) {
+	store := &testManagedRouteStore{
+		items: map[string]*AgentRoute{
+			"chat-prod": {
+				ID:     "chat-prod",
+				LLMAPI: "openai",
+				TargetPolicy: RouteTargetPolicy{
+					ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
+					ModelTargets: []RouteModelTarget{{
+						Name: "chat-fast",
+						Candidates: []RouteModelCandidate{{
+							ProviderID:    "missing-provider",
+							UpstreamModel: "gpt-4.1-mini",
+						}},
+					}},
+				},
+			},
+		},
+	}
+	manager := NewAgentRouteManager(store)
+
+	err := manager.Validate(context.Background(), "chat-prod", testRouteProviderResolver{
+		configured: map[string]bool{"openai-main": true},
+	})
+	if err == nil {
+		t.Fatal("Validate returned nil error, want missing provider rejection")
 	}
 }

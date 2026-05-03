@@ -60,6 +60,30 @@ type ProviderCapabilities struct {
 	MaxOutputTokens int
 }
 
+// ModelCapabilities describes what one specific upstream model supports.
+// It is the routing authority for model-catalog decisions.
+type ModelCapabilities struct {
+	Streaming       bool `json:"streaming,omitempty"`
+	Tools           bool `json:"tools,omitempty"`
+	Vision          bool `json:"vision,omitempty"`
+	Embeddings      bool `json:"embeddings,omitempty"`
+	ContextWindow   int  `json:"context_window,omitempty"`
+	MaxOutputTokens int  `json:"max_output_tokens,omitempty"`
+}
+
+// ModelCapabilitiesFromProviderSummary converts coarse provider-level capability
+// metadata into a per-model fallback shape.
+func ModelCapabilitiesFromProviderSummary(c ProviderCapabilities) ModelCapabilities {
+	return ModelCapabilities{
+		Streaming:       c.Streaming,
+		Tools:           c.Tools,
+		Vision:          c.Vision,
+		Embeddings:      c.Embeddings,
+		ContextWindow:   c.ContextWindow,
+		MaxOutputTokens: c.MaxOutputTokens,
+	}
+}
+
 // ProviderConfig contains configuration for a provider instance.
 type ProviderConfig struct {
 	// Id is the unique provider config ID.

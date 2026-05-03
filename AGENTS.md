@@ -8,8 +8,9 @@ The current production path is:
 1. `agent_gateway` app loads providers, routes, virtual keys, credentials, and CLI auth state
 2. `agent_route_dispatcher` matches an incoming HTTP request to a route
 3. the route's `llm_api` selects the protocol adapter (`openai` or `anthropic`)
-4. the gateway validates the VirtualKey and resolves an upstream provider
-5. the selected provider executes `Generate` or `Stream`
+4. the gateway validates the VirtualKey
+5. in logical-model routes, the model catalog resolves the logical model to one concrete `(provider_id, upstream_model)` binding
+6. the selected provider executes `Generate` or `Stream`
 
 MCP, memory, agent, and metrics areas exist in the repo, but the main implemented runtime today is LLM routing plus Admin APIs.
 
@@ -72,7 +73,9 @@ Responsibilities:
 - rewrite the request path by removing the route `path_prefix`
 - validate the VirtualKey
 - prepare the provider request payload
-- resolve the upstream provider and invoke the selected protocol handler
+- resolve the logical model or direct provider target
+- rewrite the provider-facing request model when logical-model routing is used
+- invoke the selected protocol handler
 
 ### Protocol handler modules
 
@@ -123,17 +126,27 @@ Important types:
 
 - `AgentRoute`
 - `RouteMatch`
-- `RouteTarget`
+- `RouteTargetPolicy`
+- `DirectProviderTarget`
 - `RoutePolicy`
 - `SelectionPolicy`
 - `RetryPolicy`
 
-Current route selection vocabulary:
+Current route modes:
 
-- strategies: `auto`, `weighted`, `failover`, `conditional`
-- target modes: `weighted`, `failover`, `conditional`
+- model-target mode: `target_policy.model_targets` with optional `default_model`
+- direct-provider mode: `target_policy.provider_target.provider_id`
 
 The route model uses `llm_api` and `require_virtual_key`. Do not reintroduce the old `local API key` naming in new code or docs.
+
+### `gateway/modelcatalog/`
+
+This package owns provider model discovery, managed model overlays, and runtime validation of concrete route candidates.
+
+Important types:
+
+- `ManagedModel`
+- `ProviderModelSnapshot`
 
 ### `gateway/virtualkey/`
 
@@ -218,6 +231,7 @@ The top-level storage interface is `ConfigStorer`, which vends:
 - `ProviderConfigStorer`
 - `VirtualKeyStorer`
 - `RouteStorer`
+- `ModelStorer`
 
 Current persisted backend:
 
@@ -233,12 +247,14 @@ HTTP request
   -> rewrite path using route.match.path_prefix
   -> AgentGateway.ResolveVirtualKey(...)
   -> protocol handler PrepareLLMApiRequest(...)
-  -> AgentGateway.ResolveProvider(...)
+  -> if route uses model targets: resolve the requested route model name to one concrete binding and rewrite request model
+  -> else: use route.target_policy.provider_target.provider_id
+  -> resolve provider instance
   -> provider.Chat(...) or provider.StreamChat(...)
   -> protocol handler writes JSON or SSE response
 ```
 
-Key detail: provider resolution happens after the protocol handler has parsed the request, because model and streaming flags are part of route target selection.
+Key detail: provider resolution still happens after protocol parsing, but the request `model` now means route target name in model-target mode and upstream model name in direct-provider mode.
 
 ## Caddyfile Shape
 
@@ -268,8 +284,7 @@ Minimal example:
             llm_api openai
             path_prefix /
             require_virtual_key
-            allowed_model gpt-4.1
-            target provider openai-main
+            target model chat-default openai-main gpt-4.1 weight 100 default
         }
     }
 }
@@ -299,6 +314,10 @@ Implemented families:
 - `/admin/routes/...`
 - `/admin/virtual_keys/...`
 - `/admin/credentials/...`
+- `/admin/models/providers/{provider_id}/discovered`
+- `/admin/models/providers/{provider_id}/refresh`
+- `/admin/models/managed/...`
+- `/admin/models/logical/...`
 - `/admin/cliauth/authenticators/...`
 - `/admin/cliauth/refresher/...`
 - `/admin/cliauth/logins/...`

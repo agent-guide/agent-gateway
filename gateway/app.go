@@ -11,6 +11,7 @@ import (
 	"github.com/agent-guide/caddy-agent-gateway/cliauth"
 	configstoreIntf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/configstore/sqlite"
+	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
@@ -30,6 +31,8 @@ type App struct {
 	ConfigStoreRaw caddy.ModuleMap `json:"config_store,omitempty" caddy:"namespace=agent_gateway.config_stores"`
 	// Routes lists statically configured gateway routes from the Caddyfile app block.
 	Routes []routepkg.AgentRoute `json:"routes,omitempty"`
+	// Models lists statically configured managed concrete models derived from the Caddyfile app block.
+	Models []modelcatalog.ManagedModel `json:"models,omitempty"`
 	// VirtualKeys lists statically configured gateway consumer API keys from the Caddyfile app block.
 	VirtualKeys []virtualkeypkg.VirtualKey `json:"virtual_keys,omitempty"`
 
@@ -81,6 +84,7 @@ func (a *App) Provision(ctx caddy.Context) error {
 		StaticRoutes:      a.Routes,
 		StaticVirtualKeys: a.VirtualKeys,
 		StaticProviders:   a.providers,
+		StaticModels:      a.Models,
 		ConfigStore:       a.configStorer,
 		CLIAuthManager:    a.cliauthManager,
 		CLIAuthRefresher:  a.cliauthRefresher,

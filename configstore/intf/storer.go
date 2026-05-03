@@ -14,4 +14,6 @@ type ConfigStorer interface {
 	GetVirtualKeyStore(ctx context.Context, decodeVirtualKey ConfigObjectDecoder) (VirtualKeyStorer, error)
 
 	GetRouteStore(ctx context.Context, decodeRoute ConfigObjectDecoder) (RouteStorer, error)
+
+	GetModelStore(ctx context.Context, decodeModel ConfigObjectDecoder) (ModelStorer, error)
 }

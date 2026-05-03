@@ -122,7 +122,12 @@ func (p *Provider) ListModels(ctx context.Context) ([]provider.ModelInfo, error)
 
 	out := make([]provider.ModelInfo, len(modelsResp.Data))
 	for i, m := range modelsResp.Data {
-		out[i] = provider.ModelInfo{ID: m.ID, Name: m.DisplayName}
+		out[i] = provider.ModelInfo{
+			ID:           m.ID,
+			Name:         m.DisplayName,
+			DisplayName:  m.DisplayName,
+			Capabilities: provider.ModelCapabilitiesFromProviderSummary(p.Capabilities()),
+		}
 	}
 	return out, nil
 }

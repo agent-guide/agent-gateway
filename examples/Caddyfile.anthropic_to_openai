@@ -41,9 +41,6 @@
 			llm_api anthropic
 			path_prefix /myanthropicprefix
 			require_virtual_key
-			allowed_model glm-4.7
-			allowed_model glm-5.1
-			allowed_model deepseek-chat
 			target provider deepseek-simulated-openai
 		}
 	}

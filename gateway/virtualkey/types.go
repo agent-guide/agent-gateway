@@ -1,6 +1,9 @@
 package virtualkey
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // VirtualKey represents a gateway consumer identity, not an upstream provider credential.
 type VirtualKey struct {
@@ -16,4 +19,16 @@ type VirtualKey struct {
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 	ExpiresAt     time.Time `json:"expires_at,omitempty"`
+}
+
+// DecodeStoredVirtualKey decodes virtual key records.
+func DecodeStoredVirtualKey(data []byte) (any, error) {
+	var key VirtualKey
+	if err := json.Unmarshal(data, &key); err != nil {
+		return nil, err
+	}
+	if key.Key == "" {
+		return nil, &json.UnmarshalTypeError{Field: "key"}
+	}
+	return &key, nil
 }

@@ -149,8 +149,9 @@ func (p *Provider) ListModels(ctx context.Context) ([]provider.ModelInfo, error)
 		out[i] = provider.ModelInfo{
 			ID:          id,
 			Name:        m.DisplayName,
+			DisplayName: m.DisplayName,
 			Description: m.Description,
-			Capabilities: provider.ProviderCapabilities{
+			Capabilities: provider.ModelCapabilities{
 				ContextWindow:   m.InputTokenLimit,
 				MaxOutputTokens: m.OutputTokenLimit,
 			},
