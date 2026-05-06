@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -76,12 +75,6 @@ func isCredentialBlockedForModel(cred *ManagedCredential, model string, now time
 	// Check per-model state first.
 	if model != "" && len(cred.ModelStates) > 0 {
 		state, ok := cred.ModelStates[model]
-		if !ok {
-			baseModel := canonicalModelKey(model)
-			if baseModel != "" && baseModel != model {
-				state, ok = cred.ModelStates[baseModel]
-			}
-		}
 		if ok && state != nil {
 			if state.AuthInvalid {
 				return true, blockReasonDisabled, time.Time{}
@@ -114,23 +107,6 @@ func isCredentialBlockedForModel(cred *ManagedCredential, model string, now time
 		return true, blockReasonOther, next
 	}
 	return false, blockReasonNone, time.Time{}
-}
-
-// canonicalModelKey strips variant suffixes for consistent model key lookup.
-func canonicalModelKey(model string) string {
-	model = strings.TrimSpace(model)
-	if idx := strings.LastIndexByte(model, ':'); idx > 0 {
-		return strings.TrimSpace(model[:idx])
-	}
-	return model
-}
-
-// credentialPriority returns the scheduling priority for a credential.
-func credentialPriority(cred *ManagedCredential) int {
-	if cred == nil {
-		return 0
-	}
-	return cred.Priority()
 }
 
 // cooldownError is returned when all credentials for a model are in cooldown.

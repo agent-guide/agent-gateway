@@ -8,7 +8,77 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	sched "github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr/scheduler"
 )
+
+type testCredentialLifecycleListener struct {
+	registered   []*ManagedCredential
+	updated      []*ManagedCredential
+	deregistered []*ManagedCredential
+	replaced     [][]*ManagedCredential
+}
+
+func (l *testCredentialLifecycleListener) OnCredentialRegistered(_ context.Context, cred *ManagedCredential) {
+	if l == nil || cred == nil {
+		return
+	}
+	l.registered = append(l.registered, cred.Clone())
+}
+
+func (l *testCredentialLifecycleListener) OnCredentialUpdated(_ context.Context, cred *ManagedCredential) {
+	if l == nil || cred == nil {
+		return
+	}
+	l.updated = append(l.updated, cred.Clone())
+}
+
+func (l *testCredentialLifecycleListener) OnCredentialDeregistered(_ context.Context, cred *ManagedCredential) {
+	if l == nil || cred == nil {
+		return
+	}
+	l.deregistered = append(l.deregistered, cred.Clone())
+}
+
+func (l *testCredentialLifecycleListener) OnCredentialsReplaced(_ context.Context, creds []*ManagedCredential) {
+	if l == nil {
+		return
+	}
+	snapshot := make([]*ManagedCredential, 0, len(creds))
+	for _, cred := range creds {
+		if cred == nil {
+			continue
+		}
+		snapshot = append(snapshot, cred.Clone())
+	}
+	l.replaced = append(l.replaced, snapshot)
+}
+
+type testCredentialStore struct {
+	items []any
+}
+
+func (s *testCredentialStore) ListByProviderType(_ context.Context, _ string) ([]any, error) {
+	out := make([]any, len(s.items))
+	copy(out, s.items)
+	return out, nil
+}
+
+func (s *testCredentialStore) Create(_ context.Context, _ string, _ string, _ any) (string, error) {
+	return "", nil
+}
+
+func (s *testCredentialStore) Update(_ context.Context, _ string, _ any) error {
+	return nil
+}
+
+func (s *testCredentialStore) Delete(_ context.Context, _ string) error {
+	return nil
+}
+
+func (s *testCredentialStore) Get(_ context.Context, _ string) (string, any, error) {
+	return "", nil, nil
+}
 
 type testManualRefresher struct {
 	refreshFn func(context.Context, *Credential) (*Credential, error)
@@ -21,8 +91,21 @@ func (r *testManualRefresher) Refresh(ctx context.Context, cred *Credential) (*C
 	return r.refreshFn(ctx, cred)
 }
 
-func TestPickWithFilterSelectsRequestedSource(t *testing.T) {
-	mgr := NewManager(nil, nil, nil)
+func newTestScheduler(t *testing.T, mgr *Manager) sched.CredentialScheduler {
+	t.Helper()
+	scheduler := sched.NewScheduler("", nil)
+	listener, ok := scheduler.(CredentialLifecycleListener)
+	if !ok {
+		t.Fatal("scheduler does not implement CredentialLifecycleListener")
+	}
+	mgr.AddListener(listener)
+	scheduler.Rebuild(mgr.ListCredentials(Filter{}))
+	return scheduler
+}
+
+func TestPickSelectsRequestedSource(t *testing.T) {
+	mgr := NewManager(nil)
+	scheduler := newTestScheduler(t, mgr)
 	for _, cred := range []*Credential{
 		{ID: "api-key", ProviderType: "openai", ProviderID: "openai", Source: SourceAPIKey},
 		{ID: "cliauth", ProviderType: "openai", ProviderID: "openai", Source: SourceCLIAuthToken},
@@ -32,22 +115,22 @@ func TestPickWithFilterSelectsRequestedSource(t *testing.T) {
 		}
 	}
 
-	picked, err := mgr.PickWithFilter(context.Background(), Filter{
-		Source:       SourceCLIAuthToken,
-		ProviderType: "openai",
-		ProviderID:   "openai",
-		Model:        "gpt-test",
+	picked, err := scheduler.Pick(context.Background(), sched.Filter{
+		Source:     SourceCLIAuthToken,
+		ProviderID: "openai",
+		Model:      "gpt-test",
 	}, nil)
 	if err != nil {
-		t.Fatalf("PickWithFilter returned error: %v", err)
+		t.Fatalf("Pick returned error: %v", err)
 	}
 	if picked.ID != "cliauth" {
 		t.Fatalf("picked credential = %q, want cliauth", picked.ID)
 	}
 }
 
-func TestPickWithFilterSelectsRequestedProviderID(t *testing.T) {
-	mgr := NewManager(nil, nil, nil)
+func TestPickSelectsRequestedProviderID(t *testing.T) {
+	mgr := NewManager(nil)
+	scheduler := newTestScheduler(t, mgr)
 	for _, cred := range []*Credential{
 		{ID: "openai-main", ProviderType: "openai", ProviderID: "openai-main", Source: SourceAPIKey},
 		{ID: "openai-backup", ProviderType: "openai", ProviderID: "openai-backup", Source: SourceAPIKey},
@@ -57,33 +140,35 @@ func TestPickWithFilterSelectsRequestedProviderID(t *testing.T) {
 		}
 	}
 
-	picked, err := mgr.PickWithFilter(context.Background(), Filter{
+	picked, err := scheduler.Pick(context.Background(), sched.Filter{
 		Source:     SourceAPIKey,
 		ProviderID: "openai-main",
 		Model:      "gpt-test",
 	}, nil)
 	if err != nil {
-		t.Fatalf("PickWithFilter returned error: %v", err)
+		t.Fatalf("Pick returned error: %v", err)
 	}
 	if picked.ID != "openai-main" {
 		t.Fatalf("picked credential = %q, want openai-main", picked.ID)
 	}
 }
 
-func TestPickWithFilterRejectsMissingProviderID(t *testing.T) {
-	mgr := NewManager(nil, nil, nil)
+func TestPickRejectsMissingProviderID(t *testing.T) {
+	mgr := NewManager(nil)
+	scheduler := newTestScheduler(t, mgr)
 
-	_, err := mgr.PickWithFilter(context.Background(), Filter{
+	_, err := scheduler.Pick(context.Background(), sched.Filter{
 		ProviderType: "openai",
 		Model:        "gpt-test",
 	}, nil)
 	if err == nil {
-		t.Fatal("PickWithFilter returned nil error, want provider_id requirement")
+		t.Fatal("Pick returned nil error, want provider_id requirement")
 	}
 }
 
-func TestPickWithFilterReturnsNotFoundWhenFilteredCandidatesAbsent(t *testing.T) {
-	mgr := NewManager(nil, nil, nil)
+func TestPickReturnsNotFoundWhenFilteredCandidatesAbsent(t *testing.T) {
+	mgr := NewManager(nil)
+	scheduler := newTestScheduler(t, mgr)
 	for _, cred := range []*Credential{
 		{ID: "api-key", ProviderType: "openai", ProviderID: "openai", Source: SourceAPIKey},
 		{ID: "api-key-2", ProviderType: "openai", ProviderID: "openai", Source: SourceAPIKey},
@@ -93,27 +178,27 @@ func TestPickWithFilterReturnsNotFoundWhenFilteredCandidatesAbsent(t *testing.T)
 		}
 	}
 
-	_, err := mgr.PickWithFilter(context.Background(), Filter{
-		Source:       SourceCLIAuthToken,
-		ProviderType: "openai",
-		ProviderID:   "openai",
-		Model:        "gpt-test",
+	_, err := scheduler.Pick(context.Background(), sched.Filter{
+		Source:     SourceCLIAuthToken,
+		ProviderID: "openai",
+		Model:      "gpt-test",
 	}, nil)
 	if err == nil {
-		t.Fatal("PickWithFilter returned nil error, want credential_not_found")
+		t.Fatal("Pick returned nil error, want credential_not_found")
 	}
 
 	var credErr *Error
 	if !errors.As(err, &credErr) {
-		t.Fatalf("PickWithFilter error type = %T, want *Error", err)
+		t.Fatalf("Pick error type = %T, want *Error", err)
 	}
 	if credErr.Code != "credential_not_found" {
 		t.Fatalf("error code = %q, want credential_not_found", credErr.Code)
 	}
 }
 
-func TestPickWithFilterReturnsCooldownWhenFilteredCandidatesAllCoolingDown(t *testing.T) {
-	mgr := NewManager(nil, nil, nil)
+func TestPickReturnsCooldownWhenFilteredCandidatesAllCoolingDown(t *testing.T) {
+	mgr := NewManager(nil)
+	scheduler := newTestScheduler(t, mgr)
 	for _, cred := range []*Credential{
 		{ID: "cli-1", ProviderType: "openai", ProviderID: "openai", Source: SourceCLIAuthToken},
 		{ID: "cli-2", ProviderType: "openai", ProviderID: "openai", Source: SourceCLIAuthToken},
@@ -125,11 +210,11 @@ func TestPickWithFilterReturnsCooldownWhenFilteredCandidatesAllCoolingDown(t *te
 	}
 
 	for _, id := range []string{"cli-1", "cli-2"} {
-		mgr.MarkResult(context.Background(), Result{
+		scheduler.MarkResult(context.Background(), sched.Result{
 			CredentialID: id,
 			ProviderType: "openai",
 			Model:        "gpt-test",
-			Error: &Error{
+			Error: &sched.Error{
 				Message:    "quota exceeded",
 				HTTPStatus: http.StatusTooManyRequests,
 				Retryable:  true,
@@ -137,14 +222,13 @@ func TestPickWithFilterReturnsCooldownWhenFilteredCandidatesAllCoolingDown(t *te
 		})
 	}
 
-	_, err := mgr.PickWithFilter(context.Background(), Filter{
-		Source:       SourceCLIAuthToken,
-		ProviderType: "openai",
-		ProviderID:   "openai",
-		Model:        "gpt-test",
+	_, err := scheduler.Pick(context.Background(), sched.Filter{
+		Source:     SourceCLIAuthToken,
+		ProviderID: "openai",
+		Model:      "gpt-test",
 	}, nil)
 	if err == nil {
-		t.Fatal("PickWithFilter returned nil error, want cooldown error")
+		t.Fatal("Pick returned nil error, want cooldown error")
 	}
 
 	type statusCoder interface {
@@ -152,7 +236,7 @@ func TestPickWithFilterReturnsCooldownWhenFilteredCandidatesAllCoolingDown(t *te
 	}
 	var sc statusCoder
 	if !errors.As(err, &sc) {
-		t.Fatalf("PickWithFilter error type = %T, want status code capable error", err)
+		t.Fatalf("Pick error type = %T, want status code capable error", err)
 	}
 	if sc.StatusCode() != http.StatusTooManyRequests {
 		t.Fatalf("status code = %d, want %d", sc.StatusCode(), http.StatusTooManyRequests)
@@ -162,8 +246,9 @@ func TestPickWithFilterReturnsCooldownWhenFilteredCandidatesAllCoolingDown(t *te
 	}
 }
 
-func TestPickWithFilterReturnsUnavailableWhenFilteredCandidateBlockedButNotCoolingDown(t *testing.T) {
-	mgr := NewManager(nil, nil, nil)
+func TestPickReturnsUnavailableWhenFilteredCandidateBlockedButNotCoolingDown(t *testing.T) {
+	mgr := NewManager(nil)
+	scheduler := newTestScheduler(t, mgr)
 	for _, cred := range []*Credential{
 		{ID: "cli-1", ProviderType: "openai", ProviderID: "openai", Source: SourceCLIAuthToken},
 		{ID: "api-key", ProviderType: "openai", ProviderID: "openai", Source: SourceAPIKey},
@@ -174,31 +259,30 @@ func TestPickWithFilterReturnsUnavailableWhenFilteredCandidateBlockedButNotCooli
 	}
 
 	retryAfter := 5 * time.Second
-	mgr.MarkResult(context.Background(), Result{
+	scheduler.MarkResult(context.Background(), sched.Result{
 		CredentialID: "cli-1",
 		ProviderType: "openai",
 		Model:        "gpt-test",
 		RetryAfter:   &retryAfter,
-		Error: &Error{
+		Error: &sched.Error{
 			Message:    "upstream temporarily unavailable",
 			HTTPStatus: http.StatusServiceUnavailable,
 			Retryable:  true,
 		},
 	})
 
-	_, err := mgr.PickWithFilter(context.Background(), Filter{
-		Source:       SourceCLIAuthToken,
-		ProviderType: "openai",
-		ProviderID:   "openai",
-		Model:        "gpt-test",
+	_, err := scheduler.Pick(context.Background(), sched.Filter{
+		Source:     SourceCLIAuthToken,
+		ProviderID: "openai",
+		Model:      "gpt-test",
 	}, nil)
 	if err == nil {
-		t.Fatal("PickWithFilter returned nil error, want credential_unavailable")
+		t.Fatal("Pick returned nil error, want credential_unavailable")
 	}
 
 	var credErr *Error
 	if !errors.As(err, &credErr) {
-		t.Fatalf("PickWithFilter error type = %T, want *Error", err)
+		t.Fatalf("Pick error type = %T, want *Error", err)
 	}
 	if credErr.Code != "credential_unavailable" {
 		t.Fatalf("error code = %q, want credential_unavailable", credErr.Code)
@@ -206,7 +290,8 @@ func TestPickWithFilterReturnsUnavailableWhenFilteredCandidateBlockedButNotCooli
 }
 
 func TestMarkResultAppliesQuotaCooldown(t *testing.T) {
-	mgr := NewManager(nil, nil, nil)
+	mgr := NewManager(nil)
+	scheduler := newTestScheduler(t, mgr)
 	if err := mgr.RegisterCredential(context.Background(), &Credential{
 		ID:           "cred-1",
 		ProviderType: "openai",
@@ -216,11 +301,11 @@ func TestMarkResultAppliesQuotaCooldown(t *testing.T) {
 		t.Fatalf("register credential: %v", err)
 	}
 
-	mgr.MarkResult(context.Background(), Result{
+	scheduler.MarkResult(context.Background(), sched.Result{
 		CredentialID: "cred-1",
 		ProviderType: "openai",
 		Model:        "gpt-test",
-		Error: &Error{
+		Error: &sched.Error{
 			Message:    "quota exceeded",
 			HTTPStatus: http.StatusTooManyRequests,
 			Retryable:  true,
@@ -240,8 +325,127 @@ func TestMarkResultAppliesQuotaCooldown(t *testing.T) {
 	}
 }
 
+func TestManagerNotifiesSchedulerAndExternalLifecycleListener(t *testing.T) {
+	listener := &testCredentialLifecycleListener{}
+	scheduler := sched.NewScheduler("", nil)
+	mgr := NewManager(nil)
+	if schedulerListener, ok := scheduler.(CredentialLifecycleListener); ok {
+		mgr.AddListener(schedulerListener)
+	}
+	mgr.AddListener(listener)
+
+	cred := &Credential{
+		ID:           "cred-1",
+		ProviderType: "openai",
+		ProviderID:   "openai-main",
+		Source:       SourceAPIKey,
+	}
+	if err := mgr.RegisterCredential(context.Background(), cred); err != nil {
+		t.Fatalf("register credential: %v", err)
+	}
+
+	picked, err := scheduler.Pick(context.Background(), sched.Filter{
+		ProviderID: "openai-main",
+		Model:      "gpt-test",
+	}, nil)
+	if err != nil {
+		t.Fatalf("pick registered credential: %v", err)
+	}
+	if picked.ID != cred.ID {
+		t.Fatalf("picked credential = %q, want %q", picked.ID, cred.ID)
+	}
+
+	updated := cred.Clone()
+	updated.Label = "updated"
+	if err := mgr.UpdateCredential(context.Background(), updated); err != nil {
+		t.Fatalf("update credential: %v", err)
+	}
+	if got := mgr.GetCredential(cred.ID); got == nil || got.Label != "updated" {
+		t.Fatalf("stored credential label = %q, want updated", got.Label)
+	}
+
+	if err := mgr.DeregisterCredential(context.Background(), cred.ID); err != nil {
+		t.Fatalf("deregister credential: %v", err)
+	}
+	_, err = scheduler.Pick(context.Background(), sched.Filter{
+		ProviderID: "openai-main",
+		Model:      "gpt-test",
+	}, nil)
+	if err == nil {
+		t.Fatal("pick after deregister returned nil error, want not found")
+	}
+
+	if len(listener.registered) != 1 || listener.registered[0].ID != cred.ID {
+		t.Fatalf("registered events = %#v, want one event for %q", listener.registered, cred.ID)
+	}
+	if len(listener.updated) != 1 || listener.updated[0].Label != "updated" {
+		t.Fatalf("updated events = %#v, want one updated event", listener.updated)
+	}
+	if len(listener.deregistered) != 1 || listener.deregistered[0].ID != cred.ID {
+		t.Fatalf("deregistered events = %#v, want one event for %q", listener.deregistered, cred.ID)
+	}
+}
+
+func TestReloadFromStoreReplacesManagerStateAndRebuildsScheduler(t *testing.T) {
+	store := &testCredentialStore{
+		items: []any{
+			&Credential{
+				ID:           "cred-new",
+				ProviderType: "openai",
+				ProviderID:   "openai-main",
+				Source:       SourceAPIKey,
+			},
+		},
+	}
+	listener := &testCredentialLifecycleListener{}
+	scheduler := sched.NewScheduler("", nil)
+	mgr := NewManager(store)
+	if schedulerListener, ok := scheduler.(CredentialLifecycleListener); ok {
+		mgr.AddListener(schedulerListener)
+	}
+	mgr.AddListener(listener)
+
+	if err := mgr.RegisterCredential(context.Background(), &Credential{
+		ID:           "cred-old",
+		ProviderType: "openai",
+		ProviderID:   "openai-main",
+		Source:       SourceAPIKey,
+	}); err != nil {
+		t.Fatalf("register old credential: %v", err)
+	}
+
+	if err := mgr.ReloadFromStore(context.Background()); err != nil {
+		t.Fatalf("ReloadFromStore returned error: %v", err)
+	}
+
+	if got := mgr.GetCredential("cred-old"); got != nil {
+		t.Fatalf("old credential still present after reload: %+v", got)
+	}
+	if got := mgr.GetCredential("cred-new"); got == nil {
+		t.Fatal("new credential missing after reload")
+	}
+
+	picked, err := scheduler.Pick(context.Background(), sched.Filter{
+		ProviderID: "openai-main",
+		Model:      "gpt-test",
+	}, nil)
+	if err != nil {
+		t.Fatalf("pick reloaded credential: %v", err)
+	}
+	if picked.ID != "cred-new" {
+		t.Fatalf("picked credential = %q, want cred-new", picked.ID)
+	}
+
+	if len(listener.replaced) != 1 {
+		t.Fatalf("replaced events = %d, want 1", len(listener.replaced))
+	}
+	if len(listener.replaced[0]) != 1 || listener.replaced[0][0].ID != "cred-new" {
+		t.Fatalf("replaced snapshot = %#v, want only cred-new", listener.replaced[0])
+	}
+}
+
 func TestRefreshCredentialIfNeededRefreshesExpiredCLIAuthCredential(t *testing.T) {
-	mgr := NewManager(nil, nil, nil)
+	mgr := NewManager(nil)
 	mgr.SetManualRefresher("codex", &testManualRefresher{
 		refreshFn: func(_ context.Context, cred *Credential) (*Credential, error) {
 			updated := cred.Clone()
@@ -281,7 +485,7 @@ func TestRefreshCredentialIfNeededRefreshesExpiredCLIAuthCredential(t *testing.T
 }
 
 func TestRefreshCredentialIfNeededSkipsWhenNoMatchingManualRefresher(t *testing.T) {
-	mgr := NewManager(nil, nil, nil)
+	mgr := NewManager(nil)
 
 	expired := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
 	if err := mgr.RegisterCredential(context.Background(), &Credential{
@@ -313,7 +517,7 @@ func TestRefreshCredentialIfNeededSkipsWhenNoMatchingManualRefresher(t *testing.
 }
 
 func TestRefreshCredentialIfNeededHonorsCredentialSpecificExpiryDelta(t *testing.T) {
-	mgr := NewManager(nil, nil, nil)
+	mgr := NewManager(nil)
 	refreshed := false
 	mgr.SetManualRefresher("gemini", &testManualRefresher{
 		refreshFn: func(_ context.Context, cred *Credential) (*Credential, error) {

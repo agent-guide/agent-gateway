@@ -80,7 +80,7 @@ func TestDisableAuthenticatorRemovesRuntimeAuthenticator(t *testing.T) {
 }
 
 func TestRegisterAuthenticatorMaintainsManualRefresherMap(t *testing.T) {
-	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	credMgr := credentialmgr.NewManager(nil)
 	mgr := NewManager()
 	mgr.SetCredentialManager(credMgr)
 
@@ -97,7 +97,7 @@ func TestRegisterAuthenticatorMaintainsManualRefresherMap(t *testing.T) {
 }
 
 func TestDisableAuthenticatorRemovesManualRefresher(t *testing.T) {
-	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	credMgr := credentialmgr.NewManager(nil)
 	mgr := NewManager()
 	mgr.SetCredentialManager(credMgr)
 

@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
+	sched "github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/cloudwego/eino/schema"
 )
@@ -46,6 +48,18 @@ type testStatusError struct {
 func (e testStatusError) Error() string   { return e.msg }
 func (e testStatusError) StatusCode() int { return e.status }
 
+func newTestCredentialScheduler(t *testing.T, mgr *credentialmgr.Manager) sched.CredentialScheduler {
+	t.Helper()
+	scheduler := sched.NewScheduler("", nil)
+	listener, ok := scheduler.(credentialmgr.CredentialLifecycleListener)
+	if !ok {
+		t.Fatal("scheduler does not implement CredentialLifecycleListener")
+	}
+	mgr.AddListener(listener)
+	scheduler.Rebuild(mgr.ListCredentials(credentialmgr.Filter{}))
+	return scheduler
+}
+
 func TestMatchLLMApiIncludesCountTokens(t *testing.T) {
 	handler := NewHandler(nil)
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
@@ -56,7 +70,7 @@ func TestMatchLLMApiIncludesCountTokens(t *testing.T) {
 }
 
 func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
-	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	credMgr := credentialmgr.NewManager(nil)
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
 		ID:           "cred-anthropic-1",
 		ProviderType: "anthropic",
@@ -73,7 +87,8 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 			ProviderType: "anthropic",
 		},
 	}
-	prov := provider.WrapWithCredentialManager(baseProv, credMgr)
+	scheduler := newTestCredentialScheduler(t, credMgr)
+	prov := provider.WrapWithCredentialManager(baseProv, credMgr, scheduler)
 	handler := NewHandler(nil)
 
 	body, err := json.Marshal(MessagesRequest{
@@ -106,8 +121,19 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusTooManyRequests)
 	}
 
-	cred := credMgr.GetCredential("cred-anthropic-1")
-	if cred == nil || !cred.Quota.Exceeded || !cred.Unavailable || cred.NextRetryAfter.IsZero() {
-		t.Fatal("expected credential to be marked unavailable and quota exceeded")
+	_, err = scheduler.Pick(context.Background(), sched.Filter{
+		Source:     credentialmgr.SourceAPIKey,
+		ProviderID: "anthropic",
+		Model:      "claude-sonnet-4-5",
+	}, nil)
+	if err == nil {
+		t.Fatal("expected scheduler to reject quota-exceeded credential")
+	}
+	type statusCoder interface {
+		StatusCode() int
+	}
+	var sc statusCoder
+	if !errors.As(err, &sc) || sc.StatusCode() != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 scheduler error, got %v", err)
 	}
 }

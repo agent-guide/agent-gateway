@@ -3,28 +3,19 @@ package credentialmgr
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr/model"
-	sched "github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr/scheduler"
 	"github.com/google/uuid"
 )
 
 const (
 	SourceAPIKey       = "api_key"
 	SourceCLIAuthToken = "cliauth_token"
-
-	ProviderScopeProviderType = "type"
-	ProviderScopeProviderID   = "id"
-
-	defaultQuotaBackoffBase = time.Second
-	defaultQuotaBackoffMax  = 30 * time.Minute
 )
 
 type Credential = model.Credential
@@ -33,72 +24,38 @@ type QuotaState = model.QuotaState
 type ModelState = model.ModelState
 type Error = model.Error
 
-type Result struct {
-	CredentialID string
-	ProviderType string
-	Model        string
-	Success      bool
-	RetryAfter   *time.Duration
-	Error        *Error
+type CredentialLifecycleListener interface {
+	OnCredentialRegistered(ctx context.Context, cred *ManagedCredential)
+	OnCredentialUpdated(ctx context.Context, cred *ManagedCredential)
+	OnCredentialDeregistered(ctx context.Context, cred *ManagedCredential)
+	OnCredentialsReplaced(ctx context.Context, creds []*ManagedCredential)
 }
-
-type Filter struct {
-	Source       string
-	ProviderType string
-	ProviderID   string
-	Model        string
-}
-
-type Hook interface {
-	OnCredentialRegistered(ctx context.Context, cred *Credential)
-	OnCredentialUpdated(ctx context.Context, cred *Credential)
-	OnResult(ctx context.Context, result Result)
-}
-
-type NoopHook struct{}
-
-func (NoopHook) OnCredentialRegistered(context.Context, *Credential) {}
-func (NoopHook) OnCredentialUpdated(context.Context, *Credential)    {}
-func (NoopHook) OnResult(context.Context, Result)                    {}
 
 type Manager struct {
-	store         intf.CredentialStorer
-	scheduler     sched.CredentialScheduler
-	selector      sched.CredentialSelector
-	providerScope string
-	hook          Hook
+	store intf.CredentialStorer
 
 	mu               sync.RWMutex
 	creds            map[string]*ManagedCredential
+	listeners        []CredentialLifecycleListener
 	manualRefreshers map[string]ManualRefresher
-
-	quotaCooldownDisabled bool
 }
 
-func NewManager(store intf.CredentialStorer, selector sched.CredentialSelector, hook Hook) *Manager {
-	if hook == nil {
-		hook = NoopHook{}
-	}
-
+func NewManager(store intf.CredentialStorer) *Manager {
 	m := &Manager{
 		store:            store,
-		selector:         selector,
-		providerScope:    ProviderScopeProviderID,
-		hook:             hook,
 		creds:            make(map[string]*ManagedCredential),
 		manualRefreshers: make(map[string]ManualRefresher),
 	}
-
-	credentialProviderKey := func(cred *ManagedCredential) string {
-		if cred == nil {
-			return ""
-		}
-		providerKey, _ := m.getProviderKey(cred.ProviderID, cred.ProviderType)
-		return providerKey
-	}
-	m.scheduler = sched.NewScheduler(credentialProviderKey, selector)
-
 	return m
+}
+
+func (m *Manager) AddListener(listener CredentialLifecycleListener) {
+	if m == nil || listener == nil {
+		return
+	}
+	m.mu.Lock()
+	m.listeners = append(m.listeners, listener)
+	m.mu.Unlock()
 }
 
 func DecodeCredential(data []byte) (any, error) {
@@ -107,25 +64,6 @@ func DecodeCredential(data []byte) (any, error) {
 		return nil, fmt.Errorf("decode credential object: %w", err)
 	}
 	return c.Normalize(), nil
-}
-
-func (m *Manager) SetSelector(selector sched.CredentialSelector) {
-	if m == nil {
-		return
-	}
-	m.mu.Lock()
-	m.selector = selector
-	m.mu.Unlock()
-	m.scheduler.SetSelector(selector)
-}
-
-func (m *Manager) SetQuotaCooldownDisabled(disable bool) {
-	if m == nil {
-		return
-	}
-	m.mu.Lock()
-	m.quotaCooldownDisabled = disable
-	m.mu.Unlock()
 }
 
 func (m *Manager) SetManualRefresher(manualRefreshName string, refresher ManualRefresher) {
@@ -191,6 +129,35 @@ func (m *Manager) Load(ctx context.Context) error {
 	return nil
 }
 
+func (m *Manager) ReloadFromStore(ctx context.Context) error {
+	if m == nil || m.store == nil {
+		return nil
+	}
+	items, err := m.store.ListByProviderType(ctx, "")
+	if err != nil {
+		return fmt.Errorf("credential manager: reload from store: %w", err)
+	}
+	reloaded := make(map[string]*ManagedCredential, len(items))
+	for _, item := range items {
+		cred, ok := item.(*Credential)
+		if !ok || cred == nil {
+			return fmt.Errorf("credential manager: unexpected credential type %T", item)
+		}
+		normalized := cred.Normalize().Clone()
+		if normalized.ID == "" {
+			return fmt.Errorf("credential manager: credential has empty id")
+		}
+		reloaded[normalized.ID] = &ManagedCredential{Credential: *normalized}
+	}
+
+	m.mu.Lock()
+	m.creds = reloaded
+	m.mu.Unlock()
+
+	m.notifyReplaced(ctx, managedCredentialMapSnapshot(reloaded))
+	return nil
+}
+
 func (m *Manager) RegisterCredential(ctx context.Context, cred *Credential) error {
 	if m == nil {
 		return fmt.Errorf("credential manager: manager is nil")
@@ -220,12 +187,12 @@ func (m *Manager) RegisterCredential(ctx context.Context, cred *Credential) erro
 		}
 	}
 
+	managed := &ManagedCredential{Credential: *cred}
 	m.mu.Lock()
-	m.creds[cred.ID] = &ManagedCredential{Credential: *cred}
+	m.creds[cred.ID] = managed
 	m.mu.Unlock()
 
-	m.scheduler.RegisterCredential((&ManagedCredential{Credential: *cred}).Clone())
-	m.hook.OnCredentialRegistered(ctx, cred.Clone())
+	m.notifyRegistered(ctx, managed)
 	original.ID = cred.ID
 	original.CreatedAt = cred.CreatedAt
 	original.UpdatedAt = cred.UpdatedAt
@@ -253,8 +220,7 @@ func (m *Manager) UpdateCredential(ctx context.Context, cred *Credential) error 
 	m.creds[cred.ID] = managed
 	m.mu.Unlock()
 
-	m.scheduler.UpdateCredential(managed.Clone())
-	m.hook.OnCredentialUpdated(ctx, cred.Clone())
+	m.notifyUpdated(ctx, managed)
 	return nil
 }
 
@@ -268,6 +234,7 @@ func (m *Manager) DeregisterCredential(ctx context.Context, id string) error {
 	}
 
 	m.mu.Lock()
+	cred := m.creds[id]
 	_, ok := m.creds[id]
 	delete(m.creds, id)
 	m.mu.Unlock()
@@ -275,11 +242,13 @@ func (m *Manager) DeregisterCredential(ctx context.Context, id string) error {
 		return nil
 	}
 
-	m.scheduler.DeregisterCredential(id)
 	if !shouldSkipPersist(ctx) && m.store != nil {
 		if err := m.store.Delete(ctx, id); err != nil {
 			return fmt.Errorf("credential manager: delete from store: %w", err)
 		}
+	}
+	if cred != nil {
+		m.notifyDeregistered(ctx, cred)
 	}
 	return nil
 }
@@ -323,48 +292,6 @@ func (m *Manager) ListCredentials(filter Filter) []*ManagedCredential {
 		out = append(out, cred.Clone())
 	}
 	return out
-}
-
-func (m *Manager) PickWithFilter(ctx context.Context, filter Filter, tried map[string]struct{}) (*ManagedCredential, error) {
-	if m == nil {
-		return nil, &Error{Code: "manager_nil", Message: "credential manager not initialized"}
-	}
-	providerKey, err := m.getProviderKey(filter.ProviderID, filter.ProviderType)
-	if err != nil {
-		return nil, err
-	}
-	localTried := tried
-	predicate := func(cred *ManagedCredential) bool {
-		if cred == nil {
-			return false
-		}
-		if len(localTried) > 0 {
-			if _, ok := localTried[cred.ID]; ok {
-				return false
-			}
-		}
-		if !matchFilter(cred, filter) {
-			return false
-		}
-		return true
-	}
-	for {
-		cred, err := m.scheduler.Pick(ctx, providerKey, filter.Model, predicate)
-		if err != nil || cred == nil {
-			return nil, err
-		}
-		m.mu.RLock()
-		stored := m.creds[cred.ID]
-		m.mu.RUnlock()
-		if stored == nil {
-			if localTried == nil {
-				localTried = make(map[string]struct{})
-			}
-			localTried[cred.ID] = struct{}{}
-			continue
-		}
-		return stored.Clone(), nil
-	}
 }
 
 func (m *Manager) RefreshCredentialIfNeeded(ctx context.Context, credID string) (*ManagedCredential, error) {
@@ -433,155 +360,6 @@ func (m *Manager) RefreshCredentialIfNeeded(ctx context.Context, credID string) 
 	return m.GetCredential(updated.ID), nil
 }
 
-func matchFilter(cred *ManagedCredential, filter Filter) bool {
-	if cred == nil {
-		return false
-	}
-	if providerType := strings.ToLower(strings.TrimSpace(filter.ProviderType)); providerType != "" && strings.ToLower(cred.ProviderType) != providerType {
-		return false
-	}
-	if providerID := strings.ToLower(strings.TrimSpace(filter.ProviderID)); providerID != "" && strings.ToLower(cred.ProviderID) != providerID {
-		return false
-	}
-	if source := strings.ToLower(strings.TrimSpace(filter.Source)); source != "" && strings.ToLower(cred.Source) != source {
-		return false
-	}
-	return true
-}
-
-func (m *Manager) getProviderKey(providerID, providerType string) (string, error) {
-	switch m.providerScope {
-	case ProviderScopeProviderID:
-		if providerID == "" {
-			return "", errors.New("provider_id cannot be set")
-		}
-		return strings.ToLower(strings.TrimSpace(m.providerScope + ":" + providerID)), nil
-	case ProviderScopeProviderType:
-		if providerType == "" {
-			return "", errors.New("provider_type cannot be set")
-		}
-		return strings.ToLower(strings.TrimSpace(m.providerScope + ":" + providerType)), nil
-	default:
-		return "", errors.New("provider_scope cannot both empty")
-	}
-}
-
-func (m *Manager) ProviderScope() string {
-	return m.providerScope
-}
-
-func (m *Manager) MarkResult(ctx context.Context, result Result) {
-	if m == nil {
-		return
-	}
-	credID := strings.TrimSpace(result.CredentialID)
-	if credID == "" {
-		m.hook.OnResult(ctx, result)
-		return
-	}
-
-	m.mu.Lock()
-	cred := m.creds[credID]
-	if cred != nil {
-		cred = cred.Clone()
-	}
-	disableCooldown := m.quotaCooldownDisabled
-	m.mu.Unlock()
-	if cred == nil {
-		m.hook.OnResult(ctx, result)
-		return
-	}
-
-	now := time.Now().UTC()
-	changed := false
-	if result.Success {
-		if cred.Unavailable || cred.LastError != nil || cred.Quota.Exceeded || cred.AuthInvalid {
-			cred.Unavailable = false
-			cred.LastError = nil
-			cred.NextRetryAfter = time.Time{}
-			cred.Quota = QuotaState{}
-			cred.AuthInvalid = false
-			changed = true
-		}
-		if result.Model != "" {
-			if state := cred.ModelStates[result.Model]; state != nil {
-				if state.Unavailable || state.LastError != nil || state.Quota.Exceeded || state.AuthInvalid {
-					state.Unavailable = false
-					state.LastError = nil
-					state.NextRetryAfter = time.Time{}
-					state.Quota = QuotaState{}
-					state.AuthInvalid = false
-					state.UpdatedAt = now
-					changed = true
-				}
-			}
-		}
-	} else if result.Error != nil {
-		rerr := result.Error
-		changed = true
-		isQuota := rerr.HTTPStatus == http.StatusTooManyRequests
-		if isQuota && !disableCooldown {
-			backoffLevel := cred.Quota.BackoffLevel
-			backoff := computeBackoff(backoffLevel, defaultQuotaBackoffBase, defaultQuotaBackoffMax)
-			if result.RetryAfter != nil && *result.RetryAfter > backoff {
-				backoff = *result.RetryAfter
-			}
-			cred.Quota = QuotaState{
-				Exceeded:      true,
-				Reason:        rerr.Message,
-				NextRecoverAt: now.Add(backoff),
-				BackoffLevel:  backoffLevel + 1,
-			}
-			cred.Unavailable = true
-			cred.NextRetryAfter = now.Add(backoff)
-		} else if rerr.HTTPStatus == http.StatusUnauthorized || rerr.HTTPStatus == http.StatusForbidden {
-			cred.AuthInvalid = true
-			cred.LastError = rerr
-		} else {
-			cred.LastError = rerr
-			if result.RetryAfter != nil {
-				cred.Unavailable = true
-				cred.NextRetryAfter = now.Add(*result.RetryAfter)
-			}
-		}
-
-		if result.Model != "" {
-			if cred.ModelStates == nil {
-				cred.ModelStates = make(map[string]*ModelState)
-			}
-			state := cred.ModelStates[result.Model]
-			if state == nil {
-				state = &ModelState{}
-				cred.ModelStates[result.Model] = state
-			}
-			state.UpdatedAt = now
-			if isQuota && !disableCooldown {
-				state.Quota = cred.Quota
-				state.Unavailable = true
-				state.NextRetryAfter = cred.NextRetryAfter
-			} else if rerr.HTTPStatus == http.StatusUnauthorized || rerr.HTTPStatus == http.StatusForbidden {
-				state.AuthInvalid = true
-				state.LastError = rerr
-			} else {
-				state.LastError = rerr
-				if result.RetryAfter != nil {
-					state.Unavailable = true
-					state.NextRetryAfter = now.Add(*result.RetryAfter)
-				}
-			}
-		}
-	}
-
-	if changed {
-		cred.StateUpdatedAt = now
-		m.mu.Lock()
-		m.creds[cred.ID] = cred
-		m.mu.Unlock()
-		m.scheduler.UpdateCredential(cred.Clone())
-	}
-	m.hook.OnResult(ctx, result)
-}
-
 func (m *Manager) create(ctx context.Context, cred *Credential) error {
 	if m.store == nil {
 		return nil
@@ -612,20 +390,6 @@ func (m *Manager) update(ctx context.Context, cred *Credential) error {
 	return nil
 }
 
-func computeBackoff(level int, base, maxBackoff time.Duration) time.Duration {
-	if level <= 0 {
-		return base
-	}
-	d := base
-	for i := 0; i < level && d < maxBackoff; i++ {
-		d *= 2
-	}
-	if d > maxBackoff {
-		d = maxBackoff
-	}
-	return d
-}
-
 func mergeManagedCredentialLocked(existing *ManagedCredential, spec *Credential) *ManagedCredential {
 	managed := &ManagedCredential{Credential: *spec.Clone()}
 	if existing == nil {
@@ -651,4 +415,56 @@ func mergeManagedCredentialLocked(existing *ManagedCredential, spec *Credential)
 		}
 	}
 	return managed
+}
+
+func (m *Manager) listenersSnapshot() []CredentialLifecycleListener {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.listeners) == 0 {
+		return nil
+	}
+	out := make([]CredentialLifecycleListener, len(m.listeners))
+	copy(out, m.listeners)
+	return out
+}
+
+func (m *Manager) notifyRegistered(ctx context.Context, cred *ManagedCredential) {
+	for _, listener := range m.listenersSnapshot() {
+		listener.OnCredentialRegistered(ctx, cred)
+	}
+}
+
+func (m *Manager) notifyUpdated(ctx context.Context, cred *ManagedCredential) {
+	for _, listener := range m.listenersSnapshot() {
+		listener.OnCredentialUpdated(ctx, cred)
+	}
+}
+
+func (m *Manager) notifyDeregistered(ctx context.Context, cred *ManagedCredential) {
+	for _, listener := range m.listenersSnapshot() {
+		listener.OnCredentialDeregistered(ctx, cred)
+	}
+}
+
+func (m *Manager) notifyReplaced(ctx context.Context, creds []*ManagedCredential) {
+	for _, listener := range m.listenersSnapshot() {
+		listener.OnCredentialsReplaced(ctx, creds)
+	}
+}
+
+func managedCredentialMapSnapshot(creds map[string]*ManagedCredential) []*ManagedCredential {
+	if len(creds) == 0 {
+		return nil
+	}
+	out := make([]*ManagedCredential, 0, len(creds))
+	for _, cred := range creds {
+		if cred == nil {
+			continue
+		}
+		out = append(out, cred.Clone())
+	}
+	return out
 }

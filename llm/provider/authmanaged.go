@@ -9,6 +9,7 @@ import (
 
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
+	sched "github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr/scheduler"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -17,15 +18,17 @@ const staticAPIKeyCredentialIDPrefix = "provider-static-api-key:"
 type authManagedProvider struct {
 	base          Provider
 	credentialMgr *credentialmgr.Manager
+	scheduler     sched.CredentialScheduler
 }
 
-func WrapWithCredentialManager(base Provider, credMgr *credentialmgr.Manager) Provider {
-	if base == nil {
+func WrapWithCredentialManager(base Provider, credMgr *credentialmgr.Manager, scheduler sched.CredentialScheduler) Provider {
+	if base == nil || credMgr == nil {
 		return base
 	}
 	p := &authManagedProvider{
 		base:          base,
 		credentialMgr: credMgr,
+		scheduler:     scheduler,
 	}
 	return p
 }
@@ -109,10 +112,13 @@ func (p *authManagedProvider) pickCredential(ctx context.Context, model string) 
 }
 
 func (p *authManagedProvider) pickManagedCredential(ctx context.Context, source string, model string) *credentialmgr.ManagedCredential {
-	filter := credentialmgr.Filter{Source: source, Model: model}
+	if p.scheduler == nil {
+		return nil
+	}
+	filter := sched.Filter{Source: source, Model: model}
 	filter.ProviderID = p.base.Config().Id
 	filter.ProviderType = p.base.Config().ProviderType
-	cred, err := p.credentialMgr.PickWithFilter(ctx, filter, nil)
+	cred, err := p.scheduler.Pick(ctx, filter, nil)
 	if err != nil {
 		return nil
 	}
@@ -130,7 +136,7 @@ func (p *authManagedProvider) markResult(ctx context.Context, cred *credentialmg
 		return
 	}
 
-	result := credentialmgr.Result{
+	result := sched.Result{
 		CredentialID: cred.ID,
 		ProviderType: cred.ProviderType,
 		Model:        model,
@@ -142,14 +148,16 @@ func (p *authManagedProvider) markResult(ctx context.Context, cred *credentialmg
 		if errors.As(err, &se) {
 			httpStatus = se.StatusCode()
 		}
-		result.Error = &credentialmgr.Error{
+		result.Error = &sched.Error{
 			Code:       http.StatusText(httpStatus),
 			Message:    err.Error(),
 			HTTPStatus: httpStatus,
 			Retryable:  httpStatus == http.StatusTooManyRequests || httpStatus >= 500,
 		}
 	}
-	p.credentialMgr.MarkResult(ctx, result)
+	if p.scheduler != nil {
+		p.scheduler.MarkResult(ctx, result)
+	}
 }
 
 func StaticAPIKeyCredential(cfg ProviderConfig, providerID string) *credentialmgr.Credential {

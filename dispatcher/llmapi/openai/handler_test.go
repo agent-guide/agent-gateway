@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	dispatcher "github.com/agent-guide/caddy-agent-gateway/dispatcher"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
+	sched "github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/cloudwego/eino/schema"
 )
@@ -84,6 +86,18 @@ func withRouteInfo(req *http.Request) *http.Request {
 	return req
 }
 
+func newTestCredentialScheduler(t *testing.T, mgr *credentialmgr.Manager) sched.CredentialScheduler {
+	t.Helper()
+	scheduler := sched.NewScheduler("", nil)
+	listener, ok := scheduler.(credentialmgr.CredentialLifecycleListener)
+	if !ok {
+		t.Fatal("scheduler does not implement CredentialLifecycleListener")
+	}
+	mgr.AddListener(listener)
+	scheduler.Rebuild(mgr.ListCredentials(credentialmgr.Filter{}))
+	return scheduler
+}
+
 func TestMatchLLMApiRequiresVersionedOpenAIPath(t *testing.T) {
 	handler := newHandler()
 	for _, path := range []string{"/v1/chat/completions", "/v1/responses", "/v1/models", "/v1/embeddings"} {
@@ -105,7 +119,7 @@ func TestMatchLLMApiRequiresVersionedOpenAIPath(t *testing.T) {
 }
 
 func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
-	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	credMgr := credentialmgr.NewManager(nil)
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
 		ID:           "cred-openai-1",
 		ProviderType: "openai",
@@ -122,7 +136,8 @@ func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 			ProviderType: "openai",
 		},
 	}
-	prov := provider.WrapWithCredentialManager(baseProv, credMgr)
+	scheduler := newTestCredentialScheduler(t, credMgr)
+	prov := provider.WrapWithCredentialManager(baseProv, credMgr, scheduler)
 	handler := newHandler()
 
 	body, err := json.Marshal(ChatCompletionRequest{
@@ -151,16 +166,20 @@ func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusTooManyRequests)
 	}
 
-	cred := credMgr.GetCredential("cred-openai-1")
-	if cred == nil {
-		t.Fatal("credential not found after request")
+	_, err = scheduler.Pick(context.Background(), sched.Filter{
+		Source:     credentialmgr.SourceAPIKey,
+		ProviderID: "openai",
+		Model:      "gpt-4o-mini",
+	}, nil)
+	if err == nil {
+		t.Fatal("expected scheduler to reject quota-exceeded credential")
 	}
-	if !cred.Quota.Exceeded || !cred.Unavailable {
-		t.Fatal("expected credential to be marked unavailable and quota exceeded")
+	type statusCoder interface {
+		StatusCode() int
 	}
-	modelState := cred.ModelStates["gpt-4o-mini"]
-	if modelState == nil || !modelState.Quota.Exceeded || !modelState.Unavailable {
-		t.Fatal("expected model state to be marked unavailable and quota exceeded")
+	var sc statusCoder
+	if !errors.As(err, &sc) || sc.StatusCode() != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 scheduler error, got %v", err)
 	}
 }
 
@@ -469,7 +488,7 @@ func TestServeLLMApiStreamsResponsesEvents(t *testing.T) {
 }
 
 func TestServeLLMApiFallsBackWhenWrappedProviderResponsesCreateIsUnsupported(t *testing.T) {
-	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	credMgr := credentialmgr.NewManager(nil)
 	baseProv := &testProvider{
 		chatResp: &provider.ChatResponse{
 			Message: &schema.Message{
@@ -482,7 +501,7 @@ func TestServeLLMApiFallsBackWhenWrappedProviderResponsesCreateIsUnsupported(t *
 			ProviderType: "zhipu",
 		},
 	}
-	prov := provider.WrapWithCredentialManager(baseProv, credMgr)
+	prov := provider.WrapWithCredentialManager(baseProv, credMgr, newTestCredentialScheduler(t, credMgr))
 	handler := newHandler()
 
 	body := `{"model":"glm-4.7","input":"hello"}` + "\n"
@@ -508,7 +527,7 @@ func TestServeLLMApiFallsBackWhenWrappedProviderResponsesCreateIsUnsupported(t *
 }
 
 func TestServeLLMApiFallsBackWhenWrappedProviderResponsesStreamIsUnsupported(t *testing.T) {
-	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	credMgr := credentialmgr.NewManager(nil)
 	baseProv := &testProvider{
 		streamResp: schema.StreamReaderFromArray([]*schema.Message{{
 			Role:    schema.RoleType("assistant"),
@@ -519,7 +538,7 @@ func TestServeLLMApiFallsBackWhenWrappedProviderResponsesStreamIsUnsupported(t *
 			ProviderType: "zhipu",
 		},
 	}
-	prov := provider.WrapWithCredentialManager(baseProv, credMgr)
+	prov := provider.WrapWithCredentialManager(baseProv, credMgr, newTestCredentialScheduler(t, credMgr))
 	handler := newHandler()
 
 	body := `{"model":"glm-4.7","input":"hello","stream":true}` + "\n"

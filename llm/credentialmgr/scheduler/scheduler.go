@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"math"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -10,15 +11,26 @@ import (
 	"time"
 )
 
+const (
+	ProviderScopeProviderType = "type"
+	ProviderScopeProviderID   = "id"
+)
+
 // CredentialScheduler manages an in-memory set of credentials and selects
 // the best available one for each request.
 type CredentialScheduler interface {
-	// Pick selects the best available credential for the given provider scope and model.
+	// Pick selects the best available credential matching the given filter.
 	// tried is an optional set of credential IDs that have already been attempted.
-	Pick(ctx context.Context, providerKey, model string, predicate PredicateCredentialFunc) (*ManagedCredential, error)
+	Pick(ctx context.Context, filter Filter, tried map[string]struct{}) (*ManagedCredential, error)
+
+	// MarkResult updates credential availability state from a request result.
+	MarkResult(ctx context.Context, result Result)
 
 	// SetSelector replaces the active credential selector.
 	SetSelector(s CredentialSelector)
+
+	// SetQuotaCooldownDisabled disables quota cooldown handling when true.
+	SetQuotaCooldownDisabled(disable bool)
 
 	// RegisterCredential adds a new credential to the scheduler.
 	RegisterCredential(cred *ManagedCredential)
@@ -33,21 +45,21 @@ type CredentialScheduler interface {
 	Rebuild(creds []*ManagedCredential)
 }
 
-type GetProviderKeyFunc func(cred *ManagedCredential) string
-
 type PredicateCredentialFunc func(cred *ManagedCredential) bool
 
 // NewScheduler constructs a CredentialScheduler with the given credential selector.
+// If providerScope is empty, ProviderScopeProviderID is used.
 // If selector is nil, RoundRobinSelector is used.
-func NewScheduler(getProviderKeyFunc GetProviderKeyFunc, selector CredentialSelector) CredentialScheduler {
+func NewScheduler(providerScope string, selector CredentialSelector) CredentialScheduler {
 	if selector == nil {
 		selector = &RoundRobinSelector{}
 	}
+	providerScope = normalizeProviderScope(providerScope)
 	return &authScheduler{
-		selector:       selector,
-		providers:      make(map[string]*providerScheduler),
-		credProviders:  make(map[string]string),
-		getProviderKey: getProviderKeyFunc,
+		selector:      selector,
+		providers:     make(map[string]*providerScheduler),
+		credProviders: make(map[string]string),
+		providerScope: providerScope,
 	}
 }
 
@@ -62,12 +74,18 @@ const (
 )
 
 type authScheduler struct {
-	mu             sync.Mutex
-	selector       CredentialSelector
-	providers      map[string]*providerScheduler
-	credProviders  map[string]string // credID -> providerKey
-	getProviderKey GetProviderKeyFunc
+	mu            sync.Mutex
+	selector      CredentialSelector
+	providers     map[string]*providerScheduler
+	credProviders map[string]string // credID -> providerKey
+	providerScope string
+	disableQuota  bool
 }
+
+const (
+	defaultQuotaBackoffBase = time.Second
+	defaultQuotaBackoffMax  = 30 * time.Minute
+)
 
 type providerScheduler struct {
 	creds       map[string]*ManagedCredential
@@ -101,6 +119,15 @@ func (s *authScheduler) SetSelector(selector CredentialSelector) {
 	s.selector = selector
 }
 
+func (s *authScheduler) SetQuotaCooldownDisabled(disable bool) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.disableQuota = disable
+}
+
 func (s *authScheduler) Rebuild(creds []*ManagedCredential) {
 	if s == nil {
 		return
@@ -119,8 +146,16 @@ func (s *authScheduler) RegisterCredential(cred *ManagedCredential) {
 	s.upsert(cred)
 }
 
+func (s *authScheduler) OnCredentialRegistered(_ context.Context, cred *ManagedCredential) {
+	s.RegisterCredential(cred)
+}
+
 func (s *authScheduler) UpdateCredential(cred *ManagedCredential) {
 	s.upsert(cred)
+}
+
+func (s *authScheduler) OnCredentialUpdated(_ context.Context, cred *ManagedCredential) {
+	s.UpdateCredential(cred)
 }
 
 func (s *authScheduler) upsert(cred *ManagedCredential) {
@@ -145,11 +180,21 @@ func (s *authScheduler) DeregisterCredential(id string) {
 	s.removeLocked(id)
 }
 
-func (s *authScheduler) Pick(_ context.Context, providerKey, model string, predicate PredicateCredentialFunc) (*ManagedCredential, error) {
+func (s *authScheduler) OnCredentialDeregistered(_ context.Context, cred *ManagedCredential) {
+	if cred == nil {
+		return
+	}
+	s.DeregisterCredential(cred.ID)
+}
+
+func (s *authScheduler) OnCredentialsReplaced(_ context.Context, creds []*ManagedCredential) {
+	s.Rebuild(creds)
+}
+
+func (s *authScheduler) pickCredential(_ context.Context, providerKey, model string, predicate PredicateCredentialFunc) (*ManagedCredential, error) {
 	if s == nil {
 		return nil, &Error{Code: "credential_not_found", Message: "no credential available"}
 	}
-	modelKey := canonicalModelKey(model)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -159,7 +204,7 @@ func (s *authScheduler) Pick(_ context.Context, providerKey, model string, predi
 		return nil, &Error{Code: "credential_not_found", Message: "no credential available"}
 	}
 
-	shard := ps.ensureModelLocked(modelKey, time.Now())
+	shard := ps.ensureModelLocked(model, time.Now())
 	if shard == nil {
 		return nil, &Error{Code: "credential_not_found", Message: "no credential available"}
 	}
@@ -170,12 +215,149 @@ func (s *authScheduler) Pick(_ context.Context, providerKey, model string, predi
 	return nil, shard.unavailableErrorLocked(providerKey, model, predicate)
 }
 
+func (s *authScheduler) Pick(ctx context.Context, filter Filter, tried map[string]struct{}) (*ManagedCredential, error) {
+	if s == nil {
+		return nil, &Error{Code: "credential_not_found", Message: "no credential available"}
+	}
+	providerKey, err := s.internalProviderKey(filter.ProviderID, filter.ProviderType)
+	if err != nil {
+		return nil, err
+	}
+	predicate := func(cred *ManagedCredential) bool {
+		if cred == nil {
+			return false
+		}
+		if len(tried) > 0 {
+			if _, ok := tried[cred.ID]; ok {
+				return false
+			}
+		}
+		return matchFilter(cred, filter)
+	}
+	return s.pickCredential(ctx, providerKey, filter.Model, predicate)
+}
+
+func (s *authScheduler) MarkResult(_ context.Context, result Result) {
+	if s == nil {
+		return
+	}
+	credID := strings.TrimSpace(result.CredentialID)
+	if credID == "" {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	providerKey := s.credProviders[credID]
+	if providerKey == "" {
+		return
+	}
+	ps := s.providers[providerKey]
+	if ps == nil {
+		return
+	}
+	cred := ps.creds[credID]
+	if cred == nil {
+		return
+	}
+
+	now := time.Now().UTC()
+	changed := false
+	if result.Success {
+		if cred.Unavailable || cred.LastError != nil || cred.Quota.Exceeded || cred.AuthInvalid {
+			cred.Unavailable = false
+			cred.LastError = nil
+			cred.NextRetryAfter = time.Time{}
+			cred.Quota = QuotaState{}
+			cred.AuthInvalid = false
+			changed = true
+		}
+		if result.Model != "" {
+			if state := cred.ModelStates[result.Model]; state != nil {
+				if state.Unavailable || state.LastError != nil || state.Quota.Exceeded || state.AuthInvalid {
+					state.Unavailable = false
+					state.LastError = nil
+					state.NextRetryAfter = time.Time{}
+					state.Quota = QuotaState{}
+					state.AuthInvalid = false
+					state.UpdatedAt = now
+					changed = true
+				}
+			}
+		}
+	} else if result.Error != nil {
+		rerr := result.Error
+		changed = true
+		isQuota := rerr.HTTPStatus == http.StatusTooManyRequests
+		if isQuota && !s.disableQuota {
+			backoffLevel := cred.Quota.BackoffLevel
+			backoff := computeBackoff(backoffLevel, defaultQuotaBackoffBase, defaultQuotaBackoffMax)
+			if result.RetryAfter != nil && *result.RetryAfter > backoff {
+				backoff = *result.RetryAfter
+			}
+			cred.Quota = QuotaState{
+				Exceeded:      true,
+				Reason:        rerr.Message,
+				NextRecoverAt: now.Add(backoff),
+				BackoffLevel:  backoffLevel + 1,
+			}
+			cred.Unavailable = true
+			cred.NextRetryAfter = now.Add(backoff)
+		} else if rerr.HTTPStatus == http.StatusUnauthorized || rerr.HTTPStatus == http.StatusForbidden {
+			cred.AuthInvalid = true
+			cred.LastError = rerr
+		} else {
+			cred.LastError = rerr
+			if result.RetryAfter != nil {
+				cred.Unavailable = true
+				cred.NextRetryAfter = now.Add(*result.RetryAfter)
+			}
+		}
+
+		if result.Model != "" {
+			if cred.ModelStates == nil {
+				cred.ModelStates = make(map[string]*ModelState)
+			}
+			state := cred.ModelStates[result.Model]
+			if state == nil {
+				state = &ModelState{}
+				cred.ModelStates[result.Model] = state
+			}
+			state.UpdatedAt = now
+			if isQuota && !s.disableQuota {
+				state.Quota = cred.Quota
+				state.Unavailable = true
+				state.NextRetryAfter = cred.NextRetryAfter
+			} else if rerr.HTTPStatus == http.StatusUnauthorized || rerr.HTTPStatus == http.StatusForbidden {
+				state.AuthInvalid = true
+				state.LastError = rerr
+			} else {
+				state.LastError = rerr
+				if result.RetryAfter != nil {
+					state.Unavailable = true
+					state.NextRetryAfter = now.Add(*result.RetryAfter)
+				}
+			}
+		}
+	}
+
+	if changed {
+		cred.StateUpdatedAt = now
+		for _, shard := range ps.modelShards {
+			if shard != nil {
+				shard.upsertEntryLocked(cred, now)
+			}
+		}
+	}
+}
+
 func (s *authScheduler) upsertLocked(cred *ManagedCredential, now time.Time) {
 	if cred == nil {
 		return
 	}
-	providerKey := s.getProviderKey(cred)
-	if providerKey == "" {
+	providerKey, err := s.providerKeyForCredential(cred)
+	if err != nil {
 		return
 	}
 	credID := cred.ID
@@ -244,7 +426,6 @@ func (p *providerScheduler) ensureModelLocked(modelKey string, now time.Time) *m
 	if p == nil {
 		return nil
 	}
-	modelKey = canonicalModelKey(modelKey)
 	if shard, ok := p.modelShards[modelKey]; ok && shard != nil {
 		shard.promoteExpiredLocked(now)
 		return shard
@@ -278,7 +459,7 @@ func (m *modelScheduler) upsertEntryLocked(cred *ManagedCredential, now time.Tim
 	prevPriority := entry.priority
 
 	entry.cred = cred
-	entry.priority = credentialPriority(cred)
+	entry.priority = cred.Priority()
 	entry.nextRetryAt = time.Time{}
 
 	blocked, reason, next := isCredentialBlockedForModel(cred, m.modelKey, now)
@@ -417,6 +598,68 @@ func formatDuration(d time.Duration) string {
 		return "0s"
 	}
 	return strconv.Itoa(secs) + "s"
+}
+
+func (s *authScheduler) internalProviderKey(providerID, providerType string) (string, error) {
+	switch s.providerScope {
+	case ProviderScopeProviderID:
+		if strings.TrimSpace(providerID) == "" {
+			return "", &Error{Code: "invalid_provider_id", Message: "provider_id cannot be set"}
+		}
+		return strings.ToLower(strings.TrimSpace(s.providerScope + ":" + providerID)), nil
+	case ProviderScopeProviderType:
+		if strings.TrimSpace(providerType) == "" {
+			return "", &Error{Code: "invalid_provider_type", Message: "provider_type cannot be set"}
+		}
+		return strings.ToLower(strings.TrimSpace(s.providerScope + ":" + providerType)), nil
+	default:
+		return "", &Error{Code: "invalid_provider_scope", Message: "provider_scope cannot both empty"}
+	}
+}
+
+func (s *authScheduler) providerKeyForCredential(cred *ManagedCredential) (string, error) {
+	if cred == nil {
+		return "", &Error{Code: "credential_not_found", Message: "no credential available"}
+	}
+	return s.internalProviderKey(cred.ProviderID, cred.ProviderType)
+}
+
+func normalizeProviderScope(providerScope string) string {
+	providerScope = strings.ToLower(strings.TrimSpace(providerScope))
+	if providerScope == "" {
+		return ProviderScopeProviderID
+	}
+	return providerScope
+}
+
+func matchFilter(cred *ManagedCredential, filter Filter) bool {
+	if cred == nil {
+		return false
+	}
+	if providerType := strings.ToLower(strings.TrimSpace(filter.ProviderType)); providerType != "" && strings.ToLower(cred.ProviderType) != providerType {
+		return false
+	}
+	if providerID := strings.ToLower(strings.TrimSpace(filter.ProviderID)); providerID != "" && strings.ToLower(cred.ProviderID) != providerID {
+		return false
+	}
+	if source := strings.ToLower(strings.TrimSpace(filter.Source)); source != "" && strings.ToLower(cred.Source) != source {
+		return false
+	}
+	return true
+}
+
+func computeBackoff(level int, base, maxBackoff time.Duration) time.Duration {
+	if level <= 0 {
+		return base
+	}
+	d := base
+	for i := 0; i < level && d < maxBackoff; i++ {
+		d *= 2
+	}
+	if d > maxBackoff {
+		d = maxBackoff
+	}
+	return d
 }
 
 func (m *modelScheduler) rebuildIndexesLocked() {

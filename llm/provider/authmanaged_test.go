@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
+	sched "github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr/scheduler"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -25,11 +26,23 @@ type testConfigurableProvider struct {
 }
 
 func newTestCredentialManager() *credentialmgr.Manager {
-	return credentialmgr.NewManager(nil, nil, nil)
+	return credentialmgr.NewManager(nil)
 }
 
 func newProviderIDScopedCredentialManager() *credentialmgr.Manager {
-	return credentialmgr.NewManager(nil, nil, nil)
+	return credentialmgr.NewManager(nil)
+}
+
+func newTestCredentialScheduler(t *testing.T, mgr *credentialmgr.Manager) sched.CredentialScheduler {
+	t.Helper()
+	scheduler := sched.NewScheduler("", nil)
+	listener, ok := scheduler.(credentialmgr.CredentialLifecycleListener)
+	if !ok {
+		t.Fatal("scheduler does not implement CredentialLifecycleListener")
+	}
+	mgr.AddListener(listener)
+	scheduler.Rebuild(mgr.ListCredentials(credentialmgr.Filter{}))
+	return scheduler
 }
 
 func (p *testConfigurableProvider) Chat(ctx context.Context, _ *ChatRequest) (*ChatResponse, error) {
@@ -115,7 +128,7 @@ func TestWrapWithCredentialManagerUsesStaticAPIKeyAsFallback(t *testing.T) {
 			AuthStrategy: AuthStrategyManagedAPIKeyFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr)
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -155,7 +168,7 @@ func TestWrapWithCredentialManagerScopesManagedCredentialToProviderID(t *testing
 			AuthStrategy: AuthStrategyManagedAPIKeyFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr)
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -199,7 +212,7 @@ func TestWrapWithCredentialManagerUsesProviderIDScopedManagedCredential(t *testi
 			AuthStrategy: AuthStrategyManagedAPIKeyFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr)
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -224,7 +237,7 @@ func TestWrapWithCredentialManagerFallsBackToStaticAPIKeyWhenManagedCredentialMi
 			AuthStrategy: AuthStrategyManagedAPIKeyFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr)
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{Model: "gpt-test"}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -269,7 +282,7 @@ func TestWrapWithCredentialManagerPrefersManagedAPIKey(t *testing.T) {
 			AuthStrategy: AuthStrategyManagedAPIKeyFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr)
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -317,7 +330,7 @@ func TestWrapWithCredentialManagerPrefersManagedCLIAuthToken(t *testing.T) {
 			AuthStrategy: AuthStrategyManagedCLIAuthTokenFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr)
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -354,7 +367,7 @@ func TestWrapWithCredentialManagerForwardsResponsesProvider(t *testing.T) {
 			AuthStrategy: AuthStrategyManagedAPIKeyFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr)
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
 	responsesProv, ok := wrapped.(ResponsesProvider)
 	if !ok {
 		t.Fatal("expected wrapped provider to implement ResponsesProvider")
@@ -394,7 +407,7 @@ func TestWrapWithCredentialManagerForwardsEmbeddingProvider(t *testing.T) {
 			AuthStrategy: AuthStrategyManagedAPIKeyFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr)
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
 	embeddingProv, ok := wrapped.(EmbeddingProvider)
 	if !ok {
 		t.Fatal("expected wrapped provider to implement EmbeddingProvider")
@@ -435,7 +448,7 @@ func TestWrapWithCredentialManagerDoesNotFallbackBetweenManagedSources(t *testin
 			AuthStrategy: AuthStrategyManagedCLIAuthTokenFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr)
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -470,7 +483,7 @@ func TestWrapWithCredentialManagerPreservesManagedRoundRobin(t *testing.T) {
 			AuthStrategy: AuthStrategyManagedCLIAuthTokenFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr)
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("first generate: %v", err)
 	}
@@ -517,7 +530,7 @@ func TestWrapWithCredentialManagerRefreshesExpiredCLIAuthCredentialBeforeUse(t *
 			AuthStrategy: AuthStrategyManagedCLIAuthTokenFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr)
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -563,7 +576,7 @@ func TestWrapWithCredentialManagerRefreshesGeminiCredentialUsingCustomExpiryDelt
 			AuthStrategy: AuthStrategyManagedCLIAuthTokenFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr)
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}

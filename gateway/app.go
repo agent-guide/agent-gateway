@@ -15,6 +15,7 @@ import (
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
+	credentialmgrscheduler "github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 )
 
@@ -40,6 +41,7 @@ type App struct {
 	cliauthManager   *cliauth.Manager
 	cliauthRefresher *cliauth.AutoRefresher
 	credentialMgr    *credentialmgr.Manager
+	credentialSched  credentialmgrscheduler.CredentialScheduler
 	configStorer     configstoreIntf.ConfigStorer
 	providers        map[string]provider.Provider
 	agentGateway     *AgentGateway
@@ -66,7 +68,12 @@ func (a *App) Provision(ctx caddy.Context) error {
 		return fmt.Errorf("get credential store: %w", err)
 	}
 
-	a.credentialMgr = credentialmgr.NewManager(credentialStore, nil, nil)
+	credentialScheduler := credentialmgrscheduler.NewScheduler("", nil)
+	a.credentialSched = credentialScheduler
+	a.credentialMgr = credentialmgr.NewManager(credentialStore)
+	if schedulerListener, ok := credentialScheduler.(credentialmgr.CredentialLifecycleListener); ok {
+		a.credentialMgr.AddListener(schedulerListener)
+	}
 	a.cliauthManager = cliauth.NewManager()
 	a.cliauthManager.SetCredentialManager(a.credentialMgr)
 	a.cliauthRefresher = cliauth.NewAutoRefresher(cliauth.WrapSharedCredentialManager(a.credentialMgr), a.cliauthManager)
@@ -81,14 +88,15 @@ func (a *App) Provision(ctx caddy.Context) error {
 	}
 
 	if err := a.agentGateway.Bootstrap(ctx, BootstrapOptions{
-		StaticRoutes:      a.Routes,
-		StaticVirtualKeys: a.VirtualKeys,
-		StaticProviders:   a.providers,
-		StaticModels:      a.Models,
-		ConfigStore:       a.configStorer,
-		CLIAuthManager:    a.cliauthManager,
-		CLIAuthRefresher:  a.cliauthRefresher,
-		CredentialManager: a.credentialMgr,
+		StaticRoutes:        a.Routes,
+		StaticVirtualKeys:   a.VirtualKeys,
+		StaticProviders:     a.providers,
+		StaticModels:        a.Models,
+		ConfigStore:         a.configStorer,
+		CLIAuthManager:      a.cliauthManager,
+		CLIAuthRefresher:    a.cliauthRefresher,
+		CredentialManager:   a.credentialMgr,
+		CredentialScheduler: a.credentialSched,
 	}); err != nil {
 		return fmt.Errorf("configure agent gateway: %w", err)
 	}

@@ -962,7 +962,7 @@ func TestCredentialListIncludesProviderStaticAPIKeysAsReadOnly(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	credMgr := credentialmgr.NewManager(nil)
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
 		ConfigStore: &testConfigStore{
@@ -1028,7 +1028,7 @@ func TestCredentialCreateUsesProviderID(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	credMgr := credentialmgr.NewManager(nil)
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
 			"openai-main": {Id: "openai-main", ProviderType: "openai"},
@@ -1081,7 +1081,7 @@ func TestCredentialCreateRejectsUnknownProviderID(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	credMgr := credentialmgr.NewManager(nil)
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
 	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
@@ -1114,7 +1114,7 @@ func TestCredentialUpdateRejectsProviderStaticAPIKeys(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	credMgr := credentialmgr.NewManager(nil)
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
 		ConfigStore: &testConfigStore{

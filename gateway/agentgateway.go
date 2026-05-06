@@ -14,32 +14,35 @@ import (
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
+	credentialmgrscheduler "github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 )
 
 type BootstrapOptions struct {
-	StaticRoutes      []routepkg.AgentRoute
-	StaticVirtualKeys []virtualkeypkg.VirtualKey
-	StaticProviders   map[string]provider.Provider
-	ConfigStore       configstoreintf.ConfigStorer
-	CLIAuthManager    *cliauth.Manager
-	CLIAuthRefresher  *cliauth.AutoRefresher
-	CredentialManager *credentialmgr.Manager
-	StaticModels      []modelcatalog.ManagedModel
+	StaticRoutes        []routepkg.AgentRoute
+	StaticVirtualKeys   []virtualkeypkg.VirtualKey
+	StaticProviders     map[string]provider.Provider
+	ConfigStore         configstoreintf.ConfigStorer
+	CLIAuthManager      *cliauth.Manager
+	CLIAuthRefresher    *cliauth.AutoRefresher
+	CredentialManager   *credentialmgr.Manager
+	CredentialScheduler credentialmgrscheduler.CredentialScheduler
+	StaticModels        []modelcatalog.ManagedModel
 }
 
 type AgentGateway struct {
 	mu sync.RWMutex
 
-	configured        bool
-	configStore       configstoreintf.ConfigStorer
-	routeManager      *routepkg.AgentRouteManager
-	virtualKeyManager *virtualkeypkg.VirtualKeyManager
-	providerManager   *ProviderManager
-	cliauthManager    *cliauth.Manager
-	cliauthRefresher  *cliauth.AutoRefresher
-	credentialManager *credentialmgr.Manager
-	modelCatalog      modelcatalog.Service
+	configured          bool
+	configStore         configstoreintf.ConfigStorer
+	routeManager        *routepkg.AgentRouteManager
+	virtualKeyManager   *virtualkeypkg.VirtualKeyManager
+	providerManager     *ProviderManager
+	cliauthManager      *cliauth.Manager
+	cliauthRefresher    *cliauth.AutoRefresher
+	credentialManager   *credentialmgr.Manager
+	credentialScheduler credentialmgrscheduler.CredentialScheduler
+	modelCatalog        modelcatalog.Service
 }
 
 func NewAgentGateway() *AgentGateway {
@@ -65,6 +68,7 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	g.cliauthManager = opts.CLIAuthManager
 	g.cliauthRefresher = opts.CLIAuthRefresher
 	g.credentialManager = opts.CredentialManager
+	g.credentialScheduler = opts.CredentialScheduler
 	if err := g.configureModelCatalog(ctx, opts.ConfigStore, opts.StaticModels); err != nil {
 		return err
 	}
@@ -84,6 +88,7 @@ func (g *AgentGateway) Reset() {
 	g.cliauthManager = nil
 	g.cliauthRefresher = nil
 	g.credentialManager = nil
+	g.credentialScheduler = nil
 	g.modelCatalog = nil
 }
 
@@ -109,6 +114,12 @@ func (g *AgentGateway) CredentialManager() *credentialmgr.Manager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.credentialManager
+}
+
+func (g *AgentGateway) CredentialScheduler() credentialmgrscheduler.CredentialScheduler {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.credentialScheduler
 }
 
 func (g *AgentGateway) AgentRouteManager() *routepkg.AgentRouteManager {
@@ -225,8 +236,9 @@ func (g *AgentGateway) providerResolver() ProviderResolver {
 func (g *AgentGateway) wrapProvider(prov provider.Provider) provider.Provider {
 	g.mu.RLock()
 	credMgr := g.credentialManager
+	credSched := g.credentialScheduler
 	g.mu.RUnlock()
-	return provider.WrapWithCredentialManager(prov, credMgr)
+	return provider.WrapWithCredentialManager(prov, credMgr, credSched)
 }
 
 func (g *AgentGateway) configureConfigStore(configStore configstoreintf.ConfigStorer) {

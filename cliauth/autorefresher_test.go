@@ -126,7 +126,7 @@ func (s *stubCredentialStore) Get(context.Context, string) (string, any, error) 
 
 func TestRegisterCredentialPersistsWithCreate(t *testing.T) {
 	store := &stubCredentialStore{}
-	credMgr := credentialmgr.NewManager(store, nil, nil)
+	credMgr := credentialmgr.NewManager(store)
 	refresher := NewAutoRefresher(WrapSharedCredentialManager(credMgr), nil)
 
 	if err := refresher.RegisterLoginCredential(context.Background(), &CLIAuthCredential{
@@ -149,7 +149,7 @@ func TestRegisterCredentialPersistsWithCreate(t *testing.T) {
 
 func TestUpdateCredentialPersistsWithUpdate(t *testing.T) {
 	store := &stubCredentialStore{}
-	credMgr := credentialmgr.NewManager(store, nil, nil)
+	credMgr := credentialmgr.NewManager(store)
 	refresher := NewAutoRefresher(WrapSharedCredentialManager(credMgr), nil)
 
 	if err := refresher.updateCredential(context.Background(), &CLIAuthCredential{
@@ -171,7 +171,7 @@ func TestUpdateCredentialPersistsWithUpdate(t *testing.T) {
 }
 
 func TestCredentialManagerReturnsUpdatedCredentialSnapshot(t *testing.T) {
-	commonMgr := credentialmgr.NewManager(nil, nil, nil)
+	commonMgr := credentialmgr.NewManager(nil)
 	refresher := NewAutoRefresher(WrapSharedCredentialManager(commonMgr), nil)
 
 	if err := refresher.RegisterLoginCredential(context.Background(), &CLIAuthCredential{

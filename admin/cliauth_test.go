@@ -86,7 +86,7 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
-	credMgr := credentialmgr.NewManager(nil, nil, nil)
+	credMgr := credentialmgr.NewManager(nil)
 	cliauthMgr := cliauth.NewManager()
 	cliauthRefresher := cliauth.NewAutoRefresher(cliauth.WrapSharedCredentialManager(credMgr), cliauthMgr)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
