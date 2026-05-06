@@ -10,6 +10,7 @@ import (
 	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -400,9 +401,10 @@ func registerStaticManagedModel(app *App, candidate routepkg.RouteModelCandidate
 		}
 	}
 	model := modelcatalog.ManagedModel{
-		ProviderID:    candidate.ProviderID,
-		UpstreamModel: candidate.UpstreamModel,
-		Enabled:       true,
+		ProviderID:      candidate.ProviderID,
+		UpstreamModel:   candidate.UpstreamModel,
+		CredentialScope: credentialmgr.ProviderIDCredentialScope(candidate.ProviderID),
+		Enabled:         true,
 	}
 	model.Normalize()
 	app.Models = append(app.Models, model)

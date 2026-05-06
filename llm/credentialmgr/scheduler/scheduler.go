@@ -11,11 +11,6 @@ import (
 	"time"
 )
 
-const (
-	ProviderScopeProviderType = "type"
-	ProviderScopeProviderID   = "id"
-)
-
 // CredentialScheduler manages an in-memory set of credentials and selects
 // the best available one for each request.
 type CredentialScheduler interface {
@@ -48,18 +43,15 @@ type CredentialScheduler interface {
 type PredicateCredentialFunc func(cred *ManagedCredential) bool
 
 // NewScheduler constructs a CredentialScheduler with the given credential selector.
-// If providerScope is empty, ProviderScopeProviderID is used.
 // If selector is nil, RoundRobinSelector is used.
-func NewScheduler(providerScope string, selector CredentialSelector) CredentialScheduler {
+func NewScheduler(selector CredentialSelector) CredentialScheduler {
 	if selector == nil {
 		selector = &RoundRobinSelector{}
 	}
-	providerScope = normalizeProviderScope(providerScope)
 	return &authScheduler{
-		selector:      selector,
-		providers:     make(map[string]*providerScheduler),
-		credProviders: make(map[string]string),
-		providerScope: providerScope,
+		selector:        selector,
+		scopeSchedulers: make(map[string]*scopeScheduler),
+		credScopes:      make(map[string]string),
 	}
 }
 
@@ -74,12 +66,11 @@ const (
 )
 
 type authScheduler struct {
-	mu            sync.Mutex
-	selector      CredentialSelector
-	providers     map[string]*providerScheduler
-	credProviders map[string]string // credID -> providerKey
-	providerScope string
-	disableQuota  bool
+	mu              sync.Mutex
+	selector        CredentialSelector
+	scopeSchedulers map[string]*scopeScheduler
+	credScopes      map[string]string // credID -> scopeKey
+	disableQuota    bool
 }
 
 const (
@@ -87,7 +78,7 @@ const (
 	defaultQuotaBackoffMax  = 30 * time.Minute
 )
 
-type providerScheduler struct {
+type scopeScheduler struct {
 	creds       map[string]*ManagedCredential
 	modelShards map[string]*modelScheduler
 }
@@ -134,8 +125,8 @@ func (s *authScheduler) Rebuild(creds []*ManagedCredential) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.providers = make(map[string]*providerScheduler)
-	s.credProviders = make(map[string]string)
+	s.scopeSchedulers = make(map[string]*scopeScheduler)
+	s.credScopes = make(map[string]string)
 	now := time.Now()
 	for _, cred := range creds {
 		s.upsertLocked(cred, now)
@@ -191,7 +182,7 @@ func (s *authScheduler) OnCredentialsReplaced(_ context.Context, creds []*Manage
 	s.Rebuild(creds)
 }
 
-func (s *authScheduler) pickCredential(_ context.Context, providerKey, model string, predicate PredicateCredentialFunc) (*ManagedCredential, error) {
+func (s *authScheduler) pickCredential(_ context.Context, scopeKey, model string, predicate PredicateCredentialFunc) (*ManagedCredential, error) {
 	if s == nil {
 		return nil, &Error{Code: "credential_not_found", Message: "no credential available"}
 	}
@@ -199,12 +190,12 @@ func (s *authScheduler) pickCredential(_ context.Context, providerKey, model str
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	ps := s.providers[providerKey]
-	if ps == nil {
+	scopeScheduler := s.scopeSchedulers[scopeKey]
+	if scopeScheduler == nil {
 		return nil, &Error{Code: "credential_not_found", Message: "no credential available"}
 	}
 
-	shard := ps.ensureModelLocked(model, time.Now())
+	shard := scopeScheduler.ensureModelLocked(model, time.Now())
 	if shard == nil {
 		return nil, &Error{Code: "credential_not_found", Message: "no credential available"}
 	}
@@ -212,16 +203,16 @@ func (s *authScheduler) pickCredential(_ context.Context, providerKey, model str
 	if picked := shard.pickReadyLocked(s.selector, predicate); picked != nil {
 		return picked, nil
 	}
-	return nil, shard.unavailableErrorLocked(providerKey, model, predicate)
+	return nil, shard.unavailableErrorLocked(scopeKey, model, predicate)
 }
 
 func (s *authScheduler) Pick(ctx context.Context, filter Filter, tried map[string]struct{}) (*ManagedCredential, error) {
 	if s == nil {
 		return nil, &Error{Code: "credential_not_found", Message: "no credential available"}
 	}
-	providerKey, err := s.internalProviderKey(filter.ProviderID, filter.ProviderType)
-	if err != nil {
-		return nil, err
+	scopeKey := filter.CredentialScope
+	if scopeKey == "" {
+		return nil, &Error{Code: "invalid_credential_scope", Message: "credential_scope cannot be empty"}
 	}
 	predicate := func(cred *ManagedCredential) bool {
 		if cred == nil {
@@ -234,7 +225,7 @@ func (s *authScheduler) Pick(ctx context.Context, filter Filter, tried map[strin
 		}
 		return matchFilter(cred, filter)
 	}
-	return s.pickCredential(ctx, providerKey, filter.Model, predicate)
+	return s.pickCredential(ctx, scopeKey, filter.Model, predicate)
 }
 
 func (s *authScheduler) MarkResult(_ context.Context, result Result) {
@@ -249,15 +240,15 @@ func (s *authScheduler) MarkResult(_ context.Context, result Result) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	providerKey := s.credProviders[credID]
-	if providerKey == "" {
+	scopeKey := s.credScopes[credID]
+	if scopeKey == "" {
 		return
 	}
-	ps := s.providers[providerKey]
-	if ps == nil {
+	scopeScheduler := s.scopeSchedulers[scopeKey]
+	if scopeScheduler == nil {
 		return
 	}
-	cred := ps.creds[credID]
+	cred := scopeScheduler.creds[credID]
 	if cred == nil {
 		return
 	}
@@ -344,7 +335,7 @@ func (s *authScheduler) MarkResult(_ context.Context, result Result) {
 
 	if changed {
 		cred.StateUpdatedAt = now
-		for _, shard := range ps.modelShards {
+		for _, shard := range scopeScheduler.modelShards {
 			if shard != nil {
 				shard.upsertEntryLocked(cred, now)
 			}
@@ -356,8 +347,8 @@ func (s *authScheduler) upsertLocked(cred *ManagedCredential, now time.Time) {
 	if cred == nil {
 		return
 	}
-	providerKey, err := s.providerKeyForCredential(cred)
-	if err != nil {
+	scopeKey := cred.Scope()
+	if scopeKey == "" {
 		return
 	}
 	credID := cred.ID
@@ -365,40 +356,40 @@ func (s *authScheduler) upsertLocked(cred *ManagedCredential, now time.Time) {
 		s.removeLocked(credID)
 		return
 	}
-	if prev := s.credProviders[credID]; prev != "" && prev != providerKey {
-		if prevPS := s.providers[prev]; prevPS != nil {
-			prevPS.removeLocked(credID)
+	if prev := s.credScopes[credID]; prev != "" && prev != scopeKey {
+		if prevScopeScheduler := s.scopeSchedulers[prev]; prevScopeScheduler != nil {
+			prevScopeScheduler.removeLocked(credID)
 		}
 	}
-	s.credProviders[credID] = providerKey
-	s.ensureProviderLocked(providerKey).upsertLocked(cred, now)
+	s.credScopes[credID] = scopeKey
+	s.ensureScopeLocked(scopeKey).upsertLocked(cred, now)
 }
 
 func (s *authScheduler) removeLocked(credID string) {
 	if credID == "" {
 		return
 	}
-	if providerKey := s.credProviders[credID]; providerKey != "" {
-		if ps := s.providers[providerKey]; ps != nil {
-			ps.removeLocked(credID)
+	if scopeKey := s.credScopes[credID]; scopeKey != "" {
+		if scopeScheduler := s.scopeSchedulers[scopeKey]; scopeScheduler != nil {
+			scopeScheduler.removeLocked(credID)
 		}
-		delete(s.credProviders, credID)
+		delete(s.credScopes, credID)
 	}
 }
 
-func (s *authScheduler) ensureProviderLocked(providerKey string) *providerScheduler {
-	ps := s.providers[providerKey]
-	if ps == nil {
-		ps = &providerScheduler{
+func (s *authScheduler) ensureScopeLocked(scopeKey string) *scopeScheduler {
+	schedulerScope := s.scopeSchedulers[scopeKey]
+	if schedulerScope == nil {
+		schedulerScope = &scopeScheduler{
 			creds:       make(map[string]*ManagedCredential),
 			modelShards: make(map[string]*modelScheduler),
 		}
-		s.providers[providerKey] = ps
+		s.scopeSchedulers[scopeKey] = schedulerScope
 	}
-	return ps
+	return schedulerScope
 }
 
-func (p *providerScheduler) upsertLocked(cred *ManagedCredential, now time.Time) {
+func (p *scopeScheduler) upsertLocked(cred *ManagedCredential, now time.Time) {
 	if p == nil || cred == nil {
 		return
 	}
@@ -410,7 +401,7 @@ func (p *providerScheduler) upsertLocked(cred *ManagedCredential, now time.Time)
 	}
 }
 
-func (p *providerScheduler) removeLocked(credID string) {
+func (p *scopeScheduler) removeLocked(credID string) {
 	if p == nil || credID == "" {
 		return
 	}
@@ -422,7 +413,7 @@ func (p *providerScheduler) removeLocked(credID string) {
 	}
 }
 
-func (p *providerScheduler) ensureModelLocked(modelKey string, now time.Time) *modelScheduler {
+func (p *scopeScheduler) ensureModelLocked(modelKey string, now time.Time) *modelScheduler {
 	if p == nil {
 		return nil
 	}
@@ -561,7 +552,7 @@ func hasMatch(bucket *ReadyBucket, predicate func(*ManagedCredential) bool) bool
 	return false
 }
 
-func (m *modelScheduler) unavailableErrorLocked(providerType, model string, predicate func(*ManagedCredential) bool) error {
+func (m *modelScheduler) unavailableErrorLocked(scopeKey, model string, predicate func(*ManagedCredential) bool) error {
 	now := time.Now()
 	total := 0
 	cooldownCount := 0
@@ -587,7 +578,7 @@ func (m *modelScheduler) unavailableErrorLocked(providerType, model string, pred
 		if resetIn < 0 {
 			resetIn = 0
 		}
-		return &cooldownError{model: model, providerType: providerType, resetIn: formatDuration(resetIn)}
+		return &cooldownError{model: model, scopeKey: scopeKey, resetIn: formatDuration(resetIn)}
 	}
 	return &Error{Code: "credential_unavailable", Message: "no credential available"}
 }
@@ -600,46 +591,8 @@ func formatDuration(d time.Duration) string {
 	return strconv.Itoa(secs) + "s"
 }
 
-func (s *authScheduler) internalProviderKey(providerID, providerType string) (string, error) {
-	switch s.providerScope {
-	case ProviderScopeProviderID:
-		if strings.TrimSpace(providerID) == "" {
-			return "", &Error{Code: "invalid_provider_id", Message: "provider_id cannot be set"}
-		}
-		return strings.ToLower(strings.TrimSpace(s.providerScope + ":" + providerID)), nil
-	case ProviderScopeProviderType:
-		if strings.TrimSpace(providerType) == "" {
-			return "", &Error{Code: "invalid_provider_type", Message: "provider_type cannot be set"}
-		}
-		return strings.ToLower(strings.TrimSpace(s.providerScope + ":" + providerType)), nil
-	default:
-		return "", &Error{Code: "invalid_provider_scope", Message: "provider_scope cannot both empty"}
-	}
-}
-
-func (s *authScheduler) providerKeyForCredential(cred *ManagedCredential) (string, error) {
-	if cred == nil {
-		return "", &Error{Code: "credential_not_found", Message: "no credential available"}
-	}
-	return s.internalProviderKey(cred.ProviderID, cred.ProviderType)
-}
-
-func normalizeProviderScope(providerScope string) string {
-	providerScope = strings.ToLower(strings.TrimSpace(providerScope))
-	if providerScope == "" {
-		return ProviderScopeProviderID
-	}
-	return providerScope
-}
-
 func matchFilter(cred *ManagedCredential, filter Filter) bool {
 	if cred == nil {
-		return false
-	}
-	if providerType := strings.ToLower(strings.TrimSpace(filter.ProviderType)); providerType != "" && strings.ToLower(cred.ProviderType) != providerType {
-		return false
-	}
-	if providerID := strings.ToLower(strings.TrimSpace(filter.ProviderID)); providerID != "" && strings.ToLower(cred.ProviderID) != providerID {
 		return false
 	}
 	if source := strings.ToLower(strings.TrimSpace(filter.Source)); source != "" && strings.ToLower(cred.Source) != source {

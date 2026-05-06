@@ -168,10 +168,11 @@ func (g *AgentGateway) ResolveRoute(ctx context.Context, r *http.Request) (route
 }
 
 type ResolvedRouteExecution struct {
-	Provider       provider.Provider
-	ProviderID     string
-	RouteModelName string
-	UpstreamModel  string
+	Provider        provider.Provider
+	ProviderID      string
+	RouteModelName  string
+	UpstreamModel   string
+	CredentialScope string
 }
 
 func (g *AgentGateway) ResolveRouteExecution(ctx context.Context, route routepkg.AgentRoute, routeResolveReq routepkg.RouteResolveRequest) (*ResolvedRouteExecution, error) {
@@ -185,9 +186,10 @@ func (g *AgentGateway) ResolveRouteExecution(ctx context.Context, route routepkg
 		return nil, err
 	}
 	exec := &ResolvedRouteExecution{
-		ProviderID:     target.ProviderID,
-		RouteModelName: target.Model,
-		UpstreamModel:  target.UpstreamModel,
+		ProviderID:      target.ProviderID,
+		RouteModelName:  target.Model,
+		UpstreamModel:   target.UpstreamModel,
+		CredentialScope: target.CredentialScope,
 	}
 
 	prov, err := resolver.ResolveProvider(ctx, exec.ProviderID)
@@ -197,7 +199,7 @@ func (g *AgentGateway) ResolveRouteExecution(ctx context.Context, route routepkg
 		}
 		return nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("route target provider %q is not configured", exec.ProviderID))
 	}
-	exec.Provider = g.wrapProvider(prov)
+	exec.Provider = g.wrapProvider(prov, exec.CredentialScope)
 	return exec, nil
 }
 
@@ -233,12 +235,12 @@ func (g *AgentGateway) providerResolver() ProviderResolver {
 	return g.providerManager
 }
 
-func (g *AgentGateway) wrapProvider(prov provider.Provider) provider.Provider {
+func (g *AgentGateway) wrapProvider(prov provider.Provider, scope string) provider.Provider {
 	g.mu.RLock()
 	credMgr := g.credentialManager
 	credSched := g.credentialScheduler
 	g.mu.RUnlock()
-	return provider.WrapWithCredentialManager(prov, credMgr, credSched)
+	return provider.WrapWithCredentialManager(prov, credMgr, credSched, scope)
 }
 
 func (g *AgentGateway) configureConfigStore(configStore configstoreintf.ConfigStorer) {

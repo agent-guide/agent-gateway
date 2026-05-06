@@ -9,6 +9,7 @@ import (
 
 	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 )
 
@@ -23,14 +24,16 @@ type RouteResolveRequest struct {
 }
 
 type ResolvedTarget struct {
-	Model         string
-	ProviderID    string
-	ProviderType  string
-	UpstreamModel string
-	Capabilities  provider.ModelCapabilities
+	Model           string
+	ProviderID      string
+	ProviderType    string
+	UpstreamModel   string
+	CredentialScope string
+	Capabilities    provider.ModelCapabilities
 }
 
 type ModelCatalogResolver interface {
+	GetManagedModel(ctx context.Context, providerID string, upstreamModel string) (*modelcatalog.ManagedModel, bool, error)
 	GetResolvedManagedModel(ctx context.Context, providerID string, upstreamModel string) (*modelcatalog.ResolvedManagedModel, bool, error)
 }
 
@@ -47,14 +50,17 @@ func (r AgentRoute) ResolveTarget(ctx context.Context, catalog ModelCatalogResol
 	}
 
 	if r.usesDirectProvider() {
-		cfg, err := providers.GetConfig(ctx, r.TargetPolicy.ProviderTarget.ProviderID)
+		providerID := r.TargetPolicy.ProviderTarget.ProviderID
+		credentialScope := credentialmgr.ProviderIDCredentialScope(providerID)
+		cfg, err := providers.GetConfig(ctx, providerID)
 		if err != nil {
 			return nil, err
 		}
 		return &ResolvedTarget{
-			ProviderID:    r.TargetPolicy.ProviderTarget.ProviderID,
-			ProviderType:  cfg.ProviderType,
-			UpstreamModel: req.Model,
+			ProviderID:      providerID,
+			ProviderType:    cfg.ProviderType,
+			UpstreamModel:   req.Model,
+			CredentialScope: credentialScope,
 		}, nil
 	}
 
@@ -87,12 +93,13 @@ func (r AgentRoute) ResolveTarget(ctx context.Context, catalog ModelCatalogResol
 		}
 
 		resolved := resolvedCandidate{
-			ProviderID:    candidate.ProviderID,
-			ProviderType:  cfg.ProviderType,
-			UpstreamModel: candidate.UpstreamModel,
-			Capabilities:  view.Capabilities,
-			Weight:        firstPositive(candidate.Weight, 1),
-			Priority:      candidate.Priority,
+			ProviderID:      candidate.ProviderID,
+			ProviderType:    cfg.ProviderType,
+			UpstreamModel:   candidate.UpstreamModel,
+			CredentialScope: view.CredentialScope,
+			Capabilities:    view.Capabilities,
+			Weight:          firstPositive(candidate.Weight, 1),
+			Priority:        candidate.Priority,
 		}
 		if !resolved.meetsRequirements(req) {
 			continue
@@ -122,11 +129,12 @@ func (r AgentRoute) ResolveTarget(ctx context.Context, catalog ModelCatalogResol
 
 	chosen := chooseWeightedBinding(tier)
 	return &ResolvedTarget{
-		Model:         modelName,
-		ProviderID:    chosen.ProviderID,
-		ProviderType:  chosen.ProviderType,
-		UpstreamModel: chosen.UpstreamModel,
-		Capabilities:  chosen.Capabilities,
+		Model:           modelName,
+		ProviderID:      chosen.ProviderID,
+		ProviderType:    chosen.ProviderType,
+		UpstreamModel:   chosen.UpstreamModel,
+		CredentialScope: chosen.CredentialScope,
+		Capabilities:    chosen.Capabilities,
 	}, nil
 }
 
@@ -140,12 +148,13 @@ func (r AgentRoute) targetByName(name string) *RouteModelTarget {
 }
 
 type resolvedCandidate struct {
-	ProviderID    string
-	ProviderType  string
-	UpstreamModel string
-	Capabilities  provider.ModelCapabilities
-	Weight        int
-	Priority      int
+	ProviderID      string
+	ProviderType    string
+	UpstreamModel   string
+	CredentialScope string
+	Capabilities    provider.ModelCapabilities
+	Weight          int
+	Priority        int
 }
 
 func (c resolvedCandidate) meetsRequirements(req RouteResolveRequest) bool {

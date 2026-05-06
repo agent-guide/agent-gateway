@@ -14,7 +14,6 @@ type Error = model.Error
 
 type Result struct {
 	CredentialID string
-	ProviderType string
 	Model        string
 	Success      bool
 	RetryAfter   *time.Duration
@@ -22,8 +21,7 @@ type Result struct {
 }
 
 type Filter struct {
-	Source       string
-	ProviderType string
-	ProviderID   string
-	Model        string
+	Source          string
+	CredentialScope string
+	Model           string
 }

@@ -16,6 +16,9 @@ import (
 const (
 	SourceAPIKey       = "api_key"
 	SourceCLIAuthToken = "cliauth_token"
+
+	CredentialScopeProviderTypePrefix = "type:"
+	CredentialScopeProviderIDPrefix   = "id:"
 )
 
 type Credential = model.Credential
@@ -23,6 +26,22 @@ type ManagedCredential = model.ManagedCredential
 type QuotaState = model.QuotaState
 type ModelState = model.ModelState
 type Error = model.Error
+
+func ProviderTypeCredentialScope(providerType string) string {
+	providerType = strings.ToLower(strings.TrimSpace(providerType))
+	if providerType == "" {
+		return ""
+	}
+	return CredentialScopeProviderTypePrefix + providerType
+}
+
+func ProviderIDCredentialScope(providerID string) string {
+	providerID = strings.ToLower(strings.TrimSpace(providerID))
+	if providerID == "" {
+		return ""
+	}
+	return CredentialScopeProviderIDPrefix + providerID
+}
 
 type CredentialLifecycleListener interface {
 	OnCredentialRegistered(ctx context.Context, cred *ManagedCredential)

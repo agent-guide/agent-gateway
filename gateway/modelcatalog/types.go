@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	credmodel "github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr/model"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 )
 
@@ -29,6 +30,7 @@ type ProviderModelSnapshot struct {
 type ManagedModel struct {
 	ProviderID          string                      `json:"provider_id"`
 	UpstreamModel       string                      `json:"upstream_model"`
+	CredentialScope     string                      `json:"credential_scope,omitempty"`
 	Enabled             bool                        `json:"enabled"`
 	CapabilityOverrides *provider.ModelCapabilities `json:"capability_overrides,omitempty"`
 }
@@ -42,6 +44,11 @@ type ResolvedManagedModel struct {
 func (m *ManagedModel) Normalize() {
 	if m == nil {
 		return
+	}
+	if scope := credmodel.NormalizeCredentialScope(m.CredentialScope); scope != "" {
+		m.CredentialScope = scope
+	} else {
+		m.CredentialScope = ""
 	}
 	if !m.Enabled && m.CapabilityOverrides == nil {
 		m.Enabled = true

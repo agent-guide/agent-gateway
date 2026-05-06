@@ -8,6 +8,8 @@ import (
 	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
 )
 
+const CredentialAttributeScopeKey = "scope"
+
 // Credential holds the persisted definition for a single upstream credential.
 type Credential struct {
 	// ID uniquely identifies the credential.
@@ -61,7 +63,29 @@ func (c *Credential) Normalize() *Credential {
 	c.ProviderID = strings.ToLower(strings.TrimSpace(c.ProviderID))
 	c.Source = strings.ToLower(strings.TrimSpace(c.Source))
 	c.Label = strings.TrimSpace(c.Label)
+	if c.Attributes != nil {
+		if scope := NormalizeCredentialScope(c.Attributes[CredentialAttributeScopeKey]); scope != "" {
+			c.Attributes[CredentialAttributeScopeKey] = scope
+		}
+	}
 	return c
+}
+
+func NormalizeCredentialScope(scope string) string {
+	scope = strings.ToLower(strings.TrimSpace(scope))
+	return scope
+}
+
+func (c *Credential) Scope() string {
+	if c == nil {
+		return ""
+	}
+	if c.Attributes != nil {
+		if scope := NormalizeCredentialScope(c.Attributes[CredentialAttributeScopeKey]); scope != "" {
+			return scope
+		}
+	}
+	return ""
 }
 
 // QuotaState captures quota limiter tracking data for a credential.

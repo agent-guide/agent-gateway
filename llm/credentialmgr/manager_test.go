@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr/model"
 	sched "github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr/scheduler"
 )
 
@@ -93,14 +94,51 @@ func (r *testManualRefresher) Refresh(ctx context.Context, cred *Credential) (*C
 
 func newTestScheduler(t *testing.T, mgr *Manager) sched.CredentialScheduler {
 	t.Helper()
-	scheduler := sched.NewScheduler("", nil)
+	scheduler := sched.NewScheduler(nil)
 	listener, ok := scheduler.(CredentialLifecycleListener)
 	if !ok {
 		t.Fatal("scheduler does not implement CredentialLifecycleListener")
 	}
-	mgr.AddListener(listener)
+	mgr.AddListener(testScopeListener{next: listener})
 	scheduler.Rebuild(mgr.ListCredentials(Filter{}))
 	return scheduler
+}
+
+type testScopeListener struct {
+	next CredentialLifecycleListener
+}
+
+func (l testScopeListener) OnCredentialRegistered(ctx context.Context, cred *ManagedCredential) {
+	l.next.OnCredentialRegistered(ctx, withTestScope(cred))
+}
+
+func (l testScopeListener) OnCredentialUpdated(ctx context.Context, cred *ManagedCredential) {
+	l.next.OnCredentialUpdated(ctx, withTestScope(cred))
+}
+
+func (l testScopeListener) OnCredentialDeregistered(ctx context.Context, cred *ManagedCredential) {
+	l.next.OnCredentialDeregistered(ctx, withTestScope(cred))
+}
+
+func (l testScopeListener) OnCredentialsReplaced(ctx context.Context, creds []*ManagedCredential) {
+	out := make([]*ManagedCredential, 0, len(creds))
+	for _, cred := range creds {
+		out = append(out, withTestScope(cred))
+	}
+	l.next.OnCredentialsReplaced(ctx, out)
+}
+
+func withTestScope(cred *ManagedCredential) *ManagedCredential {
+	if cred == nil {
+		return nil
+	}
+	if cred.Attributes == nil {
+		cred.Attributes = map[string]string{}
+	}
+	if cred.Scope() == "" {
+		cred.Attributes[model.CredentialAttributeScopeKey] = ProviderIDCredentialScope(cred.ProviderID)
+	}
+	return cred
 }
 
 func TestPickSelectsRequestedSource(t *testing.T) {
@@ -116,9 +154,9 @@ func TestPickSelectsRequestedSource(t *testing.T) {
 	}
 
 	picked, err := scheduler.Pick(context.Background(), sched.Filter{
-		Source:     SourceCLIAuthToken,
-		ProviderID: "openai",
-		Model:      "gpt-test",
+		Source:          SourceCLIAuthToken,
+		CredentialScope: "id:openai",
+		Model:           "gpt-test",
 	}, nil)
 	if err != nil {
 		t.Fatalf("Pick returned error: %v", err)
@@ -141,9 +179,9 @@ func TestPickSelectsRequestedProviderID(t *testing.T) {
 	}
 
 	picked, err := scheduler.Pick(context.Background(), sched.Filter{
-		Source:     SourceAPIKey,
-		ProviderID: "openai-main",
-		Model:      "gpt-test",
+		Source:          SourceAPIKey,
+		CredentialScope: "id:openai-main",
+		Model:           "gpt-test",
 	}, nil)
 	if err != nil {
 		t.Fatalf("Pick returned error: %v", err)
@@ -153,16 +191,15 @@ func TestPickSelectsRequestedProviderID(t *testing.T) {
 	}
 }
 
-func TestPickRejectsMissingProviderID(t *testing.T) {
+func TestPickRejectsMissingCredentialScope(t *testing.T) {
 	mgr := NewManager(nil)
 	scheduler := newTestScheduler(t, mgr)
 
 	_, err := scheduler.Pick(context.Background(), sched.Filter{
-		ProviderType: "openai",
-		Model:        "gpt-test",
+		Model: "gpt-test",
 	}, nil)
 	if err == nil {
-		t.Fatal("Pick returned nil error, want provider_id requirement")
+		t.Fatal("Pick returned nil error, want credential_scope requirement")
 	}
 }
 
@@ -179,9 +216,9 @@ func TestPickReturnsNotFoundWhenFilteredCandidatesAbsent(t *testing.T) {
 	}
 
 	_, err := scheduler.Pick(context.Background(), sched.Filter{
-		Source:     SourceCLIAuthToken,
-		ProviderID: "openai",
-		Model:      "gpt-test",
+		Source:          SourceCLIAuthToken,
+		CredentialScope: "id:openai",
+		Model:           "gpt-test",
 	}, nil)
 	if err == nil {
 		t.Fatal("Pick returned nil error, want credential_not_found")
@@ -212,7 +249,6 @@ func TestPickReturnsCooldownWhenFilteredCandidatesAllCoolingDown(t *testing.T) {
 	for _, id := range []string{"cli-1", "cli-2"} {
 		scheduler.MarkResult(context.Background(), sched.Result{
 			CredentialID: id,
-			ProviderType: "openai",
 			Model:        "gpt-test",
 			Error: &sched.Error{
 				Message:    "quota exceeded",
@@ -223,9 +259,9 @@ func TestPickReturnsCooldownWhenFilteredCandidatesAllCoolingDown(t *testing.T) {
 	}
 
 	_, err := scheduler.Pick(context.Background(), sched.Filter{
-		Source:     SourceCLIAuthToken,
-		ProviderID: "openai",
-		Model:      "gpt-test",
+		Source:          SourceCLIAuthToken,
+		CredentialScope: "id:openai",
+		Model:           "gpt-test",
 	}, nil)
 	if err == nil {
 		t.Fatal("Pick returned nil error, want cooldown error")
@@ -261,7 +297,6 @@ func TestPickReturnsUnavailableWhenFilteredCandidateBlockedButNotCoolingDown(t *
 	retryAfter := 5 * time.Second
 	scheduler.MarkResult(context.Background(), sched.Result{
 		CredentialID: "cli-1",
-		ProviderType: "openai",
 		Model:        "gpt-test",
 		RetryAfter:   &retryAfter,
 		Error: &sched.Error{
@@ -272,9 +307,9 @@ func TestPickReturnsUnavailableWhenFilteredCandidateBlockedButNotCoolingDown(t *
 	})
 
 	_, err := scheduler.Pick(context.Background(), sched.Filter{
-		Source:     SourceCLIAuthToken,
-		ProviderID: "openai",
-		Model:      "gpt-test",
+		Source:          SourceCLIAuthToken,
+		CredentialScope: "id:openai",
+		Model:           "gpt-test",
 	}, nil)
 	if err == nil {
 		t.Fatal("Pick returned nil error, want credential_unavailable")
@@ -303,7 +338,6 @@ func TestMarkResultAppliesQuotaCooldown(t *testing.T) {
 
 	scheduler.MarkResult(context.Background(), sched.Result{
 		CredentialID: "cred-1",
-		ProviderType: "openai",
 		Model:        "gpt-test",
 		Error: &sched.Error{
 			Message:    "quota exceeded",
@@ -327,10 +361,10 @@ func TestMarkResultAppliesQuotaCooldown(t *testing.T) {
 
 func TestManagerNotifiesSchedulerAndExternalLifecycleListener(t *testing.T) {
 	listener := &testCredentialLifecycleListener{}
-	scheduler := sched.NewScheduler("", nil)
+	scheduler := sched.NewScheduler(nil)
 	mgr := NewManager(nil)
 	if schedulerListener, ok := scheduler.(CredentialLifecycleListener); ok {
-		mgr.AddListener(schedulerListener)
+		mgr.AddListener(testScopeListener{next: schedulerListener})
 	}
 	mgr.AddListener(listener)
 
@@ -345,8 +379,8 @@ func TestManagerNotifiesSchedulerAndExternalLifecycleListener(t *testing.T) {
 	}
 
 	picked, err := scheduler.Pick(context.Background(), sched.Filter{
-		ProviderID: "openai-main",
-		Model:      "gpt-test",
+		CredentialScope: "id:openai-main",
+		Model:           "gpt-test",
 	}, nil)
 	if err != nil {
 		t.Fatalf("pick registered credential: %v", err)
@@ -368,8 +402,8 @@ func TestManagerNotifiesSchedulerAndExternalLifecycleListener(t *testing.T) {
 		t.Fatalf("deregister credential: %v", err)
 	}
 	_, err = scheduler.Pick(context.Background(), sched.Filter{
-		ProviderID: "openai-main",
-		Model:      "gpt-test",
+		CredentialScope: "id:openai-main",
+		Model:           "gpt-test",
 	}, nil)
 	if err == nil {
 		t.Fatal("pick after deregister returned nil error, want not found")
@@ -398,10 +432,10 @@ func TestReloadFromStoreReplacesManagerStateAndRebuildsScheduler(t *testing.T) {
 		},
 	}
 	listener := &testCredentialLifecycleListener{}
-	scheduler := sched.NewScheduler("", nil)
+	scheduler := sched.NewScheduler(nil)
 	mgr := NewManager(store)
 	if schedulerListener, ok := scheduler.(CredentialLifecycleListener); ok {
-		mgr.AddListener(schedulerListener)
+		mgr.AddListener(testScopeListener{next: schedulerListener})
 	}
 	mgr.AddListener(listener)
 
@@ -426,8 +460,8 @@ func TestReloadFromStoreReplacesManagerStateAndRebuildsScheduler(t *testing.T) {
 	}
 
 	picked, err := scheduler.Pick(context.Background(), sched.Filter{
-		ProviderID: "openai-main",
-		Model:      "gpt-test",
+		CredentialScope: "id:openai-main",
+		Model:           "gpt-test",
 	}, nil)
 	if err != nil {
 		t.Fatalf("pick reloaded credential: %v", err)

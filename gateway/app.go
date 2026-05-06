@@ -68,7 +68,7 @@ func (a *App) Provision(ctx caddy.Context) error {
 		return fmt.Errorf("get credential store: %w", err)
 	}
 
-	credentialScheduler := credentialmgrscheduler.NewScheduler("", nil)
+	credentialScheduler := credentialmgrscheduler.NewScheduler(nil)
 	a.credentialSched = credentialScheduler
 	a.credentialMgr = credentialmgr.NewManager(credentialStore)
 	if schedulerListener, ok := credentialScheduler.(credentialmgr.CredentialLifecycleListener); ok {

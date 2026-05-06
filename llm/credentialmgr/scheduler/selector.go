@@ -111,9 +111,9 @@ func isCredentialBlockedForModel(cred *ManagedCredential, model string, now time
 
 // cooldownError is returned when all credentials for a model are in cooldown.
 type cooldownError struct {
-	model        string
-	providerType string
-	resetIn      string // formatted duration
+	model    string
+	scopeKey string
+	resetIn  string // formatted duration
 }
 
 func (e *cooldownError) Error() string {
@@ -121,8 +121,8 @@ func (e *cooldownError) Error() string {
 		return ""
 	}
 	msg := fmt.Sprintf("all credentials for model %s are cooling down", e.model)
-	if e.providerType != "" {
-		msg += fmt.Sprintf(" via provider type %s", e.providerType)
+	if e.scopeKey != "" {
+		msg += fmt.Sprintf(" in scope %s", e.scopeKey)
 	}
 	if e.resetIn != "" {
 		msg += fmt.Sprintf(", retry after %s", e.resetIn)

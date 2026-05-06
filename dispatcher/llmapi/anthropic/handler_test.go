@@ -50,7 +50,7 @@ func (e testStatusError) StatusCode() int { return e.status }
 
 func newTestCredentialScheduler(t *testing.T, mgr *credentialmgr.Manager) sched.CredentialScheduler {
 	t.Helper()
-	scheduler := sched.NewScheduler("", nil)
+	scheduler := sched.NewScheduler(nil)
 	listener, ok := scheduler.(credentialmgr.CredentialLifecycleListener)
 	if !ok {
 		t.Fatal("scheduler does not implement CredentialLifecycleListener")
@@ -76,6 +76,9 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 		ProviderType: "anthropic",
 		ProviderID:   "anthropic",
 		Source:       credentialmgr.SourceAPIKey,
+		Attributes: map[string]string{
+			"scope": "id:anthropic",
+		},
 	}); err != nil {
 		t.Fatalf("register credential: %v", err)
 	}
@@ -88,7 +91,7 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 		},
 	}
 	scheduler := newTestCredentialScheduler(t, credMgr)
-	prov := provider.WrapWithCredentialManager(baseProv, credMgr, scheduler)
+	prov := provider.WrapWithCredentialManager(baseProv, credMgr, scheduler, "id:anthropic")
 	handler := NewHandler(nil)
 
 	body, err := json.Marshal(MessagesRequest{
@@ -122,9 +125,9 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 	}
 
 	_, err = scheduler.Pick(context.Background(), sched.Filter{
-		Source:     credentialmgr.SourceAPIKey,
-		ProviderID: "anthropic",
-		Model:      "claude-sonnet-4-5",
+		Source:          credentialmgr.SourceAPIKey,
+		CredentialScope: "id:anthropic",
+		Model:           "claude-sonnet-4-5",
 	}, nil)
 	if err == nil {
 		t.Fatal("expected scheduler to reject quota-exceeded credential")

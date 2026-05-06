@@ -5,11 +5,21 @@ import (
 	"testing"
 
 	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
+	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 )
 
 type testModelCatalogResolver struct {
 	models map[string]modelcatalog.ResolvedManagedModel
+}
+
+func (r testModelCatalogResolver) GetManagedModel(_ context.Context, providerID string, upstreamModel string) (*modelcatalog.ManagedModel, bool, error) {
+	view, ok := r.models[providerID+"\x00"+upstreamModel]
+	if !ok {
+		return nil, false, nil
+	}
+	model := view.ManagedModel
+	return &model, true, nil
 }
 
 func (r testModelCatalogResolver) GetResolvedManagedModel(_ context.Context, providerID string, upstreamModel string) (*modelcatalog.ResolvedManagedModel, bool, error) {
@@ -49,9 +59,10 @@ func TestAgentRouteResolveTargetUsesRouteDefaultModel(t *testing.T) {
 			models: map[string]modelcatalog.ResolvedManagedModel{
 				"openai-main\x00gpt-4.1-mini": {
 					ManagedModel: modelcatalog.ManagedModel{
-						ProviderID:    "openai-main",
-						UpstreamModel: "gpt-4.1-mini",
-						Enabled:       true,
+						ProviderID:      "openai-main",
+						UpstreamModel:   "gpt-4.1-mini",
+						CredentialScope: credentialmgr.ProviderIDCredentialScope("openai-main"),
+						Enabled:         true,
 					},
 					Capabilities: provider.ModelCapabilities{Streaming: true},
 				},
@@ -75,6 +86,9 @@ func TestAgentRouteResolveTargetUsesRouteDefaultModel(t *testing.T) {
 	}
 	if target.UpstreamModel != "gpt-4.1-mini" {
 		t.Fatalf("UpstreamModel = %q, want gpt-4.1-mini", target.UpstreamModel)
+	}
+	if target.CredentialScope != credentialmgr.ProviderIDCredentialScope("openai-main") {
+		t.Fatalf("CredentialScope = %q, want %q", target.CredentialScope, credentialmgr.ProviderIDCredentialScope("openai-main"))
 	}
 }
 
@@ -106,7 +120,17 @@ func TestAgentRouteResolveTargetUsesDirectProvider(t *testing.T) {
 
 	target, err := route.ResolveTarget(
 		context.Background(),
-		testModelCatalogResolver{},
+		testModelCatalogResolver{
+			models: map[string]modelcatalog.ResolvedManagedModel{
+				"openai-main\x00gpt-4.1": {
+					ManagedModel: modelcatalog.ManagedModel{
+						ProviderID:      "openai-main",
+						UpstreamModel:   "gpt-4.1",
+						CredentialScope: credentialmgr.ProviderIDCredentialScope("tenant-a"),
+					},
+				},
+			},
+		},
 		testProviderConfigResolver{
 			configs: map[string]provider.ProviderConfig{
 				"openai-main": {Id: "openai-main", ProviderType: "openai"},
@@ -128,6 +152,9 @@ func TestAgentRouteResolveTargetUsesDirectProvider(t *testing.T) {
 	}
 	if target.UpstreamModel != "gpt-4.1" {
 		t.Fatalf("UpstreamModel = %q, want gpt-4.1", target.UpstreamModel)
+	}
+	if target.CredentialScope != credentialmgr.ProviderIDCredentialScope("openai-main") {
+		t.Fatalf("CredentialScope = %q, want %q", target.CredentialScope, credentialmgr.ProviderIDCredentialScope("openai-main"))
 	}
 }
 

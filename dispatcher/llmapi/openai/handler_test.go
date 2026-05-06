@@ -82,13 +82,9 @@ func newHandler() *Handler {
 	return NewHandler()
 }
 
-func withRouteInfo(req *http.Request) *http.Request {
-	return req
-}
-
 func newTestCredentialScheduler(t *testing.T, mgr *credentialmgr.Manager) sched.CredentialScheduler {
 	t.Helper()
-	scheduler := sched.NewScheduler("", nil)
+	scheduler := sched.NewScheduler(nil)
 	listener, ok := scheduler.(credentialmgr.CredentialLifecycleListener)
 	if !ok {
 		t.Fatal("scheduler does not implement CredentialLifecycleListener")
@@ -125,6 +121,9 @@ func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 		ProviderType: "openai",
 		ProviderID:   "openai",
 		Source:       credentialmgr.SourceAPIKey,
+		Attributes: map[string]string{
+			"scope": "id:openai",
+		},
 	}); err != nil {
 		t.Fatalf("register credential: %v", err)
 	}
@@ -137,7 +136,7 @@ func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 		},
 	}
 	scheduler := newTestCredentialScheduler(t, credMgr)
-	prov := provider.WrapWithCredentialManager(baseProv, credMgr, scheduler)
+	prov := provider.WrapWithCredentialManager(baseProv, credMgr, scheduler, "id:openai")
 	handler := newHandler()
 
 	body, err := json.Marshal(ChatCompletionRequest{
@@ -152,7 +151,7 @@ func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 		t.Fatalf("marshal request: %v", err)
 	}
 
-	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body)))
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	prepared, err := handler.PrepareLLMApiRequest(req)
 	if err != nil {
 		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
@@ -167,9 +166,9 @@ func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 	}
 
 	_, err = scheduler.Pick(context.Background(), sched.Filter{
-		Source:     credentialmgr.SourceAPIKey,
-		ProviderID: "openai",
-		Model:      "gpt-4o-mini",
+		Source:          credentialmgr.SourceAPIKey,
+		CredentialScope: "id:openai",
+		Model:           "gpt-4o-mini",
 	}, nil)
 	if err == nil {
 		t.Fatal("expected scheduler to reject quota-exceeded credential")
@@ -201,7 +200,7 @@ func TestServeLLMApiMapsClientCanceledStreamTo499(t *testing.T) {
 		t.Fatalf("marshal request: %v", err)
 	}
 
-	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body)))
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	prepared, err := handler.PrepareLLMApiRequest(req)
 	if err != nil {
 		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
@@ -249,7 +248,7 @@ func TestServeLLMApiReturnsChatCompletionResponse(t *testing.T) {
 		t.Fatalf("marshal request: %v", err)
 	}
 
-	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body)))
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	prepared, err := handler.PrepareLLMApiRequest(req)
 	if err != nil {
 		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
@@ -302,7 +301,7 @@ func TestServeLLMApiStreamsOpenAIChunks(t *testing.T) {
 		t.Fatalf("marshal request: %v", err)
 	}
 
-	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body)))
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	prepared, err := handler.PrepareLLMApiRequest(req)
 	if err != nil {
 		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
@@ -338,7 +337,7 @@ func TestPrepareLLMApiRequestAllowsResponsesStateForProviderLevelHandling(t *tes
 	handler := newHandler()
 
 	body := `{"model":"gpt-4.1","input":"hello","previous_response_id":"resp_123"}`
-	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
 
 	prepared, err := handler.PrepareLLMApiRequest(req)
 	if err != nil {
@@ -379,7 +378,7 @@ func TestServeLLMApiAllowsProviderResponsesRequestsThatFallbackCannotExpress(t *
 	handler := newHandler()
 
 	body := `{"model":"gpt-4.1","input":"hello","previous_response_id":"resp_123"}`
-	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
 	prepared, err := handler.PrepareLLMApiRequest(req)
 	if err != nil {
 		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
@@ -420,7 +419,7 @@ func TestServeLLMApiReturnsResponsesResponse(t *testing.T) {
 	handler := newHandler()
 
 	body := `{"model":"gpt-4.1","input":"hello"}` + "\n"
-	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
 	prepared, err := handler.PrepareLLMApiRequest(req)
 	if err != nil {
 		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
@@ -462,7 +461,7 @@ func TestServeLLMApiStreamsResponsesEvents(t *testing.T) {
 	handler := newHandler()
 
 	body := `{"model":"gpt-4.1","input":"hello","stream":true}` + "\n"
-	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
 	prepared, err := handler.PrepareLLMApiRequest(req)
 	if err != nil {
 		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
@@ -501,11 +500,11 @@ func TestServeLLMApiFallsBackWhenWrappedProviderResponsesCreateIsUnsupported(t *
 			ProviderType: "zhipu",
 		},
 	}
-	prov := provider.WrapWithCredentialManager(baseProv, credMgr, newTestCredentialScheduler(t, credMgr))
+	prov := provider.WrapWithCredentialManager(baseProv, credMgr, newTestCredentialScheduler(t, credMgr), "")
 	handler := newHandler()
 
 	body := `{"model":"glm-4.7","input":"hello"}` + "\n"
-	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
 	prepared, err := handler.PrepareLLMApiRequest(req)
 	if err != nil {
 		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
@@ -538,11 +537,11 @@ func TestServeLLMApiFallsBackWhenWrappedProviderResponsesStreamIsUnsupported(t *
 			ProviderType: "zhipu",
 		},
 	}
-	prov := provider.WrapWithCredentialManager(baseProv, credMgr, newTestCredentialScheduler(t, credMgr))
+	prov := provider.WrapWithCredentialManager(baseProv, credMgr, newTestCredentialScheduler(t, credMgr), "")
 	handler := newHandler()
 
 	body := `{"model":"glm-4.7","input":"hello","stream":true}` + "\n"
-	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
 	prepared, err := handler.PrepareLLMApiRequest(req)
 	if err != nil {
 		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
@@ -590,7 +589,7 @@ func TestServeLLMApiPrefersProviderResponsesInterface(t *testing.T) {
 	handler := newHandler()
 
 	body := `{"model":"gpt-4.1","input":"hello"}` + "\n"
-	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
 	prepared, err := handler.PrepareLLMApiRequest(req)
 	if err != nil {
 		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
@@ -616,7 +615,7 @@ func TestServeLLMApiRejectsUnsupportedResponsesFallbackState(t *testing.T) {
 	handler := newHandler()
 
 	body := `{"model":"gpt-4.1","input":"hello","previous_response_id":"resp_123"}` + "\n"
-	req := withRouteInfo(httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
 	prepared, err := handler.PrepareLLMApiRequest(req)
 	if err != nil {
 		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)

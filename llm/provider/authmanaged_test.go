@@ -2,9 +2,11 @@ package provider
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
+	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	sched "github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr/scheduler"
 	"github.com/cloudwego/eino/schema"
@@ -35,7 +37,7 @@ func newProviderIDScopedCredentialManager() *credentialmgr.Manager {
 
 func newTestCredentialScheduler(t *testing.T, mgr *credentialmgr.Manager) sched.CredentialScheduler {
 	t.Helper()
-	scheduler := sched.NewScheduler("", nil)
+	scheduler := sched.NewScheduler(nil)
 	listener, ok := scheduler.(credentialmgr.CredentialLifecycleListener)
 	if !ok {
 		t.Fatal("scheduler does not implement CredentialLifecycleListener")
@@ -115,6 +117,7 @@ func TestWrapWithCredentialManagerUsesStaticAPIKeyAsFallback(t *testing.T) {
 		Source:       credentialmgr.SourceCLIAuthToken,
 		Attributes: map[string]string{
 			"api_key": "cred-key",
+			"scope":   "id:openai",
 		},
 	}); err != nil {
 		t.Fatalf("register credential: %v", err)
@@ -128,7 +131,7 @@ func TestWrapWithCredentialManagerUsesStaticAPIKeyAsFallback(t *testing.T) {
 			AuthStrategy: AuthStrategyManagedAPIKeyFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr), "")
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -154,6 +157,7 @@ func TestWrapWithCredentialManagerScopesManagedCredentialToProviderID(t *testing
 			"api_key":  "wrong-key",
 			"base_url": "https://wrong.example",
 			"priority": "1",
+			"scope":    "id:zhipu",
 		},
 	}); err != nil {
 		t.Fatalf("register stale type-scoped credential: %v", err)
@@ -168,7 +172,7 @@ func TestWrapWithCredentialManagerScopesManagedCredentialToProviderID(t *testing
 			AuthStrategy: AuthStrategyManagedAPIKeyFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr), "")
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -189,6 +193,7 @@ func TestWrapWithCredentialManagerUsesProviderIDScopedManagedCredential(t *testi
 		Source:       credentialmgr.SourceAPIKey,
 		Attributes: map[string]string{
 			"api_key": "scoped-key",
+			"scope":   "id:zhipu-main",
 		},
 	}); err != nil {
 		t.Fatalf("register provider-scoped credential: %v", err)
@@ -200,6 +205,7 @@ func TestWrapWithCredentialManagerUsesProviderIDScopedManagedCredential(t *testi
 		Source:       credentialmgr.SourceAPIKey,
 		Attributes: map[string]string{
 			"api_key": "other-key",
+			"scope":   "id:zhipu-other",
 		},
 	}); err != nil {
 		t.Fatalf("register other provider-scoped credential: %v", err)
@@ -212,7 +218,7 @@ func TestWrapWithCredentialManagerUsesProviderIDScopedManagedCredential(t *testi
 			AuthStrategy: AuthStrategyManagedAPIKeyFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr), "id:zhipu-main")
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -237,7 +243,7 @@ func TestWrapWithCredentialManagerFallsBackToStaticAPIKeyWhenManagedCredentialMi
 			AuthStrategy: AuthStrategyManagedAPIKeyFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr), "")
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{Model: "gpt-test"}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -258,6 +264,7 @@ func TestWrapWithCredentialManagerPrefersManagedAPIKey(t *testing.T) {
 		Source:       credentialmgr.SourceAPIKey,
 		Attributes: map[string]string{
 			"api_key": "managed-api-key",
+			"scope":   "id:openai",
 		},
 	}); err != nil {
 		t.Fatalf("register managed api key: %v", err)
@@ -269,6 +276,7 @@ func TestWrapWithCredentialManagerPrefersManagedAPIKey(t *testing.T) {
 		Source:       credentialmgr.SourceCLIAuthToken,
 		Attributes: map[string]string{
 			"api_key": "managed-cli-key",
+			"scope":   "id:openai",
 		},
 	}); err != nil {
 		t.Fatalf("register cli auth token: %v", err)
@@ -282,7 +290,7 @@ func TestWrapWithCredentialManagerPrefersManagedAPIKey(t *testing.T) {
 			AuthStrategy: AuthStrategyManagedAPIKeyFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr), "id:openai")
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -306,6 +314,7 @@ func TestWrapWithCredentialManagerPrefersManagedCLIAuthToken(t *testing.T) {
 		Source:       credentialmgr.SourceAPIKey,
 		Attributes: map[string]string{
 			"api_key": "managed-api-key",
+			"scope":   "id:openai",
 		},
 	}); err != nil {
 		t.Fatalf("register managed api key: %v", err)
@@ -317,6 +326,7 @@ func TestWrapWithCredentialManagerPrefersManagedCLIAuthToken(t *testing.T) {
 		Source:       credentialmgr.SourceCLIAuthToken,
 		Attributes: map[string]string{
 			"api_key": "managed-cli-key",
+			"scope":   "id:openai",
 		},
 	}); err != nil {
 		t.Fatalf("register cli auth token: %v", err)
@@ -330,7 +340,7 @@ func TestWrapWithCredentialManagerPrefersManagedCLIAuthToken(t *testing.T) {
 			AuthStrategy: AuthStrategyManagedCLIAuthTokenFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr), "id:openai")
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -354,6 +364,7 @@ func TestWrapWithCredentialManagerForwardsResponsesProvider(t *testing.T) {
 		Source:       credentialmgr.SourceAPIKey,
 		Attributes: map[string]string{
 			"api_key": "managed-api-key",
+			"scope":   "id:openai",
 		},
 	}); err != nil {
 		t.Fatalf("register managed api key: %v", err)
@@ -367,7 +378,7 @@ func TestWrapWithCredentialManagerForwardsResponsesProvider(t *testing.T) {
 			AuthStrategy: AuthStrategyManagedAPIKeyFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr), "id:openai")
 	responsesProv, ok := wrapped.(ResponsesProvider)
 	if !ok {
 		t.Fatal("expected wrapped provider to implement ResponsesProvider")
@@ -393,6 +404,7 @@ func TestWrapWithCredentialManagerForwardsEmbeddingProvider(t *testing.T) {
 		Attributes: map[string]string{
 			"api_key":  "managed-api-key",
 			"base_url": "https://managed.example",
+			"scope":    "id:openai",
 		},
 	}); err != nil {
 		t.Fatalf("register managed api key: %v", err)
@@ -407,7 +419,7 @@ func TestWrapWithCredentialManagerForwardsEmbeddingProvider(t *testing.T) {
 			AuthStrategy: AuthStrategyManagedAPIKeyFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr), "id:openai")
 	embeddingProv, ok := wrapped.(EmbeddingProvider)
 	if !ok {
 		t.Fatal("expected wrapped provider to implement EmbeddingProvider")
@@ -435,6 +447,7 @@ func TestWrapWithCredentialManagerDoesNotFallbackBetweenManagedSources(t *testin
 		Source:       credentialmgr.SourceAPIKey,
 		Attributes: map[string]string{
 			"api_key": "managed-api-key",
+			"scope":   "id:openai",
 		},
 	}); err != nil {
 		t.Fatalf("register managed api key: %v", err)
@@ -448,7 +461,7 @@ func TestWrapWithCredentialManagerDoesNotFallbackBetweenManagedSources(t *testin
 			AuthStrategy: AuthStrategyManagedCLIAuthTokenFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr), "")
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -470,6 +483,7 @@ func TestWrapWithCredentialManagerPreservesManagedRoundRobin(t *testing.T) {
 			Source:       credentialmgr.SourceCLIAuthToken,
 			Attributes: map[string]string{
 				"api_key": id + "-key",
+				"scope":   "id:openai",
 			},
 		}); err != nil {
 			t.Fatalf("register credential %s: %v", id, err)
@@ -483,7 +497,7 @@ func TestWrapWithCredentialManagerPreservesManagedRoundRobin(t *testing.T) {
 			AuthStrategy: AuthStrategyManagedCLIAuthTokenFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr), "id:openai")
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("first generate: %v", err)
 	}
@@ -494,6 +508,49 @@ func TestWrapWithCredentialManagerPreservesManagedRoundRobin(t *testing.T) {
 	second := base.lastCred.ID
 	if first != "cred-a" || second != "cred-b" {
 		t.Fatalf("round robin credentials = %q, %q; want cred-a, cred-b", first, second)
+	}
+}
+
+func TestWrapWithCredentialManagerUsesBoundCredentialScopeAndRequestModel(t *testing.T) {
+	credMgr := newTestCredentialManager()
+	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
+		ID:           "openai-shared",
+		ProviderType: "openai",
+		ProviderID:   "openai-main",
+		Source:       credentialmgr.SourceAPIKey,
+		Attributes: map[string]string{
+			"api_key": "managed-api-key",
+			"scope":   "id:tenant-a",
+		},
+	}); err != nil {
+		t.Fatalf("register managed api key: %v", err)
+	}
+
+	base := &testConfigurableProvider{
+		cfg: ProviderConfig{
+			Id:           "openai-main",
+			ProviderType: "openai",
+			AuthStrategy: AuthStrategyManagedAPIKeyFirst,
+		},
+		errs: []error{statuserr.New(http.StatusTooManyRequests, "quota exceeded")},
+	}
+	scheduler := newTestCredentialScheduler(t, credMgr)
+	wrapped := WrapWithCredentialManager(base, credMgr, scheduler, "id:tenant-a")
+
+	if _, err := wrapped.Chat(context.Background(), &ChatRequest{Model: "gpt-4.1-mini"}); err == nil {
+		t.Fatal("expected quota error from wrapped provider")
+	}
+
+	if base.lastCred == nil || base.lastCred.ID != "openai-shared" {
+		t.Fatalf("unexpected managed credential: %+v", base.lastCred)
+	}
+
+	if _, err := scheduler.Pick(context.Background(), sched.Filter{
+		Source:          credentialmgr.SourceAPIKey,
+		CredentialScope: "id:tenant-a",
+		Model:           "gpt-4.1-mini",
+	}, nil); err == nil {
+		t.Fatal("expected request-model shard to be cooling down")
 	}
 }
 
@@ -514,6 +571,7 @@ func TestWrapWithCredentialManagerRefreshesExpiredCLIAuthCredentialBeforeUse(t *
 		Source:       credentialmgr.SourceCLIAuthToken,
 		Attributes: map[string]string{
 			"api_key": "stale-cli-key",
+			"scope":   "id:openai",
 		},
 		Metadata: map[string]any{
 			credentialmgr.MetadataManualRefreshNameKey: "codex",
@@ -530,7 +588,7 @@ func TestWrapWithCredentialManagerRefreshesExpiredCLIAuthCredentialBeforeUse(t *
 			AuthStrategy: AuthStrategyManagedCLIAuthTokenFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr), "id:openai")
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -559,6 +617,7 @@ func TestWrapWithCredentialManagerRefreshesGeminiCredentialUsingCustomExpiryDelt
 		Source:       credentialmgr.SourceCLIAuthToken,
 		Attributes: map[string]string{
 			"api_key": "stale-gemini-key",
+			"scope":   "id:gemini",
 		},
 		Metadata: map[string]any{
 			credentialmgr.MetadataManualRefreshNameKey:     "gemini",
@@ -576,7 +635,7 @@ func TestWrapWithCredentialManagerRefreshesGeminiCredentialUsingCustomExpiryDelt
 			AuthStrategy: AuthStrategyManagedCLIAuthTokenFirst,
 		},
 	}
-	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr))
+	wrapped := WrapWithCredentialManager(base, credMgr, newTestCredentialScheduler(t, credMgr), "id:gemini")
 	if _, err := wrapped.Chat(context.Background(), &ChatRequest{}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}

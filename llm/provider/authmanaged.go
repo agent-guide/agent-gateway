@@ -19,9 +19,10 @@ type authManagedProvider struct {
 	base          Provider
 	credentialMgr *credentialmgr.Manager
 	scheduler     sched.CredentialScheduler
+	scope         string
 }
 
-func WrapWithCredentialManager(base Provider, credMgr *credentialmgr.Manager, scheduler sched.CredentialScheduler) Provider {
+func WrapWithCredentialManager(base Provider, credMgr *credentialmgr.Manager, scheduler sched.CredentialScheduler, scope string) Provider {
 	if base == nil || credMgr == nil {
 		return base
 	}
@@ -29,6 +30,7 @@ func WrapWithCredentialManager(base Provider, credMgr *credentialmgr.Manager, sc
 		base:          base,
 		credentialMgr: credMgr,
 		scheduler:     scheduler,
+		scope:         scope,
 	}
 	return p
 }
@@ -116,8 +118,9 @@ func (p *authManagedProvider) pickManagedCredential(ctx context.Context, source 
 		return nil
 	}
 	filter := sched.Filter{Source: source, Model: model}
-	filter.ProviderID = p.base.Config().Id
-	filter.ProviderType = p.base.Config().ProviderType
+	if p.scope != "" {
+		filter.CredentialScope = p.scope
+	}
 	cred, err := p.scheduler.Pick(ctx, filter, nil)
 	if err != nil {
 		return nil
@@ -138,7 +141,6 @@ func (p *authManagedProvider) markResult(ctx context.Context, cred *credentialmg
 
 	result := sched.Result{
 		CredentialID: cred.ID,
-		ProviderType: cred.ProviderType,
 		Model:        model,
 		Success:      err == nil,
 	}
@@ -184,6 +186,7 @@ func StaticAPIKeyCredential(cfg ProviderConfig, providerID string) *credentialmg
 		attrs["base_url"] = baseURL
 	}
 	attrs["priority"] = "-1"
+	attrs["scope"] = credentialmgr.ProviderIDCredentialScope(providerID)
 	now := time.Now().UTC()
 	return &credentialmgr.Credential{
 		ID:           StaticAPIKeyCredentialID(cfg),
