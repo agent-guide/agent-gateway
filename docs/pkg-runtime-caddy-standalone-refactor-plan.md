@@ -161,14 +161,15 @@ Notes:
 
 `standalone` 包负责：
 
-- standalone 配置文件格式和解析。
-- standalone 默认值和路径策略。
+- standalone 进程级 CLI 参数解析和默认值。
 - HTTP listener、router 和 shutdown lifecycle。
-- 将 standalone config 转成 config store、providers、routes、virtual keys、credential manager、CLI auth manager 等 runtime 依赖。
+- 构造 config store、credential manager、CLI auth manager/refresher 等 runtime 依赖。
 - 创建 `pkg/gateway.AgentGateway` 并调用 `AgentGateway.Bootstrap(...)`。
 - 装配 Admin API 和 LLM dispatcher。
 
 `standalone` 包与 `caddy` 包是并列入口适配层。它可以依赖 `pkg/...`，但不应承载 provider 调用、路由解析、凭证选择等核心业务逻辑。
+
+Phase 7 的 standalone 先采用最小实现：不新增 `standalone/config`，不解析独立配置文件格式；仅支持少量命令行参数，其余 providers、routes、virtual keys、managed models、provider type 和 LLM API handler type 开关均通过 Admin API 动态配置。
 
 ## Target Runtime Shape
 
@@ -196,7 +197,7 @@ err := gateway.Bootstrap(ctx, gateway.BootstrapOptions{
 `caddy/` 和 `standalone/` 是两个并列装配层：
 
 - `caddy/` 从 Caddyfile/JSON 和 Caddy module loader 构造 runtime 依赖，然后调用 `AgentGateway.Bootstrap(...)`。
-- `standalone/` 从 standalone config 直接构造 runtime 依赖，然后调用 `AgentGateway.Bootstrap(...)`。
+- `standalone/` 从 CLI 参数和 SQLite config store 构造 runtime 依赖，然后调用 `AgentGateway.Bootstrap(...)`。
 
 这样避免新增一个过宽的 `pkg/server` 共享层，也避免把 Caddy 和 standalone 的差异塞进同一个 bootstrap abstraction。
 
@@ -237,15 +238,28 @@ cmd/agwd
 ```text
 cmd/agwd
   -> standalone/server.Run(...)
-  -> read config file
-  -> build config store, providers, credentials, routes, virtual keys
+  -> parse CLI flags
+  -> open SQLite config store
+  -> build credential manager and CLI auth runtime
   -> AgentGateway.Bootstrap(...)
   -> mount dispatch handler
   -> mount admin handler
   -> http.ListenAndServe(...)
 ```
 
-建议先支持 JSON 或 YAML 配置，不建议第一阶段复用 Caddyfile。Caddyfile 是 Caddy adapter 的职责，standalone 配置应直接面向 runtime model。
+Phase 7 不实现 standalone 配置文件解析，也不复用 Caddyfile。最小启动参数为：
+
+```text
+--addr <gateway listen address>
+--admin-addr <admin listen address>
+--admin-user <username>
+--admin-password-hash <bcrypt hash>
+--config <sqlite file>
+```
+
+`--config` 表示 SQLite config store 文件路径，不是 standalone 配置文件。Providers、routes、virtual keys、managed models、provider type 开关和 LLM API handler type 开关均通过 Admin API 写入 SQLite 后动态生效。
+
+后续如确有需要，可以再新增 `standalone/config` 并定义 JSON/YAML schema，但这不是 Phase 7 的范围。
 
 示例 HTTP mount：
 
@@ -254,7 +268,7 @@ cmd/agwd
 /*       -> pkg/dispatcher.Handler
 ```
 
-`cmd/agwd/main.go` 应保持很薄，只处理 CLI flags、日志初始化和调用 `standalone/server.Run(...)`。独立服务的配置 schema、默认值、HTTP mux、graceful shutdown 和 runtime 装配应放在 `standalone/` 下。
+`cmd/agwd/main.go` 应保持很薄，只处理 CLI flags、日志初始化和调用 `standalone/server.Run(...)`。独立服务的默认值、HTTP mux、graceful shutdown 和 runtime 装配应放在 `standalone/` 下。
 
 ## Refactor Phases
 
@@ -378,7 +392,7 @@ Tasks:
 - 将 SQLite store 主逻辑迁入 `pkg/configstore/sqlite`。
 - 新增普通构造函数，例如 `sqlite.Open(ctx, Config, logger)`。
 - Caddy SQLite adapter 负责默认路径 `caddy.AppDataDir()`，再调用 runtime 构造函数。
-- Standalone 默认路径由 `standalone/config` 或 `standalone/bootstrap` 决定，不使用 `caddy.AppDataDir()`。
+- Standalone 默认路径由 `standalone/server` 或 `cmd/agwd` CLI 默认值决定，不使用 `caddy.AppDataDir()`。
 - 保持 SQLite model store 只依赖 `configstore/intf.ModelStorageKeyer` 这类最小 key contract，不反向依赖 `gateway/modelcatalog`。
 
 Exit criteria:
@@ -440,26 +454,23 @@ Tasks:
 - 新增 `standalone/` 目录，与 `caddy/` 并列。
 - 新增 `cmd/agwd`。
 - 将 standalone server 的实际实现放到 `standalone/server`，`cmd/agwd` 只做薄 main。
-- 将 standalone 配置 schema、解析和默认值放到 `standalone/config`。
-- 定义 standalone config 格式。建议先用 JSON，后续再加 YAML。
-- 支持配置：
-  - listen address
-  - admin listen/path
-  - config store
-  - providers
-  - routes
-  - virtual keys
-  - managed models
-  - enabled provider types
-  - enabled llm api handler types
+- 不新增 `standalone/config`，不实现 standalone 配置文件解析。
+- 使用 `github.com/gin-gonic/gin` 装配 standalone HTTP server。
+- 使用 `github.com/spf13/cobra` 解析最小命令行参数：
+  - `--addr`
+  - `--admin-addr`
+  - `--admin-user`
+  - `--admin-password-hash`
+  - `--config <sqlite file>`
+- `--config` 仅表示 SQLite config store 文件路径。
+- Providers、routes、virtual keys、managed models、enabled provider types、enabled llm api handler types 均通过 Admin API 动态配置。
 - 创建 `pkg/gateway.AgentGateway` 并调用 `AgentGateway.Bootstrap(...)`。
 - 启动前加载 provider/authenticator/llmapi runtime factories。
-- 提供最小 example config。
 
 Exit criteria:
 
 - `go build -o agwd ./cmd/agwd` 通过。
-- 使用 example config 可以完成一次 OpenAI-compatible 或 Anthropic-compatible smoke test。
+- 使用 Admin API 动态配置 provider、route 和 virtual key 后，可以完成一次 OpenAI-compatible 或 Anthropic-compatible smoke test。
 - Admin API 可访问。
 
 ### Phase 8: Cleanup Compatibility Shells
