@@ -6,8 +6,8 @@ import (
 	"math/rand"
 	"net/http"
 
-	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
 )

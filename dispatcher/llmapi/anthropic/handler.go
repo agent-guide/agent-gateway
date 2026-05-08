@@ -10,10 +10,10 @@ import (
 	"time"
 
 	dispatcher "github.com/agent-guide/caddy-agent-gateway/dispatcher"
-	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httplog"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
+	routepkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/route"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/cloudwego/eino/schema"

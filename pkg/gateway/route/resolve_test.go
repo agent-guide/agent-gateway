@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
 )

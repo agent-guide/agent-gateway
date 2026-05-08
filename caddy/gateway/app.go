@@ -9,11 +9,12 @@ import (
 	"go.uber.org/zap"
 
 	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/caddy/configstore/sqlite"
-	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
-	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
-	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/cliauth"
 	configstoreIntf "github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
+	runtimegateway "github.com/agent-guide/caddy-agent-gateway/pkg/gateway"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway/modelcatalog"
+	routepkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/route"
+	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
 	credentialmgrscheduler "github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
@@ -44,7 +45,7 @@ type App struct {
 	credentialSched  credentialmgrscheduler.CredentialScheduler
 	configStorer     configstoreIntf.ConfigStorer
 	providers        map[string]provider.Provider
-	agentGateway     *AgentGateway
+	agentGateway     *runtimegateway.AgentGateway
 }
 
 // CaddyModule returns the Caddy module information.
@@ -58,7 +59,7 @@ func (App) CaddyModule() caddy.ModuleInfo {
 // Provision sets up the app.
 func (a *App) Provision(ctx caddy.Context) error {
 	a.logger = ctx.Logger(a)
-	a.agentGateway = NewAgentGateway()
+	a.agentGateway = runtimegateway.NewAgentGateway()
 
 	if err := a.provisionConfigStore(ctx); err != nil {
 		return fmt.Errorf("init config store: %w", err)
@@ -90,7 +91,7 @@ func (a *App) Provision(ctx caddy.Context) error {
 		return fmt.Errorf("load cliauth credentials: %w", err)
 	}
 
-	if err := a.agentGateway.Bootstrap(ctx, BootstrapOptions{
+	if err := a.agentGateway.Bootstrap(ctx, runtimegateway.BootstrapOptions{
 		StaticRoutes:        a.Routes,
 		StaticVirtualKeys:   a.VirtualKeys,
 		StaticProviders:     a.providers,
@@ -125,7 +126,7 @@ func (a *App) CredentialManager() *credentialmgr.Manager {
 
 // AgentGateway returns the gateway instance owned by this app.
 // It returns nil if called before Provision completes.
-func (a *App) AgentGateway() *AgentGateway {
+func (a *App) AgentGateway() *runtimegateway.AgentGateway {
 	return a.agentGateway
 }
 

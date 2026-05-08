@@ -50,8 +50,8 @@ Notes:
 ### Caddy app
 
 - Module ID: `agent_gateway`
-- Package: `gateway/`
-- Main entry: `gateway/app.go`
+- Package: `caddy/gateway/`
+- Main entry: `caddy/gateway/app.go`
 
 Responsibilities:
 
@@ -107,18 +107,23 @@ Responsibilities:
 
 ## Key Packages
 
-### `gateway/`
+### `pkg/gateway/`
 
 Important files:
 
-- `app.go`: Caddy app wiring
 - `agentgateway.go`: runtime route, VirtualKey, and provider resolution
 - `providerresolver.go`: static and dynamic provider resolution
-- `caddyfile.go`: global `agent_gateway` Caddyfile parsing
 
 `AgentGateway` is the main runtime object. It resolves routes, validates VirtualKeys, and selects providers. It does not own the HTTP protocol details.
 
-### `gateway/route/`
+### `caddy/gateway/`
+
+Important files:
+
+- `app.go`: Caddy app wiring and runtime bootstrap
+- `caddyfile.go`: global `agent_gateway` Caddyfile parsing
+
+### `pkg/gateway/route/`
 
 Defines the route model used by both Caddyfile config and the Admin API.
 
@@ -139,7 +144,7 @@ Current route modes:
 
 The route model uses `llm_api` and `require_virtual_key`. Do not reintroduce the old `local API key` naming in new code or docs.
 
-### `gateway/modelcatalog/`
+### `pkg/gateway/modelcatalog/`
 
 This package owns provider model discovery, managed model overlays, and runtime validation of concrete route candidates.
 
@@ -148,7 +153,7 @@ Important types:
 - `ManagedModel`
 - `ProviderModelSnapshot`
 
-### `gateway/virtualkey/`
+### `pkg/gateway/virtualkey/`
 
 This package owns VirtualKey extraction, validation, and storage-facing helpers.
 
@@ -217,12 +222,13 @@ Authenticator registration rules:
 
 This package manages persisted upstream credentials and selection state. It is separate from the provider registry and separate from `cliauth`, though `cliauth` integrates with it through an adapter.
 
-### `configstore/`
+### `pkg/configstore/`
 
 Important packages:
 
 - `pkg/configstore/intf/`: storage interfaces
-- `configstore/sqlite/`: SQLite implementation
+- `pkg/configstore/sqlite/`: SQLite implementation
+- `caddy/configstore/sqlite/`: SQLite Caddy adapter
 
 The top-level storage interface is `ConfigStorer`, which vends:
 

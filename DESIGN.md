@@ -51,9 +51,9 @@ External systems
 
 ## 4. Main Components
 
-### 4.1 `gateway/`: Caddy App Backbone
+### 4.1 `caddy/gateway/` And `pkg/gateway/`: App Adapter And Runtime Backbone
 
-The `gateway.App` type is the root Caddy app module with module ID `agent_gateway`.
+The `caddy/gateway.App` type is the root Caddy app module with module ID `agent_gateway`.
 
 Its responsibilities are:
 
@@ -63,14 +63,14 @@ Its responsibilities are:
 - Initialize the credential manager
 - Restore persisted credentials from storage
 - Build route loading and provider resolution dependencies
-- Construct the shared `AgentGateway` runtime used by HTTP handlers
+- Construct the shared `pkg/gateway.AgentGateway` runtime used by HTTP handlers
 
 The app owns both:
 
 - statically configured routes from the Caddyfile
 - dynamically persisted route and provider records from the config store
 
-This is the key design choice in the project: the HTTP handlers are intentionally thin, while the app owns the reusable gateway services.
+This is the key design choice in the project: the HTTP handlers are intentionally thin, the Caddy app owns Caddy lifecycle wiring, and `pkg/gateway` owns the reusable gateway services.
 
 ### 4.2 `dispatcher/`: Compatible LLM Ingress
 
@@ -253,7 +253,7 @@ That is one of the core architectural decisions in the project.
 
 ### 6.1 Route Object
 
-The primary routing configuration is `gateway/route.AgentRoute`.
+The primary routing configuration is `pkg/gateway/route.AgentRoute`.
 
 Important fields include:
 

@@ -9,7 +9,7 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 
-	"github.com/agent-guide/caddy-agent-gateway/gateway"
+	caddygateway "github.com/agent-guide/caddy-agent-gateway/caddy/gateway"
 )
 
 func init() {
@@ -34,7 +34,7 @@ func (AgentGatewayAdminHandler) CaddyModule() caddy.ModuleInfo {
 
 // Provision sets up the handler.
 func (h *AgentGatewayAdminHandler) Provision(ctx caddy.Context) error {
-	app, err := gateway.GetApp(ctx)
+	app, err := caddygateway.GetApp(ctx)
 	if err != nil {
 		return fmt.Errorf("agent_gateway_admin: get agent_gateway app: %w", err)
 	}

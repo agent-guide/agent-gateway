@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/gateway"
-	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway"
+	routepkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/route"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
 	"github.com/caddyserver/caddy/v2"
 )

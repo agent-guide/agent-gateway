@@ -5,8 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/agent-guide/caddy-agent-gateway/gateway"
+	caddygateway "github.com/agent-guide/caddy-agent-gateway/caddy/gateway"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
+	runtimegateway "github.com/agent-guide/caddy-agent-gateway/pkg/gateway"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
@@ -22,7 +23,7 @@ type AgentRouteDispatcher struct {
 	APIHandlersRaw caddy.ModuleMap `json:"api_handlers,omitempty" caddy:"namespace=agent_route_dispatcher.llm_apis"`
 
 	apiHandlers map[string]LLMApiHandler
-	gateway     *gateway.AgentGateway
+	gateway     *runtimegateway.AgentGateway
 	logger      *zap.Logger
 }
 
@@ -36,7 +37,7 @@ func (AgentRouteDispatcher) CaddyModule() caddy.ModuleInfo {
 func (h *AgentRouteDispatcher) Provision(ctx caddy.Context) error {
 	h.logger = ctx.Logger(h)
 
-	app, err := gateway.GetApp(ctx)
+	app, err := caddygateway.GetApp(ctx)
 	if err != nil {
 		return fmt.Errorf("agent_route_dispatcher: get agent_gateway app: %w", err)
 	}

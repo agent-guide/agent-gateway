@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
-	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
-	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway/modelcatalog"
+	routepkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/route"
+	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"

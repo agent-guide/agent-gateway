@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"net/http"
 
-	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
+	routepkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/route"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
 	credentialmgrscheduler "github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"

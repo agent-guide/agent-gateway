@@ -37,7 +37,8 @@ The request path today is centered on LLM routing. MCP, memory, metrics, and age
 ## Repository Layout
 
 - `cmd/` - custom Caddy entrypoint and module imports
-- `gateway/` - `agent_gateway` app, runtime managers, route selection, provider resolution, virtual key validation
+- `pkg/gateway/` - runtime managers, route selection, provider resolution, virtual key validation
+- `caddy/gateway/` - `agent_gateway` Caddy app adapter and Caddyfile parsing
 - `dispatcher/` - `agent_route_dispatcher` and protocol handlers
 - `admin/` - `agent_gateway_admin`, Admin API routes, session auth, Caddy management proxy
 - `pkg/llm/provider/` - provider interface and built-in provider implementations
@@ -45,7 +46,8 @@ The request path today is centered on LLM routing. MCP, memory, metrics, and age
 - `pkg/cliauth/` - CLI login authenticators and manager
 - `pkg/llm/credentialmgr/` - upstream credential registration and scheduling state
 - `pkg/configstore/intf/` - storage interfaces
-- `configstore/sqlite/` - SQLite-backed persisted configuration
+- `pkg/configstore/sqlite/` - SQLite-backed persisted configuration runtime
+- `caddy/configstore/sqlite/` - SQLite config store Caddy adapter
 - `llm/mcp/`, `llm/memory/`, `llm/agent/` - early integration scaffolding
 
 ## Build
