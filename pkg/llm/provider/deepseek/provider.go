@@ -3,25 +3,21 @@ package deepseek
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 
-	"github.com/caddyserver/caddy/v2"
-	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	einodeepseek "github.com/cloudwego/eino-ext/components/model/deepseek"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
-	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
-	"github.com/agent-guide/caddy-agent-gateway/llm/provider/openaibase"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/openaibase"
 )
 
 func init() {
 	provider.RegisterProviderFactory("deepseek", New)
-	caddy.RegisterModule(Provider{})
 }
 
 type Provider struct {
@@ -37,35 +33,6 @@ func New(config provider.ProviderConfig) (provider.Provider, error) {
 	config.Network.Defaults()
 
 	return &Provider{Base: openaibase.NewBase(config)}, nil
-}
-
-func (Provider) CaddyModule() caddy.ModuleInfo {
-	return caddy.ModuleInfo{
-		ID:  "llm.providers.deepseek",
-		New: func() caddy.Module { return new(Provider) },
-	}
-}
-
-func (p *Provider) Provision(_ caddy.Context) error {
-	p.ensureBase()
-	if err := provider.ValidateProviderType(&p.ProviderConfig, "deepseek"); err != nil {
-		return err
-	}
-	built, err := New(p.ProviderConfig)
-	if err != nil {
-		return err
-	}
-	mod, ok := built.(*Provider)
-	if !ok {
-		return fmt.Errorf("deepseek: unexpected provider type %T", built)
-	}
-	*p = *mod
-	return nil
-}
-
-func (p *Provider) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	p.ensureBase()
-	return provider.UnmarshalCaddyfileConfig(d, &p.ProviderConfig)
 }
 
 func (p *Provider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
@@ -226,7 +193,5 @@ func boolOption(opts map[string]any, key string) (bool, bool) {
 }
 
 var (
-	_ caddy.Provisioner     = (*Provider)(nil)
-	_ caddyfile.Unmarshaler = (*Provider)(nil)
-	_ provider.Provider     = (*Provider)(nil)
+	_ provider.Provider = (*Provider)(nil)
 )

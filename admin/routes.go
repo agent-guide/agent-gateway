@@ -14,8 +14,8 @@ import (
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
-	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
 	"gorm.io/gorm"
 )
 

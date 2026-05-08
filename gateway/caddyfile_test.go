@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/agent-guide/caddy-agent-gateway/caddy/provider/ollama"
 	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/configstore/sqlite"
-	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/ollama"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 )

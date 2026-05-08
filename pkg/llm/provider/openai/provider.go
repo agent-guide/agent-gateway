@@ -1,70 +1,56 @@
-// Package zhipu implements the Zhipu BigModel provider.
-package zhipu
+// Package openai implements the OpenAI provider.
+package openai
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
-	"github.com/caddyserver/caddy/v2"
-	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
-	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
-	"github.com/agent-guide/caddy-agent-gateway/llm/provider/openaibase"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/openaibase"
 )
 
 func init() {
-	provider.RegisterProviderFactory("zhipu", New)
-	caddy.RegisterModule(Provider{})
+	provider.RegisterProviderFactory("openai", New)
 }
 
 type Provider struct {
 	*openaibase.Base
 }
 
-// New creates a new Zhipu provider using BigModel's OpenAI-compatible API.
+// New creates a new OpenAI provider.
+//
+// Optional config.Options keys:
+//   - "organization": string → sent as OpenAI-Organization header.
+//   - "project":      string → sent as OpenAI-Project header.
 func New(config provider.ProviderConfig) (provider.Provider, error) {
 	if config.BaseURL == "" {
-		config.BaseURL = "https://open.bigmodel.cn/api/paas/v4"
+		config.BaseURL = "https://api.openai.com/v1"
 	}
 	config.BaseURL = strings.TrimRight(config.BaseURL, "/")
 	config.Network.Defaults()
 
+	// Inject OpenAI-specific headers via ExtraHeaders so Base.setHeaders picks them up.
+	if config.Network.ExtraHeaders == nil {
+		config.Network.ExtraHeaders = make(map[string]string)
+	}
+	if v, ok := config.Options["organization"]; ok {
+		if s, ok := v.(string); ok && s != "" {
+			config.Network.ExtraHeaders["OpenAI-Organization"] = s
+		}
+	}
+	if v, ok := config.Options["project"]; ok {
+		if s, ok := v.(string); ok && s != "" {
+			config.Network.ExtraHeaders["OpenAI-Project"] = s
+		}
+	}
+
 	return &Provider{Base: openaibase.NewBase(config)}, nil
-}
-
-func (Provider) CaddyModule() caddy.ModuleInfo {
-	return caddy.ModuleInfo{
-		ID:  "llm.providers.zhipu",
-		New: func() caddy.Module { return new(Provider) },
-	}
-}
-
-func (p *Provider) Provision(_ caddy.Context) error {
-	p.ensureBase()
-	if err := provider.ValidateProviderType(&p.ProviderConfig, "zhipu"); err != nil {
-		return err
-	}
-	built, err := New(p.ProviderConfig)
-	if err != nil {
-		return err
-	}
-	mod, ok := built.(*Provider)
-	if !ok {
-		return fmt.Errorf("zhipu: unexpected provider type %T", built)
-	}
-	*p = *mod
-	return nil
-}
-
-func (p *Provider) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	p.ensureBase()
-	return provider.UnmarshalCaddyfileConfig(d, &p.ProviderConfig)
 }
 
 func (p *Provider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
@@ -95,6 +81,16 @@ func (p *Provider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*
 	return stream, nil
 }
 
+func (p *Provider) CreateResponses(ctx context.Context, req *provider.ResponsesRequest) (*provider.ResponsesResponse, error) {
+	p.ensureBase()
+	return p.Base.DoCreateResponses(ctx, req)
+}
+
+func (p *Provider) StreamResponses(ctx context.Context, req *provider.ResponsesRequest) (*schema.StreamReader[*provider.ResponsesStreamEvent], error) {
+	p.ensureBase()
+	return p.Base.DoStreamResponses(ctx, req)
+}
+
 func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) (einomodel.ToolCallingChatModel, []*schema.Message, []einomodel.Option, error) {
 	state, err := provider.ResolveChatRequest(ctx, p.ProviderConfig, req)
 	if err != nil {
@@ -112,16 +108,7 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) 
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	opts := append([]einomodel.Option(nil), state.Options...)
-	if thinkingType := p.thinkingType(); thinkingType != "" {
-		opts = append(opts, einoopenai.WithExtraFields(map[string]any{
-			"thinking": map[string]any{
-				"type": thinkingType,
-			},
-		}))
-	}
-
-	return chatModel, state.Messages, opts, nil
+	return chatModel, state.Messages, state.Options, nil
 }
 
 func (p *Provider) Capabilities() provider.ProviderCapabilities {
@@ -131,7 +118,7 @@ func (p *Provider) Capabilities() provider.ProviderCapabilities {
 		Vision:          true,
 		Embeddings:      true,
 		ContextWindow:   128000,
-		MaxOutputTokens: 8192,
+		MaxOutputTokens: 16384,
 	}
 }
 
@@ -146,28 +133,9 @@ func (p *Provider) ensureBase() {
 	}
 }
 
-func (p *Provider) thinkingType() string {
-	v, ok := p.ProviderConfig.Options["thinking_type"]
-	if !ok {
-		return "disabled"
-	}
-	s, ok := v.(string)
-	if !ok {
-		return "disabled"
-	}
-	s = strings.TrimSpace(strings.ToLower(s))
-	if s == "" {
-		return "disabled"
-	}
-	if s == "none" {
-		return ""
-	}
-	return s
-}
-
+// Interface guards.
 var (
-	_ caddy.Provisioner          = (*Provider)(nil)
-	_ caddyfile.Unmarshaler      = (*Provider)(nil)
 	_ provider.Provider          = (*Provider)(nil)
 	_ provider.EmbeddingProvider = (*Provider)(nil)
+	_ provider.ResponsesProvider = (*Provider)(nil)
 )

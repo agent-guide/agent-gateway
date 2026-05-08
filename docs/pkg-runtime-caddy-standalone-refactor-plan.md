@@ -263,6 +263,7 @@ cmd/agwd
 每个模块拆分阶段都应满足：
 
 - Caddy adapter 继续存在，并调用新的 `pkg/...` runtime。
+- 从 Caddy 模块中剥离出的 adapter 应优先迁入 `caddy/...`，不要长期留在旧 runtime 路径。旧路径只允许作为明确标记的短期 alias/compatibility shell。
 - Caddy module ID 和 Caddyfile 行为保持兼容。
 - 该阶段结束后 `go test ./...` 和 Caddy binary build 仍可通过。
 
@@ -358,7 +359,7 @@ Tasks:
 - 先用 `openai` provider 做模板，将 runtime 实现迁入 `pkg/llm/provider/openai`。
 - 验证模板后，再机械迁移 `anthropic`、`gemini`、`ollama`、`openrouter`、`deepseek`、`zhipu` 等 provider。
 - Provider runtime 包只注册 `provider.RegisterProviderFactory(...)`。
-- Caddy provider adapter 包负责 `caddy.RegisterModule(...)`、`CaddyModule()`、`Provision(caddy.Context)`、`UnmarshalCaddyfile(...)`。
+- Caddy provider adapter 迁入 `caddy/provider/<name>`，负责 `caddy.RegisterModule(...)`、`CaddyModule()`、`Provision(caddy.Context)`、`UnmarshalCaddyfile(...)`。
 - 将通用 Caddyfile provider config parser 放到 `caddy/provider` 或 `caddy/internal/providerconfig`，不要放在 `pkg/llm/provider`。
 
 Exit criteria:

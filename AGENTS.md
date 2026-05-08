@@ -163,7 +163,7 @@ The gateway accepts a VirtualKey from either:
 - `Authorization: Bearer <key>`
 - `x-api-key: <key>`
 
-### `llm/provider/`
+### `pkg/llm/provider/`
 
 This package defines the provider interface and provider registry.
 
@@ -171,10 +171,9 @@ Important files:
 
 - `provider.go`: provider request and response types
 - `registry.go`: provider factory registration
-- `module.go`: common Caddy module parsing helpers
-- `authmanaged.go`: provider wrapper that injects managed credentials
+- `staticcredential.go`: provider wrapper that injects managed credentials
 
-Built-in provider packages currently compiled by `cmd/main.go`:
+Built-in provider runtime packages:
 
 - `openai`
 - `anthropic`
@@ -188,8 +187,8 @@ Provider registration rules:
 
 - implement the `provider.Provider` interface
 - register the factory with `provider.RegisterProviderFactory(...)`
-- register the Caddy module under `llm.providers.<name>`
-- add a blank import in `cmd/main.go` so the provider is linked into the binary
+- add a Caddy adapter under `caddy/provider/<name>` that registers `llm.providers.<name>`
+- add a blank import for the Caddy adapter in `cmd/main.go` so the provider is linked into the binary
 
 ### `pkg/cliauth/`
 

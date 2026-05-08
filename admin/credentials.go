@@ -9,8 +9,8 @@ import (
 
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
-	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
 	"gorm.io/gorm"
 )
 

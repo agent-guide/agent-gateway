@@ -40,7 +40,8 @@ The request path today is centered on LLM routing. MCP, memory, metrics, and age
 - `gateway/` - `agent_gateway` app, runtime managers, route selection, provider resolution, virtual key validation
 - `dispatcher/` - `agent_route_dispatcher` and protocol handlers
 - `admin/` - `agent_gateway_admin`, Admin API routes, session auth, Caddy management proxy
-- `llm/provider/` - provider interface and built-in provider implementations
+- `pkg/llm/provider/` - provider interface and built-in provider implementations
+- `caddy/provider/` - Caddy provider module adapters
 - `pkg/cliauth/` - CLI login authenticators and manager
 - `pkg/llm/credentialmgr/` - upstream credential registration and scheduling state
 - `pkg/configstore/intf/` - storage interfaces
@@ -584,7 +585,7 @@ the frontend to log in again.
 ```bash
 go test ./...
 go test ./admin ./gateway ./api
-go test ./llm/provider/...
+go test ./pkg/llm/provider/... ./caddy/provider/...
 ```
 
 ```bash

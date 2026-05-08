@@ -1,21 +1,53 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 
+	runtimeprovider "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/cloudwego/eino/schema"
 )
 
 // Module is a provider implementation that can be loaded through Caddy's module system.
 type Module interface {
 	caddy.Module
-	Provider
+	runtimeprovider.Provider
+}
+
+// RuntimeAdapter delegates provider runtime calls to a pkg/llm/provider implementation.
+type RuntimeAdapter struct {
+	runtimeprovider.ProviderConfig
+	Runtime runtimeprovider.Provider `json:"-"`
+}
+
+func (a *RuntimeAdapter) Chat(ctx context.Context, req *runtimeprovider.ChatRequest) (*runtimeprovider.ChatResponse, error) {
+	return a.Runtime.Chat(ctx, req)
+}
+
+func (a *RuntimeAdapter) StreamChat(ctx context.Context, req *runtimeprovider.ChatRequest) (*schema.StreamReader[*schema.Message], error) {
+	return a.Runtime.StreamChat(ctx, req)
+}
+
+func (a *RuntimeAdapter) ListModels(ctx context.Context) ([]runtimeprovider.ModelInfo, error) {
+	return a.Runtime.ListModels(ctx)
+}
+
+func (a *RuntimeAdapter) Capabilities() runtimeprovider.ProviderCapabilities {
+	return a.Runtime.Capabilities()
+}
+
+func (a *RuntimeAdapter) Config() runtimeprovider.ProviderConfig {
+	if a.Runtime == nil {
+		return a.ProviderConfig
+	}
+	return a.Runtime.Config()
 }
 
 // UnmarshalCaddyfileConfig parses common provider settings from a Caddyfile block.
-func UnmarshalCaddyfileConfig(d *caddyfile.Dispenser, cfg *ProviderConfig) error {
+func UnmarshalCaddyfileConfig(d *caddyfile.Dispenser, cfg *runtimeprovider.ProviderConfig) error {
 	for d.Next() {
 		if cfg.Id == "" {
 			cfg.Id = d.Val()
@@ -128,7 +160,7 @@ func UnmarshalCaddyfileConfig(d *caddyfile.Dispenser, cfg *ProviderConfig) error
 }
 
 // ValidateProviderType ensures the provider config name matches the mounted module name.
-func ValidateProviderType(cfg *ProviderConfig, expected string) error {
+func ValidateProviderType(cfg *runtimeprovider.ProviderConfig, expected string) error {
 	if cfg.ProviderType == "" {
 		cfg.ProviderType = expected
 		return nil

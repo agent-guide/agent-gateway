@@ -38,6 +38,8 @@ Caddyfile1
 # Build output
 caddy-agent-gateway
 caddy
+!/caddy/
+!/caddy/**
 agw
 dist/
 

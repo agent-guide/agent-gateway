@@ -113,7 +113,7 @@ The same route table also defines MCP, memory, agent, and metrics endpoints, but
 
 This means the admin package is already the control-plane entrypoint, but only part of the intended control plane is finished.
 
-### 4.4 `llm/provider/`: Provider Abstraction
+### 4.4 `pkg/llm/provider/`: Provider Abstraction
 
 Providers implement a shared interface:
 

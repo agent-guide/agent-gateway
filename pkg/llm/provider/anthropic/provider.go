@@ -7,22 +7,19 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/caddyserver/caddy/v2"
-	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	einoclaude "github.com/cloudwego/eino-ext/components/model/claude"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
-	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
 )
 
 const anthropicVersion = "2023-06-01"
 
 func init() {
 	provider.RegisterProviderFactory("anthropic", New)
-	caddy.RegisterModule(Provider{})
 }
 
 type Provider struct {
@@ -41,33 +38,6 @@ func New(config provider.ProviderConfig) (provider.Provider, error) {
 		ProviderConfig: config,
 		client:         httpclient.BuildHTTPClient(config.Network),
 	}, nil
-}
-
-func (Provider) CaddyModule() caddy.ModuleInfo {
-	return caddy.ModuleInfo{
-		ID:  "llm.providers.anthropic",
-		New: func() caddy.Module { return new(Provider) },
-	}
-}
-
-func (p *Provider) Provision(_ caddy.Context) error {
-	if err := provider.ValidateProviderType(&p.ProviderConfig, "anthropic"); err != nil {
-		return err
-	}
-	built, err := New(p.ProviderConfig)
-	if err != nil {
-		return err
-	}
-	mod, ok := built.(*Provider)
-	if !ok {
-		return fmt.Errorf("anthropic: unexpected provider type %T", built)
-	}
-	*p = *mod
-	return nil
-}
-
-func (p *Provider) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	return provider.UnmarshalCaddyfileConfig(d, &p.ProviderConfig)
 }
 
 func (p *Provider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
@@ -187,7 +157,5 @@ func (p *Provider) setHeaders(req *http.Request) {
 }
 
 var (
-	_ caddy.Provisioner     = (*Provider)(nil)
-	_ caddyfile.Unmarshaler = (*Provider)(nil)
-	_ provider.Provider     = (*Provider)(nil)
+	_ provider.Provider = (*Provider)(nil)
 )

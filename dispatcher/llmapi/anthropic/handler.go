@@ -14,7 +14,7 @@ import (
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httplog"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
-	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"

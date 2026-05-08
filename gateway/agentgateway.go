@@ -10,11 +10,11 @@ import (
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
-	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/cliauth"
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
 	credentialmgrscheduler "github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr/scheduler"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
 )
 
 type BootstrapOptions struct {

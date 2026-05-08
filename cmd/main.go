@@ -17,13 +17,13 @@ import (
 	_ "github.com/agent-guide/caddy-agent-gateway/pkg/cliauth/authenticator"
 
 	// LLM Providers (register as factory + Caddy modules via init())
-	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/anthropic"
-	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/deepseek"
-	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/gemini"
-	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/ollama"
-	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/openai"
-	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/openrouter"
-	_ "github.com/agent-guide/caddy-agent-gateway/llm/provider/zhipu"
+	_ "github.com/agent-guide/caddy-agent-gateway/caddy/provider/anthropic"
+	_ "github.com/agent-guide/caddy-agent-gateway/caddy/provider/deepseek"
+	_ "github.com/agent-guide/caddy-agent-gateway/caddy/provider/gemini"
+	_ "github.com/agent-guide/caddy-agent-gateway/caddy/provider/ollama"
+	_ "github.com/agent-guide/caddy-agent-gateway/caddy/provider/openai"
+	_ "github.com/agent-guide/caddy-agent-gateway/caddy/provider/openrouter"
+	_ "github.com/agent-guide/caddy-agent-gateway/caddy/provider/zhipu"
 )
 
 func main() {
