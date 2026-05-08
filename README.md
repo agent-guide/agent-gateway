@@ -53,7 +53,7 @@ The request path today is centered on LLM routing. MCP, memory, metrics, and age
 ## Build
 
 ```bash
-go build -o agw ./cmd/main.go
+go build -o agw ./cmd/agw
 ```
 
 or:

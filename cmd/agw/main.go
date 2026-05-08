@@ -7,12 +7,12 @@ import (
 	_ "github.com/caddyserver/caddy/v2/modules/standard"
 
 	// LLM Gateway modules
-	_ "github.com/agent-guide/caddy-agent-gateway/admin"
+	_ "github.com/agent-guide/caddy-agent-gateway/caddy/admin"
 	_ "github.com/agent-guide/caddy-agent-gateway/caddy/configstore/sqlite"
+	_ "github.com/agent-guide/caddy-agent-gateway/caddy/dispatcher"
+	_ "github.com/agent-guide/caddy-agent-gateway/caddy/dispatcher/llmapi/anthropic"
+	_ "github.com/agent-guide/caddy-agent-gateway/caddy/dispatcher/llmapi/openai"
 	_ "github.com/agent-guide/caddy-agent-gateway/caddy/gateway"
-	_ "github.com/agent-guide/caddy-agent-gateway/dispatcher"
-	_ "github.com/agent-guide/caddy-agent-gateway/dispatcher/llmapi/anthropic"
-	_ "github.com/agent-guide/caddy-agent-gateway/dispatcher/llmapi/openai"
 
 	// CLI authenticators (register as factory + Caddy modules via init())
 	_ "github.com/agent-guide/caddy-agent-gateway/pkg/cliauth/authenticator"

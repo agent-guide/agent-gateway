@@ -21,7 +21,7 @@ MCP, memory, agent, and metrics areas exist in the repo, but the main implemente
 make build
 
 # Or build only the gateway binary
-go build -o agw ./cmd/main.go
+go build -o agw ./cmd/agw
 
 # Or build only the management CLI
 go build -o agwctl ./cmd/agwctl
@@ -42,7 +42,7 @@ go test ./path/to/package -run TestName -v
 
 Notes:
 
-- `make build` builds both `agw` from `cmd/main.go` and `agwctl` from `cmd/agwctl`.
+- `make build` builds both `agw` from `cmd/agw/main.go` and `agwctl` from `cmd/agwctl`.
 - The resulting binary is a standard Caddy binary with custom modules compiled in, so normal Caddy subcommands such as `run`, `reload`, `validate`, and `hash-password` work.
 
 ## Core Modules
@@ -193,7 +193,7 @@ Provider registration rules:
 - implement the `provider.Provider` interface
 - register the factory with `provider.RegisterProviderFactory(...)`
 - add a Caddy adapter under `caddy/provider/<name>` that registers `llm.providers.<name>`
-- add a blank import for the Caddy adapter in `cmd/main.go` so the provider is linked into the binary
+- add a blank import for the Caddy adapter in `cmd/agw/main.go` so the provider is linked into the binary
 
 ### `pkg/cliauth/`
 
@@ -216,7 +216,7 @@ Authenticator registration rules:
 
 - implement the `cliauth.Authenticator` interface
 - register the factory with `cliauth.RegisterAuthenticatorFactory(...)`
-- ensure the package is included through the blank import of `pkg/cliauth/authenticator` in `cmd/main.go`
+- ensure the package is included through the blank import of `pkg/cliauth/authenticator` in `cmd/agw/main.go`
 
 ### `pkg/llm/credentialmgr/`
 
@@ -339,6 +339,6 @@ Stubbed families currently return `501 Not Implemented`:
 - `README.md`: user-facing setup and API examples
 - `DESIGN.md`: broader architecture and roadmap
 - `Caddyfile.example`: working reference config
-- `cmd/main.go`: the definitive list of linked modules
+- `cmd/agw/main.go`: the definitive list of linked modules
 
 If you change module IDs, route semantics, provider registration, or Admin API paths, update this file and `README.md` in the same change.

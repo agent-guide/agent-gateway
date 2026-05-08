@@ -37,10 +37,10 @@ Caddyfile1
 
 # Build output
 caddy-agent-gateway
-caddy
+/caddy
 !/caddy/
 !/caddy/**
-agw
+/agw
 dist/
 
 # Data

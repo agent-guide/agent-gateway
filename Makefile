@@ -20,7 +20,7 @@ all: clean deps build
 # Build the binary (recommended method)
 build:
 	@echo "Building $(BINARY_NAME)..."
-	$(GOBUILD) -o $(BINARY_NAME) ./cmd/main.go
+	$(GOBUILD) -o $(BINARY_NAME) ./cmd/agw
 	$(GOBUILD) -o $(CLI_BINARY_NAME) ./cmd/agwctl
 
 build-xcaddy:

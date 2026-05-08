@@ -292,7 +292,7 @@ Model config storage should not depend on `gateway/modelcatalog`. The storage la
 Tasks:
 
 - 跑通 `go test ./...`。
-- 跑通 `go build -o agw ./cmd/main.go` 或当前 Makefile。
+- 跑通 `go build -o agw ./cmd/agw` 或当前 Makefile。
 - 记录当前 Caddyfile example 的 smoke test 命令。
 - 确认 README、DESIGN、AGENTS 中提到的模块 ID 和路径。
 
@@ -305,7 +305,7 @@ Baseline recorded on 2026-05-08:
 
 ```bash
 go test ./...
-go build -o agw ./cmd/main.go
+go build -o agw ./cmd/agw
 go build -o /tmp/agwctl-phase0 ./cmd/agwctl
 
 env DEEPSEEK_API_KEY=dummy ./agw validate --config Caddyfile.openai.example
@@ -470,7 +470,7 @@ Tasks:
 
 - 移除旧根级 runtime 包，或只保留明确需要的 backward compatibility aliases。
 - 更新 README、DESIGN、AGENTS。
-- 更新 `cmd/main.go` 到新的 Caddy adapter import 路径。
+- 更新 `cmd/agw/main.go` 到新的 Caddy adapter import 路径。
 - 更新 `Makefile`：
   - `make build` 构建 `agw`、`agwd`、`agwctl`
   - 保留单独 build targets
@@ -529,7 +529,7 @@ Standalone 配置可以是新格式，不需要兼容 Caddyfile。
 
 ```bash
 go test ./...
-go build -o agw ./cmd/main.go
+go build -o agw ./cmd/agw
 go build -o agwctl ./cmd/agwctl
 ```
 
@@ -558,10 +558,10 @@ HTTP request
 
 ## Migration Checklist
 
-- [ ] `pkg` 核心包不再直接 import Caddy。
-- [ ] Caddy adapters 保持原 module ID。
+- [x] `pkg` 核心包不再直接 import Caddy。
+- [x] Caddy adapters 保持原 module ID。
 - [ ] Provider runtime factory 和 Caddy module registration 分离。
-- [ ] LLM API handler runtime interface 和 Caddy module registration 分离。
+- [x] LLM API handler runtime interface 和 Caddy module registration 分离。
 - [ ] SQLite config store 有普通构造函数，不依赖 `caddy.Context`。
 - [ ] `AgentGateway.Bootstrap(...)` 是 Caddy app 和 standalone server 共同调用的核心 runtime bootstrap。
 - [ ] Standalone server 有最小可运行配置。
