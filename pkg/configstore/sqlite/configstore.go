@@ -6,14 +6,16 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/caddyserver/caddy/v2"
-	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
 )
+
+type Config struct {
+	SQLitePath string `json:"sqlite_path,omitempty"`
+}
 
 type SQLiteConfigStore struct {
 	SQLitePath string `json:"sqlite_path,omitempty"`
@@ -27,38 +29,37 @@ type SQLiteConfigStore struct {
 	modelStore      *ModelStore
 }
 
-func init() {
-	caddy.RegisterModule(SQLiteConfigStore{})
+func Open(ctx context.Context, cfg Config, logger *zap.Logger) (*SQLiteConfigStore, error) {
+	store := &SQLiteConfigStore{
+		SQLitePath: cfg.SQLitePath,
+		logger:     logger,
+	}
+	if err := store.Open(ctx); err != nil {
+		return nil, err
+	}
+	return store, nil
 }
 
-func (SQLiteConfigStore) CaddyModule() caddy.ModuleInfo {
-	return caddy.ModuleInfo{
-		ID:  "agent_gateway.config_stores.sqlite",
-		New: func() caddy.Module { return new(SQLiteConfigStore) },
+func (s *SQLiteConfigStore) Open(_ context.Context) error {
+	if s.logger == nil {
+		s.logger = zap.NewNop()
 	}
-}
-
-func (s *SQLiteConfigStore) Provision(ctx caddy.Context) error {
-	s.logger = ctx.Logger(s)
-
-	dbPath := s.SQLitePath
-	if dbPath == "" {
-		dbPath = filepath.Join(caddy.AppDataDir(), "caddy-agent-gateway", "configstore.db")
-		s.SQLitePath = dbPath
+	if s.SQLitePath == "" {
+		return fmt.Errorf("sqlite path is required")
 	}
 
-	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+	if _, err := os.Stat(s.SQLitePath); os.IsNotExist(err) {
+		if err := os.MkdirAll(filepath.Dir(s.SQLitePath), 0o755); err != nil {
 			return err
 		}
-		// Create DB file
-		f, err := os.Create(dbPath)
+		f, err := os.Create(s.SQLitePath)
 		if err != nil {
 			return err
 		}
 		_ = f.Close()
 	}
-	dsn := fmt.Sprintf("%s?_journal_mode=WAL&_synchronous=NORMAL&_cache_size=10000&_busy_timeout=60000&_wal_autocheckpoint=1000&_foreign_keys=1", dbPath)
+
+	dsn := fmt.Sprintf("%s?_journal_mode=WAL&_synchronous=NORMAL&_cache_size=10000&_busy_timeout=60000&_wal_autocheckpoint=1000&_foreign_keys=1", s.SQLitePath)
 	s.logger.Debug("opening DB with dsn", zap.String("dsn", dsn))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: newGormLogger(*s.logger),
@@ -69,24 +70,6 @@ func (s *SQLiteConfigStore) Provision(ctx caddy.Context) error {
 	s.logger.Debug("sqlite db opened for SqliteStore")
 
 	s.db = db
-
-	return nil
-}
-
-func (s *SQLiteConfigStore) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	for d.Next() {
-		for d.NextBlock(0) {
-			switch d.Val() {
-			case "path":
-				if !d.NextArg() {
-					return d.ArgErr()
-				}
-				s.SQLitePath = d.Val()
-			default:
-				return d.Errf("unknown sqlite config_store subdirective: %s", d.Val())
-			}
-		}
-	}
 	return nil
 }
 
@@ -151,9 +134,4 @@ func (s *SQLiteConfigStore) GetModelStore(ctx context.Context, decodeModel intf.
 	return modelStore, nil
 }
 
-var (
-	_ caddy.Module          = (*SQLiteConfigStore)(nil)
-	_ caddy.Provisioner     = (*SQLiteConfigStore)(nil)
-	_ caddyfile.Unmarshaler = (*SQLiteConfigStore)(nil)
-	_ intf.ConfigStorer     = (*SQLiteConfigStore)(nil)
-)
+var _ intf.ConfigStorer = (*SQLiteConfigStore)(nil)

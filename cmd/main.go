@@ -8,6 +8,7 @@ import (
 
 	// LLM Gateway modules
 	_ "github.com/agent-guide/caddy-agent-gateway/admin"
+	_ "github.com/agent-guide/caddy-agent-gateway/caddy/configstore/sqlite"
 	_ "github.com/agent-guide/caddy-agent-gateway/dispatcher"
 	_ "github.com/agent-guide/caddy-agent-gateway/dispatcher/llmapi/anthropic"
 	_ "github.com/agent-guide/caddy-agent-gateway/dispatcher/llmapi/openai"

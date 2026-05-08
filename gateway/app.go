@@ -8,7 +8,7 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"go.uber.org/zap"
 
-	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/configstore/sqlite"
+	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/caddy/configstore/sqlite"
 	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
