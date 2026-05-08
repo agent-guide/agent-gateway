@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
+	configstoreintf "github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
 )
 
 type testProvisionVirtualKeyStore struct {

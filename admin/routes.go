@@ -9,13 +9,13 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	dispatcherpkg "github.com/agent-guide/caddy-agent-gateway/dispatcher"
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
 	"gorm.io/gorm"
 )
 

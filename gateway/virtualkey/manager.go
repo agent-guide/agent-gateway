@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
+	configstoreintf "github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
 )
 
 var (

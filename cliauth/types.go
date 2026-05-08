@@ -3,8 +3,8 @@ package cliauth
 import (
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
 )
 
 // Status represents the lifecycle state of a CLIAuthCredential entry.

@@ -9,14 +9,14 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agent-guide/caddy-agent-gateway/cliauth"
-	configstoreIntf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/configstore/sqlite"
 	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
-	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
-	credentialmgrscheduler "github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
+	configstoreIntf "github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
+	credentialmgrscheduler "github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr/scheduler"
 )
 
 func init() {

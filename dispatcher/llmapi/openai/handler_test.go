@@ -12,9 +12,9 @@ import (
 
 	dispatcher "github.com/agent-guide/caddy-agent-gateway/dispatcher"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
-	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
-	sched "github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
+	sched "github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr/scheduler"
 	"github.com/cloudwego/eino/schema"
 )
 

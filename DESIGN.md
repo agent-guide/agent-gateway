@@ -391,7 +391,7 @@ This integrates naturally with the existing admin CLI login API.
 
 ### 9.3 New Config Store
 
-Add a module under `agent_gateway.config_stores.<name>` that implements `configstore/intf.ConfigStorer`.
+Add a module under `agent_gateway.config_stores.<name>` that implements `pkg/configstore/intf.ConfigStorer`.
 
 This path exists architecturally, but SQLite is the only end-to-end store currently exercised by the main runtime.
 

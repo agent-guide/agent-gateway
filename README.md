@@ -42,7 +42,8 @@ The request path today is centered on LLM routing. MCP, memory, metrics, and age
 - `admin/` - `agent_gateway_admin`, Admin API routes, session auth, Caddy management proxy
 - `llm/provider/` - provider interface and built-in provider implementations
 - `cliauth/` - CLI login authenticators and manager
-- `llm/credentialmgr/` - upstream credential registration and scheduling state
+- `pkg/llm/credentialmgr/` - upstream credential registration and scheduling state
+- `pkg/configstore/intf/` - storage interfaces
 - `configstore/sqlite/` - SQLite-backed persisted configuration
 - `llm/mcp/`, `llm/memory/`, `llm/agent/` - early integration scaffolding
 

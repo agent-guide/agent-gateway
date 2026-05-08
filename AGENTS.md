@@ -214,7 +214,7 @@ Authenticator registration rules:
 - register the factory with `cliauth.RegisterAuthenticatorFactory(...)`
 - ensure the package is included through the blank import of `cliauth/authenticator` in `cmd/main.go`
 
-### `llm/credentialmgr/`
+### `pkg/llm/credentialmgr/`
 
 This package manages persisted upstream credentials and selection state. It is separate from the provider registry and separate from `cliauth`, though `cliauth` integrates with it through an adapter.
 
@@ -222,7 +222,7 @@ This package manages persisted upstream credentials and selection state. It is s
 
 Important packages:
 
-- `configstore/intf/`: storage interfaces
+- `pkg/configstore/intf/`: storage interfaces
 - `configstore/sqlite/`: SQLite implementation
 
 The top-level storage interface is `ConfigStorer`, which vends:

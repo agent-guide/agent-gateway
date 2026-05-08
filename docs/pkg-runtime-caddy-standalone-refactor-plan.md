@@ -300,6 +300,20 @@ Exit criteria:
 - 当前 mainline 行为已验证。
 - 后续每个阶段都能用同一组命令回归。
 
+Baseline recorded on 2026-05-08:
+
+```bash
+go test ./...
+go build -o agw ./cmd/main.go
+go build -o /tmp/agwctl-phase0 ./cmd/agwctl
+
+env DEEPSEEK_API_KEY=dummy ./agw validate --config Caddyfile.openai.example
+env ZHIPU_API_KEY=dummy ./agw validate --config Caddyfile.anthropic.example
+```
+
+The example Caddyfiles require non-empty provider API key environment variables for
+config adaptation. Dummy values are sufficient for validate-only smoke tests.
+
 ### Phase 1: Extract Config Store Interfaces And Credential Manager
 
 目标：先迁底层存储接口和 credential manager，降低后续模块的 import churn。

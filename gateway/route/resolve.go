@@ -8,8 +8,8 @@ import (
 
 	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
-	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
 )
 
 // RequestRequirements captures request attributes required for route resolution.

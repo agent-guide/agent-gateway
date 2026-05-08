@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
 )
 
 // Manager orchestrates authenticator lifecycle: registration, enable/disable, and selection.

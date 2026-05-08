@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/agent-guide/caddy-agent-gateway/cliauth"
-	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
 	"github.com/google/uuid"
 )
 

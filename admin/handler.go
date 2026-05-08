@@ -5,14 +5,14 @@ import (
 	"sync"
 
 	"github.com/agent-guide/caddy-agent-gateway/cliauth"
-	"github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
 	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpcapture"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httplog"
-	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
 	"go.uber.org/zap"
 )
 

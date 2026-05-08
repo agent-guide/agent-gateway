@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
 )
 
 // Authenticator handles the CLI login flow for a specific provider.

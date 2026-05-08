@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
 )
 
 type testRefreshAuthenticator struct {

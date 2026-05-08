@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
+	configstoreintf "github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
 )
 
 type testManagedRouteStore struct {

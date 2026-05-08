@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	configstoreintf "github.com/agent-guide/caddy-agent-gateway/configstore/intf"
+	configstoreintf "github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
 )
 
 type testManagedVirtualKeyStore struct {
