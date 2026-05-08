@@ -178,21 +178,21 @@ SQLite is the only storage backend that is provisioned end-to-end today.
 
 The config store is important for one reason beyond persistence: it allows some route and provider updates to take effect dynamically without rewriting the entire Caddy config.
 
-### 4.7 `llm/mcp/`, `llm/memory/`, `llm/agent/`
+### 4.7 `pkg/mcp/`, `pkg/llm/memory/`, `pkg/llm/agent/`
 
 These packages are present because the gateway is intended to grow beyond plain API proxying.
 
 Current status:
 
-- `llm/mcp/`
+- `pkg/mcp/`
   - transport code exists for stdio, SSE, and WebSocket
   - manager/client abstractions exist
   - not yet integrated into the admin surface or request path
-- `llm/memory/`
+- `pkg/llm/memory/`
   - interfaces exist
   - SQLite and Mem0-related code exists
   - not yet fully active in normal request execution
-- `llm/agent/`
+- `pkg/llm/agent/`
   - an early orchestrator loop exists
   - memory retrieval and tool execution are still TODOs
 

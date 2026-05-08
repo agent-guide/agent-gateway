@@ -7,9 +7,9 @@ type ClientConfig struct {
 	ID         string            `json:"id"`
 	Name       string            `json:"name"`
 	Transport  TransportType     `json:"transport"`
-	Command    string            `json:"command,omitempty"`   // stdio only
-	Args       []string          `json:"args,omitempty"`      // stdio only
-	URL        string            `json:"url,omitempty"`       // sse/websocket
+	Command    string            `json:"command,omitempty"` // stdio only
+	Args       []string          `json:"args,omitempty"`    // stdio only
+	URL        string            `json:"url,omitempty"`     // sse/websocket
 	Env        map[string]string `json:"env,omitempty"`
 	AutoAuth   bool              `json:"auto_auth,omitempty"`
 	AuthConfig *AuthConfig       `json:"auth,omitempty"`
@@ -17,10 +17,10 @@ type ClientConfig struct {
 
 // AuthConfig contains MCP authentication configuration.
 type AuthConfig struct {
-	Type      string `json:"type"` // api_key, oauth2, basic
-	APIKey    string `json:"api_key,omitempty"`
-	Username  string `json:"username,omitempty"`
-	Password  string `json:"password,omitempty"`
+	Type     string `json:"type"` // api_key, oauth2, basic
+	APIKey   string `json:"api_key,omitempty"`
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
 }
 
 // Tool represents a tool exposed by an MCP server.

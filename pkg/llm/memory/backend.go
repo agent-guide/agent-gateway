@@ -12,7 +12,7 @@ type Backend interface {
 
 // BackendConfig configures a memory backend.
 type BackendConfig struct {
-	Type    string         `json:"type"`    // sqlite, postgres, mem0, chroma
+	Type    string         `json:"type"` // sqlite, postgres, mem0, chroma
 	DSN     string         `json:"dsn,omitempty"`
 	Options map[string]any `json:"options,omitempty"`
 }

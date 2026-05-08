@@ -51,7 +51,8 @@ The request path today is centered on LLM routing. MCP, memory, metrics, and age
 - `pkg/configstore/sqlite/` - SQLite-backed persisted configuration runtime
 - `caddy/configstore/sqlite/` - SQLite config store Caddy adapter
 - `standalone/server/` - standalone HTTP server assembly used by `agwd`
-- `llm/mcp/`, `llm/memory/`, `llm/agent/` - early integration scaffolding
+- `pkg/mcp/` - early MCP transport and client scaffolding
+- `pkg/llm/memory/`, `pkg/llm/agent/` - early memory and agent runtime scaffolding
 
 ## Build
 
