@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/cliauth"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/cliauth"
 	"go.uber.org/zap"
 )
 

@@ -191,9 +191,9 @@ Provider registration rules:
 - register the Caddy module under `llm.providers.<name>`
 - add a blank import in `cmd/main.go` so the provider is linked into the binary
 
-### `cliauth/`
+### `pkg/cliauth/`
 
-This is a top-level package, not `llm/cliauth/`.
+This is a `pkg` runtime package, not `llm/cliauth/`.
 
 Important files:
 
@@ -202,7 +202,7 @@ Important files:
 - `autorefresher.go`: background refresh scheduling
 - `types.go`: credential and status types
 
-Built-in authenticators currently registered via `cliauth/authenticator/`:
+Built-in authenticators currently registered via `pkg/cliauth/authenticator/`:
 
 - `codex`
 - `claude`
@@ -212,7 +212,7 @@ Authenticator registration rules:
 
 - implement the `cliauth.Authenticator` interface
 - register the factory with `cliauth.RegisterAuthenticatorFactory(...)`
-- ensure the package is included through the blank import of `cliauth/authenticator` in `cmd/main.go`
+- ensure the package is included through the blank import of `pkg/cliauth/authenticator` in `cmd/main.go`
 
 ### `pkg/llm/credentialmgr/`
 

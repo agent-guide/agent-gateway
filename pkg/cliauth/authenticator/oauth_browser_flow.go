@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/cliauth"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/cliauth"
 )
 
 type oauthBrowserFlowOptions struct {

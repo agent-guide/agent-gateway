@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/agent-guide/caddy-agent-gateway/cliauth"
 	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/cliauth"
 	configstoreintf "github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
 	credentialmgrscheduler "github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr/scheduler"

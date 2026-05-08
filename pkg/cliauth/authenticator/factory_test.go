@@ -3,7 +3,7 @@ package authenticator
 import (
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/cliauth"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/cliauth"
 )
 
 func TestBuiltinAuthenticatorsRegisterFactories(t *testing.T) {

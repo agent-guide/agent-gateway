@@ -8,12 +8,12 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"go.uber.org/zap"
 
-	"github.com/agent-guide/caddy-agent-gateway/cliauth"
 	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/configstore/sqlite"
 	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/gateway/virtualkey"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/cliauth"
 	configstoreIntf "github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
 	credentialmgrscheduler "github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr/scheduler"

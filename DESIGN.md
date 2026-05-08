@@ -145,7 +145,7 @@ Built-in providers:
 
 The provider layer uses shared helpers for HTTP client construction, auth/header injection, and OpenAI-compatible behavior. The design keeps provider implementations narrow while still allowing provider-specific behavior.
 
-### 4.5 `cliauth/`: Credential Lifecycle
+### 4.5 `pkg/cliauth/`: Credential Lifecycle
 
 Credential management is split into:
 
