@@ -55,6 +55,13 @@ func (m *ManagedModel) Normalize() {
 	}
 }
 
+func (m *ManagedModel) ModelStorageKey() (string, string) {
+	if m == nil {
+		return "", ""
+	}
+	return m.ProviderID, m.UpstreamModel
+}
+
 func DecodeStoredManagedModel(data []byte) (any, error) {
 	var model ManagedModel
 	if err := json.Unmarshal(data, &model); err != nil {

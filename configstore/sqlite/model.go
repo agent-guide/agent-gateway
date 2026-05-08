@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/agent-guide/caddy-agent-gateway/configstore/intf"
-	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -95,16 +94,17 @@ func (s *ModelStore) Delete(ctx context.Context, providerID string, upstreamMode
 }
 
 func modelRecordParts(obj any) (string, string, string, error) {
-	model, ok := obj.(*modelcatalog.ManagedModel)
-	if !ok || model == nil {
-		return "", "", "", fmt.Errorf("unexpected managed model type %T", obj)
+	keyer, ok := obj.(intf.ModelStorageKeyer)
+	if !ok || keyer == nil {
+		return "", "", "", fmt.Errorf("model config type %T does not provide a storage key", obj)
 	}
-	if model.ProviderID == "" || model.UpstreamModel == "" {
+	providerID, upstreamModel := keyer.ModelStorageKey()
+	if providerID == "" || upstreamModel == "" {
 		return "", "", "", fmt.Errorf("provider_id and upstream_model are required")
 	}
-	data, err := json.Marshal(model)
+	data, err := json.Marshal(obj)
 	if err != nil {
 		return "", "", "", err
 	}
-	return model.ProviderID, model.UpstreamModel, string(data), nil
+	return providerID, upstreamModel, string(data), nil
 }
