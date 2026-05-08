@@ -16,11 +16,6 @@ func init() {
 	httpcaddyfile.RegisterDirectiveOrder("agent_route_dispatcher", httpcaddyfile.Before, "reverse_proxy")
 }
 
-// ParseAgentRouteDispatcherForTest exposes the parser to external tests.
-func ParseAgentRouteDispatcherForTest(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
-	return parseAgentRouteDispatcher(h)
-}
-
 // UnmarshalCaddyfile implements caddyfile.Unmarshaler.
 func (h *AgentRouteDispatcher) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	if !d.Next() {

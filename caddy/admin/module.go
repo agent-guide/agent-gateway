@@ -77,11 +77,6 @@ func (h *AgentGatewayAdminHandler) UnmarshalCaddyfile(d *caddyfile.Dispenser) er
 	return nil
 }
 
-// ParseAgentGatewayAdminForTest exposes the parser to external tests.
-func ParseAgentGatewayAdminForTest(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
-	return parseAgentGatewayAdmin(h)
-}
-
 func parseAgentGatewayAdmin(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
 	var handler AgentGatewayAdminHandler
 	if err := handler.UnmarshalCaddyfile(h.Dispenser); err != nil {

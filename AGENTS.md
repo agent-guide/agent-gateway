@@ -17,11 +17,14 @@ MCP, memory, agent, and metrics areas exist in the repo, but the main implemente
 ## Build & Run
 
 ```bash
-# Build the main gateway binary and the management CLI
+# Build the main gateway binary, standalone daemon, and management CLI
 make build
 
 # Or build only the gateway binary
 go build -o agw ./cmd/agw
+
+# Or build only the standalone daemon
+go build -o agwd ./cmd/agwd
 
 # Or build only the management CLI
 go build -o agwctl ./cmd/agwctl
@@ -42,7 +45,7 @@ go test ./path/to/package -run TestName -v
 
 Notes:
 
-- `make build` builds both `agw` from `cmd/agw/main.go` and `agwctl` from `cmd/agwctl`.
+- `make build` builds `agw` from `cmd/agw/main.go`, `agwd` from `cmd/agwd/main.go`, and `agwctl` from `cmd/agwctl/main.go`.
 - The resulting binary is a standard Caddy binary with custom modules compiled in, so normal Caddy subcommands such as `run`, `reload`, `validate`, and `hash-password` work.
 
 ## Core Modules
@@ -63,8 +66,8 @@ Responsibilities:
 ### HTTP middleware
 
 - Module ID: `http.handlers.agent_route_dispatcher`
-- Package: `dispatcher/`
-- Main entry: `dispatcher/dispatcher.go`
+- Package: `caddy/dispatcher/`
+- Main entry: `caddy/dispatcher/dispatcher.go`
 
 Responsibilities:
 
@@ -80,9 +83,11 @@ Responsibilities:
 ### Protocol handler modules
 
 - Module ID: `agent_route_dispatcher.llm_apis.openai`
-  - Package: `dispatcher/llmapi/openai/`
+  - Runtime package: `pkg/dispatcher/llmapi/openai/`
+  - Caddy adapter: `caddy/dispatcher/llmapi/openai/`
 - Module ID: `agent_route_dispatcher.llm_apis.anthropic`
-  - Package: `dispatcher/llmapi/anthropic/`
+  - Runtime package: `pkg/dispatcher/llmapi/anthropic/`
+  - Caddy adapter: `caddy/dispatcher/llmapi/anthropic/`
 
 Responsibilities:
 
@@ -95,7 +100,7 @@ These modules are not standalone `http.handlers.*` modules. They are loaded by `
 ### Admin API
 
 - Module ID: `http.handlers.agent_gateway_admin`
-- Package: `admin/`
+- Package: `caddy/admin/`
 
 Responsibilities:
 

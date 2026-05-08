@@ -22,7 +22,7 @@ func TestParseAgentGatewayAdminFromCaddyfile(t *testing.T) {
 	}
 	`)
 
-	handler, err := ParseAgentGatewayAdminForTest(httpcaddyfile.Helper{Dispenser: d})
+	handler, err := parseAgentGatewayAdmin(httpcaddyfile.Helper{Dispenser: d})
 	if err != nil {
 		t.Fatalf("parse admin handler: %v", err)
 	}

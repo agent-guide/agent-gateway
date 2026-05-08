@@ -10,7 +10,7 @@ It is not a pure future-state blueprint anymore. Where the implementation is par
 
 The project is built around four practical goals:
 
-- Reuse Caddy's module system and config model instead of building another standalone gateway runtime
+- Reuse Caddy's module system and config model where they fit, while keeping the core runtime reusable by the standalone daemon
 - Expose familiar LLM-compatible HTTP APIs to agent clients
 - Centralize provider configuration, upstream credentials, and gateway-side API keys
 - Leave room for richer agent runtime features such as MCP, memory, and orchestration without forcing them into every caller
@@ -72,9 +72,9 @@ The app owns both:
 
 This is the key design choice in the project: the HTTP handlers are intentionally thin, the Caddy app owns Caddy lifecycle wiring, and `pkg/gateway` owns the reusable gateway services.
 
-### 4.2 `dispatcher/`: Compatible LLM Ingress
+### 4.2 `caddy/dispatcher/` And `pkg/dispatcher/`: Compatible LLM Ingress
 
-The `dispatcher/` package registers the `agent_route_dispatcher` Caddyfile directive. That directive currently accepts dispatcher-local LLM API protocol modules:
+The `caddy/dispatcher/` package registers the `agent_route_dispatcher` Caddyfile directive. It adapts the reusable `pkg/dispatcher` runtime and accepts dispatcher-local LLM API protocol modules:
 
 ```caddy
 agent_route_dispatcher {
@@ -88,7 +88,7 @@ The HTTP handler is `http.handlers.agent_route_dispatcher`, and it loads protoco
 - `agent_route_dispatcher.llm_apis.openai`
 - `agent_route_dispatcher.llm_apis.anthropic`
 
-The dispatcher does not define route policy inline. Instead, it asks the shared gateway route manager to match the HTTP request against `AgentRoute.match`, strips the matched route path prefix, selects the route's `llm_api`, and resolves the matched route and target provider.
+The runtime dispatcher in `pkg/dispatcher` does not define route policy inline. Instead, it asks the shared gateway route manager to match the HTTP request against `AgentRoute.match`, strips the matched route path prefix, selects the route's `llm_api`, and resolves the matched route and target provider.
 
 This separation is deliberate:
 
@@ -96,9 +96,9 @@ This separation is deliberate:
 - route policy stays centralized
 - provider selection can evolve independently from HTTP parsing
 
-### 4.3 `admin/`: Operational Control Surface
+### 4.3 `caddy/admin/` And `pkg/admin/`: Operational Control Surface
 
-The `admin/` package registers `agent_gateway_admin` with module ID `http.handlers.agent_gateway_admin`.
+The `caddy/admin/` package registers `agent_gateway_admin` with module ID `http.handlers.agent_gateway_admin`, and delegates request handling to the reusable `pkg/admin` runtime package.
 
 Today it exposes working endpoints for:
 
@@ -163,7 +163,7 @@ The admin CLI login API triggers an authenticator asynchronously, then stores th
 
 This is distinct from local gateway API keys. Upstream provider credentials and local gateway caller credentials are two separate concerns.
 
-### 4.6 `configstore/`: Persistent Control Data
+### 4.6 `pkg/configstore/` And `caddy/configstore/`: Persistent Control Data
 
 The default config store is `agent_gateway.config_stores.sqlite`.
 
