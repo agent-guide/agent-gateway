@@ -24,4 +24,5 @@ type Filter struct {
 	Source          string
 	CredentialScope string
 	Model           string
+	Selector        string
 }

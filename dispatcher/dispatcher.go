@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/agent-guide/caddy-agent-gateway/gateway"
-	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -102,7 +101,7 @@ func (h AgentRouteDispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		return WriteError(h.logger, apiHandler.Name(), route.ID, "", w, rewritten, err, "resolve virtual key")
 	}
 
-	prepared, err := apiHandler.PrepareLLMApiRequest(rewritten)
+	prepared, requestRequirements, err := apiHandler.PrepareLLMApiRequest(rewritten)
 	if err != nil {
 		return WriteError(h.logger, apiHandler.Name(), route.ID, prepared.Model(), w, rewritten, err, "prepare request")
 	}
@@ -110,16 +109,12 @@ func (h AgentRouteDispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		return WriteError(h.logger, apiHandler.Name(), route.ID, "", w, rewritten, fmt.Errorf("llm api handler returned invalid prepared request"), "prepare request")
 	}
 
-	routeResolveReq := routeResolveRequest(prepared)
-	exec, err := h.gateway.ResolveRouteExecution(rewritten.Context(), route, routeResolveReq)
+	routedProvider, err := h.gateway.NewRoutedProvider(route, requestRequirements)
 	if err != nil {
 		return WriteError(h.logger, apiHandler.Name(), route.ID, prepared.Model(), w, rewritten, err, "resolve provider")
 	}
-	if exec.UpstreamModel != "" {
-		prepared.SetModel(exec.UpstreamModel)
-	}
 
-	return apiHandler.ServeLLMApi(w, rewritten, exec.Provider, prepared)
+	return apiHandler.ServeLLMApi(w, rewritten, routedProvider, prepared)
 }
 
 func rewriteRoutePath(r *http.Request, prefix string) *http.Request {
@@ -139,13 +134,6 @@ func rewriteRoutePath(r *http.Request, prefix string) *http.Request {
 	rewritten.URL.Path = path
 	rewritten.URL.RawPath = ""
 	return rewritten
-}
-
-func routeResolveRequest(prepared *PreparedLLMApiRequest) routepkg.RouteResolveRequest {
-	return routepkg.RouteResolveRequest{
-		Model:            prepared.Model(),
-		RequireStreaming: prepared.Stream(),
-	}
 }
 
 var (

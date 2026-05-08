@@ -376,6 +376,13 @@ func parseRouteSegment(d *caddyfile.Dispenser, app *App) (routepkg.AgentRoute, e
 			default:
 				return routepkg.AgentRoute{}, seg.ArgErr()
 			}
+		case "target_policy":
+			if len(args) != 1 {
+				return routepkg.AgentRoute{}, seg.ArgErr()
+			}
+			if err := parseRouteTargetPolicy(seg, &route, app, strings.Trim(args[0], "\"`")); err != nil {
+				return routepkg.AgentRoute{}, err
+			}
 		default:
 			return routepkg.AgentRoute{}, seg.Errf("unknown subdirective: %s", name)
 		}
@@ -383,6 +390,145 @@ func parseRouteSegment(d *caddyfile.Dispenser, app *App) (routepkg.AgentRoute, e
 
 	route.Normalize()
 	return route, nil
+}
+
+func parseRouteTargetPolicy(seg *caddyfile.Dispenser, route *routepkg.AgentRoute, app *App, kind string) error {
+	policy := routepkg.RouteTargetPolicy{Type: routepkg.RouteTargetPolicyKind(kind)}
+	switch policy.Type {
+	case routepkg.RouteTargetPolicyKindDirectProvider, routepkg.RouteTargetPolicyKindLogicalModel:
+	default:
+		return seg.Errf("unknown target_policy kind: %s", kind)
+	}
+
+	for seg.NextBlock(1) {
+		name := seg.Val()
+		args := seg.RemainingArgsRaw()
+		switch name {
+		case "provider":
+			if policy.Type != routepkg.RouteTargetPolicyKindDirectProvider {
+				return seg.Err("provider may only be used in target_policy direct-provider")
+			}
+			if len(args) != 1 {
+				return seg.ArgErr()
+			}
+			policy.ProviderID = strings.Trim(args[0], "\"`")
+		case "model":
+			if policy.Type != routepkg.RouteTargetPolicyKindLogicalModel {
+				return seg.Err("model may only be used in target_policy logical-model")
+			}
+			if len(args) < 3 {
+				return seg.ArgErr()
+			}
+			modelName := strings.Trim(args[0], "\"`")
+			candidate := routepkg.LogicalModelCandidate{
+				ProviderID:    strings.Trim(args[1], "\"`"),
+				UpstreamModel: strings.Trim(args[2], "\"`"),
+			}
+			for i := 3; i < len(args); i++ {
+				token := strings.Trim(args[i], "\"`")
+				switch token {
+				case "default":
+					candidate.Default = true
+					policy.DefaultModel = modelName
+				case "weight":
+					i++
+					if i >= len(args) {
+						return seg.ArgErr()
+					}
+					weight, err := strconv.Atoi(strings.Trim(args[i], "\"`"))
+					if err != nil {
+						return seg.Errf("invalid target_policy model weight: %s", args[i])
+					}
+					candidate.Weight = weight
+				case "priority":
+					i++
+					if i >= len(args) {
+						return seg.ArgErr()
+					}
+					priority, err := strconv.Atoi(strings.Trim(args[i], "\"`"))
+					if err != nil {
+						return seg.Errf("invalid target_policy model priority: %s", args[i])
+					}
+					candidate.Priority = priority
+				default:
+					return seg.Errf("unknown target_policy model option: %s", token)
+				}
+			}
+			group := logicalModelGroupByName(&policy, modelName)
+			if group == nil {
+				policy.Models = append(policy.Models, routepkg.LogicalModelBindingGroup{Name: modelName})
+				group = &policy.Models[len(policy.Models)-1]
+			}
+			group.Candidates = append(group.Candidates, candidate)
+			registerStaticManagedModel(app, routepkg.RouteModelCandidate(candidate))
+		case "model_selector_strategy":
+			if len(args) != 1 {
+				return seg.ArgErr()
+			}
+			policy.ModelSelectorStrategy = routepkg.RouteSelectionStrategy(strings.Trim(args[0], "\"`"))
+		case "credential_selector":
+			if len(args) != 1 {
+				return seg.ArgErr()
+			}
+			policy.CredentialSelector = routepkg.RouteCredentialSelectStrategy(strings.Trim(args[0], "\"`"))
+		case "credential_scope_order":
+			if len(args) == 0 {
+				return seg.ArgErr()
+			}
+			policy.CredentialScopeOrder = nil
+			for _, arg := range args {
+				policy.CredentialScopeOrder = append(policy.CredentialScopeOrder, routepkg.RouteCredentialScope(strings.Trim(arg, "\"`")))
+			}
+		case "credential_source_order":
+			if len(args) == 0 {
+				return seg.ArgErr()
+			}
+			policy.CredentialSourceOrder = nil
+			for _, arg := range args {
+				policy.CredentialSourceOrder = append(policy.CredentialSourceOrder, routepkg.RouteCredentialSource(strings.Trim(arg, "\"`")))
+			}
+		case "fallback":
+			if len(args) != 0 {
+				return seg.ArgErr()
+			}
+			for seg.NextBlock(2) {
+				fallbackName := seg.Val()
+				fallbackArgs := seg.RemainingArgsRaw()
+				if len(fallbackArgs) != 1 {
+					return seg.ArgErr()
+				}
+				switch fallbackName {
+				case "enabled":
+					enabled, err := strconv.ParseBool(strings.Trim(fallbackArgs[0], "\"`"))
+					if err != nil {
+						return seg.Errf("invalid fallback enabled value: %s", fallbackArgs[0])
+					}
+					policy.Fallback.Enabled = enabled
+				case "max_num":
+					maxNum, err := strconv.Atoi(strings.Trim(fallbackArgs[0], "\"`"))
+					if err != nil {
+						return seg.Errf("invalid fallback max_num value: %s", fallbackArgs[0])
+					}
+					policy.Fallback.MaxNum = maxNum
+				default:
+					return seg.Errf("unknown fallback subdirective: %s", fallbackName)
+				}
+			}
+		default:
+			return seg.Errf("unknown target_policy subdirective: %s", name)
+		}
+	}
+	route.TargetPolicy = policy
+	return nil
+}
+
+func logicalModelGroupByName(policy *routepkg.RouteTargetPolicy, name string) *routepkg.LogicalModelBindingGroup {
+	for i := range policy.Models {
+		if policy.Models[i].Name == name {
+			return &policy.Models[i]
+		}
+	}
+	return nil
 }
 
 func routeModelTargetByName(route *routepkg.AgentRoute, name string) *routepkg.RouteModelTarget {

@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -167,40 +166,21 @@ func (g *AgentGateway) ResolveRoute(ctx context.Context, r *http.Request) (route
 	return route, nil
 }
 
-type ResolvedRouteExecution struct {
-	Provider        provider.Provider
-	ProviderID      string
-	RouteModelName  string
-	UpstreamModel   string
-	CredentialScope string
-}
-
-func (g *AgentGateway) ResolveRouteExecution(ctx context.Context, route routepkg.AgentRoute, routeResolveReq routepkg.RouteResolveRequest) (*ResolvedRouteExecution, error) {
+func (g *AgentGateway) NewRoutedProvider(route routepkg.AgentRoute, requestRequirements routepkg.RequestRequirements) (*RoutedProvider, error) {
 	resolver := g.providerResolver()
 	if resolver == nil {
 		return nil, statuserr.New(http.StatusServiceUnavailable, "provider resolver is not configured")
 	}
-
-	target, err := route.ResolveTarget(ctx, g.ModelCatalog(), g.ProviderManager(), routeResolveReq)
-	if err != nil {
-		return nil, err
-	}
-	exec := &ResolvedRouteExecution{
-		ProviderID:      target.ProviderID,
-		RouteModelName:  target.Model,
-		UpstreamModel:   target.UpstreamModel,
-		CredentialScope: target.CredentialScope,
-	}
-
-	prov, err := resolver.ResolveProvider(ctx, exec.ProviderID)
-	if err != nil || prov == nil {
-		if errors.Is(err, ErrProviderDisabled) {
-			return nil, statuserr.New(http.StatusForbidden, fmt.Sprintf("route target provider %q is disabled", exec.ProviderID))
-		}
-		return nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("route target provider %q is not configured", exec.ProviderID))
-	}
-	exec.Provider = g.wrapProvider(prov, exec.CredentialScope)
-	return exec, nil
+	route.Normalize()
+	return &RoutedProvider{
+		route:               route,
+		requestRequirements: requestRequirements,
+		providerResolver:    resolver,
+		providerConfigs:     g.ProviderManager(),
+		modelCatalog:        g.ModelCatalog(),
+		credentialMgr:       g.CredentialManager(),
+		scheduler:           g.CredentialScheduler(),
+	}, nil
 }
 
 func (g *AgentGateway) ResolveVirtualKey(ctx context.Context, httpReq *http.Request, r routepkg.AgentRoute) (*virtualkeypkg.VirtualKey, error) {
@@ -233,14 +213,6 @@ func (g *AgentGateway) providerResolver() ProviderResolver {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.providerManager
-}
-
-func (g *AgentGateway) wrapProvider(prov provider.Provider, scope string) provider.Provider {
-	g.mu.RLock()
-	credMgr := g.credentialManager
-	credSched := g.credentialScheduler
-	g.mu.RUnlock()
-	return provider.WrapWithCredentialManager(prov, credMgr, credSched, scope)
 }
 
 func (g *AgentGateway) configureConfigStore(configStore configstoreintf.ConfigStorer) {

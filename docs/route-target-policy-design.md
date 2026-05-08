@@ -13,7 +13,7 @@ The new design separates:
 - runtime model and credential scheduling
 - request execution and fallback control
 
-It also introduces an internal execution wrapper named `InternalProvider` to replace the current `authManagedProvider`.
+It also introduces a routed execution wrapper named `RoutedProvider` to replace the current `authManagedProvider`.
 
 ## Why Change
 
@@ -39,7 +39,7 @@ The design should move from a passive config struct to an explicit policy abstra
 1. `TargetPolicy` is a route-level interface, not a bag of optional fields.
 2. Direct-provider and logical-model routes are first-class, mutually exclusive policy kinds.
 3. Model selection and credential selection are both part of target policy, because they jointly decide the real upstream execution target.
-4. Fallback is a runtime concern owned by `InternalProvider`, not by protocol adapters.
+4. Fallback is a runtime concern owned by `RoutedProvider`, not by protocol adapters.
 5. `ResolvedTarget` should stay minimal and represent one concrete execution choice, not the full route policy.
 6. Credential scheduling and model scheduling must be re-entrant so the runtime can re-select credential or model after failure.
 7. The design should support future extensions such as per-route metrics, request accounting, circuit breaking, and adaptive scheduling.
@@ -52,7 +52,7 @@ AgentRoute
       -> DirectProviderPolicy
       -> LogicalModelPolicy
   -> ResolveExecutionPlan(...)
-  -> InternalProvider.Execute(...)
+  -> RoutedProvider.Execute(...)
       -> select model candidate if needed
       -> select credential
       -> invoke concrete provider
@@ -69,7 +69,7 @@ AgentRoute
 - candidate enumeration rules
 - scheduler preferences
 
-`InternalProvider` owns:
+`RoutedProvider` owns:
 
 - runtime model selection
 - runtime credential selection
@@ -156,7 +156,7 @@ Semantics:
 
 - `provider_id` is required
 - request `model` is not rewritten by route resolution
-- credential selection still happens through `InternalProvider`
+- credential selection still happens through `RoutedProvider`
 - `credential_scope_order` decides which credential scope families are searched first
 
 ### LogicalModelPolicy
@@ -319,7 +319,7 @@ Recommendation:
 
 ### Credential Scope Order
 
-`credential_scope_order` defines how `InternalProvider` searches candidate credential pools.
+`credential_scope_order` defines how `RoutedProvider` searches candidate credential pools.
 
 Suggested meanings:
 
@@ -398,7 +398,7 @@ Important behavior:
 
 ## Failure Classification
 
-`InternalProvider` should classify failures into at least three buckets:
+`RoutedProvider` should classify failures into at least three buckets:
 
 1. `RetrySameCredential`
 2. `ReselectCredential`
@@ -408,13 +408,13 @@ Recommended approach:
 
 - use a normalized gateway-level error classification first when provider adapters can expose structured failure reasons
 - fall back to generic HTTP status and transport error heuristics when no structured classification is available
-- avoid coupling `InternalProvider` directly to provider-specific raw error payload parsing
+- avoid coupling `RoutedProvider` directly to provider-specific raw error payload parsing
 
 This gives a practical phased path:
 
 1. define a small gateway-owned typed error surface such as `auth_invalid`, `auth_exhausted`, `model_unavailable`, `provider_unavailable`, `rate_limited`, `bad_request`
 2. let provider adapters optionally map upstream-specific failures into those normalized reasons
-3. let `InternalProvider` make fallback decisions from the normalized reason first, and from HTTP status only as a fallback
+3. let `RoutedProvider` make fallback decisions from the normalized reason first, and from HTTP status only as a fallback
 
 Suggested heuristics:
 
@@ -453,16 +453,16 @@ Examples:
 - virtual key forbidden
 - unsupported capability
 
-This classification should be centralized in `InternalProvider`, but provider adapters should be allowed to contribute normalized typed errors so the runtime does not depend only on status code guessing.
+This classification should be centralized in `RoutedProvider`, but provider adapters should be allowed to contribute normalized typed errors so the runtime does not depend only on status code guessing.
 
-## InternalProvider Design
+## RoutedProvider Design
 
 `authManagedProvider` is too narrow because it only wraps credential picking around one provider call. The new runtime needs a richer execution object.
 
 Suggested direction:
 
 ```go
-type InternalProvider struct {
+type RoutedProvider struct {
     route             *route.AgentRoute
     policy            route.RouteTargetPolicy
     providerResolver  ProviderResolver
@@ -489,16 +489,16 @@ Suggested responsibilities:
 Suggested helper methods:
 
 ```go
-func (p *InternalProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error)
-func (p *InternalProvider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*schema.StreamReader[*schema.Message], error)
-func (p *InternalProvider) resolveExecutionPlan(ctx context.Context, reqModel string) (*ExecutionPlan, error)
-func (p *InternalProvider) selectCandidate(ctx context.Context, state *ExecutionState) (*ResolvedCandidate, error)
-func (p *InternalProvider) selectCredential(ctx context.Context, cand *ResolvedCandidate, state *ExecutionState) (context.Context, *credentialmgr.ManagedCredential, error)
-func (p *InternalProvider) classifyFailure(err error, cand *ResolvedCandidate, cred *credentialmgr.ManagedCredential) FailureAction
-func (p *InternalProvider) markResult(ctx context.Context, res AttemptResult)
+func (p *RoutedProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error)
+func (p *RoutedProvider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*schema.StreamReader[*schema.Message], error)
+func (p *RoutedProvider) resolveExecutionPlan(ctx context.Context, reqModel string) (*ExecutionPlan, error)
+func (p *RoutedProvider) selectCandidate(ctx context.Context, state *ExecutionState) (*ResolvedCandidate, error)
+func (p *RoutedProvider) selectCredential(ctx context.Context, cand *ResolvedCandidate, state *ExecutionState) (context.Context, *credentialmgr.ManagedCredential, error)
+func (p *RoutedProvider) classifyFailure(err error, cand *ResolvedCandidate, cred *credentialmgr.ManagedCredential) FailureAction
+func (p *RoutedProvider) markResult(ctx context.Context, res AttemptResult)
 ```
 
-### Why `InternalProvider` Belongs in `gateway`
+### Why `RoutedProvider` Belongs in `gateway`
 
 This object is not only a provider wrapper. It coordinates route policy, credential scheduling, provider resolution, and request execution. That is gateway runtime logic, not pure provider package logic.
 
@@ -724,8 +724,8 @@ Recommended migration order:
 1. add tagged policy decoding and validation in `gateway/route/types.go`
 2. add Caddyfile parsing for `target_policy direct-provider` and `target_policy logical-model`
 3. keep old stored route format unsupported in the new path unless explicit migration logic is added
-4. introduce `gateway.InternalProvider` alongside existing `authManagedProvider`
-5. switch route execution to `InternalProvider`
+4. introduce `gateway.RoutedProvider` alongside existing `authManagedProvider`
+5. switch route execution to `RoutedProvider`
 6. remove or narrow `authManagedProvider` after runtime migration is complete
 
 ## Implementation Scope
@@ -738,7 +738,7 @@ This design should drive changes in:
 - `gateway/route/resolve.go`
 - `gateway/caddyfile.go`
 - `gateway/providerresolver.go`
-- new gateway runtime files for `InternalProvider`
+- new gateway runtime files for `RoutedProvider`
 - possible cleanup in `llm/provider/authmanaged.go`
 
 This design does not require immediate changes in:

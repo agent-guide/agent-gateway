@@ -80,6 +80,9 @@ func (a *App) Provision(ctx caddy.Context) error {
 	if err := a.provisionProviders(ctx); err != nil {
 		return fmt.Errorf("provision providers: %w", err)
 	}
+	if err := a.registerStaticProviderCredentials(ctx); err != nil {
+		return fmt.Errorf("register static provider credentials: %w", err)
+	}
 	if err := a.credentialMgr.Load(ctx); err != nil {
 		return fmt.Errorf("load credentials: %w", err)
 	}
@@ -229,6 +232,25 @@ func (a *App) provisionProviders(ctx caddy.Context) error {
 			return fmt.Errorf("provider module %q does not implement provider.Provider", name)
 		}
 		a.providers[name] = prov
+	}
+	return nil
+}
+
+func (a *App) registerStaticProviderCredentials(ctx context.Context) error {
+	if a.credentialMgr == nil {
+		return nil
+	}
+	for providerID, prov := range a.providers {
+		if prov == nil {
+			continue
+		}
+		cred := provider.StaticAPIKeyCredential(prov.Config(), providerID)
+		if cred == nil {
+			continue
+		}
+		if err := a.credentialMgr.RegisterCredential(credentialmgr.WithSkipPersist(ctx), cred); err != nil {
+			return fmt.Errorf("register static credential for provider %q: %w", providerID, err)
+		}
 	}
 	return nil
 }

@@ -236,6 +236,9 @@ func extractTargetID(item map[string]any) string {
 	if !ok {
 		return ""
 	}
+	if providerID := strField(targetPolicy, "provider_id"); providerID != "" {
+		return providerID
+	}
 	raw, ok := targetPolicy["provider_target"].(map[string]any)
 	if !ok {
 		return ""

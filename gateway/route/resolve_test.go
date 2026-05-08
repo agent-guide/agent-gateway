@@ -73,7 +73,7 @@ func TestAgentRouteResolveTargetUsesRouteDefaultModel(t *testing.T) {
 				"openai-main": {Id: "openai-main", ProviderType: "openai"},
 			},
 		},
-		RouteResolveRequest{RequireStreaming: true},
+		RequestRequirements{RequireStreaming: true},
 	)
 	if err != nil {
 		t.Fatalf("ResolveTarget returned error: %v", err)
@@ -104,7 +104,7 @@ func TestAgentRouteResolveTargetRejectsUnknownModel(t *testing.T) {
 		context.Background(),
 		testModelCatalogResolver{},
 		testProviderConfigResolver{},
-		RouteResolveRequest{Model: "chat-safe"},
+		RequestRequirements{Model: "chat-safe"},
 	); err == nil {
 		t.Fatal("ResolveTarget returned nil error, want unknown model rejection")
 	}
@@ -136,7 +136,7 @@ func TestAgentRouteResolveTargetUsesDirectProvider(t *testing.T) {
 				"openai-main": {Id: "openai-main", ProviderType: "openai"},
 			},
 		},
-		RouteResolveRequest{Model: "gpt-4.1"},
+		RequestRequirements{Model: "gpt-4.1"},
 	)
 	if err != nil {
 		t.Fatalf("ResolveTarget returned error: %v", err)
@@ -182,7 +182,7 @@ func TestAgentRouteResolveTargetPrefersDirectProviderOverModelTargets(t *testing
 				"openai-main": {Id: "openai-main", ProviderType: "openai"},
 			},
 		},
-		RouteResolveRequest{Model: "gpt-4.1"},
+		RequestRequirements{Model: "gpt-4.1"},
 	)
 	if err != nil {
 		t.Fatalf("ResolveTarget returned error: %v", err)

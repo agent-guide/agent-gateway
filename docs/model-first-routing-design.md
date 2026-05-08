@@ -375,7 +375,7 @@ These rules apply equally to Admin API payloads and Caddyfile parsing.
 
 ### Route Resolution Input
 
-`RouteResolveRequest.Model` should now mean logical model ID.
+`RequestRequirements.Model` should now mean logical model ID.
 
 In logical-model mode, if the client omits a model:
 

@@ -48,6 +48,57 @@ type testStatusError struct {
 func (e testStatusError) Error() string   { return e.msg }
 func (e testStatusError) StatusCode() int { return e.status }
 
+type testCredentialMarkingProvider struct {
+	base      provider.Provider
+	scheduler sched.CredentialScheduler
+	credID    string
+}
+
+func (p *testCredentialMarkingProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+	resp, err := p.base.Chat(ctx, req)
+	p.mark(req.Model, err)
+	return resp, err
+}
+
+func (p *testCredentialMarkingProvider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*schema.StreamReader[*schema.Message], error) {
+	stream, err := p.base.StreamChat(ctx, req)
+	p.mark(req.Model, err)
+	return stream, err
+}
+
+func (p *testCredentialMarkingProvider) ListModels(ctx context.Context) ([]provider.ModelInfo, error) {
+	return p.base.ListModels(ctx)
+}
+
+func (p *testCredentialMarkingProvider) Capabilities() provider.ProviderCapabilities {
+	return p.base.Capabilities()
+}
+
+func (p *testCredentialMarkingProvider) Config() provider.ProviderConfig {
+	return p.base.Config()
+}
+
+func (p *testCredentialMarkingProvider) mark(model string, err error) {
+	if p.scheduler == nil || p.credID == "" {
+		return
+	}
+	result := sched.Result{CredentialID: p.credID, Model: model, Success: err == nil}
+	if err != nil {
+		status := http.StatusBadGateway
+		var sc interface{ StatusCode() int }
+		if errors.As(err, &sc) {
+			status = sc.StatusCode()
+		}
+		result.Error = &sched.Error{
+			Code:       http.StatusText(status),
+			Message:    err.Error(),
+			HTTPStatus: status,
+			Retryable:  status == http.StatusTooManyRequests || status >= 500,
+		}
+	}
+	p.scheduler.MarkResult(context.Background(), result)
+}
+
 func newTestCredentialScheduler(t *testing.T, mgr *credentialmgr.Manager) sched.CredentialScheduler {
 	t.Helper()
 	scheduler := sched.NewScheduler(nil)
@@ -91,7 +142,7 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 		},
 	}
 	scheduler := newTestCredentialScheduler(t, credMgr)
-	prov := provider.WrapWithCredentialManager(baseProv, credMgr, scheduler, "id:anthropic")
+	prov := &testCredentialMarkingProvider{base: baseProv, scheduler: scheduler, credID: "cred-anthropic-1"}
 	handler := NewHandler(nil)
 
 	body, err := json.Marshal(MessagesRequest{
@@ -111,7 +162,7 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
-	prepared, err := handler.PrepareLLMApiRequest(req)
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
 	if err != nil {
 		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
 	}

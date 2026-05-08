@@ -225,7 +225,37 @@ func (s *authScheduler) Pick(ctx context.Context, filter Filter, tried map[strin
 		}
 		return matchFilter(cred, filter)
 	}
-	return s.pickCredential(ctx, scopeKey, filter.Model, predicate)
+	return s.pickCredentialWithSelector(ctx, scopeKey, filter.Model, filter.Selector, predicate)
+}
+
+func (s *authScheduler) pickCredentialWithSelector(_ context.Context, scopeKey, model string, selectorName string, predicate PredicateCredentialFunc) (*ManagedCredential, error) {
+	if s == nil {
+		return nil, &Error{Code: "credential_not_found", Message: "no credential available"}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	scopeScheduler := s.scopeSchedulers[scopeKey]
+	if scopeScheduler == nil {
+		return nil, &Error{Code: "credential_not_found", Message: "no credential available"}
+	}
+
+	shard := scopeScheduler.ensureModelLocked(model, time.Now())
+	if shard == nil {
+		return nil, &Error{Code: "credential_not_found", Message: "no credential available"}
+	}
+
+	selector := s.selector
+	switch strings.ToLower(strings.TrimSpace(selectorName)) {
+	case "fill_first":
+		selector = &FillFirstSelector{}
+	case "round_robin", "":
+	}
+	if picked := shard.pickReadyLocked(selector, predicate); picked != nil {
+		return picked, nil
+	}
+	return nil, shard.unavailableErrorLocked(scopeKey, model, predicate)
 }
 
 func (s *authScheduler) MarkResult(_ context.Context, result Result) {

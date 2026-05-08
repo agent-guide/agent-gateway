@@ -40,7 +40,7 @@ func (p testProvider) Config() provider.ProviderConfig {
 	return p.cfg
 }
 
-func TestResolveRouteExecutionModelTargetRewritesToBinding(t *testing.T) {
+func TestNewRoutedProviderModelTargetRewritesDuringExecution(t *testing.T) {
 	route := routepkg.AgentRoute{
 		ID:     "chat-prod",
 		LLMAPI: "openai",
@@ -76,15 +76,20 @@ func TestResolveRouteExecutionModelTargetRewritesToBinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRoute returned error: %v", err)
 	}
-	exec, err := gw.ResolveRouteExecution(context.Background(), resolvedRoute, routepkg.RouteResolveRequest{})
+	routedProvider, err := gw.NewRoutedProvider(resolvedRoute, routepkg.RequestRequirements{})
 	if err != nil {
-		t.Fatalf("ResolveRouteExecution returned error: %v", err)
+		t.Fatalf("NewRoutedProvider returned error: %v", err)
 	}
-	if exec.Provider == nil {
-		t.Fatal("ResolveRouteExecution returned nil provider")
+	if routedProvider == nil {
+		t.Fatal("NewRoutedProvider returned nil provider")
 	}
-	if exec.UpstreamModel != "gpt-4.1-mini" {
-		t.Fatalf("UpstreamModel = %q, want gpt-4.1-mini", exec.UpstreamModel)
+
+	chatReq := &provider.ChatRequest{Model: "chat-fast"}
+	if _, err := routedProvider.Chat(context.Background(), chatReq); err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+	if chatReq.Model != "gpt-4.1-mini" {
+		t.Fatalf("Chat request model = %q, want gpt-4.1-mini", chatReq.Model)
 	}
 }
 

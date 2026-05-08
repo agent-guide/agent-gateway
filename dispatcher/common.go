@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httplog"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
@@ -18,7 +19,7 @@ type LLMApiHandler interface {
 	caddy.Module
 	Name() string
 	MatchLLMApi(*http.Request) bool
-	PrepareLLMApiRequest(*http.Request) (*PreparedLLMApiRequest, error)
+	PrepareLLMApiRequest(*http.Request) (*PreparedLLMApiRequest, routepkg.RequestRequirements, error)
 	ServeLLMApi(http.ResponseWriter, *http.Request, provider.Provider, *PreparedLLMApiRequest) error
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	dispatcher "github.com/agent-guide/caddy-agent-gateway/dispatcher"
+	routepkg "github.com/agent-guide/caddy-agent-gateway/gateway/route"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
 	"github.com/agent-guide/caddy-agent-gateway/internal/httplog"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
@@ -59,38 +60,48 @@ func (h *Handler) MatchLLMApi(r *http.Request) bool {
 		r.URL.Path == "/v1/embeddings" || r.URL.Path == "/embeddings"
 }
 
-func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLMApiRequest, error) {
+func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLMApiRequest, routepkg.RequestRequirements, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read request body")
+		return nil, routepkg.RequestRequirements{}, fmt.Errorf("failed to read request body")
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 
 	if r.URL.Path == "/v1/responses" || r.URL.Path == "/responses" {
 		var req ResponsesRequest
 		if err := json.Unmarshal(body, &req); err != nil {
-			return nil, fmt.Errorf("invalid request: %s", err)
+			return nil, routepkg.RequestRequirements{}, fmt.Errorf("invalid request: %s", err)
 		}
-		return &dispatcher.PreparedLLMApiRequest{
+		prepared := &dispatcher.PreparedLLMApiRequest{
 			Type:             provider.LLMApiRequestTypeResponses,
 			ResponsesRequest: &req,
 			StreamRequested:  req.Stream,
 			RawRequest:       &req,
-		}, nil
+		}
+		requestRequirements := routepkg.RequestRequirements{
+			Model:            req.Model,
+			RequireStreaming: req.Stream,
+		}
+		return prepared, requestRequirements, nil
 	}
 
 	var req ChatCompletionRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("invalid request: %s", err)
+		return nil, routepkg.RequestRequirements{}, fmt.Errorf("invalid request: %s", err)
 	}
 
 	conv := &Converter{}
-	return &dispatcher.PreparedLLMApiRequest{
+	prepared := &dispatcher.PreparedLLMApiRequest{
 		Type:            provider.LLMApiRequestTypeChat,
 		ChatRequest:     conv.ToInternal(&req),
 		StreamRequested: req.Stream,
 		RawRequest:      &req,
-	}, nil
+	}
+	requestRequirements := routepkg.RequestRequirements{
+		Model:            req.Model,
+		RequireStreaming: req.Stream,
+	}
+	return prepared, requestRequirements, nil
 }
 
 // ServeLLMApi handles OpenAI-compatible API requests.

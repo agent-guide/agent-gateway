@@ -22,11 +22,11 @@ func (stubLLMApiHandler) Name() string { return "stub" }
 
 func (stubLLMApiHandler) MatchLLMApi(*http.Request) bool { return true }
 
-func (stubLLMApiHandler) PrepareLLMApiRequest(*http.Request) (*PreparedLLMApiRequest, error) {
+func (stubLLMApiHandler) PrepareLLMApiRequest(*http.Request) (*PreparedLLMApiRequest, routepkg.RequestRequirements, error) {
 	return &PreparedLLMApiRequest{
 		Type:        provider.LLMApiRequestTypeChat,
 		ChatRequest: &provider.ChatRequest{},
-	}, nil
+	}, routepkg.RequestRequirements{}, nil
 }
 
 func (stubLLMApiHandler) ServeLLMApi(http.ResponseWriter, *http.Request, provider.Provider, *PreparedLLMApiRequest) error {
@@ -150,31 +150,5 @@ func TestRewriteRoutePathStripsMatchedPrefix(t *testing.T) {
 	}
 	if req.URL.Path != "/tenant/v1/chat/completions" {
 		t.Fatalf("original path mutated to %q", req.URL.Path)
-	}
-}
-
-func TestRouteResolveRequestUsesPreparedModelAndStream(t *testing.T) {
-	got := routeResolveRequest(&PreparedLLMApiRequest{
-		Type:            provider.LLMApiRequestTypeChat,
-		ChatRequest:     &provider.ChatRequest{Model: "gpt-4o-mini"},
-		StreamRequested: true,
-	})
-
-	if got.Model != "gpt-4o-mini" {
-		t.Fatalf("Model = %q, want gpt-4o-mini", got.Model)
-	}
-	if !got.RequireStreaming {
-		t.Fatal("RequireStreaming = false, want true")
-	}
-}
-
-func TestRouteResolveRequestHandlesNilPreparedRequest(t *testing.T) {
-	got := routeResolveRequest(nil)
-
-	if got.Model != "" {
-		t.Fatalf("Model = %q, want empty", got.Model)
-	}
-	if got.RequireStreaming {
-		t.Fatal("RequireStreaming = true, want false")
 	}
 }

@@ -1,9 +1,36 @@
 package provider
 
 import (
+	"context"
 	"errors"
 	"testing"
+
+	"github.com/cloudwego/eino/schema"
 )
+
+type testConfigurableProvider struct {
+	cfg ProviderConfig
+}
+
+func (p *testConfigurableProvider) Chat(context.Context, *ChatRequest) (*ChatResponse, error) {
+	return nil, nil
+}
+
+func (p *testConfigurableProvider) StreamChat(context.Context, *ChatRequest) (*schema.StreamReader[*schema.Message], error) {
+	return nil, nil
+}
+
+func (p *testConfigurableProvider) ListModels(context.Context) ([]ModelInfo, error) {
+	return nil, nil
+}
+
+func (p *testConfigurableProvider) Capabilities() ProviderCapabilities {
+	return ProviderCapabilities{}
+}
+
+func (p *testConfigurableProvider) Config() ProviderConfig {
+	return p.cfg
+}
 
 func TestProviderRegistryEnableDisableProviderType(t *testing.T) {
 	const providerType = "test-registry-provider-name"

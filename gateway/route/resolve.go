@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
-	"sort"
 
 	"github.com/agent-guide/caddy-agent-gateway/gateway/modelcatalog"
 	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
@@ -13,17 +12,19 @@ import (
 	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
 )
 
-// RouteResolveRequest captures request attributes required for route resolution.
+// RequestRequirements captures request attributes required for route resolution.
 // Model means logical model ID in logical-model mode and upstream model in direct mode.
-type RouteResolveRequest struct {
-	Model             string
-	RequireStreaming  bool
-	RequireTools      bool
-	RequireVision     bool
-	RequireEmbeddings bool
+type RequestRequirements struct {
+	Model              string
+	RequireStreaming   bool
+	RequireTools       bool
+	RequireVision      bool
+	RequireEmbeddings  bool
+	ExcludedCandidates map[string]struct{}
 }
 
 type ResolvedTarget struct {
+	LogicalModel    string
 	Model           string
 	ProviderID      string
 	ProviderType    string
@@ -41,7 +42,8 @@ type ProviderConfigResolver interface {
 	GetConfig(ctx context.Context, providerID string) (provider.ProviderConfig, error)
 }
 
-func (r AgentRoute) ResolveTarget(ctx context.Context, catalog ModelCatalogResolver, providers ProviderConfigResolver, req RouteResolveRequest) (*ResolvedTarget, error) {
+func (r AgentRoute) ResolveTarget(ctx context.Context, catalog ModelCatalogResolver, providers ProviderConfigResolver, req RequestRequirements) (*ResolvedTarget, error) {
+	r.Normalize()
 	if catalog == nil {
 		return nil, statuserr.New(http.StatusServiceUnavailable, "model catalog is not configured")
 	}
@@ -50,7 +52,7 @@ func (r AgentRoute) ResolveTarget(ctx context.Context, catalog ModelCatalogResol
 	}
 
 	if r.usesDirectProvider() {
-		providerID := r.TargetPolicy.ProviderTarget.ProviderID
+		providerID := r.TargetPolicy.ProviderID
 		credentialScope := credentialmgr.ProviderIDCredentialScope(providerID)
 		cfg, err := providers.GetConfig(ctx, providerID)
 		if err != nil {
@@ -79,6 +81,9 @@ func (r AgentRoute) ResolveTarget(ctx context.Context, catalog ModelCatalogResol
 
 	candidates := make([]resolvedCandidate, 0, len(target.Candidates))
 	for _, candidate := range target.Candidates {
+		if _, excluded := req.ExcludedCandidates[CandidateKey(candidate.ProviderID, candidate.UpstreamModel)]; excluded {
+			continue
+		}
 		view, ok, err := catalog.GetResolvedManagedModel(ctx, candidate.ProviderID, candidate.UpstreamModel)
 		if err != nil {
 			return nil, err
@@ -98,7 +103,7 @@ func (r AgentRoute) ResolveTarget(ctx context.Context, catalog ModelCatalogResol
 			UpstreamModel:   candidate.UpstreamModel,
 			CredentialScope: view.CredentialScope,
 			Capabilities:    view.Capabilities,
-			Weight:          firstPositive(candidate.Weight, 1),
+			Weight:          candidate.Weight,
 			Priority:        candidate.Priority,
 		}
 		if !resolved.meetsRequirements(req) {
@@ -111,24 +116,9 @@ func (r AgentRoute) ResolveTarget(ctx context.Context, catalog ModelCatalogResol
 		return nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("model target %q has no eligible bindings", modelName))
 	}
 
-	sort.SliceStable(candidates, func(i, j int) bool {
-		if candidates[i].Priority != candidates[j].Priority {
-			return candidates[i].Priority < candidates[j].Priority
-		}
-		return candidates[i].ProviderID < candidates[j].ProviderID
-	})
-
-	bestPriority := candidates[0].Priority
-	tier := make([]resolvedCandidate, 0, len(candidates))
-	for _, candidate := range candidates {
-		if candidate.Priority != bestPriority {
-			break
-		}
-		tier = append(tier, candidate)
-	}
-
-	chosen := chooseWeightedBinding(tier)
+	chosen := chooseCandidate(candidates, r.TargetPolicy.ModelSelectorStrategy)
 	return &ResolvedTarget{
+		LogicalModel:    modelName,
 		Model:           modelName,
 		ProviderID:      chosen.ProviderID,
 		ProviderType:    chosen.ProviderType,
@@ -136,6 +126,10 @@ func (r AgentRoute) ResolveTarget(ctx context.Context, catalog ModelCatalogResol
 		CredentialScope: chosen.CredentialScope,
 		Capabilities:    chosen.Capabilities,
 	}, nil
+}
+
+func CandidateKey(providerID string, upstreamModel string) string {
+	return providerID + "/" + upstreamModel
 }
 
 func (r AgentRoute) targetByName(name string) *RouteModelTarget {
@@ -157,7 +151,7 @@ type resolvedCandidate struct {
 	Priority        int
 }
 
-func (c resolvedCandidate) meetsRequirements(req RouteResolveRequest) bool {
+func (c resolvedCandidate) meetsRequirements(req RequestRequirements) bool {
 	if req.RequireStreaming && !c.Capabilities.Streaming {
 		return false
 	}
@@ -175,18 +169,9 @@ func (c resolvedCandidate) meetsRequirements(req RouteResolveRequest) bool {
 
 func normalizedWeight(weight int) int {
 	if weight <= 0 {
-		return 1
+		return 0
 	}
 	return weight
-}
-
-func firstPositive(items ...int) int {
-	for _, item := range items {
-		if item > 0 {
-			return item
-		}
-	}
-	return 0
 }
 
 func chooseWeightedBinding(bindings []resolvedCandidate) resolvedCandidate {
@@ -209,4 +194,56 @@ func chooseWeightedBinding(bindings []resolvedCandidate) resolvedCandidate {
 		pick -= weight
 	}
 	return bindings[0]
+}
+
+func chooseCandidate(candidates []resolvedCandidate, strategy RouteSelectionStrategy) resolvedCandidate {
+	if len(candidates) == 1 {
+		return candidates[0]
+	}
+	switch strategy {
+	case RouteSelectionStrategyPriority:
+		return choosePriorityBinding(candidates)
+	case RouteSelectionStrategyWeighted:
+		return chooseWeightedBinding(candidates)
+	default:
+		return chooseAutoBinding(candidates)
+	}
+}
+
+func choosePriorityBinding(candidates []resolvedCandidate) resolvedCandidate {
+	bestIndex := 0
+	for i := 1; i < len(candidates); i++ {
+		if candidates[i].Priority > candidates[bestIndex].Priority {
+			bestIndex = i
+		}
+	}
+	return candidates[bestIndex]
+}
+
+func chooseAutoBinding(candidates []resolvedCandidate) resolvedCandidate {
+	bestPriority := candidates[0].Priority
+	for _, candidate := range candidates[1:] {
+		if candidate.Priority > bestPriority {
+			bestPriority = candidate.Priority
+		}
+	}
+	tier := make([]resolvedCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.Priority == bestPriority {
+			tier = append(tier, candidate)
+		}
+	}
+	if !hasPositiveWeight(tier) {
+		return tier[0]
+	}
+	return chooseWeightedBinding(tier)
+}
+
+func hasPositiveWeight(candidates []resolvedCandidate) bool {
+	for _, candidate := range candidates {
+		if candidate.Weight > 0 {
+			return true
+		}
+	}
+	return false
 }
