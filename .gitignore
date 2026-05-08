@@ -36,9 +36,12 @@ go.work.sum
 Caddyfile1
 
 # Build output
-caddy-agent-gateway
-caddy
-agw
+/caddy
+!/caddy/
+!/caddy/**
+/agw
+/agwd
+/agwctl
 dist/
 
 # Data

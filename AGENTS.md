@@ -17,11 +17,14 @@ MCP, memory, agent, and metrics areas exist in the repo, but the main implemente
 ## Build & Run
 
 ```bash
-# Build the main gateway binary and the management CLI
+# Build the main gateway binary, standalone daemon, and management CLI
 make build
 
 # Or build only the gateway binary
-go build -o agw ./cmd/main.go
+go build -o agw ./cmd/agw
+
+# Or build only the standalone daemon
+go build -o agwd ./cmd/agwd
 
 # Or build only the management CLI
 go build -o agwctl ./cmd/agwctl
@@ -42,7 +45,7 @@ go test ./path/to/package -run TestName -v
 
 Notes:
 
-- `make build` builds both `agw` from `cmd/main.go` and `agwctl` from `cmd/agwctl`.
+- `make build` builds `agw` from `cmd/agw/main.go`, `agwd` from `cmd/agwd/main.go`, and `agwctl` from `cmd/agwctl/main.go`.
 - The resulting binary is a standard Caddy binary with custom modules compiled in, so normal Caddy subcommands such as `run`, `reload`, `validate`, and `hash-password` work.
 
 ## Core Modules
@@ -50,8 +53,8 @@ Notes:
 ### Caddy app
 
 - Module ID: `agent_gateway`
-- Package: `gateway/`
-- Main entry: `gateway/app.go`
+- Package: `caddy/gateway/`
+- Main entry: `caddy/gateway/app.go`
 
 Responsibilities:
 
@@ -63,8 +66,8 @@ Responsibilities:
 ### HTTP middleware
 
 - Module ID: `http.handlers.agent_route_dispatcher`
-- Package: `dispatcher/`
-- Main entry: `dispatcher/dispatcher.go`
+- Package: `caddy/dispatcher/`
+- Main entry: `caddy/dispatcher/dispatcher.go`
 
 Responsibilities:
 
@@ -80,9 +83,11 @@ Responsibilities:
 ### Protocol handler modules
 
 - Module ID: `agent_route_dispatcher.llm_apis.openai`
-  - Package: `dispatcher/llmapi/openai/`
+  - Runtime package: `pkg/dispatcher/llmapi/openai/`
+  - Caddy adapter: `caddy/dispatcher/llmapi/openai/`
 - Module ID: `agent_route_dispatcher.llm_apis.anthropic`
-  - Package: `dispatcher/llmapi/anthropic/`
+  - Runtime package: `pkg/dispatcher/llmapi/anthropic/`
+  - Caddy adapter: `caddy/dispatcher/llmapi/anthropic/`
 
 Responsibilities:
 
@@ -95,7 +100,7 @@ These modules are not standalone `http.handlers.*` modules. They are loaded by `
 ### Admin API
 
 - Module ID: `http.handlers.agent_gateway_admin`
-- Package: `admin/`
+- Package: `caddy/admin/`
 
 Responsibilities:
 
@@ -107,18 +112,23 @@ Responsibilities:
 
 ## Key Packages
 
-### `gateway/`
+### `pkg/gateway/`
 
 Important files:
 
-- `app.go`: Caddy app wiring
 - `agentgateway.go`: runtime route, VirtualKey, and provider resolution
 - `providerresolver.go`: static and dynamic provider resolution
-- `caddyfile.go`: global `agent_gateway` Caddyfile parsing
 
 `AgentGateway` is the main runtime object. It resolves routes, validates VirtualKeys, and selects providers. It does not own the HTTP protocol details.
 
-### `gateway/route/`
+### `caddy/gateway/`
+
+Important files:
+
+- `app.go`: Caddy app wiring and runtime bootstrap
+- `caddyfile.go`: global `agent_gateway` Caddyfile parsing
+
+### `pkg/gateway/route/`
 
 Defines the route model used by both Caddyfile config and the Admin API.
 
@@ -139,7 +149,7 @@ Current route modes:
 
 The route model uses `llm_api` and `require_virtual_key`. Do not reintroduce the old `local API key` naming in new code or docs.
 
-### `gateway/modelcatalog/`
+### `pkg/gateway/modelcatalog/`
 
 This package owns provider model discovery, managed model overlays, and runtime validation of concrete route candidates.
 
@@ -148,7 +158,7 @@ Important types:
 - `ManagedModel`
 - `ProviderModelSnapshot`
 
-### `gateway/virtualkey/`
+### `pkg/gateway/virtualkey/`
 
 This package owns VirtualKey extraction, validation, and storage-facing helpers.
 
@@ -163,7 +173,7 @@ The gateway accepts a VirtualKey from either:
 - `Authorization: Bearer <key>`
 - `x-api-key: <key>`
 
-### `llm/provider/`
+### `pkg/llm/provider/`
 
 This package defines the provider interface and provider registry.
 
@@ -171,10 +181,9 @@ Important files:
 
 - `provider.go`: provider request and response types
 - `registry.go`: provider factory registration
-- `module.go`: common Caddy module parsing helpers
-- `authmanaged.go`: provider wrapper that injects managed credentials
+- `staticcredential.go`: provider wrapper that injects managed credentials
 
-Built-in provider packages currently compiled by `cmd/main.go`:
+Built-in provider runtime packages:
 
 - `openai`
 - `anthropic`
@@ -188,12 +197,12 @@ Provider registration rules:
 
 - implement the `provider.Provider` interface
 - register the factory with `provider.RegisterProviderFactory(...)`
-- register the Caddy module under `llm.providers.<name>`
-- add a blank import in `cmd/main.go` so the provider is linked into the binary
+- add a Caddy adapter under `caddy/provider/<name>` that registers `llm.providers.<name>`
+- add a blank import for the Caddy adapter in `cmd/agw/main.go` so the provider is linked into the binary
 
-### `cliauth/`
+### `pkg/cliauth/`
 
-This is a top-level package, not `llm/cliauth/`.
+This is a `pkg` runtime package, not `llm/cliauth/`.
 
 Important files:
 
@@ -202,7 +211,7 @@ Important files:
 - `autorefresher.go`: background refresh scheduling
 - `types.go`: credential and status types
 
-Built-in authenticators currently registered via `cliauth/authenticator/`:
+Built-in authenticators currently registered via `pkg/cliauth/authenticator/`:
 
 - `codex`
 - `claude`
@@ -212,18 +221,19 @@ Authenticator registration rules:
 
 - implement the `cliauth.Authenticator` interface
 - register the factory with `cliauth.RegisterAuthenticatorFactory(...)`
-- ensure the package is included through the blank import of `cliauth/authenticator` in `cmd/main.go`
+- ensure the package is included through the blank import of `pkg/cliauth/authenticator` in `cmd/agw/main.go`
 
-### `llm/credentialmgr/`
+### `pkg/llm/credentialmgr/`
 
 This package manages persisted upstream credentials and selection state. It is separate from the provider registry and separate from `cliauth`, though `cliauth` integrates with it through an adapter.
 
-### `configstore/`
+### `pkg/configstore/`
 
 Important packages:
 
-- `configstore/intf/`: storage interfaces
-- `configstore/sqlite/`: SQLite implementation
+- `pkg/configstore/intf/`: storage interfaces
+- `pkg/configstore/sqlite/`: SQLite implementation
+- `caddy/configstore/sqlite/`: SQLite Caddy adapter
 
 The top-level storage interface is `ConfigStorer`, which vends:
 
@@ -334,6 +344,6 @@ Stubbed families currently return `501 Not Implemented`:
 - `README.md`: user-facing setup and API examples
 - `DESIGN.md`: broader architecture and roadmap
 - `Caddyfile.example`: working reference config
-- `cmd/main.go`: the definitive list of linked modules
+- `cmd/agw/main.go`: the definitive list of linked modules
 
 If you change module IDs, route semantics, provider registration, or Admin API paths, update this file and `README.md` in the same change.

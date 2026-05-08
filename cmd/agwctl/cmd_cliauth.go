@@ -8,10 +8,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/agent-guide/caddy-agent-gateway/cliauth"
-	_ "github.com/agent-guide/caddy-agent-gateway/cliauth/authenticator"
 	"github.com/agent-guide/caddy-agent-gateway/internal/agwctl/cliauthstore"
-	"github.com/agent-guide/caddy-agent-gateway/llm/credentialmgr"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/cliauth"
+	_ "github.com/agent-guide/caddy-agent-gateway/pkg/cliauth/authenticator"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )

@@ -1,6 +1,6 @@
 # caddy-agent-gateway
 
-`caddy-agent-gateway` is a Caddy-native AI gateway for LLM and agent workloads. It is built as a custom Caddy binary and provides:
+`caddy-agent-gateway` is an AI gateway for LLM and agent workloads. It supports both a custom Caddy binary (`agw`) and a standalone daemon (`agwd`), and provides:
 
 - OpenAI-compatible and Anthropic-compatible HTTP APIs
 - route-based dispatch to logical models or direct upstream providers
@@ -36,20 +36,28 @@ The request path today is centered on LLM routing. MCP, memory, metrics, and age
 
 ## Repository Layout
 
-- `cmd/` - custom Caddy entrypoint and module imports
-- `gateway/` - `agent_gateway` app, runtime managers, route selection, provider resolution, virtual key validation
-- `dispatcher/` - `agent_route_dispatcher` and protocol handlers
-- `admin/` - `agent_gateway_admin`, Admin API routes, session auth, Caddy management proxy
-- `llm/provider/` - provider interface and built-in provider implementations
-- `cliauth/` - CLI login authenticators and manager
-- `llm/credentialmgr/` - upstream credential registration and scheduling state
-- `configstore/sqlite/` - SQLite-backed persisted configuration
-- `llm/mcp/`, `llm/memory/`, `llm/agent/` - early integration scaffolding
+- `cmd/` - thin entrypoints for `agw`, `agwd`, and `agwctl`
+- `pkg/gateway/` - runtime managers, route selection, provider resolution, virtual key validation
+- `caddy/gateway/` - `agent_gateway` Caddy app adapter and Caddyfile parsing
+- `pkg/dispatcher/` - runtime dispatcher and protocol handlers, independent of Caddy
+- `caddy/dispatcher/` - `agent_route_dispatcher` Caddy adapter and Caddyfile parsing
+- `pkg/admin/` - runtime Admin API handler, routes, and session auth
+- `caddy/admin/` - `agent_gateway_admin` Caddy adapter
+- `pkg/llm/provider/` - provider interface and built-in provider implementations
+- `caddy/provider/` - Caddy provider module adapters
+- `pkg/cliauth/` - CLI login authenticators and manager
+- `pkg/llm/credentialmgr/` - upstream credential registration and scheduling state
+- `pkg/configstore/intf/` - storage interfaces
+- `pkg/configstore/sqlite/` - SQLite-backed persisted configuration runtime
+- `caddy/configstore/sqlite/` - SQLite config store Caddy adapter
+- `standalone/server/` - standalone HTTP server assembly used by `agwd`
+- `pkg/mcp/` - early MCP transport and client scaffolding
+- `pkg/llm/memory/`, `pkg/llm/agent/` - early memory and agent runtime scaffolding
 
 ## Build
 
 ```bash
-go build -o agw ./cmd/main.go
+go build -o agw ./cmd/agw
 ```
 
 or:
@@ -58,11 +66,12 @@ or:
 make build
 ```
 
-The `agw` binary includes Caddy standard modules, the gateway app, the admin handler, LLM API handlers, built-in providers, and CLI authenticators. `make build` also builds the management CLI as `agwctl`.
+The `agw` binary includes Caddy standard modules, the gateway app, the admin handler, LLM API handlers, built-in providers, and CLI authenticators. `make build` also builds the standalone daemon as `agwd` and the management CLI as `agwctl`.
 
 ## Binary Names
 
 - `agw`: the main gateway runtime binary
+- `agwd`: the standalone gateway daemon without a Caddyfile runtime
 - `agwctl`: the management CLI for gateway admin, Caddy admin, and local CLI auth operations
 
 ## Management CLI
@@ -583,7 +592,7 @@ the frontend to log in again.
 ```bash
 go test ./...
 go test ./admin ./gateway ./api
-go test ./llm/provider/...
+go test ./pkg/llm/provider/... ./caddy/provider/...
 ```
 
 ```bash

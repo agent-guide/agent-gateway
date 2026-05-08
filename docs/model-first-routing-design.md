@@ -139,7 +139,7 @@ package modelcatalog
 import (
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/llm/provider"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
 )
 
 type ProviderModelSnapshot struct {
@@ -176,7 +176,7 @@ This is the persisted admin overlay for a concrete upstream model.
 ```go
 package modelcatalog
 
-import "github.com/agent-guide/caddy-agent-gateway/llm/provider"
+import "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
 
 type ManagedModel struct {
 	ProviderID            string                        `json:"provider_id"`
@@ -205,7 +205,7 @@ This is the runtime-ready binding between a logical model and a concrete upstrea
 ```go
 package modelcatalog
 
-import "github.com/agent-guide/caddy-agent-gateway/llm/provider"
+import "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
 
 type ModelBinding struct {
 	LogicalModelID   string                        `json:"logical_model_id"`
@@ -226,7 +226,7 @@ This is the route-facing catalog view used by Admin APIs and route validation.
 ```go
 package modelcatalog
 
-import "github.com/agent-guide/caddy-agent-gateway/llm/provider"
+import "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
 
 type LogicalModel struct {
 	ID               string                        `json:"id"`
@@ -258,7 +258,7 @@ The effective rule is:
 - runtime candidate filtering uses `ModelCapabilities`
 - provider-level capability metadata is summary-only and must not be the final routing authority
 
-Final type direction in `llm/provider/`:
+Final type direction in `pkg/llm/provider/`:
 
 ```go
 type ModelCapabilities struct {
@@ -289,7 +289,7 @@ If a provider-level `Capabilities()` method is retained, it should be treated as
 
 Implementation note:
 
-- the repository currently uses `ProviderCapabilities` in `llm/provider/provider.go`
+- the repository currently uses `ProviderCapabilities` in `pkg/llm/provider/provider.go`
 - the target direction is to introduce `ModelCapabilities` as the routing authority first
 - `ProviderCapabilities` can then be deprecated, retained as a summary type, or renamed to a clearer provider-summary concept in a later refactor
 

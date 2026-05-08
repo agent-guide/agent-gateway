@@ -739,7 +739,7 @@ This design should drive changes in:
 - `gateway/caddyfile.go`
 - `gateway/providerresolver.go`
 - new gateway runtime files for `RoutedProvider`
-- possible cleanup in `llm/provider/authmanaged.go`
+- possible cleanup in `pkg/llm/provider/staticcredential.go`
 
 This design does not require immediate changes in:
 

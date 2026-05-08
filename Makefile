@@ -1,9 +1,10 @@
 # Makefile for Caddy LLM Router
 
-.PHONY: all build build-xcaddy clean deps fmt
+.PHONY: all build build-agw build-agwd build-agwctl build-xcaddy clean deps fmt
 
 # Binary names
 BINARY_NAME=agw
+DAEMON_BINARY_NAME=agwd
 CLI_BINARY_NAME=agwctl
 
 # Go parameters
@@ -20,7 +21,17 @@ all: clean deps build
 # Build the binary (recommended method)
 build:
 	@echo "Building $(BINARY_NAME)..."
-	$(GOBUILD) -o $(BINARY_NAME) ./cmd/main.go
+	$(GOBUILD) -o $(BINARY_NAME) ./cmd/agw
+	$(GOBUILD) -o $(DAEMON_BINARY_NAME) ./cmd/agwd
+	$(GOBUILD) -o $(CLI_BINARY_NAME) ./cmd/agwctl
+
+build-agw:
+	$(GOBUILD) -o $(BINARY_NAME) ./cmd/agw
+
+build-agwd:
+	$(GOBUILD) -o $(DAEMON_BINARY_NAME) ./cmd/agwd
+
+build-agwctl:
 	$(GOBUILD) -o $(CLI_BINARY_NAME) ./cmd/agwctl
 
 build-xcaddy:
@@ -32,6 +43,7 @@ clean:
 	@echo "Cleaning..."
 	$(GOCLEAN)
 	rm -f $(BINARY_NAME)
+	rm -f $(DAEMON_BINARY_NAME)
 	rm -f $(CLI_BINARY_NAME)
 	rm -rf buildenv_*
 
