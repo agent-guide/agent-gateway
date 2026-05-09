@@ -235,14 +235,14 @@ func applyManagedModels(ctx context.Context, client *adminclient.Client, bundle 
 				record("managed_model", key, "skip", nil)
 				continue
 			}
-			if _, err := client.UpsertManagedModel(ctx, desired.ProviderID, desired.UpstreamModel, desired); err != nil {
+			if _, err := client.UpdateManagedModel(ctx, desired.ProviderID, desired.UpstreamModel, desired); err != nil {
 				record("managed_model", key, "error", fmt.Errorf("managed_model %q update: %w", key, err))
 			} else {
 				record("managed_model", key, "update", nil)
 			}
 			continue
 		}
-		if _, err := client.UpsertManagedModel(ctx, desired.ProviderID, desired.UpstreamModel, desired); err != nil {
+		if _, err := client.CreateManagedModel(ctx, desired); err != nil {
 			record("managed_model", key, "error", fmt.Errorf("managed_model %q create: %w", key, err))
 		} else {
 			record("managed_model", key, "create", nil)

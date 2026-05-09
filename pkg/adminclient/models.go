@@ -55,7 +55,15 @@ func (c *Client) GetManagedModel(ctx context.Context, providerID, upstreamModel 
 	return &resp, nil
 }
 
-func (c *Client) UpsertManagedModel(ctx context.Context, providerID, upstreamModel string, model modelcatalog.ManagedModel) (*ManagedModel, error) {
+func (c *Client) CreateManagedModel(ctx context.Context, model modelcatalog.ManagedModel) (*ManagedModel, error) {
+	var resp ManagedModel
+	if err := c.do(ctx, http.MethodPost, "/admin/models/managed", model, &resp, true, http.StatusCreated); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Client) UpdateManagedModel(ctx context.Context, providerID, upstreamModel string, model modelcatalog.ManagedModel) (*ManagedModel, error) {
 	var resp ManagedModel
 	if err := c.do(ctx, http.MethodPut, "/admin/models/managed/"+url.PathEscape(providerID)+"/"+url.PathEscape(upstreamModel), model, &resp, true, http.StatusOK); err != nil {
 		return nil, err

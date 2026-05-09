@@ -92,7 +92,7 @@ func (s *testModelStore) Get(_ context.Context, providerID string, upstreamModel
 	return &cloned, true, nil
 }
 
-func (s *testModelStore) Upsert(_ context.Context, obj any) error {
+func (s *testModelStore) Create(_ context.Context, obj any) error {
 	item, ok := obj.(*modelcatalog.ManagedModel)
 	if !ok {
 		return errors.New("unexpected type")
@@ -100,8 +100,29 @@ func (s *testModelStore) Upsert(_ context.Context, obj any) error {
 	if s.items == nil {
 		s.items = map[string]*modelcatalog.ManagedModel{}
 	}
+	key := item.ProviderID + "\x00" + item.UpstreamModel
+	if _, exists := s.items[key]; exists {
+		return errors.New("managed model already exists")
+	}
 	cloned := *item
-	s.items[item.ProviderID+"\x00"+item.UpstreamModel] = &cloned
+	s.items[key] = &cloned
+	return nil
+}
+
+func (s *testModelStore) Update(_ context.Context, obj any) error {
+	item, ok := obj.(*modelcatalog.ManagedModel)
+	if !ok {
+		return errors.New("unexpected type")
+	}
+	if s.items == nil {
+		s.items = map[string]*modelcatalog.ManagedModel{}
+	}
+	key := item.ProviderID + "\x00" + item.UpstreamModel
+	if _, exists := s.items[key]; !exists {
+		return gorm.ErrRecordNotFound
+	}
+	cloned := *item
+	s.items[key] = &cloned
 	return nil
 }
 
@@ -1415,6 +1436,85 @@ func TestManagedModelViewIncludesResolvedAndSnapshotFields(t *testing.T) {
 	}
 	if got.SnapshotState != modelcatalog.SnapshotStatusOK {
 		t.Fatalf("SnapshotState = %q, want %q", got.SnapshotState, modelcatalog.SnapshotStatusOK)
+	}
+}
+
+func TestCreateManagedModelUsesStoreCreate(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	store := &testModelStore{}
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{modelStore: store}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	body := bytes.NewBufferString(`{"provider_id":"openai-main","upstream_model":"gpt-4.1","enabled":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/admin/models/managed", body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("unexpected create status: got %d want %d body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	if _, ok := store.items["openai-main\x00gpt-4.1"]; !ok {
+		t.Fatalf("managed model was not created")
+	}
+}
+
+func TestUpdateManagedModelUsesStoreUpdate(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	store := &testModelStore{
+		items: map[string]*modelcatalog.ManagedModel{
+			"openai-main\x00gpt-4.1": {
+				ProviderID:    "openai-main",
+				UpstreamModel: "gpt-4.1",
+				Enabled:       false,
+			},
+		},
+	}
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{modelStore: store}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	body := bytes.NewBufferString(`{"enabled":true}`)
+	req := httptest.NewRequest(http.MethodPut, "/admin/models/managed/openai-main/gpt-4.1", body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected update status: got %d want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !store.items["openai-main\x00gpt-4.1"].Enabled {
+		t.Fatalf("managed model was not updated")
+	}
+}
+
+func TestUpdateManagedModelReturnsNotFoundWhenMissing(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{modelStore: &testModelStore{}}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	body := bytes.NewBufferString(`{"enabled":true}`)
+	req := httptest.NewRequest(http.MethodPut, "/admin/models/managed/openai-main/gpt-4.1", body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unexpected update status: got %d want %d body=%s", rec.Code, http.StatusNotFound, rec.Body.String())
 	}
 }
 

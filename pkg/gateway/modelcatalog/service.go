@@ -16,7 +16,8 @@ type Service interface {
 	ListManagedModels(ctx context.Context, filter ManagedModelFilter) ([]ManagedModel, error)
 	GetManagedModel(ctx context.Context, providerID string, upstreamModel string) (*ManagedModel, bool, error)
 	GetResolvedManagedModel(ctx context.Context, providerID string, upstreamModel string) (*ResolvedManagedModel, bool, error)
-	UpsertManagedModel(ctx context.Context, model ManagedModel) error
+	CreateManagedModel(ctx context.Context, model ManagedModel) error
+	UpdateManagedModel(ctx context.Context, model ManagedModel) error
 	DeleteManagedModel(ctx context.Context, providerID string, upstreamModel string) error
 	ListProviderSnapshots(ctx context.Context, providerID string) ([]ProviderModelSnapshot, error)
 }
@@ -154,7 +155,7 @@ func (s *service) GetResolvedManagedModel(ctx context.Context, providerID string
 	return &resolved, true, nil
 }
 
-func (s *service) UpsertManagedModel(ctx context.Context, model ManagedModel) error {
+func (s *service) CreateManagedModel(ctx context.Context, model ManagedModel) error {
 	model.Normalize()
 	if model.ProviderID == "" || model.UpstreamModel == "" {
 		return fmt.Errorf("provider_id and upstream_model are required")
@@ -162,7 +163,18 @@ func (s *service) UpsertManagedModel(ctx context.Context, model ManagedModel) er
 	if s.store == nil {
 		return fmt.Errorf("model store is not configured")
 	}
-	return s.store.Upsert(ctx, &model)
+	return s.store.Create(ctx, &model)
+}
+
+func (s *service) UpdateManagedModel(ctx context.Context, model ManagedModel) error {
+	model.Normalize()
+	if model.ProviderID == "" || model.UpstreamModel == "" {
+		return fmt.Errorf("provider_id and upstream_model are required")
+	}
+	if s.store == nil {
+		return fmt.Errorf("model store is not configured")
+	}
+	return s.store.Update(ctx, &model)
 }
 
 func (s *service) DeleteManagedModel(ctx context.Context, providerID string, upstreamModel string) error {

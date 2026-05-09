@@ -215,10 +215,52 @@ func TestEnableCLIAuthAuthenticatorAllowsCreated(t *testing.T) {
 	}
 }
 
-func TestUpsertManagedModel(t *testing.T) {
+func TestCreateManagedModel(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if r.URL.Path != "/admin/models/managed" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var req modelcatalog.ManagedModel
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(ManagedModel{
+			ManagedModel: modelcatalog.ManagedModel{
+				ProviderID:    "openai-main",
+				UpstreamModel: "gpt-4.1",
+				Enabled:       true,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := New(Config{BaseURL: srv.URL, Token: "preset-token"})
+	resp, err := client.CreateManagedModel(context.Background(), modelcatalog.ManagedModel{
+		ProviderID:    "openai-main",
+		UpstreamModel: "gpt-4.1",
+		Enabled:       true,
+	})
+	if err != nil {
+		t.Fatalf("CreateManagedModel error: %v", err)
+	}
+	if resp.ProviderID != "openai-main" || resp.UpstreamModel != "gpt-4.1" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+}
+
+func TestUpdateManagedModel(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
 		if r.URL.Path != "/admin/models/managed/openai-main/gpt-4.1" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -237,11 +279,11 @@ func TestUpsertManagedModel(t *testing.T) {
 	defer srv.Close()
 
 	client := New(Config{BaseURL: srv.URL, Token: "preset-token"})
-	resp, err := client.UpsertManagedModel(context.Background(), "openai-main", "gpt-4.1", modelcatalog.ManagedModel{
+	resp, err := client.UpdateManagedModel(context.Background(), "openai-main", "gpt-4.1", modelcatalog.ManagedModel{
 		Enabled: true,
 	})
 	if err != nil {
-		t.Fatalf("UpsertManagedModel error: %v", err)
+		t.Fatalf("UpdateManagedModel error: %v", err)
 	}
 	if resp.ProviderID != "openai-main" || resp.UpstreamModel != "gpt-4.1" {
 		t.Fatalf("unexpected response: %+v", resp)

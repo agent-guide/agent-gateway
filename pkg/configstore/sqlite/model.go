@@ -7,7 +7,6 @@ import (
 
 	"github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 type sqliteModelRecord struct {
@@ -68,22 +67,36 @@ func (s *ModelStore) Get(ctx context.Context, providerID string, upstreamModel s
 	return obj, true, nil
 }
 
-func (s *ModelStore) Upsert(ctx context.Context, obj any) error {
+func (s *ModelStore) Create(ctx context.Context, obj any) error {
 	providerID, upstreamModel, data, err := modelRecordParts(obj)
 	if err != nil {
 		return err
 	}
 	return s.db.WithContext(ctx).
 		Table("model_configs").
-		Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "provider_id"}, {Name: "upstream_model"}},
-			DoUpdates: clause.AssignmentColumns([]string{"data"}),
-		}).
 		Create(&sqliteModelRecord{
 			ProviderID:    providerID,
 			UpstreamModel: upstreamModel,
 			Data:          data,
 		}).Error
+}
+
+func (s *ModelStore) Update(ctx context.Context, obj any) error {
+	providerID, upstreamModel, data, err := modelRecordParts(obj)
+	if err != nil {
+		return err
+	}
+	result := s.db.WithContext(ctx).
+		Table("model_configs").
+		Where("provider_id = ? AND upstream_model = ?", providerID, upstreamModel).
+		Updates(map[string]any{"data": data})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (s *ModelStore) Delete(ctx context.Context, providerID string, upstreamModel string) error {

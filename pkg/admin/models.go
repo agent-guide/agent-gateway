@@ -9,6 +9,7 @@ import (
 	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	"gorm.io/gorm"
 )
 
 type ManagedConcreteModelView struct {
@@ -99,7 +100,39 @@ func (h *Handler) handleGetManagedModel(w http.ResponseWriter, r *http.Request) 
 	_ = httpjson.Write(w, http.StatusOK, view)
 }
 
-func (h *Handler) handleUpsertManagedModel(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleCreateManagedModel(w http.ResponseWriter, r *http.Request) {
+	if h.modelCatalog == nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "model catalog is not configured")
+		return
+	}
+	var item modelcatalog.ManagedModel
+	if err := httpjson.Decode(r, &item); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	item.Normalize()
+	if err := h.modelCatalog.CreateManagedModel(r.Context(), item); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	viewModel, ok, err := h.modelCatalog.GetManagedModel(r.Context(), item.ProviderID, item.UpstreamModel)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !ok {
+		_ = httpjson.Error(w, http.StatusNotFound, "managed model not found")
+		return
+	}
+	view, err := h.managedModelView(r, *viewModel)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusCreated, view)
+}
+
+func (h *Handler) handleUpdateManagedModel(w http.ResponseWriter, r *http.Request) {
 	if h.modelCatalog == nil {
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, "model catalog is not configured")
 		return
@@ -112,7 +145,11 @@ func (h *Handler) handleUpsertManagedModel(w http.ResponseWriter, r *http.Reques
 	item.ProviderID = r.PathValue("provider_id")
 	item.UpstreamModel = r.PathValue("upstream_model")
 	item.Normalize()
-	if err := h.modelCatalog.UpsertManagedModel(r.Context(), item); err != nil {
+	if err := h.modelCatalog.UpdateManagedModel(r.Context(), item); err != nil {
+		if err == gorm.ErrRecordNotFound {
+			_ = httpjson.Error(w, http.StatusNotFound, "managed model not found")
+			return
+		}
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
