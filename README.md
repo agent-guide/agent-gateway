@@ -81,7 +81,8 @@ The `agw` binary includes Caddy standard modules, the gateway app, the admin han
 Important distinction:
 
 - `agwctl cliauth ...` manages local CLI auth credentials on the machine running `agwctl`
-- `agwctl gateway cliauth ...` manages the remote gateway's runtime CLI auth state through the Admin API
+- `agwctl gateway cliauth ...` inspects remote gateway CLI auth state and starts login flows through the Admin API
+- `agwctl gateway apply/export ...` manages remote CLI auth authenticator config as part of the gateway bundle
 
 Show available commands:
 
@@ -176,6 +177,7 @@ Bundle YAML examples for batch workflows:
 - `managedModels`
 - `routes`
 - `virtualKeys`
+- `cliAuthAuthenticators`
 - `credentials`
 
 Common command patterns:
@@ -186,13 +188,27 @@ Common command patterns:
   --password your-password \
   apply -f ./examples/gateway.bundle.minimal.yaml
 
+cat > gateway.yaml <<'EOF'
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+cliAuthAuthenticators:
+  - name: codex
+    enabled: true
+    config:
+      callback_port: 9002
+      no_browser: true
+      device_flow: true
+EOF
+
 ./agwctl gateway --addr http://localhost:8019 \
   --user admin \
   --password your-password \
-  cliauth authenticators enable codex \
-  --callback-port 9002 \
-  --no-browser \
-  --device-flow
+  apply -f ./gateway.yaml
+
+./agwctl gateway --addr http://localhost:8019 \
+  --user admin \
+  --password your-password \
+  cliauth login codex --wait
 ```
 
 ## Quick Start
@@ -618,22 +634,22 @@ curl -X POST http://localhost:8019/admin/credentials \
 
 CLI auth login runs asynchronously on the server. The login endpoint returns `202 Accepted`; poll the status endpoint for completion.
 Authenticator config set through the admin API is runtime-only. Disabling an authenticator or restarting the server resets it to factory defaults.
-The enable endpoint requires a JSON body with `config`. Use `{"config":{}}` to keep factory defaults. The runtime authenticator is recreated from its factory defaults, then the provided config is applied.
+The `PUT` update endpoint accepts `enabled` and `config`. Use `{"enabled":true,"config":{}}` to keep factory defaults while enabling or refreshing the runtime authenticator config. The runtime authenticator is recreated from its factory defaults, then the provided config is applied. `POST .../enable` and `POST .../disable` remain available as compatibility aliases.
 
 Examples:
 
 ```sh
-curl -X POST http://localhost:8019/admin/cliauth/authenticators/codex/enable \
+curl -X PUT http://localhost:8019/admin/cliauth/authenticators/codex \
   -H 'Authorization: Bearer <token>' \
   -H 'Content-Type: application/json' \
-  --data '{"config":{}}'
+  --data '{"enabled":true,"config":{}}'
 ```
 
 ```sh
-curl -X POST http://localhost:8019/admin/cliauth/authenticators/codex/enable \
+curl -X PUT http://localhost:8019/admin/cliauth/authenticators/codex \
   -H 'Authorization: Bearer <token>' \
   -H 'Content-Type: application/json' \
-  --data '{"config":{"callback_port":9002,"no_browser":true,"device_flow":true}}'
+  --data '{"enabled":true,"config":{"callback_port":9002,"no_browser":true,"device_flow":true}}'
 ```
 
 ### Registered but Not Implemented

@@ -37,6 +37,10 @@ func runGatewayExport(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
+	cliAuthAuthenticators, err := client.ListCLIAuthAuthenticators(ctx)
+	if err != nil {
+		return err
+	}
 
 	bundle := &gatewaybundle.GatewayBundle{
 		APIVersion: gatewaybundle.APIVersionV1Alpha1,
@@ -65,6 +69,13 @@ func runGatewayExport(ctx context.Context, path string) error {
 	}
 	for _, item := range virtualKeys {
 		bundle.VirtualKeys = append(bundle.VirtualKeys, item.VirtualKey)
+	}
+	for _, item := range cliAuthAuthenticators {
+		bundle.CLIAuthAuthenticators = append(bundle.CLIAuthAuthenticators, gatewaybundle.CLIAuthAuthenticator{
+			Name:    item.Name,
+			Enabled: item.Enabled,
+			Config:  item.Config,
+		})
 	}
 
 	sortGatewayBundle(bundle)
@@ -110,6 +121,9 @@ func sortGatewayBundle(bundle *gatewaybundle.GatewayBundle) {
 	})
 	sort.Slice(bundle.VirtualKeys, func(i, j int) bool {
 		return bundle.VirtualKeys[i].Key < bundle.VirtualKeys[j].Key
+	})
+	sort.Slice(bundle.CLIAuthAuthenticators, func(i, j int) bool {
+		return bundle.CLIAuthAuthenticators[i].Name < bundle.CLIAuthAuthenticators[j].Name
 	})
 }
 

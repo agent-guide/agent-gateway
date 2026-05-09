@@ -9,6 +9,7 @@ import (
 
 	"github.com/agent-guide/caddy-agent-gateway/pkg/adminclient"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/cliauth"
+	_ "github.com/agent-guide/caddy-agent-gateway/pkg/cliauth/authenticator"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/gatewaybundle"
 	"github.com/spf13/cobra"
 
@@ -32,12 +33,13 @@ var (
 
 	gatewayManagedModelProviderID string
 
-	gatewayCLIAuthEnableConfigFile string
-	gatewayCLIAuthCallbackPort     int
-	gatewayCLIAuthNoBrowser        bool
-	gatewayCLIAuthDeviceFlow       bool
-	gatewayCLIAuthLoginWait        bool
-	gatewayCLIAuthPollInterval     time.Duration
+	gatewayCLIAuthAuthenticatorConfigFile string
+	gatewayCLIAuthAuthenticatorState      string
+	gatewayCLIAuthCallbackPort            int
+	gatewayCLIAuthNoBrowser               bool
+	gatewayCLIAuthDeviceFlow              bool
+	gatewayCLIAuthLoginWait               bool
+	gatewayCLIAuthPollInterval            time.Duration
 )
 
 // ── gateway ───────────────────────────────────────────────────────────────────
@@ -66,12 +68,13 @@ var gatewayValidateCmd = &cobra.Command{
 				"status": "ok",
 				"file":   gatewayBundleFile,
 				"counts": map[string]int{
-					"provider_types":        len(bundle.ProviderTypes),
-					"llm_api_handler_types": len(bundle.LLMAPIHandlerTypes),
-					"providers":             len(bundle.Providers),
-					"managed_models":        len(bundle.ManagedModels),
-					"routes":                len(bundle.Routes),
-					"virtual_keys":          len(bundle.VirtualKeys),
+					"provider_types":         len(bundle.ProviderTypes),
+					"llm_api_handler_types":  len(bundle.LLMAPIHandlerTypes),
+					"providers":              len(bundle.Providers),
+					"managed_models":         len(bundle.ManagedModels),
+					"routes":                 len(bundle.Routes),
+					"virtual_keys":           len(bundle.VirtualKeys),
+					"cliauth_authenticators": len(bundle.CLIAuthAuthenticators),
 				},
 			})
 		}
@@ -562,18 +565,16 @@ var gatewayCLIAuthAuthenticatorsGetCmd = &cobra.Command{
 	},
 }
 
-var gatewayCLIAuthAuthenticatorsEnableCmd = &cobra.Command{
-	Use:   "enable <authenticator-name>",
-	Short: "Enable a CLI auth authenticator",
+var gatewayCLIAuthAuthenticatorsUpdateCmd = &cobra.Command{
+	Use:   "update <authenticator-name>",
+	Short: "Update a CLI auth authenticator config",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := buildGatewayCLIAuthConfig()
+		req, err := buildGatewayCLIAuthAuthenticatorUpdateRequest()
 		if err != nil {
 			return err
 		}
-		resp, err := newGatewayClient().EnableCLIAuthAuthenticator(context.Background(), args[0], adminclient.EnableCLIAuthAuthenticatorRequest{
-			Config: &cfg,
-		})
+		resp, err := newGatewayClient().UpdateCLIAuthAuthenticator(context.Background(), args[0], req)
 		if err != nil {
 			return err
 		}
@@ -581,20 +582,7 @@ var gatewayCLIAuthAuthenticatorsEnableCmd = &cobra.Command{
 	},
 }
 
-var gatewayCLIAuthAuthenticatorsDisableCmd = &cobra.Command{
-	Use:   "disable <authenticator-name>",
-	Short: "Disable a CLI auth authenticator",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		resp, err := newGatewayClient().DisableCLIAuthAuthenticator(context.Background(), args[0])
-		if err != nil {
-			return err
-		}
-		return printJSON(resp)
-	},
-}
-
-var gatewayCLIAuthAuthenticatorsLoginCmd = &cobra.Command{
+var gatewayCLIAuthLoginCmd = &cobra.Command{
 	Use:   "login <authenticator-name>",
 	Short: "Start a gateway-side CLI auth login flow",
 	Args:  cobra.ExactArgs(1),
@@ -730,22 +718,39 @@ func readJSONFile(path string, dest any) error {
 	return nil
 }
 
-func buildGatewayCLIAuthConfig() (cliauth.AuthenticatorConfig, error) {
-	if gatewayCLIAuthEnableConfigFile != "" {
-		var req adminclient.EnableCLIAuthAuthenticatorRequest
-		if err := readJSONFile(gatewayCLIAuthEnableConfigFile, &req); err != nil {
-			return cliauth.AuthenticatorConfig{}, err
+func buildGatewayCLIAuthAuthenticatorUpdateRequest() (adminclient.UpdateCLIAuthAuthenticatorRequest, error) {
+	if gatewayCLIAuthAuthenticatorConfigFile != "" {
+		var req adminclient.UpdateCLIAuthAuthenticatorRequest
+		if err := readJSONFile(gatewayCLIAuthAuthenticatorConfigFile, &req); err != nil {
+			return adminclient.UpdateCLIAuthAuthenticatorRequest{}, err
 		}
-		if req.Config == nil {
-			return cliauth.AuthenticatorConfig{}, fmt.Errorf("config is required in %s", gatewayCLIAuthEnableConfigFile)
+		if req.Enabled == nil && req.Config == nil {
+			return adminclient.UpdateCLIAuthAuthenticatorRequest{}, fmt.Errorf("enabled or config is required in %s", gatewayCLIAuthAuthenticatorConfigFile)
 		}
-		return *req.Config, nil
+		return req, nil
 	}
-	return cliauth.AuthenticatorConfig{
-		CallbackPort: gatewayCLIAuthCallbackPort,
-		NoBrowser:    gatewayCLIAuthNoBrowser,
-		DeviceFlow:   gatewayCLIAuthDeviceFlow,
-	}, nil
+
+	state := gatewayCLIAuthAuthenticatorState
+	switch state {
+	case "", "enabled":
+		enabled := true
+		cfg := cliauth.AuthenticatorConfig{
+			CallbackPort: gatewayCLIAuthCallbackPort,
+			NoBrowser:    gatewayCLIAuthNoBrowser,
+			DeviceFlow:   gatewayCLIAuthDeviceFlow,
+		}
+		return adminclient.UpdateCLIAuthAuthenticatorRequest{
+			Enabled: &enabled,
+			Config:  &cfg,
+		}, nil
+	case "disabled":
+		enabled := false
+		return adminclient.UpdateCLIAuthAuthenticatorRequest{
+			Enabled: &enabled,
+		}, nil
+	default:
+		return adminclient.UpdateCLIAuthAuthenticatorRequest{}, fmt.Errorf("invalid --state %q: want enabled or disabled", state)
+	}
 }
 
 func waitForGatewayCLIAuthLogin(_ string, loginID string) error {
@@ -803,12 +808,13 @@ func init() {
 	gatewayValidateCmd.Flags().StringVarP(&gatewayBundleFile, "file", "f", "", "path to gateway bundle YAML file")
 	gatewayApplyCmd.Flags().StringVarP(&gatewayBundleFile, "file", "f", "", "path to gateway bundle YAML file")
 	gatewayExportCmd.Flags().StringVarP(&gatewayExportFile, "file", "f", "", "write bundle YAML to this file instead of stdout")
-	gatewayCLIAuthAuthenticatorsEnableCmd.Flags().StringVarP(&gatewayCLIAuthEnableConfigFile, "file", "f", "", "path to CLI auth enable JSON file containing {\"config\":...}")
-	gatewayCLIAuthAuthenticatorsEnableCmd.Flags().IntVar(&gatewayCLIAuthCallbackPort, "callback-port", 0, "callback port override")
-	gatewayCLIAuthAuthenticatorsEnableCmd.Flags().BoolVar(&gatewayCLIAuthNoBrowser, "no-browser", false, "print the login URL instead of opening a browser")
-	gatewayCLIAuthAuthenticatorsEnableCmd.Flags().BoolVar(&gatewayCLIAuthDeviceFlow, "device-flow", false, "use device flow when supported")
-	gatewayCLIAuthAuthenticatorsLoginCmd.Flags().BoolVar(&gatewayCLIAuthLoginWait, "wait", false, "poll login status until the flow succeeds or fails")
-	gatewayCLIAuthAuthenticatorsLoginCmd.Flags().DurationVar(&gatewayCLIAuthPollInterval, "poll-interval", 2*time.Second, "poll interval used with --wait")
+	gatewayCLIAuthAuthenticatorsUpdateCmd.Flags().StringVarP(&gatewayCLIAuthAuthenticatorConfigFile, "file", "f", "", "path to CLI auth authenticator JSON file containing {\"config\":...}")
+	gatewayCLIAuthAuthenticatorsUpdateCmd.Flags().StringVar(&gatewayCLIAuthAuthenticatorState, "state", "enabled", "desired authenticator state: enabled or disabled")
+	gatewayCLIAuthAuthenticatorsUpdateCmd.Flags().IntVar(&gatewayCLIAuthCallbackPort, "callback-port", 0, "callback port override")
+	gatewayCLIAuthAuthenticatorsUpdateCmd.Flags().BoolVar(&gatewayCLIAuthNoBrowser, "no-browser", false, "print the login URL instead of opening a browser")
+	gatewayCLIAuthAuthenticatorsUpdateCmd.Flags().BoolVar(&gatewayCLIAuthDeviceFlow, "device-flow", false, "use device flow when supported")
+	gatewayCLIAuthLoginCmd.Flags().BoolVar(&gatewayCLIAuthLoginWait, "wait", false, "poll login status until the flow succeeds or fails")
+	gatewayCLIAuthLoginCmd.Flags().DurationVar(&gatewayCLIAuthPollInterval, "poll-interval", 2*time.Second, "poll interval used with --wait")
 
 	gatewayProviderCmd.AddCommand(
 		gatewayProviderListCmd,
@@ -859,9 +865,7 @@ func init() {
 	gatewayCLIAuthAuthenticatorsCmd.AddCommand(
 		gatewayCLIAuthAuthenticatorsListCmd,
 		gatewayCLIAuthAuthenticatorsGetCmd,
-		gatewayCLIAuthAuthenticatorsEnableCmd,
-		gatewayCLIAuthAuthenticatorsDisableCmd,
-		gatewayCLIAuthAuthenticatorsLoginCmd,
+		gatewayCLIAuthAuthenticatorsUpdateCmd,
 	)
 	gatewayCLIAuthLoginsCmd.AddCommand(gatewayCLIAuthLoginsGetCmd)
 	gatewayCLIAuthRefresherCmd.AddCommand(
@@ -869,7 +873,7 @@ func init() {
 		gatewayCLIAuthRefresherEnableCmd,
 		gatewayCLIAuthRefresherDisableCmd,
 	)
-	gatewayCLIAuthCmd.AddCommand(gatewayCLIAuthAuthenticatorsCmd, gatewayCLIAuthLoginsCmd, gatewayCLIAuthRefresherCmd)
+	gatewayCLIAuthCmd.AddCommand(gatewayCLIAuthAuthenticatorsCmd, gatewayCLIAuthLoginCmd, gatewayCLIAuthLoginsCmd, gatewayCLIAuthRefresherCmd)
 
 	gatewayCmd.AddCommand(
 		gatewayValidateCmd,

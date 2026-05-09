@@ -62,11 +62,12 @@ type CLIAuthAuthenticator struct {
 	Config       cliauth.AuthenticatorConfig `json:"config"`
 }
 
-type EnableCLIAuthAuthenticatorRequest struct {
-	Config *cliauth.AuthenticatorConfig `json:"config"`
+type UpdateCLIAuthAuthenticatorRequest struct {
+	Enabled *bool                        `json:"enabled,omitempty"`
+	Config  *cliauth.AuthenticatorConfig `json:"config,omitempty"`
 }
 
-type CLIAuthEnableAuthenticatorResponse struct {
+type CLIAuthUpdateAuthenticatorResponse struct {
 	Status        string               `json:"status"`
 	Authenticator CLIAuthAuthenticator `json:"authenticator"`
 }

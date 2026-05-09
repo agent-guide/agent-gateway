@@ -22,17 +22,9 @@ func (c *Client) GetCLIAuthAuthenticator(ctx context.Context, name string) (*CLI
 	return &resp, nil
 }
 
-func (c *Client) EnableCLIAuthAuthenticator(ctx context.Context, name string, cfg EnableCLIAuthAuthenticatorRequest) (*CLIAuthEnableAuthenticatorResponse, error) {
-	var resp CLIAuthEnableAuthenticatorResponse
-	if err := c.do(ctx, http.MethodPost, "/admin/cliauth/authenticators/"+url.PathEscape(name)+"/enable", cfg, &resp, true, http.StatusOK, http.StatusCreated); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-func (c *Client) DisableCLIAuthAuthenticator(ctx context.Context, name string) (*boolStatusResponse, error) {
-	var resp boolStatusResponse
-	if err := c.do(ctx, http.MethodPost, "/admin/cliauth/authenticators/"+url.PathEscape(name)+"/disable", nil, &resp, true, http.StatusOK); err != nil {
+func (c *Client) UpdateCLIAuthAuthenticator(ctx context.Context, name string, req UpdateCLIAuthAuthenticatorRequest) (*CLIAuthUpdateAuthenticatorResponse, error) {
+	var resp CLIAuthUpdateAuthenticatorResponse
+	if err := c.do(ctx, http.MethodPut, "/admin/cliauth/authenticators/"+url.PathEscape(name), req, &resp, true, http.StatusOK, http.StatusCreated); err != nil {
 		return nil, err
 	}
 	return &resp, nil

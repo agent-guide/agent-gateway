@@ -181,15 +181,18 @@ func TestRefreshProviderModels(t *testing.T) {
 	}
 }
 
-func TestEnableCLIAuthAuthenticatorAllowsCreated(t *testing.T) {
+func TestUpdateCLIAuthAuthenticatorAllowsCreated(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/admin/cliauth/authenticators/codex/enable" {
+		if r.Method != http.MethodPut {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if r.URL.Path != "/admin/cliauth/authenticators/codex" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(CLIAuthEnableAuthenticatorResponse{
+		_ = json.NewEncoder(w).Encode(CLIAuthUpdateAuthenticatorResponse{
 			Status: "enabled",
 			Authenticator: CLIAuthAuthenticator{
 				Name:         "codex",
@@ -204,11 +207,13 @@ func TestEnableCLIAuthAuthenticatorAllowsCreated(t *testing.T) {
 	defer srv.Close()
 
 	client := New(Config{BaseURL: srv.URL, Token: "preset-token"})
-	resp, err := client.EnableCLIAuthAuthenticator(context.Background(), "codex", EnableCLIAuthAuthenticatorRequest{
-		Config: &cliauth.AuthenticatorConfig{NoBrowser: true},
+	enabled := true
+	resp, err := client.UpdateCLIAuthAuthenticator(context.Background(), "codex", UpdateCLIAuthAuthenticatorRequest{
+		Enabled: &enabled,
+		Config:  &cliauth.AuthenticatorConfig{NoBrowser: true},
 	})
 	if err != nil {
-		t.Fatalf("EnableCLIAuthAuthenticator error: %v", err)
+		t.Fatalf("UpdateCLIAuthAuthenticator error: %v", err)
 	}
 	if resp.Authenticator.Name != "codex" || !resp.Authenticator.Enabled {
 		t.Fatalf("unexpected response: %+v", resp)

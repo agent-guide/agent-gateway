@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/agent-guide/caddy-agent-gateway/pkg/cliauth"
 	dispatcherpkg "github.com/agent-guide/caddy-agent-gateway/pkg/dispatcher"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/route"
@@ -24,14 +25,15 @@ const (
 var envVarPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 type GatewayBundle struct {
-	APIVersion         string                      `json:"apiVersion"`
-	Kind               string                      `json:"kind"`
-	ProviderTypes      []ProviderTypeSetting       `json:"providerTypes,omitempty"`
-	LLMAPIHandlerTypes []LLMAPIHandlerSetting      `json:"llmApiHandlerTypes,omitempty"`
-	Providers          []provider.ProviderConfig   `json:"providers,omitempty"`
-	ManagedModels      []modelcatalog.ManagedModel `json:"managedModels,omitempty"`
-	Routes             []routepkg.AgentRoute       `json:"routes,omitempty"`
-	VirtualKeys        []virtualkeypkg.VirtualKey  `json:"virtualKeys,omitempty"`
+	APIVersion            string                      `json:"apiVersion"`
+	Kind                  string                      `json:"kind"`
+	ProviderTypes         []ProviderTypeSetting       `json:"providerTypes,omitempty"`
+	LLMAPIHandlerTypes    []LLMAPIHandlerSetting      `json:"llmApiHandlerTypes,omitempty"`
+	Providers             []provider.ProviderConfig   `json:"providers,omitempty"`
+	ManagedModels         []modelcatalog.ManagedModel `json:"managedModels,omitempty"`
+	Routes                []routepkg.AgentRoute       `json:"routes,omitempty"`
+	VirtualKeys           []virtualkeypkg.VirtualKey  `json:"virtualKeys,omitempty"`
+	CLIAuthAuthenticators []CLIAuthAuthenticator      `json:"cliAuthAuthenticators,omitempty"`
 }
 
 type ProviderTypeSetting struct {
@@ -42,6 +44,12 @@ type ProviderTypeSetting struct {
 type LLMAPIHandlerSetting struct {
 	LLMAPIHandlerType string `json:"llm_api_handler_type"`
 	Enabled           bool   `json:"enabled"`
+}
+
+type CLIAuthAuthenticator struct {
+	Name    string                      `json:"name"`
+	Enabled bool                        `json:"enabled"`
+	Config  cliauth.AuthenticatorConfig `json:"config,omitempty"`
 }
 
 type ValidationErrors struct {
@@ -212,6 +220,23 @@ func (b *GatewayBundle) Validate() error {
 					errs.Append(fmt.Errorf("virtualKeys[%q]: allowed_route_id %q does not exist in bundle routes", key, trimmedRouteID))
 				}
 			}
+		}
+	}
+	authenticators := map[string]struct{}{}
+	for i := range b.CLIAuthAuthenticators {
+		name := strings.ToLower(strings.TrimSpace(b.CLIAuthAuthenticators[i].Name))
+		b.CLIAuthAuthenticators[i].Name = name
+		if name == "" {
+			errs.Append(fmt.Errorf("cliAuthAuthenticators[%d].name is required", i))
+			continue
+		}
+		if _, exists := authenticators[name]; exists {
+			errs.Append(fmt.Errorf("cliAuthAuthenticators[%q]: duplicate name", name))
+		} else {
+			authenticators[name] = struct{}{}
+		}
+		if _, err := cliauth.NewAuthenticator(name); err != nil {
+			errs.Append(fmt.Errorf("cliAuthAuthenticators[%q]: unknown authenticator", name))
 		}
 	}
 

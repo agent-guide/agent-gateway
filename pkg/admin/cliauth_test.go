@@ -469,7 +469,7 @@ func TestCLIAuthEnableAndListAuthenticators(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	enableReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/"+authName+"/enable", strings.NewReader(`{"config":{}}`))
+	enableReq := httptest.NewRequest(http.MethodPut, "/admin/cliauth/authenticators/"+authName, strings.NewReader(`{"enabled":true,"config":{}}`))
 	enableReq.Header.Set("Authorization", "Bearer "+token)
 	enableReq.Header.Set("Content-Type", "application/json")
 	enableRec := httptest.NewRecorder()
@@ -508,7 +508,7 @@ func TestCLIAuthEnableAndListAuthenticators(t *testing.T) {
 	t.Fatalf("authenticator %q not found in list: %#v", authName, body.Items)
 }
 
-func TestCLIAuthEnableAuthenticatorRequiresConfigBody(t *testing.T) {
+func TestCLIAuthUpdateAuthenticatorRequiresRequestBody(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
@@ -523,17 +523,17 @@ func TestCLIAuthEnableAuthenticatorRequiresConfigBody(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	enableReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/"+authName+"/enable", nil)
+	enableReq := httptest.NewRequest(http.MethodPut, "/admin/cliauth/authenticators/"+authName, nil)
 	enableReq.Header.Set("Authorization", "Bearer "+token)
 	enableRec := httptest.NewRecorder()
 	handler.ServeHTTP(enableRec, enableReq)
 
 	if enableRec.Code != http.StatusBadRequest {
-		t.Fatalf("unexpected enable status: got %d want %d body=%s", enableRec.Code, http.StatusBadRequest, enableRec.Body.String())
+		t.Fatalf("unexpected update status: got %d want %d body=%s", enableRec.Code, http.StatusBadRequest, enableRec.Body.String())
 	}
 }
 
-func TestCLIAuthEnableAuthenticatorRequiresConfigField(t *testing.T) {
+func TestCLIAuthUpdateAuthenticatorRequiresConfigWhenEnabling(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
@@ -548,14 +548,14 @@ func TestCLIAuthEnableAuthenticatorRequiresConfigField(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	enableReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/"+authName+"/enable", strings.NewReader(`{}`))
+	enableReq := httptest.NewRequest(http.MethodPut, "/admin/cliauth/authenticators/"+authName, strings.NewReader(`{"enabled":true}`))
 	enableReq.Header.Set("Authorization", "Bearer "+token)
 	enableReq.Header.Set("Content-Type", "application/json")
 	enableRec := httptest.NewRecorder()
 	handler.ServeHTTP(enableRec, enableReq)
 
 	if enableRec.Code != http.StatusBadRequest {
-		t.Fatalf("unexpected enable status: got %d want %d body=%s", enableRec.Code, http.StatusBadRequest, enableRec.Body.String())
+		t.Fatalf("unexpected update status: got %d want %d body=%s", enableRec.Code, http.StatusBadRequest, enableRec.Body.String())
 	}
 }
 
@@ -592,7 +592,7 @@ func TestCLIAuthListAuthenticatorsReturnsDefaultConfigForDisabledItems(t *testin
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	enableBody := strings.NewReader(`{"config":{"callback_port":9002,"no_browser":true}}`)
-	enableReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/"+enabledAuthName+"/enable", enableBody)
+	enableReq := httptest.NewRequest(http.MethodPut, "/admin/cliauth/authenticators/"+enabledAuthName, enableBody)
 	enableReq.Header.Set("Authorization", "Bearer "+token)
 	enableReq.Header.Set("Content-Type", "application/json")
 	enableRec := httptest.NewRecorder()
@@ -659,8 +659,8 @@ func TestCLIAuthEnableAuthenticatorAcceptsConfig(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	body := strings.NewReader(`{"config":{"callback_port":9002,"no_browser":true,"device_flow":true}}`)
-	enableReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/"+authName+"/enable", body)
+	body := strings.NewReader(`{"enabled":true,"config":{"callback_port":9002,"no_browser":true,"device_flow":true}}`)
+	enableReq := httptest.NewRequest(http.MethodPut, "/admin/cliauth/authenticators/"+authName, body)
 	enableReq.Header.Set("Authorization", "Bearer "+token)
 	enableReq.Header.Set("Content-Type", "application/json")
 	enableRec := httptest.NewRecorder()
@@ -680,7 +680,48 @@ func TestCLIAuthEnableAuthenticatorAcceptsConfig(t *testing.T) {
 	}
 }
 
-func TestCLIAuthEnableAuthenticatorReplacesExistingConfig(t *testing.T) {
+func TestCLIAuthUpdateAuthenticatorUsesUpdateSemantics(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	const authName = "test-admin-update-authenticator"
+	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
+		return &testAuthenticator{providerType: "openai"}, nil
+	})
+
+	cliauthMgr := cliauth.NewManager()
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	body := strings.NewReader(`{"enabled":true,"config":{"callback_port":9002,"no_browser":true,"device_flow":true}}`)
+	req := httptest.NewRequest(http.MethodPut, "/admin/cliauth/authenticators/"+authName, body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("unexpected update status: got %d want %d body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+
+	var resp struct {
+		Status        string                       `json:"status"`
+		Authenticator cliAuthAuthenticatorResponse `json:"authenticator"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Status != "enabled" {
+		t.Fatalf("unexpected status: %q", resp.Status)
+	}
+	if !resp.Authenticator.Enabled || resp.Authenticator.Config.CallbackPort != 9002 || !resp.Authenticator.Config.NoBrowser || !resp.Authenticator.Config.DeviceFlow {
+		t.Fatalf("unexpected authenticator response: %+v", resp.Authenticator)
+	}
+}
+
+func TestCLIAuthUpdateAuthenticatorReplacesExistingConfig(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
@@ -707,8 +748,8 @@ func TestCLIAuthEnableAuthenticatorReplacesExistingConfig(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	body := strings.NewReader(`{"config":{"callback_port":9002,"no_browser":false}}`)
-	enableReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/"+authName+"/enable", body)
+	body := strings.NewReader(`{"enabled":true,"config":{"callback_port":9002,"no_browser":false}}`)
+	enableReq := httptest.NewRequest(http.MethodPut, "/admin/cliauth/authenticators/"+authName, body)
 	enableReq.Header.Set("Authorization", "Bearer "+token)
 	enableReq.Header.Set("Content-Type", "application/json")
 	enableRec := httptest.NewRecorder()
@@ -734,25 +775,31 @@ func TestCLIAuthEnableAuthenticatorReplacesExistingConfig(t *testing.T) {
 	}
 }
 
-func TestCLIAuthDisableRuntimeAuthenticator(t *testing.T) {
+func TestCLIAuthUpdateAuthenticatorCanDisable(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
 	cliauthMgr := cliauth.NewManager()
-	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{providerType: "openai"})
+	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
+		providerType: "openai",
+		config: cliauth.AuthenticatorConfig{
+			CallbackPort: 1455,
+		},
+	})
 
 	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	req := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/disable", nil)
+	req := httptest.NewRequest(http.MethodPut, "/admin/cliauth/authenticators/codex", strings.NewReader(`{"enabled":false}`))
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusOK)
+		t.Fatalf("unexpected update status: got %d want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	if _, ok := cliauthMgr.GetAuthenticator("codex"); ok {
 		t.Fatal("authenticator was not disabled")

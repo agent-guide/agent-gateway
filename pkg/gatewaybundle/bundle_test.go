@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	_ "github.com/agent-guide/caddy-agent-gateway/pkg/cliauth/authenticator"
 	_ "github.com/agent-guide/caddy-agent-gateway/pkg/dispatcher/llmapi/openai"
 	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/openai"
 )
@@ -48,6 +49,12 @@ virtualKeys:
     tag: local-test
     allowed_route_ids:
       - chat-prod
+cliAuthAuthenticators:
+  - name: codex
+    enabled: true
+    config:
+      callback_port: 9002
+      no_browser: true
 `))
 	if err != nil {
 		t.Fatalf("DecodeYAML() error = %v", err)
@@ -82,6 +89,9 @@ virtualKeys:
 	}
 	if len(bundle.VirtualKeys) != 1 || len(bundle.VirtualKeys[0].AllowedRouteIDs) != 1 || bundle.VirtualKeys[0].AllowedRouteIDs[0] != "chat-prod" {
 		t.Fatalf("VirtualKeys = %#v", bundle.VirtualKeys)
+	}
+	if len(bundle.CLIAuthAuthenticators) != 1 || bundle.CLIAuthAuthenticators[0].Name != "codex" || !bundle.CLIAuthAuthenticators[0].Enabled || bundle.CLIAuthAuthenticators[0].Config.CallbackPort != 9002 {
+		t.Fatalf("CLIAuthAuthenticators = %#v", bundle.CLIAuthAuthenticators)
 	}
 }
 
@@ -175,6 +185,9 @@ virtualKeys:
   - key: vk-local-test
     allowed_route_ids:
       - chat-prod
+cliAuthAuthenticators:
+  - name: codex
+    enabled: true
 `))
 	if err != nil {
 		t.Fatalf("DecodeYAML() error = %v", err)
@@ -227,6 +240,10 @@ virtualKeys:
     allowed_route_ids:
       - missing-route
   - key: vk-a
+cliAuthAuthenticators:
+  - name: codex
+  - name: codex
+  - name: missing-authenticator
 `))
 	if err != nil {
 		t.Fatalf("DecodeYAML() error = %v", err)
@@ -253,6 +270,8 @@ virtualKeys:
 		`routes["route-a"]: duplicate id`,
 		`virtualKeys["vk-a"]: allowed_route_id "missing-route" does not exist in bundle routes`,
 		`virtualKeys["vk-a"]: duplicate key`,
+		`cliAuthAuthenticators["codex"]: duplicate name`,
+		`cliAuthAuthenticators["missing-authenticator"]: unknown authenticator`,
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("Validate() error = %v, want substring %q", err, want)

@@ -117,6 +117,113 @@ func TestGatewayCLIAuthAuthenticatorsListCommand(t *testing.T) {
 	}
 }
 
+func TestGatewayCLIAuthAuthenticatorsUpdateCommand(t *testing.T) {
+	var gotMethod string
+	var gotPath string
+	var gotBody []byte
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"token":    "test-token",
+				"username": "admin",
+			})
+		case "/admin/cliauth/authenticators/codex":
+			gotMethod = r.Method
+			gotPath = r.URL.Path
+			gotBody, _ = io.ReadAll(r.Body)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "enabled",
+				"authenticator": map[string]any{
+					"name":          "codex",
+					"provider_type": "openai",
+					"enabled":       true,
+					"config": map[string]any{
+						"callback_port": 9002,
+						"no_browser":    true,
+						"device_flow":   true,
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := executeAGWCTL(
+		t,
+		"--output", "json",
+		"gateway",
+		"--addr", srv.URL,
+		"--user", "admin",
+		"--password", "secret",
+		"cliauth", "authenticators", "update", "codex",
+		"--callback-port", "9002",
+		"--no-browser",
+		"--device-flow",
+	)
+	if err != nil {
+		t.Fatalf("gateway cliauth authenticators update: %v\nstderr=%s", err, stderr)
+	}
+	if gotMethod != http.MethodPut || gotPath != "/admin/cliauth/authenticators/codex" {
+		t.Fatalf("unexpected request: %s %s", gotMethod, gotPath)
+	}
+	if !strings.Contains(string(gotBody), `"enabled":true`) || !strings.Contains(string(gotBody), `"callback_port":9002`) {
+		t.Fatalf("unexpected request body: %s", string(gotBody))
+	}
+	if !strings.Contains(stdout, `"name": "codex"`) {
+		t.Fatalf("stdout missing authenticator:\n%s", stdout)
+	}
+}
+
+func TestGatewayCLIAuthLoginCommand(t *testing.T) {
+	var gotMethod string
+	var gotPath string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"token":    "test-token",
+				"username": "admin",
+			})
+		case "/admin/cliauth/authenticators/codex/login":
+			gotMethod = r.Method
+			gotPath = r.URL.Path
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"login_id":           "login-123",
+				"status":             "running",
+				"authenticator_name": "codex",
+			})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := executeAGWCTL(
+		t,
+		"--output", "json",
+		"gateway",
+		"--addr", srv.URL,
+		"--user", "admin",
+		"--password", "secret",
+		"cliauth", "login", "codex",
+	)
+	if err != nil {
+		t.Fatalf("gateway cliauth login: %v\nstderr=%s", err, stderr)
+	}
+	if gotMethod != http.MethodPost || gotPath != "/admin/cliauth/authenticators/codex/login" {
+		t.Fatalf("unexpected request: %s %s", gotMethod, gotPath)
+	}
+	if !strings.Contains(stdout, `"login_id": "login-123"`) {
+		t.Fatalf("stdout missing login id:\n%s", stdout)
+	}
+}
+
 func TestGatewayValidateCommand(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "gateway.yaml")
@@ -198,12 +305,18 @@ providers:
 virtualKeys:
   - key: vk-local-test
     allowed_route_ids: []
+cliAuthAuthenticators:
+  - name: codex
+    enabled: true
+    config:
+      no_browser: true
 `), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
 	var providerUpdated atomic.Bool
 	var virtualKeyCreated atomic.Bool
+	var authenticatorUpdated atomic.Bool
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -248,6 +361,22 @@ virtualKeys:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"key": "vk-local-test",
 			})
+		case r.URL.Path == "/admin/cliauth/authenticators" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/cliauth/authenticators/codex" && r.Method == http.MethodPut:
+			authenticatorUpdated.Store(true)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "enabled",
+				"authenticator": map[string]any{
+					"name":          "codex",
+					"provider_type": "openai",
+					"enabled":       true,
+					"config": map[string]any{
+						"no_browser": true,
+					},
+				},
+			})
 		default:
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 		}
@@ -273,6 +402,9 @@ virtualKeys:
 	if !virtualKeyCreated.Load() {
 		t.Fatal("expected virtual key create request")
 	}
+	if !authenticatorUpdated.Load() {
+		t.Fatal("expected cliauth authenticator update request")
+	}
 	if !strings.Contains(stdout, `"status": "ok"`) {
 		t.Fatalf("stdout missing ok status:\n%s", stdout)
 	}
@@ -297,12 +429,16 @@ providers:
 virtualKeys:
   - key: vk-local-test
     allowed_route_ids: []
+cliAuthAuthenticators:
+  - name: codex
+    enabled: false
 `), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
 	var providerWriteCount atomic.Int32
 	var virtualKeyWriteCount atomic.Int32
+	var authenticatorWriteCount atomic.Int32
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -351,6 +487,20 @@ virtualKeys:
 		case r.URL.Path == "/admin/virtual_keys/vk-local-test" && r.Method == http.MethodPut:
 			virtualKeyWriteCount.Add(1)
 			t.Fatalf("unexpected virtual key update request for unchanged object")
+		case r.URL.Path == "/admin/cliauth/authenticators" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"name":          "codex",
+						"provider_type": "openai",
+						"enabled":       false,
+						"config":        map[string]any{},
+					},
+				},
+			})
+		case r.URL.Path == "/admin/cliauth/authenticators/codex" && r.Method == http.MethodPut:
+			authenticatorWriteCount.Add(1)
+			t.Fatalf("unexpected cliauth authenticator update request for unchanged object")
 		default:
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 		}
@@ -370,8 +520,8 @@ virtualKeys:
 	if err != nil {
 		t.Fatalf("gateway apply unchanged: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
 	}
-	if providerWriteCount.Load() != 0 || virtualKeyWriteCount.Load() != 0 {
-		t.Fatalf("unexpected writes: provider=%d virtualKey=%d", providerWriteCount.Load(), virtualKeyWriteCount.Load())
+	if providerWriteCount.Load() != 0 || virtualKeyWriteCount.Load() != 0 || authenticatorWriteCount.Load() != 0 {
+		t.Fatalf("unexpected writes: provider=%d virtualKey=%d authenticator=%d", providerWriteCount.Load(), virtualKeyWriteCount.Load(), authenticatorWriteCount.Load())
 	}
 	if !strings.Contains(stdout, `"action": "skip"`) {
 		t.Fatalf("stdout missing skip action:\n%s", stdout)
@@ -420,6 +570,8 @@ providers:
 		case r.URL.Path == "/admin/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/virtual_keys" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/cliauth/authenticators" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		default:
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
@@ -527,6 +679,19 @@ func TestGatewayExportCommand(t *testing.T) {
 					},
 				},
 			})
+		case "/admin/cliauth/authenticators":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"name":          "codex",
+						"provider_type": "openai",
+						"enabled":       true,
+						"config": map[string]any{
+							"no_browser": true,
+						},
+					},
+				},
+			})
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -552,8 +717,10 @@ func TestGatewayExportCommand(t *testing.T) {
 		"providers:",
 		"routes:",
 		"virtualKeys:",
+		"cliAuthAuthenticators:",
 		"id: openai-main",
 		"key: vk-local-test",
+		"name: codex",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout)
@@ -629,6 +796,19 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 						"allowed_route_ids": []string{"chat-prod"},
 						"source":            "dynamic",
 						"read_only":         false,
+					},
+				},
+			})
+		case "/admin/cliauth/authenticators":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"name":          "codex",
+						"provider_type": "openai",
+						"enabled":       true,
+						"config": map[string]any{
+							"device_flow": true,
+						},
 					},
 				},
 			})
