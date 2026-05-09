@@ -7,7 +7,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/agwctl/model"
+	"github.com/agent-guide/caddy-agent-gateway/internal/agwctl/caddyadminclient"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/adminclient"
 )
 
 var outputFormat string
@@ -67,7 +68,7 @@ func joinOrDash(parts []string, sep string) string {
 
 // ── Caddy table formatters ────────────────────────────────────────────────────
 
-func printCaddyServersTable(servers []*model.ServerResponse) {
+func printCaddyServersTable(servers []*caddyadminclient.ServerResponse) {
 	headers := []string{"ID", "LISTEN", "READ-ONLY", "SOURCE", "PUBLIC-URL"}
 	rows := make([][]string, 0, len(servers))
 	for _, s := range servers {
@@ -82,7 +83,7 @@ func printCaddyServersTable(servers []*model.ServerResponse) {
 	printTable(headers, rows)
 }
 
-func printCaddyRoutesTable(routes []*model.RouteResponse) {
+func printCaddyRoutesTable(routes []*caddyadminclient.RouteResponse) {
 	headers := []string{"ID", "ORDER", "PATHS", "HOSTS", "HANDLERS"}
 	rows := make([][]string, 0, len(routes))
 	for _, r := range routes {
@@ -101,7 +102,7 @@ func printCaddyRoutesTable(routes []*model.RouteResponse) {
 	printTable(headers, rows)
 }
 
-func describeHandler(h model.HandlerConf) string {
+func describeHandler(h caddyadminclient.HandlerConf) string {
 	switch h.Type {
 	case "agent_route_dispatcher":
 		if len(h.APIs) > 0 {
@@ -127,16 +128,16 @@ func describeHandler(h model.HandlerConf) string {
 
 // printGatewayProvidersTable renders a list of ProviderView items.
 // Fields: id, provider_type, default_model, disabled, source.
-func printGatewayProvidersTable(items []map[string]any) {
+func printGatewayProvidersTable(items []adminclient.Provider) {
 	headers := []string{"ID", "TYPE", "DEFAULT-MODEL", "DISABLED", "SOURCE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
 		rows = append(rows, []string{
-			dash(strField(item, "id")),
-			dash(strField(item, "provider_type")),
-			dash(strField(item, "default_model")),
-			boolStr(boolField(item, "disabled")),
-			dash(strField(item, "source")),
+			dash(item.Id),
+			dash(item.ProviderType),
+			dash(item.DefaultModel),
+			boolStr(item.Disabled),
+			dash(item.Source),
 		})
 	}
 	printTable(headers, rows)
@@ -144,22 +145,17 @@ func printGatewayProvidersTable(items []map[string]any) {
 
 // printGatewayRoutesTable renders a list of RouteView items.
 // Fields: id, llm_api, path_prefix (from match), disabled, target, source.
-func printGatewayRoutesTable(items []map[string]any) {
+func printGatewayRoutesTable(items []adminclient.Route) {
 	headers := []string{"ID", "LLM-API", "PATH-PREFIX", "DISABLED", "TARGET", "SOURCE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
-		pathPrefix := "-"
-		if match, ok := item["match"].(map[string]any); ok {
-			pathPrefix = dash(strField(match, "path_prefix"))
-		}
-		target := extractTargetID(item)
 		rows = append(rows, []string{
-			dash(strField(item, "id")),
-			dash(strField(item, "llm_api")),
-			pathPrefix,
-			boolStr(boolField(item, "disabled")),
-			dash(target),
-			dash(strField(item, "source")),
+			dash(item.ID),
+			dash(item.LLMAPI),
+			dash(item.Match.PathPrefix),
+			boolStr(item.Disabled),
+			dash(extractRouteTargetID(item)),
+			dash(item.Source),
 		})
 	}
 	printTable(headers, rows)
@@ -167,21 +163,20 @@ func printGatewayRoutesTable(items []map[string]any) {
 
 // printGatewayVirtualKeysTable renders a list of VirtualKeyView items.
 // Fields: key (truncated), tag, disabled, allowed_route_ids, source.
-func printGatewayVirtualKeysTable(items []map[string]any) {
+func printGatewayVirtualKeysTable(items []adminclient.VirtualKey) {
 	headers := []string{"KEY", "TAG", "DISABLED", "ALLOWED-ROUTES", "SOURCE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
-		key := strField(item, "key")
+		key := item.Key
 		if len(key) > 16 {
 			key = key[:16] + "..."
 		}
-		routes := strSliceField(item, "allowed_route_ids")
 		rows = append(rows, []string{
 			dash(key),
-			dash(strField(item, "tag")),
-			boolStr(boolField(item, "disabled")),
-			joinOrDash(routes, ","),
-			dash(strField(item, "source")),
+			dash(item.Tag),
+			boolStr(item.Disabled),
+			joinOrDash(item.AllowedRouteIDs, ","),
+			dash(item.Source),
 		})
 	}
 	printTable(headers, rows)
@@ -189,59 +184,96 @@ func printGatewayVirtualKeysTable(items []map[string]any) {
 
 // printGatewayCredentialsTable renders a list of CredentialView items.
 // Fields: id, provider_id, provider_type, label, disabled, unavailable.
-func printGatewayCredentialsTable(items []map[string]any) {
+func printGatewayCredentialsTable(items []adminclient.Credential) {
 	headers := []string{"ID", "PROVIDER-ID", "TYPE", "LABEL", "DISABLED", "UNAVAILABLE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
 		rows = append(rows, []string{
-			dash(strField(item, "id")),
-			dash(strField(item, "provider_id")),
-			dash(strField(item, "provider_type")),
-			dash(strField(item, "label")),
-			boolStr(boolField(item, "disabled")),
-			boolStr(boolField(item, "unavailable")),
+			dash(item.ID),
+			dash(item.ProviderID),
+			dash(item.ProviderType),
+			dash(item.Label),
+			boolStr(item.Disabled),
+			boolStr(item.Unavailable),
 		})
 	}
 	printTable(headers, rows)
 }
 
-// ── map[string]any helpers ────────────────────────────────────────────────────
-
-func strField(m map[string]any, key string) string {
-	v, _ := m[key].(string)
-	return v
+func printGatewayDiscoveredModelsTable(items []adminclient.DiscoveredModel) {
+	headers := []string{"PROVIDER-ID", "UPSTREAM-MODEL", "TYPE", "STATUS", "DISPLAY-NAME"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			dash(item.ProviderID),
+			dash(item.UpstreamModel),
+			dash(item.ProviderType),
+			dash(string(item.Status)),
+			dash(item.DisplayName),
+		})
+	}
+	printTable(headers, rows)
 }
 
-func boolField(m map[string]any, key string) bool {
-	v, _ := m[key].(bool)
-	return v
+func printGatewayManagedModelsTable(items []adminclient.ManagedModel) {
+	headers := []string{"PROVIDER-ID", "UPSTREAM-MODEL", "ENABLED", "SCOPE", "TYPE", "SNAPSHOT"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			dash(item.ProviderID),
+			dash(item.UpstreamModel),
+			boolStr(item.Enabled),
+			dash(item.CredentialScope),
+			dash(item.ProviderType),
+			dash(string(item.SnapshotState)),
+		})
+	}
+	printTable(headers, rows)
 }
 
-func strSliceField(m map[string]any, key string) []string {
-	raw, ok := m[key].([]any)
-	if !ok {
-		return nil
+func printGatewayCLIAuthAuthenticatorsTable(items []adminclient.CLIAuthAuthenticator) {
+	headers := []string{"NAME", "PROVIDER-TYPE", "ENABLED", "CALLBACK-PORT", "NO-BROWSER", "DEVICE-FLOW"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			dash(item.Name),
+			dash(item.ProviderType),
+			boolStr(item.Enabled),
+			fmt.Sprintf("%d", item.Config.CallbackPort),
+			boolStr(item.Config.NoBrowser),
+			boolStr(item.Config.DeviceFlow),
+		})
 	}
-	out := make([]string, 0, len(raw))
-	for _, v := range raw {
-		if s, ok := v.(string); ok {
-			out = append(out, s)
-		}
-	}
-	return out
+	printTable(headers, rows)
 }
 
-func extractTargetID(item map[string]any) string {
-	targetPolicy, ok := item["target_policy"].(map[string]any)
-	if !ok {
-		return ""
+func printGatewayProviderTypesTable(items []adminclient.ProviderType) {
+	headers := []string{"PROVIDER-TYPE", "ENABLED"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			dash(item.ProviderType),
+			boolStr(item.Enabled),
+		})
 	}
-	if providerID := strField(targetPolicy, "provider_id"); providerID != "" {
-		return providerID
+	printTable(headers, rows)
+}
+
+func printGatewayLLMAPIHandlerTypesTable(items []adminclient.LLMAPIHandlerType) {
+	headers := []string{"HANDLER-TYPE", "ENABLED"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			dash(item.LLMApiHandlerType),
+			boolStr(item.Enabled),
+		})
 	}
-	raw, ok := targetPolicy["provider_target"].(map[string]any)
-	if !ok {
-		return ""
+	printTable(headers, rows)
+}
+
+func extractRouteTargetID(item adminclient.Route) string {
+	if item.TargetPolicy.ProviderID != "" {
+		return item.TargetPolicy.ProviderID
 	}
-	return strField(raw, "provider_id")
+	return item.TargetPolicy.ProviderTarget.ProviderID
 }

@@ -1,4 +1,4 @@
-package model
+package caddyadminclient
 
 import "errors"
 

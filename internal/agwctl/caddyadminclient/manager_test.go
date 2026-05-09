@@ -1,4 +1,4 @@
-package caddyadmin
+package caddyadminclient
 
 import (
 	"context"
@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/agent-guide/caddy-agent-gateway/internal/agwctl/model"
 )
 
 func TestCreateServerRejectsExistingServer(t *testing.T) {
@@ -30,11 +28,11 @@ func TestCreateServerRejectsExistingServer(t *testing.T) {
 	defer srv.Close()
 
 	mgr := NewManager(srv.URL + "/")
-	err := mgr.CreateServer(context.Background(), &model.ServerRequest{
+	err := mgr.CreateServer(context.Background(), &ServerRequest{
 		ID:     "srv1",
 		Listen: []string{"127.0.0.1:8081"},
 	})
-	if !errors.Is(err, model.ErrConflict) {
+	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("CreateServer error = %v, want ErrConflict", err)
 	}
 	if writeCalls != 0 {
@@ -65,7 +63,7 @@ func TestCreateServerPostsFullConfigForNewServer(t *testing.T) {
 	defer srv.Close()
 
 	mgr := NewManager(srv.URL)
-	err := mgr.CreateServer(context.Background(), &model.ServerRequest{
+	err := mgr.CreateServer(context.Background(), &ServerRequest{
 		ID:     "srv1",
 		Listen: []string{"127.0.0.1:8081"},
 	})
@@ -106,7 +104,7 @@ func TestCreateServerReclaimsEmptyServerPlaceholder(t *testing.T) {
 	defer srv.Close()
 
 	mgr := NewManager(srv.URL)
-	err := mgr.CreateServer(context.Background(), &model.ServerRequest{
+	err := mgr.CreateServer(context.Background(), &ServerRequest{
 		ID:     "agw5",
 		Listen: []string{"127.0.0.1:8095"},
 	})
@@ -159,7 +157,7 @@ func TestListRoutesDistinguishesEmptyRoutesFromMissingServer(t *testing.T) {
 	}
 
 	_, err = mgr.ListRoutes(context.Background(), "missing")
-	if !errors.Is(err, model.ErrNotFound) {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("ListRoutes(missing) error = %v, want ErrNotFound", err)
 	}
 }

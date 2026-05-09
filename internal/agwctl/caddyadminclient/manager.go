@@ -1,4 +1,4 @@
-package caddyadmin
+package caddyadminclient
 
 import (
 	"bytes"
@@ -12,8 +12,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/agent-guide/caddy-agent-gateway/internal/agwctl/model"
 )
 
 var allowedPrefixes = []string{
@@ -49,7 +47,7 @@ func (m *Manager) SetReadOnlyServerIDs(ids []string) {
 	}
 }
 
-func (m *Manager) ListServers(ctx context.Context) ([]*model.ServerResponse, error) {
+func (m *Manager) ListServers(ctx context.Context) ([]*ServerResponse, error) {
 	raw, err := m.caddyGET(ctx, "/apps/http/servers")
 	if err != nil {
 		return nil, err
@@ -58,7 +56,7 @@ func (m *Manager) ListServers(ctx context.Context) ([]*model.ServerResponse, err
 	if err := json.Unmarshal(raw, &servers); err != nil {
 		return nil, fmt.Errorf("parse caddy servers: %w", err)
 	}
-	result := make([]*model.ServerResponse, 0, len(servers))
+	result := make([]*ServerResponse, 0, len(servers))
 	for id, srv := range servers {
 		s := srv
 		result = append(result, m.fromCaddyServer(id, &s))
@@ -66,7 +64,7 @@ func (m *Manager) ListServers(ctx context.Context) ([]*model.ServerResponse, err
 	return result, nil
 }
 
-func (m *Manager) GetServer(ctx context.Context, id string) (*model.ServerResponse, error) {
+func (m *Manager) GetServer(ctx context.Context, id string) (*ServerResponse, error) {
 	raw, err := m.caddyGET(ctx, "/apps/http/servers/"+id)
 	if err != nil {
 		return nil, err
@@ -78,7 +76,7 @@ func (m *Manager) GetServer(ctx context.Context, id string) (*model.ServerRespon
 	return m.fromCaddyServer(id, &srv), nil
 }
 
-func (m *Manager) CreateServer(ctx context.Context, req *model.ServerRequest) error {
+func (m *Manager) CreateServer(ctx context.Context, req *ServerRequest) error {
 	if req.ID == "" {
 		return fmt.Errorf("server id is required")
 	}
@@ -86,20 +84,20 @@ func (m *Manager) CreateServer(ctx context.Context, req *model.ServerRequest) er
 		return fmt.Errorf("at least one listen address is required")
 	}
 	if m.isReadOnlyServerID(req.ID) {
-		return fmt.Errorf("server %q is managed by Caddyfile config and is read-only: %w", req.ID, model.ErrReadOnly)
+		return fmt.Errorf("server %q is managed by Caddyfile config and is read-only: %w", req.ID, ErrReadOnly)
 	}
 	if existing, err := m.getRawServer(ctx, req.ID); err == nil {
 		if !isEmptyCaddyServer(existing) {
-			return fmt.Errorf("server %q already exists: %w", req.ID, model.ErrConflict)
+			return fmt.Errorf("server %q already exists: %w", req.ID, ErrConflict)
 		}
-	} else if !errors.Is(err, model.ErrNotFound) {
+	} else if !errors.Is(err, ErrNotFound) {
 		return err
 	}
 	srv := m.toCaddyServer(req, nil)
 	return m.caddyPUT(ctx, "/apps/http/servers/"+req.ID, srv)
 }
 
-func (m *Manager) UpdateServer(ctx context.Context, req *model.ServerRequest) error {
+func (m *Manager) UpdateServer(ctx context.Context, req *ServerRequest) error {
 	if req.ID == "" {
 		return fmt.Errorf("server id is required")
 	}
@@ -124,22 +122,22 @@ func (m *Manager) DeleteServer(ctx context.Context, id string) error {
 	return m.caddyDELETE(ctx, "/apps/http/servers/"+id)
 }
 
-func (m *Manager) ListRoutes(ctx context.Context, serverID string) ([]*model.RouteResponse, error) {
+func (m *Manager) ListRoutes(ctx context.Context, serverID string) ([]*RouteResponse, error) {
 	raw, err := m.caddyGET(ctx, "/apps/http/servers/"+serverID+"/routes")
 	if err != nil {
-		if !errors.Is(err, model.ErrNotFound) {
+		if !errors.Is(err, ErrNotFound) {
 			return nil, err
 		}
 		if _, serverErr := m.getRawServer(ctx, serverID); serverErr != nil {
 			return nil, serverErr
 		}
-		return []*model.RouteResponse{}, nil
+		return []*RouteResponse{}, nil
 	}
 	var routes []caddyRoute
 	if err := json.Unmarshal(raw, &routes); err != nil {
 		return nil, fmt.Errorf("parse caddy routes: %w", err)
 	}
-	result := make([]*model.RouteResponse, 0, len(routes))
+	result := make([]*RouteResponse, 0, len(routes))
 	for i, r := range routes {
 		rr := r
 		result = append(result, m.fromCaddyRoute(i, &rr))
@@ -147,7 +145,7 @@ func (m *Manager) ListRoutes(ctx context.Context, serverID string) ([]*model.Rou
 	return result, nil
 }
 
-func (m *Manager) AddRoute(ctx context.Context, serverID string, req *model.RouteRequest) error {
+func (m *Manager) AddRoute(ctx context.Context, serverID string, req *RouteRequest) error {
 	if req.ID == "" {
 		return fmt.Errorf("route id is required")
 	}
@@ -160,7 +158,7 @@ func (m *Manager) AddRoute(ctx context.Context, serverID string, req *model.Rout
 	}
 	for _, r := range existing {
 		if r.Group == req.ID {
-			return fmt.Errorf("route %q already exists in server %q: %w", req.ID, serverID, model.ErrConflict)
+			return fmt.Errorf("route %q already exists in server %q: %w", req.ID, serverID, ErrConflict)
 		}
 	}
 	newRoute := m.toCaddyRoute(req)
@@ -178,7 +176,7 @@ func (m *Manager) AddRoute(ctx context.Context, serverID string, req *model.Rout
 	return m.caddyPUT(ctx, "/apps/http/servers/"+serverID+"/routes", updated)
 }
 
-func (m *Manager) UpdateRoute(ctx context.Context, serverID, routeID string, req *model.RouteRequest) error {
+func (m *Manager) UpdateRoute(ctx context.Context, serverID, routeID string, req *RouteRequest) error {
 	if err := m.ensureServerMutable(ctx, serverID); err != nil {
 		return err
 	}
@@ -196,7 +194,7 @@ func (m *Manager) UpdateRoute(ctx context.Context, serverID, routeID string, req
 		}
 	}
 	if !found {
-		return fmt.Errorf("route %q not found in server %q: %w", routeID, serverID, model.ErrNotFound)
+		return fmt.Errorf("route %q not found in server %q: %w", routeID, serverID, ErrNotFound)
 	}
 	return m.caddyPUT(ctx, "/apps/http/servers/"+serverID+"/routes", existing)
 }
@@ -219,7 +217,7 @@ func (m *Manager) DeleteRoute(ctx context.Context, serverID, routeID string) err
 		filtered = append(filtered, r)
 	}
 	if !found {
-		return fmt.Errorf("route %q not found in server %q: %w", routeID, serverID, model.ErrNotFound)
+		return fmt.Errorf("route %q not found in server %q: %w", routeID, serverID, ErrNotFound)
 	}
 	return m.caddyPUT(ctx, "/apps/http/servers/"+serverID+"/routes", filtered)
 }
@@ -252,7 +250,7 @@ type caddyTLSAutomation struct {
 	Policies []map[string]any `json:"policies"`
 }
 
-func (m *Manager) toCaddyServer(req *model.ServerRequest, routes []caddyRoute) caddyServer {
+func (m *Manager) toCaddyServer(req *ServerRequest, routes []caddyRoute) caddyServer {
 	srv := caddyServer{Listen: req.Listen, Routes: routes}
 	if req.TLS != nil && req.TLS.Auto {
 		srv.TLS = &caddyTLS{
@@ -262,7 +260,7 @@ func (m *Manager) toCaddyServer(req *model.ServerRequest, routes []caddyRoute) c
 	return srv
 }
 
-func (m *Manager) toCaddyRoute(req *model.RouteRequest) caddyRoute {
+func (m *Manager) toCaddyRoute(req *RouteRequest) caddyRoute {
 	handles := make([]caddyHandler, 0, len(req.Handlers))
 	for _, h := range req.Handlers {
 		handles = append(handles, m.toCaddyHandler(h))
@@ -274,7 +272,7 @@ func (m *Manager) toCaddyRoute(req *model.RouteRequest) caddyRoute {
 	return r
 }
 
-func (m *Manager) toCaddyHandler(h model.HandlerConf) caddyHandler {
+func (m *Manager) toCaddyHandler(h HandlerConf) caddyHandler {
 	switch h.Type {
 	case "agent_route_dispatcher":
 		apiHandlers := map[string]any{}
@@ -298,13 +296,13 @@ func (m *Manager) toCaddyHandler(h model.HandlerConf) caddyHandler {
 	}
 }
 
-func (m *Manager) fromCaddyServer(id string, srv *caddyServer) *model.ServerResponse {
+func (m *Manager) fromCaddyServer(id string, srv *caddyServer) *ServerResponse {
 	readonly := m.isProtectedServer(id, srv)
 	listen := append([]string(nil), srv.Listen...)
 	if listen == nil {
 		listen = []string{}
 	}
-	resp := &model.ServerResponse{ID: id, Listen: listen, ReadOnly: readonly}
+	resp := &ServerResponse{ID: id, Listen: listen, ReadOnly: readonly}
 	if readonly {
 		switch {
 		case m.isReadOnlyServerID(id):
@@ -327,15 +325,15 @@ func isEmptyCaddyServer(srv *caddyServer) bool {
 	return srv != nil && len(srv.Listen) == 0 && len(srv.Routes) == 0 && srv.TLS == nil
 }
 
-func (m *Manager) fromCaddyRoute(idx int, r *caddyRoute) *model.RouteResponse {
-	resp := &model.RouteResponse{ID: r.Group, Order: idx}
+func (m *Manager) fromCaddyRoute(idx int, r *caddyRoute) *RouteResponse {
+	resp := &RouteResponse{ID: r.Group, Order: idx}
 	resp.Match = m.extractMatchFromRoute(*r)
 	resp.Handlers = m.extractHandlersFromRoute(*r)
 	return resp
 }
 
-func (m *Manager) extractMatchFromRoute(r caddyRoute) model.MatchConf {
-	var match model.MatchConf
+func (m *Manager) extractMatchFromRoute(r caddyRoute) MatchConf {
+	var match MatchConf
 	for _, rm := range r.Match {
 		match.Paths = appendUnique(match.Paths, rm.Path...)
 		match.Hosts = appendUnique(match.Hosts, rm.Host...)
@@ -348,15 +346,15 @@ func (m *Manager) extractMatchFromRoute(r caddyRoute) model.MatchConf {
 	return match
 }
 
-func (m *Manager) extractMatchFromHandler(h caddyHandler) model.MatchConf {
+func (m *Manager) extractMatchFromHandler(h caddyHandler) MatchConf {
 	if handlerType, _ := h["handler"].(string); handlerType != "subroute" {
-		return model.MatchConf{}
+		return MatchConf{}
 	}
 	rawRoutes, ok := h["routes"].([]any)
 	if !ok {
-		return model.MatchConf{}
+		return MatchConf{}
 	}
-	var match model.MatchConf
+	var match MatchConf
 	for _, rawRoute := range rawRoutes {
 		routeMap, ok := rawRoute.(map[string]any)
 		if !ok {
@@ -377,24 +375,24 @@ func (m *Manager) extractMatchFromHandler(h caddyHandler) model.MatchConf {
 	return match
 }
 
-func (m *Manager) extractHandlersFromRoute(r caddyRoute) []model.HandlerConf {
-	var handlers []model.HandlerConf
+func (m *Manager) extractHandlersFromRoute(r caddyRoute) []HandlerConf {
+	var handlers []HandlerConf
 	for _, h := range r.Handle {
 		handlers = append(handlers, m.extractHandlersFromHandler(h)...)
 	}
 	return handlers
 }
 
-func (m *Manager) extractHandlersFromHandler(h caddyHandler) []model.HandlerConf {
+func (m *Manager) extractHandlersFromHandler(h caddyHandler) []HandlerConf {
 	handlerType, _ := h["handler"].(string)
 	if handlerType != "subroute" {
-		return []model.HandlerConf{m.fromCaddyHandler(h)}
+		return []HandlerConf{m.fromCaddyHandler(h)}
 	}
 	rawRoutes, ok := h["routes"].([]any)
 	if !ok {
 		return nil
 	}
-	var handlers []model.HandlerConf
+	var handlers []HandlerConf
 	for _, rawRoute := range rawRoutes {
 		routeMap, ok := rawRoute.(map[string]any)
 		if !ok {
@@ -413,7 +411,7 @@ func (m *Manager) extractHandlersFromHandler(h caddyHandler) []model.HandlerConf
 	return handlers
 }
 
-func (m *Manager) fromCaddyHandler(h caddyHandler) model.HandlerConf {
+func (m *Manager) fromCaddyHandler(h caddyHandler) HandlerConf {
 	handlerType, _ := h["handler"].(string)
 	switch handlerType {
 	case "agent_route_dispatcher":
@@ -424,9 +422,9 @@ func (m *Manager) fromCaddyHandler(h caddyHandler) model.HandlerConf {
 			}
 		}
 		slices.Sort(apis)
-		return model.HandlerConf{Type: "agent_route_dispatcher", APIs: apis}
+		return HandlerConf{Type: "agent_route_dispatcher", APIs: apis}
 	case "agent_gateway_admin":
-		return model.HandlerConf{Type: "admin"}
+		return HandlerConf{Type: "admin"}
 	case "reverse_proxy":
 		upstream := ""
 		if ups, ok := h["upstreams"].([]any); ok && len(ups) > 0 {
@@ -434,12 +432,12 @@ func (m *Manager) fromCaddyHandler(h caddyHandler) model.HandlerConf {
 				upstream, _ = up["dial"].(string)
 			}
 		}
-		return model.HandlerConf{Type: "reverse_proxy", Upstream: upstream}
+		return HandlerConf{Type: "reverse_proxy", Upstream: upstream}
 	case "file_server":
 		root, _ := h["root"].(string)
-		return model.HandlerConf{Type: "file_server", Root: root}
+		return HandlerConf{Type: "file_server", Root: root}
 	default:
-		return model.HandlerConf{Type: handlerType}
+		return HandlerConf{Type: handlerType}
 	}
 }
 
@@ -449,7 +447,7 @@ func (m *Manager) ensureServerMutable(ctx context.Context, serverID string) erro
 		return err
 	}
 	if m.isProtectedServer(serverID, srv) {
-		return fmt.Errorf("server %q is managed by Caddyfile/system config and is read-only: %w", serverID, model.ErrReadOnly)
+		return fmt.Errorf("server %q is managed by Caddyfile/system config and is read-only: %w", serverID, ErrReadOnly)
 	}
 	return nil
 }
@@ -523,7 +521,7 @@ func routeContainsAdminHandler(route caddyRoute) bool {
 
 func handlerContainsAdmin(h caddyHandler) bool {
 	handlerType, _ := h["handler"].(string)
-	if handlerType == "agent_gateway_admin" {
+	if handlerType == "agent_gateway_admin" || handlerType == "admin" {
 		return true
 	}
 	if handlerType != "subroute" {
@@ -554,19 +552,18 @@ func handlerContainsAdmin(h caddyHandler) bool {
 }
 
 func deriveServerPublicURL(listen []string, hasTLS bool) string {
-	if len(listen) == 0 {
-		return ""
+	for _, addr := range listen {
+		normalized := normalizeListenAddress(addr)
+		if normalized == "" {
+			continue
+		}
+		scheme := "http"
+		if hasTLS {
+			scheme = "https"
+		}
+		return scheme + "://" + normalized
 	}
-	addr := normalizeListenAddress(listen[0])
-	if addr == "" {
-		return ""
-	}
-	scheme := "http"
-	if hasTLS {
-		scheme = "https"
-	}
-	u := url.URL{Scheme: scheme, Host: addr, Path: "/"}
-	return u.String()
+	return ""
 }
 
 func normalizeListenAddress(addr string) string {
@@ -577,23 +574,23 @@ func normalizeListenAddress(addr string) string {
 	if strings.HasPrefix(addr, ":") {
 		return "127.0.0.1" + addr
 	}
+	if strings.Contains(addr, "://") {
+		u, err := url.Parse(addr)
+		if err == nil {
+			return u.Host
+		}
+	}
 	return addr
 }
 
 func appendUnique(dst []string, values ...string) []string {
-	seen := make(map[string]struct{}, len(dst))
-	for _, v := range dst {
-		seen[v] = struct{}{}
-	}
-	for _, v := range values {
-		if v == "" {
+	for _, value := range values {
+		if value == "" {
 			continue
 		}
-		if _, ok := seen[v]; ok {
-			continue
+		if !slices.Contains(dst, value) {
+			dst = append(dst, value)
 		}
-		dst = append(dst, v)
-		seen[v] = struct{}{}
 	}
 	return dst
 }
@@ -616,7 +613,7 @@ func (m *Manager) caddyGET(ctx context.Context, path string) (json.RawMessage, e
 		return nil, fmt.Errorf("read caddy response: %w", err)
 	}
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, model.ErrNotFound
+		return nil, ErrNotFound
 	}
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("caddy admin error %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
@@ -761,5 +758,5 @@ func (m *Manager) checkAllowed(path string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("config path %q is not allowed", path)
+	return fmt.Errorf("caddy config path %q is not allowed", path)
 }

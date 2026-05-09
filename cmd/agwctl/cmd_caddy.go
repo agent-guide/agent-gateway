@@ -6,8 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/agwctl/caddyadmin"
-	"github.com/agent-guide/caddy-agent-gateway/internal/agwctl/model"
+	"github.com/agent-guide/caddy-agent-gateway/internal/agwctl/caddyadminclient"
 	"github.com/spf13/cobra"
 )
 
@@ -29,7 +28,7 @@ var caddyServerListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all Caddy HTTP servers",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		mgr := caddyadmin.NewManager(globalCaddyAdmin)
+		mgr := caddyadminclient.NewManager(globalCaddyAdmin)
 		servers, err := mgr.ListServers(context.Background())
 		if err != nil {
 			return err
@@ -47,7 +46,7 @@ var caddyServerGetCmd = &cobra.Command{
 	Short: "Get a Caddy HTTP server",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		mgr := caddyadmin.NewManager(globalCaddyAdmin)
+		mgr := caddyadminclient.NewManager(globalCaddyAdmin)
 		srv, err := mgr.GetServer(context.Background(), args[0])
 		if err != nil {
 			return err
@@ -55,7 +54,7 @@ var caddyServerGetCmd = &cobra.Command{
 		if outputFormat == "json" {
 			return printJSON(srv)
 		}
-		printCaddyServersTable([]*model.ServerResponse{srv})
+		printCaddyServersTable([]*caddyadminclient.ServerResponse{srv})
 		return nil
 	},
 }
@@ -76,13 +75,13 @@ var caddyServerCreateCmd = &cobra.Command{
 		if len(serverCreateListen) == 0 {
 			return fmt.Errorf("--listen is required")
 		}
-		mgr := caddyadmin.NewManager(globalCaddyAdmin)
-		req := &model.ServerRequest{
+		mgr := caddyadminclient.NewManager(globalCaddyAdmin)
+		req := &caddyadminclient.ServerRequest{
 			ID:     serverCreateID,
 			Listen: serverCreateListen,
 		}
 		if serverCreateTLSAuto {
-			req.TLS = &model.TLSConf{Auto: true}
+			req.TLS = &caddyadminclient.TLSConf{Auto: true}
 		}
 		if err := mgr.CreateServer(context.Background(), req); err != nil {
 			return err
@@ -94,7 +93,7 @@ var caddyServerCreateCmd = &cobra.Command{
 		if outputFormat == "json" {
 			return printJSON(srv)
 		}
-		printCaddyServersTable([]*model.ServerResponse{srv})
+		printCaddyServersTable([]*caddyadminclient.ServerResponse{srv})
 		return nil
 	},
 }
@@ -112,13 +111,13 @@ var caddyServerUpdateCmd = &cobra.Command{
 		if len(serverUpdateListen) == 0 {
 			return fmt.Errorf("--listen is required")
 		}
-		mgr := caddyadmin.NewManager(globalCaddyAdmin)
-		req := &model.ServerRequest{
+		mgr := caddyadminclient.NewManager(globalCaddyAdmin)
+		req := &caddyadminclient.ServerRequest{
 			ID:     args[0],
 			Listen: serverUpdateListen,
 		}
 		if serverUpdateTLSAuto {
-			req.TLS = &model.TLSConf{Auto: true}
+			req.TLS = &caddyadminclient.TLSConf{Auto: true}
 		}
 		if err := mgr.UpdateServer(context.Background(), req); err != nil {
 			return err
@@ -130,7 +129,7 @@ var caddyServerUpdateCmd = &cobra.Command{
 		if outputFormat == "json" {
 			return printJSON(srv)
 		}
-		printCaddyServersTable([]*model.ServerResponse{srv})
+		printCaddyServersTable([]*caddyadminclient.ServerResponse{srv})
 		return nil
 	},
 }
@@ -140,7 +139,7 @@ var caddyServerDeleteCmd = &cobra.Command{
 	Short: "Delete a Caddy HTTP server",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		mgr := caddyadmin.NewManager(globalCaddyAdmin)
+		mgr := caddyadminclient.NewManager(globalCaddyAdmin)
 		if err := mgr.DeleteServer(context.Background(), args[0]); err != nil {
 			return err
 		}
@@ -161,7 +160,7 @@ var caddyRouteListCmd = &cobra.Command{
 	Short: "List routes in a Caddy server",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		mgr := caddyadmin.NewManager(globalCaddyAdmin)
+		mgr := caddyadminclient.NewManager(globalCaddyAdmin)
 		routes, err := mgr.ListRoutes(context.Background(), args[0])
 		if err != nil {
 			return err
@@ -194,11 +193,11 @@ var caddyRouteAddCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		mgr := caddyadmin.NewManager(globalCaddyAdmin)
-		req := &model.RouteRequest{
+		mgr := caddyadminclient.NewManager(globalCaddyAdmin)
+		req := &caddyadminclient.RouteRequest{
 			ID:       routeAddID,
 			Order:    routeAddOrder,
-			Match:    model.MatchConf{Paths: routeAddPaths, Hosts: routeAddHosts},
+			Match:    caddyadminclient.MatchConf{Paths: routeAddPaths, Hosts: routeAddHosts},
 			Handlers: handlers,
 		}
 		if err := mgr.AddRoute(context.Background(), args[0], req); err != nil {
@@ -213,7 +212,7 @@ var caddyRouteAddCmd = &cobra.Command{
 				if outputFormat == "json" {
 					return printJSON(r)
 				}
-				printCaddyRoutesTable([]*model.RouteResponse{r})
+				printCaddyRoutesTable([]*caddyadminclient.RouteResponse{r})
 				return nil
 			}
 		}
@@ -227,7 +226,7 @@ var caddyRouteDeleteCmd = &cobra.Command{
 	Short: "Delete a route from a Caddy server",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		mgr := caddyadmin.NewManager(globalCaddyAdmin)
+		mgr := caddyadminclient.NewManager(globalCaddyAdmin)
 		if err := mgr.DeleteRoute(context.Background(), args[0], args[1]); err != nil {
 			return err
 		}
@@ -244,11 +243,11 @@ var caddyRouteDeleteCmd = &cobra.Command{
 //	reverse_proxy:upstream=localhost:9000
 //	file_server:root=/var/www
 //	admin
-func parseHandlers(specs []string) ([]model.HandlerConf, error) {
-	handlers := make([]model.HandlerConf, 0, len(specs))
+func parseHandlers(specs []string) ([]caddyadminclient.HandlerConf, error) {
+	handlers := make([]caddyadminclient.HandlerConf, 0, len(specs))
 	for _, spec := range specs {
 		htype, params, _ := strings.Cut(spec, ":")
-		conf := model.HandlerConf{Type: htype}
+		conf := caddyadminclient.HandlerConf{Type: htype}
 		if params != "" {
 			for _, kv := range strings.Split(params, ",") {
 				k, v, _ := strings.Cut(kv, "=")
@@ -270,6 +269,14 @@ func parseHandlers(specs []string) ([]model.HandlerConf, error) {
 }
 
 func init() {
+	caddyCmd.PersistentFlags().StringVar(&globalCaddyAdmin, "addr", envOr("CADDY_ADMIN_ADDR", "http://localhost:2019"), "Caddy admin API address")
+	caddyCmd.PersistentFlags().StringVar(&globalCaddyAdmin, "admin-addr", envOr("CADDY_ADMIN_ADDR", "http://localhost:2019"), "deprecated alias for --addr")
+	caddyCmd.PersistentFlags().StringVar(&globalCaddyAdmin, "caddy-admin", envOr("CADDY_ADMIN_ADDR", "http://localhost:2019"), "deprecated alias for --addr")
+	_ = caddyCmd.PersistentFlags().MarkDeprecated("admin-addr", "use --addr instead")
+	_ = caddyCmd.PersistentFlags().MarkDeprecated("caddy-admin", "use --addr instead")
+	_ = caddyCmd.PersistentFlags().MarkHidden("admin-addr")
+	_ = caddyCmd.PersistentFlags().MarkHidden("caddy-admin")
+
 	// server create flags
 	caddyServerCreateCmd.Flags().StringVar(&serverCreateID, "id", "", "server ID (required)")
 	caddyServerCreateCmd.Flags().StringArrayVar(&serverCreateListen, "listen", nil, "listen addresses (repeatable)")

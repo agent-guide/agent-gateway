@@ -22,7 +22,7 @@ var cliauthStorePath string
 
 var cliauthCmd = &cobra.Command{
 	Use:   "cliauth",
-	Short: "Manage local CLI auth credentials (codex, claude, gemini)",
+	Short: "Manage local CLI auth credentials on the agwctl machine",
 }
 
 // ── cliauth authenticators ────────────────────────────────────────────────────

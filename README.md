@@ -78,6 +78,11 @@ The `agw` binary includes Caddy standard modules, the gateway app, the admin han
 
 `agwctl` is the management CLI for the gateway Admin API, the Caddy admin API, and local CLI auth credentials.
 
+Important distinction:
+
+- `agwctl cliauth ...` manages local CLI auth credentials on the machine running `agwctl`
+- `agwctl gateway cliauth ...` manages the remote gateway's runtime CLI auth state through the Admin API
+
 Show available commands:
 
 ```bash
@@ -87,8 +92,8 @@ Show available commands:
 List gateway routes through the gateway Admin API:
 
 ```bash
-./agwctl --gateway-addr http://localhost:8019 \
-  gateway route list \
+./agwctl gateway --addr http://localhost:8019 \
+  route list \
   --user admin \
   --password your-password
 ```
@@ -96,7 +101,7 @@ List gateway routes through the gateway Admin API:
 List Caddy HTTP servers through the Caddy admin API:
 
 ```bash
-./agwctl --caddy-admin http://127.0.0.1:2019 caddy server list
+./agwctl caddy --addr http://127.0.0.1:2019 server list
 ```
 
 List supported local CLI authenticators and saved credentials:
@@ -106,10 +111,161 @@ List supported local CLI authenticators and saved credentials:
 ./agwctl cliauth list
 ```
 
-Start the optional agwctl management server:
+List remote gateway CLI auth authenticators and refresher status:
 
 ```bash
-./agwctl serve --addr :8090
+./agwctl gateway --addr http://localhost:8019 \
+  --user admin \
+  --password your-password \
+  cliauth authenticators list
+
+./agwctl gateway --addr http://localhost:8019 \
+  --user admin \
+  --password your-password \
+  cliauth refresher status
+```
+
+Create or update gateway objects from JSON files:
+
+```bash
+./agwctl gateway --addr http://localhost:8019 \
+  --user admin \
+  --password your-password \
+  provider create -f ./provider.json
+
+./agwctl gateway --addr http://localhost:8019 \
+  --user admin \
+  --password your-password \
+  route update chat-prod -f ./route.json
+```
+
+Example JSON files for `agwctl gateway ... -f ...`:
+
+`provider.json`
+
+```json
+{
+  "id": "openrouter-main",
+  "provider_type": "openrouter",
+  "api_key": "sk-or-...",
+  "base_url": "https://openrouter.ai/api/v1",
+  "default_model": "openai/gpt-4o-mini",
+  "network": {
+    "request_timeout_seconds": 120,
+    "max_retries": 3,
+    "max_idle_connections": 100,
+    "max_idle_connections_per_host": 20,
+    "idle_keep_alive_timeout_seconds": 90
+  }
+}
+```
+
+`route.json`
+
+```json
+{
+  "id": "chat-prod",
+  "llm_api": "openai",
+  "match": {
+    "path_prefix": "/",
+    "methods": ["POST"]
+  },
+  "target_policy": {
+    "provider_target": {
+      "provider_id": "openrouter-main"
+    }
+  },
+  "auth_policy": {
+    "require_virtual_key": true
+  }
+}
+```
+
+`virtualkey.json`
+
+```json
+{
+  "tag": "demo-user",
+  "name": "demo key",
+  "allowed_route_ids": ["chat-prod"]
+}
+```
+
+`credential-create.json`
+
+```json
+{
+  "provider_id": "openai-main",
+  "label": "primary",
+  "attributes": {
+    "api_key": "sk-...",
+    "base_url": "https://api.openai.com/v1",
+    "priority": "10"
+  }
+}
+```
+
+`credential-update.json`
+
+```json
+{
+  "label": "primary-updated",
+  "disabled": false,
+  "attributes": {
+    "api_key": "sk-...",
+    "base_url": "https://api.openai.com/v1",
+    "priority": "20"
+  }
+}
+```
+
+`managed-model.json`
+
+```json
+{
+  "enabled": true,
+  "credential_scope": "provider_id",
+  "capability_overrides": {
+    "streaming": true,
+    "tools": true
+  }
+}
+```
+
+`cliauth-enable.json`
+
+```json
+{
+  "config": {
+    "callback_port": 9002,
+    "no_browser": true,
+    "device_flow": true
+  }
+}
+```
+
+Common command patterns:
+
+```bash
+./agwctl gateway --addr http://localhost:8019 \
+  --user admin \
+  --password your-password \
+  virtualkey create -f ./virtualkey.json
+
+./agwctl gateway --addr http://localhost:8019 \
+  --user admin \
+  --password your-password \
+  credential update cred-123 -f ./credential-update.json
+
+./agwctl gateway --addr http://localhost:8019 \
+  --user admin \
+  --password your-password \
+  models managed upsert openai-main gpt-4.1 -f ./managed-model.json
+
+./agwctl gateway --addr http://localhost:8019 \
+  --user admin \
+  --password your-password \
+  cliauth authenticators enable codex -f ./cliauth-enable.json
 ```
 
 ## Quick Start
