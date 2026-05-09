@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -112,6 +114,549 @@ func TestGatewayCLIAuthAuthenticatorsListCommand(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"name": "codex"`) {
 		t.Fatalf("stdout missing authenticator:\n%s", stdout)
+	}
+}
+
+func TestGatewayValidateCommand(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gateway.yaml")
+	if err := os.WriteFile(path, []byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+providerTypes:
+  - provider_type: openai
+    enabled: true
+llmApiHandlerTypes:
+  - llm_api_handler_type: openai
+    enabled: true
+providers:
+  - id: openai-main
+    provider_type: openai
+routes:
+  - id: chat-prod
+    llm_api: openai
+    match:
+      path_prefix: /
+      methods:
+        - POST
+    auth_policy:
+      require_virtual_key: true
+    target_policy:
+      provider_target:
+        provider_id: openai-main
+virtualKeys:
+  - key: vk-local-test
+    allowed_route_ids:
+      - chat-prod
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	stdout, stderr, err := executeAGWCTL(t, "gateway", "validate", "-f", path)
+	if err != nil {
+		t.Fatalf("gateway validate: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "gateway bundle is valid:") {
+		t.Fatalf("stdout missing success message:\n%s", stdout)
+	}
+}
+
+func TestGatewayValidateCommandReturnsLocalValidationError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gateway.yaml")
+	if err := os.WriteFile(path, []byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+providers:
+  - id: dup
+    provider_type: openai
+  - id: dup
+    provider_type: openai
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	stdout, stderr, err := executeAGWCTL(t, "gateway", "validate", "-f", path)
+	if err == nil {
+		t.Fatalf("gateway validate error = nil\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(err.Error(), `providers["dup"]: duplicate id`) {
+		t.Fatalf("validate error = %v, want duplicate provider id", err)
+	}
+}
+
+func TestGatewayApplyCommand(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gateway.yaml")
+	if err := os.WriteFile(path, []byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+providers:
+  - id: openai-main
+    provider_type: openai
+    default_model: gpt-4.1
+virtualKeys:
+  - key: vk-local-test
+    allowed_route_ids: []
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	var providerUpdated atomic.Bool
+	var virtualKeyCreated atomic.Bool
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/admin/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"token":    "test-token",
+				"username": "admin",
+			})
+		case r.URL.Path == "/admin/provider_types":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/llm_api_handler_types":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/providers" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"id":            "openai-main",
+						"provider_type": "openai",
+						"default_model": "gpt-4o-mini",
+						"source":        "dynamic",
+						"read_only":     false,
+					},
+				},
+			})
+		case r.URL.Path == "/admin/providers/openai-main" && r.Method == http.MethodPut:
+			providerUpdated.Store(true)
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":            "openai-main",
+				"provider_type": "openai",
+				"default_model": "gpt-4.1",
+			})
+		case r.URL.Path == "/admin/models/managed":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/routes":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/virtual_keys" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/virtual_keys" && r.Method == http.MethodPost:
+			virtualKeyCreated.Store(true)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"key": "vk-local-test",
+			})
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := executeAGWCTL(
+		t,
+		"--output", "json",
+		"gateway",
+		"--addr", srv.URL,
+		"--user", "admin",
+		"--password", "secret",
+		"apply",
+		"-f", path,
+	)
+	if err != nil {
+		t.Fatalf("gateway apply: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+	if !providerUpdated.Load() {
+		t.Fatal("expected provider update request")
+	}
+	if !virtualKeyCreated.Load() {
+		t.Fatal("expected virtual key create request")
+	}
+	if !strings.Contains(stdout, `"status": "ok"`) {
+		t.Fatalf("stdout missing ok status:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, `"action": "update"`) {
+		t.Fatalf("stdout missing update action:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, `"action": "create"`) {
+		t.Fatalf("stdout missing create action:\n%s", stdout)
+	}
+}
+
+func TestGatewayApplyCommandSkipsUnchangedObjects(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gateway.yaml")
+	if err := os.WriteFile(path, []byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+providers:
+  - id: openai-main
+    provider_type: openai
+    default_model: gpt-4.1
+virtualKeys:
+  - key: vk-local-test
+    allowed_route_ids: []
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	var providerWriteCount atomic.Int32
+	var virtualKeyWriteCount atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/admin/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"token":    "test-token",
+				"username": "admin",
+			})
+		case r.URL.Path == "/admin/provider_types":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/llm_api_handler_types":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/providers" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"id":            "openai-main",
+						"provider_type": "openai",
+						"default_model": "gpt-4.1",
+						"source":        "dynamic",
+						"read_only":     false,
+					},
+				},
+			})
+		case r.URL.Path == "/admin/providers/openai-main" && r.Method == http.MethodPut:
+			providerWriteCount.Add(1)
+			t.Fatalf("unexpected provider update request for unchanged object")
+		case r.URL.Path == "/admin/models/managed":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/routes":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/virtual_keys" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"key":               "vk-local-test",
+						"allowed_route_ids": []string{},
+						"source":            "dynamic",
+						"read_only":         false,
+					},
+				},
+			})
+		case r.URL.Path == "/admin/virtual_keys" && r.Method == http.MethodPost:
+			virtualKeyWriteCount.Add(1)
+			t.Fatalf("unexpected virtual key create request for unchanged object")
+		case r.URL.Path == "/admin/virtual_keys/vk-local-test" && r.Method == http.MethodPut:
+			virtualKeyWriteCount.Add(1)
+			t.Fatalf("unexpected virtual key update request for unchanged object")
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := executeAGWCTL(
+		t,
+		"--output", "json",
+		"gateway",
+		"--addr", srv.URL,
+		"--user", "admin",
+		"--password", "secret",
+		"apply",
+		"-f", path,
+	)
+	if err != nil {
+		t.Fatalf("gateway apply unchanged: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+	if providerWriteCount.Load() != 0 || virtualKeyWriteCount.Load() != 0 {
+		t.Fatalf("unexpected writes: provider=%d virtualKey=%d", providerWriteCount.Load(), virtualKeyWriteCount.Load())
+	}
+	if !strings.Contains(stdout, `"action": "skip"`) {
+		t.Fatalf("stdout missing skip action:\n%s", stdout)
+	}
+}
+
+func TestGatewayApplyCommandFailsOnReadOnlyObjectDrift(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gateway.yaml")
+	if err := os.WriteFile(path, []byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+providers:
+  - id: openai-main
+    provider_type: openai
+    default_model: gpt-4.1
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/admin/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"token":    "test-token",
+				"username": "admin",
+			})
+		case r.URL.Path == "/admin/provider_types":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/llm_api_handler_types":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/providers" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"id":            "openai-main",
+						"provider_type": "openai",
+						"default_model": "gpt-4o-mini",
+						"source":        "static",
+						"read_only":     true,
+					},
+				},
+			})
+		case r.URL.Path == "/admin/models/managed":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/routes":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/virtual_keys" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := executeAGWCTL(
+		t,
+		"--output", "json",
+		"gateway",
+		"--addr", srv.URL,
+		"--user", "admin",
+		"--password", "secret",
+		"apply",
+		"-f", path,
+	)
+	if err == nil {
+		t.Fatalf("gateway apply read-only drift error = nil\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(err.Error(), "gateway apply finished with 1 error") {
+		t.Fatalf("apply error = %v", err)
+	}
+	if !strings.Contains(stdout, `"status": "error"`) {
+		t.Fatalf("stdout missing error status:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, `"error": "provider \"openai-main\" is read-only"`) {
+		t.Fatalf("stdout missing read-only provider error:\n%s", stdout)
+	}
+}
+
+func TestGatewayExportCommand(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"token":    "test-token",
+				"username": "admin",
+			})
+		case "/admin/provider_types":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{"provider_type": "openai", "enabled": true},
+				},
+			})
+		case "/admin/llm_api_handler_types":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{"llm_api_handler_type": "openai", "enabled": true},
+				},
+			})
+		case "/admin/providers":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"id":            "openai-main",
+						"provider_type": "openai",
+						"default_model": "gpt-4.1",
+						"source":        "dynamic",
+						"read_only":     false,
+					},
+				},
+			})
+		case "/admin/models/managed":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"provider_id":    "openai-main",
+						"upstream_model": "gpt-4.1",
+						"enabled":        true,
+					},
+				},
+			})
+		case "/admin/routes":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"id":      "chat-prod",
+						"llm_api": "openai",
+						"match": map[string]any{
+							"path_prefix": "/",
+							"methods":     []string{"POST"},
+						},
+						"auth_policy": map[string]any{
+							"require_virtual_key": true,
+						},
+						"target_policy": map[string]any{
+							"provider_target": map[string]any{
+								"provider_id": "openai-main",
+							},
+						},
+						"source":    "dynamic",
+						"read_only": false,
+					},
+				},
+			})
+		case "/admin/virtual_keys":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"key":               "vk-local-test",
+						"allowed_route_ids": []string{"chat-prod"},
+						"source":            "dynamic",
+						"read_only":         false,
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := executeAGWCTL(
+		t,
+		"gateway",
+		"--addr", srv.URL,
+		"--user", "admin",
+		"--password", "secret",
+		"export",
+	)
+	if err != nil {
+		t.Fatalf("gateway export: %v\nstderr=%s", err, stderr)
+	}
+	for _, want := range []string{
+		"apiVersion: gateway.agw/v1alpha1",
+		"kind: GatewayBundle",
+		"providerTypes:",
+		"llmApiHandlerTypes:",
+		"providers:",
+		"routes:",
+		"virtualKeys:",
+		"id: openai-main",
+		"key: vk-local-test",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	exportPath := filepath.Join(dir, "exported.gateway.yaml")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"token":    "test-token",
+				"username": "admin",
+			})
+		case "/admin/provider_types":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{"provider_type": "openai", "enabled": true},
+				},
+			})
+		case "/admin/llm_api_handler_types":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{"llm_api_handler_type": "openai", "enabled": true},
+				},
+			})
+		case "/admin/providers":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"id":            "openai-main",
+						"provider_type": "openai",
+						"default_model": "gpt-4.1",
+						"source":        "dynamic",
+						"read_only":     false,
+					},
+				},
+			})
+		case "/admin/models/managed":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case "/admin/routes":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"id":      "chat-prod",
+						"llm_api": "openai",
+						"match": map[string]any{
+							"path_prefix": "/",
+							"methods":     []string{"POST"},
+						},
+						"auth_policy": map[string]any{
+							"require_virtual_key": true,
+						},
+						"target_policy": map[string]any{
+							"provider_target": map[string]any{
+								"provider_id": "openai-main",
+							},
+						},
+						"source":    "dynamic",
+						"read_only": false,
+					},
+				},
+			})
+		case "/admin/virtual_keys":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"key":               "vk-local-test",
+						"allowed_route_ids": []string{"chat-prod"},
+						"source":            "dynamic",
+						"read_only":         false,
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	_, stderr, err := executeAGWCTL(
+		t,
+		"gateway",
+		"--addr", srv.URL,
+		"--user", "admin",
+		"--password", "secret",
+		"export",
+		"-f", exportPath,
+	)
+	if err != nil {
+		t.Fatalf("gateway export: %v\nstderr=%s", err, stderr)
+	}
+
+	stdout, stderr, err := executeAGWCTL(t, "gateway", "validate", "-f", exportPath)
+	if err != nil {
+		t.Fatalf("gateway validate exported file: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "gateway bundle is valid:") {
+		t.Fatalf("stdout missing validation success:\n%s", stdout)
 	}
 }
 

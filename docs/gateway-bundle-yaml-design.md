@@ -34,7 +34,7 @@ This proposal does not do the following in its initial version:
 
 - replace the Caddyfile-based static configuration path
 - replace SQLite as the dynamic config store
-- make credentials or CLI login state part of a checked-in YAML file
+- make CLI login state part of a checked-in YAML file
 - make file-driven config automatically mutable through the Admin API
 - define full bidirectional sync semantics
 - define automatic deletion of remote objects by default
@@ -120,7 +120,21 @@ The precedence model should remain consistent with the existing codebase:
 
 ## 7. Bundle Scope
 
-The initial YAML bundle should cover only object families that are configuration-like and stable enough for file-based declaration:
+Configuration-type objects are:
+
+- `providerTypes`
+- `llmApiHandlerTypes`
+- `providers`
+- `managedModels`
+- `routes`
+- `virtualKeys`
+- `credentials`
+
+Operational-type objects are:
+
+- `cliauth`
+
+The current implemented bundle path covers:
 
 - `providerTypes`
 - `llmApiHandlerTypes`
@@ -129,17 +143,18 @@ The initial YAML bundle should cover only object families that are configuration
 - `routes`
 - `virtualKeys`
 
-The initial YAML bundle should explicitly exclude:
+The current implemented bundle path does not yet cover:
 
-- persisted upstream credentials
+- `credentials`
 - local `agwctl cliauth` state
 - remote CLI login sessions and login status
 - ephemeral runtime state
 
 Rationale:
 
-- credentials and login state are operational secrets and runtime state, not good default material for a human-edited bundle file
-- mixing checked-in configuration with mutable auth state would make both semantics and security worse
+- configuration-type objects should converge on one declarative bundle workflow
+- `cliauth` is action-oriented runtime control and should stay command-driven
+- credentials are configuration-type objects, but they need separate follow-up design because secret handling and file representation require more care than the initial implemented object families
 
 ## 8. Bundle Schema Shape
 
@@ -342,15 +357,18 @@ This proposal is additive.
 
 It does not remove:
 
-- existing per-object JSON commands
 - existing Admin API CRUD endpoints
 - Caddyfile static configuration
 - SQLite-backed dynamic configuration
 
+It does remove from the recommended CLI path:
+
+- per-object JSON `create` / `update` / `upsert` commands for configuration-type objects
+
 Migration path:
 
-1. existing users can keep using per-object JSON commands
-2. operators who want batch workflows can adopt `gateway.yaml`
+1. configuration-type objects move to `gateway.yaml` as the formal write path
+2. operational workflows continue to use command-oriented subcommands
 3. standalone users who want file-backed read-only objects can use `--static-config`
 
 ## 16. MVP Boundaries
@@ -383,7 +401,334 @@ After MVP, likely follow-up items are:
 - documentation examples alongside `Caddyfile.example`
 - tests covering mixed static + dynamic object behavior in standalone mode
 
-## 18. Recommended Decision
+## 18. Implementation Plan
+
+This section turns the proposal into a concrete execution sequence that can be implemented incrementally.
+
+The recommended strategy is:
+
+1. define one shared bundle data model and parser first
+2. add local validation second
+3. add `agwctl gateway validate`
+4. add `agwctl gateway apply`
+5. add `agwd --static-config`
+6. update docs and examples only after the behavior is stable
+
+That order keeps parsing and validation logic shared, reduces rework, and avoids building CLI surfaces before the underlying model is settled.
+
+### 18.1 Phase 1: Shared Bundle Package
+
+Goal:
+
+- define the YAML bundle schema once in a reusable runtime package
+
+Suggested work:
+
+- add a new package such as `pkg/gatewaybundle/`
+- define the top-level `GatewayBundle` Go type
+- define typed list items for:
+  - provider type enablement
+  - LLM API handler type enablement
+  - provider config
+  - managed model
+  - route
+  - virtual key
+- add YAML decode helpers
+- add environment-variable expansion for scalar strings
+
+Suggested outputs:
+
+- `LoadFile(path string) (*GatewayBundle, error)`
+- `DecodeYAML(data []byte) (*GatewayBundle, error)`
+- `ExpandEnv()` or equivalent decode-time expansion behavior
+
+Why first:
+
+- both `agwctl` and `agwd` depend on the same file parser
+- this isolates YAML concerns from command wiring
+
+### 18.2 Phase 2: Local Validation
+
+Goal:
+
+- validate a bundle fully before attempting network writes or daemon startup
+
+Suggested work:
+
+- add `Validate()` on the bundle type
+- normalize embedded provider, route, managed model, and virtual key objects using existing model helpers where possible
+- detect duplicate IDs and invalid references across the bundle
+- validate bundle metadata such as `apiVersion` and `kind`
+
+Validation checklist:
+
+- duplicate provider IDs
+- duplicate route IDs
+- duplicate virtual key keys
+- duplicate managed model `(provider_id, upstream_model)`
+- unknown provider types
+- unknown LLM API handler types
+- route references to missing providers
+- virtual key references to missing routes
+- route definition validation through existing route validation helpers
+
+Suggested outputs:
+
+- a structured error list type for multi-error reporting
+- human-readable validation output for CLI use
+
+### 18.3 Phase 3: `agwctl gateway validate`
+
+Goal:
+
+- expose bundle parsing and validation without touching the server
+
+Suggested work:
+
+- add `validate` under `cmd/agwctl/cmd_gateway.go`
+- accept `-f, --file`
+- load the bundle through the shared package
+- print success summary or validation failures
+
+Recommended behavior:
+
+- exit non-zero on any validation error
+- print object-qualified errors
+- do not require `--addr`, `--user`, or `--password`
+
+Why this phase matters:
+
+- it gives a tight feedback loop before implementing remote mutation
+- it makes the bundle format independently testable and usable
+
+### 18.4 Phase 4: `agwctl gateway apply`
+
+Goal:
+
+- support multi-object create-or-update through the existing Admin API
+
+Suggested work:
+
+- add `apply` under `cmd/agwctl/cmd_gateway.go`
+- reuse the shared parser and validation logic
+- add an internal apply planner/executor, likely in `internal/agwctl/` or `pkg/adminclient/`-adjacent code
+- compare desired bundle state with current remote state
+- perform ordered create or update operations
+
+Recommended execution order:
+
+1. provider types
+2. LLM API handler types
+3. providers
+4. managed models
+5. routes
+6. virtual keys
+
+Recommended implementation details:
+
+- fetch current remote state per object family
+- compute `create`, `update`, `skip`, `error`
+- use semantic equality where needed to avoid noisy updates
+- stop on bundle-level validation failure before the first write
+
+Open design choice for this phase:
+
+- whether apply should continue after one object failure or stop immediately
+
+Recommended MVP behavior:
+
+- continue per object family where safe
+- return a final non-zero exit code if any object failed
+- print a summary with counts and failed object identities
+
+### 18.5 Phase 5: `agwd --static-config`
+
+Goal:
+
+- allow standalone daemon startup with read-only static bundle objects in addition to the dynamic config store
+
+Suggested work:
+
+- update `cmd/agwd/main.go`
+- introduce `--config-store`
+- keep `--config` as deprecated alias for one transition period if needed
+- add `--static-config`
+- update `standalone/server.Options`
+- load and validate the bundle before gateway bootstrap
+
+Runtime integration work:
+
+- extend standalone bootstrap to pass static providers, managed models, routes, and virtual keys into `gateway.BootstrapOptions`
+- align standalone bootstrap behavior with the existing `caddy/gateway.App` static object wiring
+
+Important constraint:
+
+- static bundle objects must remain read-only through Admin API mutation paths
+
+### 18.6 Phase 6: Documentation And Examples
+
+Goal:
+
+- make the feature discoverable and safe to adopt
+
+Suggested work:
+
+- update `README.md`
+- update `AGENTS.md` only if command semantics change materially enough to matter for contributors
+- add example bundle YAML under `examples/`
+- document the difference between:
+  - static bundle config
+  - dynamic config store
+  - existing per-object JSON CRUD
+
+Recommended example files:
+
+- `examples/gateway.bundle.minimal.yaml`
+- `examples/gateway.bundle.logical-model.yaml`
+
+## 19. Concrete Step List
+
+This is the recommended execution checklist for actually delivering the feature.
+
+### Step 1: Settle Data Model
+
+- create `pkg/gatewaybundle/`
+- define `GatewayBundle`
+- define metadata fields: `apiVersion`, `kind`
+- define object family fields:
+  - `ProviderTypes`
+  - `LLMAPIHandlerTypes`
+  - `Providers`
+  - `ManagedModels`
+  - `Routes`
+  - `VirtualKeys`
+- choose exact YAML field naming and keep it aligned with existing JSON models
+
+Exit criteria:
+
+- one package can load a valid bundle YAML into Go structs
+
+### Step 2: Add Parser And Env Expansion
+
+- wire `gopkg.in/yaml.v3`
+- add file read and decode helpers
+- add `${ENV_VAR}` expansion
+- define behavior for missing env vars
+
+Recommended missing-env policy for MVP:
+
+- fail validation if a referenced env var is missing
+
+Exit criteria:
+
+- bundle file can be parsed deterministically with clear error messages
+
+### Step 3: Add Local Validation
+
+- validate metadata
+- validate duplicates
+- validate references
+- call existing normalize/validate helpers on route and provider-like objects where available
+- add tests for valid and invalid bundles
+
+Exit criteria:
+
+- invalid bundles fail without any network or startup side effects
+
+### Step 4: Add `agwctl gateway validate`
+
+- add Cobra command
+- add `-f, --file`
+- print validation summary
+- add CLI tests
+
+Exit criteria:
+
+- operators can validate bundle files locally
+
+### Step 5: Add Apply Planner
+
+- define in-memory apply actions
+- fetch remote state
+- diff desired versus actual
+- classify operations as `create`, `update`, or `skip`
+- decide error aggregation format
+
+Exit criteria:
+
+- planner output can be tested independently from command UX
+
+### Step 6: Add `agwctl gateway apply`
+
+- add Cobra command
+- call parser, validator, and planner
+- execute operations in dependency order
+- print summary
+- add integration-style tests against test HTTP servers
+
+Exit criteria:
+
+- one command can materialize a multi-object bundle remotely
+
+### Step 7: Refactor `agwd` Flags
+
+- introduce `--config-store`
+- keep compatibility path for old `--config` if desired
+- add `--static-config`
+- update help text and docs
+
+Exit criteria:
+
+- CLI flag semantics are no longer ambiguous
+
+### Step 8: Add Standalone Static Bundle Loading
+
+- load bundle before bootstrap
+- validate bundle
+- pass static objects into gateway bootstrap
+- ensure Admin API exposes them as read-only
+- add tests for mixed static + dynamic behavior
+
+Exit criteria:
+
+- `agwd` can start from SQLite plus optional read-only bundle YAML
+
+### Step 9: Add Examples And User Docs
+
+- add example YAML files
+- update README command examples
+- document migration from per-object JSON files
+
+Exit criteria:
+
+- a new user can discover and use the feature from docs alone
+
+## 20. Suggested Pull Request Breakdown
+
+To keep reviewable changes small, split implementation into a few focused PRs.
+
+Recommended PR sequence:
+
+1. shared bundle package plus parser tests
+2. bundle validation plus `agwctl gateway validate`
+3. apply planner plus `agwctl gateway apply`
+4. `agwd --config-store` and `--static-config`
+5. docs, examples, and cleanup
+
+This sequence keeps each PR narrow and reduces the chance of mixing CLI surface design with runtime bootstrap changes.
+
+## 21. Risks And Watchpoints
+
+Implementation should watch for these specific risks:
+
+- silently diverging YAML field names from existing JSON field names
+- bundling unsupported object families too early
+- treating static bundle objects as pre-seeded dynamic rows instead of true read-only static config
+- leaking secrets in export or CLI output
+- introducing `apply` deletion semantics before ownership rules are designed
+- duplicating validation logic in `agwctl` and `agwd` instead of sharing one package
+
+## 22. Recommended Decision
 
 Proceed with the YAML bundle proposal, but keep these two modes explicitly separate:
 

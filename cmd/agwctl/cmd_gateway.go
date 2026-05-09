@@ -9,19 +9,26 @@ import (
 
 	"github.com/agent-guide/caddy-agent-gateway/pkg/adminclient"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/cliauth"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway/modelcatalog"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/gatewaybundle"
 	"github.com/spf13/cobra"
+
+	_ "github.com/agent-guide/caddy-agent-gateway/pkg/dispatcher/llmapi/anthropic"
+	_ "github.com/agent-guide/caddy-agent-gateway/pkg/dispatcher/llmapi/openai"
+	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/anthropic"
+	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/deepseek"
+	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/gemini"
+	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/ollama"
+	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/openai"
+	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/openrouter"
+	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/zhipu"
 )
 
 var (
 	gwUser     string
 	gwPassword string
 
-	gatewayProviderConfigFile string
-	gatewayRouteConfigFile    string
-	gatewayVirtualKeyFile     string
-	gatewayCredentialFile     string
-	gatewayManagedModelFile   string
+	gatewayBundleFile string
+	gatewayExportFile string
 
 	gatewayManagedModelProviderID string
 
@@ -38,6 +45,55 @@ var (
 var gatewayCmd = &cobra.Command{
 	Use:   "gateway",
 	Short: "Manage the remote caddy-agent-gateway via its admin API",
+}
+
+var gatewayValidateCmd = &cobra.Command{
+	Use:   "validate",
+	Short: "Validate a gateway bundle YAML file locally",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if gatewayBundleFile == "" {
+			return fmt.Errorf("--file is required")
+		}
+		bundle, err := gatewaybundle.LoadFile(gatewayBundleFile)
+		if err != nil {
+			return err
+		}
+		if err := bundle.Validate(); err != nil {
+			return err
+		}
+		if outputFormat == "json" {
+			return printJSON(map[string]any{
+				"status": "ok",
+				"file":   gatewayBundleFile,
+				"counts": map[string]int{
+					"provider_types":        len(bundle.ProviderTypes),
+					"llm_api_handler_types": len(bundle.LLMAPIHandlerTypes),
+					"providers":             len(bundle.Providers),
+					"managed_models":        len(bundle.ManagedModels),
+					"routes":                len(bundle.Routes),
+					"virtual_keys":          len(bundle.VirtualKeys),
+				},
+			})
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "gateway bundle is valid: %s\n", gatewayBundleFile)
+		return nil
+	},
+}
+
+var gatewayApplyCmd = &cobra.Command{
+	Use:   "apply",
+	Short: "Apply a gateway bundle YAML file to the remote admin API",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runGatewayApply(context.Background(), gatewayBundleFile)
+	},
+}
+
+var gatewayExportCmd = &cobra.Command{
+	Use:   "export",
+	Short: "Export gateway objects from the remote admin API as bundle YAML",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runGatewayExport(context.Background(), gatewayExportFile)
+	},
 }
 
 // ── gateway provider ─────────────────────────────────────────────────────────
@@ -69,45 +125,6 @@ var gatewayProviderGetCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		item, err := newGatewayClient().GetProvider(context.Background(), args[0])
-		if err != nil {
-			return err
-		}
-		return printJSON(item)
-	},
-}
-
-var gatewayProviderCreateCmd = &cobra.Command{
-	Use:   "create",
-	Short: "Create a provider from a JSON file",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if gatewayProviderConfigFile == "" {
-			return fmt.Errorf("--file is required")
-		}
-		var cfg adminclient.ProviderConfig
-		if err := readJSONFile(gatewayProviderConfigFile, &cfg); err != nil {
-			return err
-		}
-		item, err := newGatewayClient().CreateProvider(context.Background(), cfg)
-		if err != nil {
-			return err
-		}
-		return printJSON(item)
-	},
-}
-
-var gatewayProviderUpdateCmd = &cobra.Command{
-	Use:   "update <provider-id>",
-	Short: "Update a provider from a JSON file",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if gatewayProviderConfigFile == "" {
-			return fmt.Errorf("--file is required")
-		}
-		var cfg adminclient.ProviderConfig
-		if err := readJSONFile(gatewayProviderConfigFile, &cfg); err != nil {
-			return err
-		}
-		item, err := newGatewayClient().UpdateProvider(context.Background(), args[0], cfg)
 		if err != nil {
 			return err
 		}
@@ -190,45 +207,6 @@ var gatewayRouteGetCmd = &cobra.Command{
 	},
 }
 
-var gatewayRouteCreateCmd = &cobra.Command{
-	Use:   "create",
-	Short: "Create a route from a JSON file",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if gatewayRouteConfigFile == "" {
-			return fmt.Errorf("--file is required")
-		}
-		var route adminclient.RouteConfig
-		if err := readJSONFile(gatewayRouteConfigFile, &route); err != nil {
-			return err
-		}
-		item, err := newGatewayClient().CreateRoute(context.Background(), route)
-		if err != nil {
-			return err
-		}
-		return printJSON(item)
-	},
-}
-
-var gatewayRouteUpdateCmd = &cobra.Command{
-	Use:   "update <route-id>",
-	Short: "Update a route from a JSON file",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if gatewayRouteConfigFile == "" {
-			return fmt.Errorf("--file is required")
-		}
-		var route adminclient.RouteConfig
-		if err := readJSONFile(gatewayRouteConfigFile, &route); err != nil {
-			return err
-		}
-		item, err := newGatewayClient().UpdateRoute(context.Background(), args[0], route)
-		if err != nil {
-			return err
-		}
-		return printJSON(item)
-	},
-}
-
 var gatewayRouteDeleteCmd = &cobra.Command{
 	Use:   "delete <route-id>",
 	Short: "Delete a route",
@@ -297,45 +275,6 @@ var gatewayVirtualKeyGetCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		item, err := newGatewayClient().GetVirtualKey(context.Background(), args[0])
-		if err != nil {
-			return err
-		}
-		return printJSON(item)
-	},
-}
-
-var gatewayVirtualKeyCreateCmd = &cobra.Command{
-	Use:   "create",
-	Short: "Create a virtual key from a JSON file",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if gatewayVirtualKeyFile == "" {
-			return fmt.Errorf("--file is required")
-		}
-		var req adminclient.VirtualKeyConfig
-		if err := readJSONFile(gatewayVirtualKeyFile, &req); err != nil {
-			return err
-		}
-		item, err := newGatewayClient().CreateVirtualKey(context.Background(), req)
-		if err != nil {
-			return err
-		}
-		return printJSON(item)
-	},
-}
-
-var gatewayVirtualKeyUpdateCmd = &cobra.Command{
-	Use:   "update <key>",
-	Short: "Update a virtual key from a JSON file",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if gatewayVirtualKeyFile == "" {
-			return fmt.Errorf("--file is required")
-		}
-		var req adminclient.VirtualKeyConfig
-		if err := readJSONFile(gatewayVirtualKeyFile, &req); err != nil {
-			return err
-		}
-		item, err := newGatewayClient().UpdateVirtualKey(context.Background(), args[0], req)
 		if err != nil {
 			return err
 		}
@@ -569,26 +508,6 @@ var gatewayModelsManagedGetCmd = &cobra.Command{
 	},
 }
 
-var gatewayModelsManagedUpsertCmd = &cobra.Command{
-	Use:   "upsert <provider-id> <upstream-model>",
-	Short: "Upsert a managed model overlay from a JSON file",
-	Args:  cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if gatewayManagedModelFile == "" {
-			return fmt.Errorf("--file is required")
-		}
-		var req modelcatalog.ManagedModel
-		if err := readJSONFile(gatewayManagedModelFile, &req); err != nil {
-			return err
-		}
-		item, err := newGatewayClient().UpsertManagedModel(context.Background(), args[0], args[1], req)
-		if err != nil {
-			return err
-		}
-		return printJSON(item)
-	},
-}
-
 var gatewayModelsManagedDeleteCmd = &cobra.Command{
 	Use:   "delete <provider-id> <upstream-model>",
 	Short: "Delete a managed model overlay",
@@ -779,45 +698,6 @@ var gatewayCredentialGetCmd = &cobra.Command{
 	},
 }
 
-var gatewayCredentialCreateCmd = &cobra.Command{
-	Use:   "create",
-	Short: "Create a credential from a JSON file",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if gatewayCredentialFile == "" {
-			return fmt.Errorf("--file is required")
-		}
-		var req adminclient.CreateCredentialRequest
-		if err := readJSONFile(gatewayCredentialFile, &req); err != nil {
-			return err
-		}
-		item, err := newGatewayClient().CreateCredential(context.Background(), req)
-		if err != nil {
-			return err
-		}
-		return printJSON(item)
-	},
-}
-
-var gatewayCredentialUpdateCmd = &cobra.Command{
-	Use:   "update <credential-id>",
-	Short: "Update a credential from a JSON file",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if gatewayCredentialFile == "" {
-			return fmt.Errorf("--file is required")
-		}
-		var req adminclient.UpdateCredentialRequest
-		if err := readJSONFile(gatewayCredentialFile, &req); err != nil {
-			return err
-		}
-		item, err := newGatewayClient().UpdateCredential(context.Background(), args[0], req)
-		if err != nil {
-			return err
-		}
-		return printJSON(item)
-	},
-}
-
 var gatewayCredentialDeleteCmd = &cobra.Command{
 	Use:   "delete <credential-id>",
 	Short: "Delete a credential",
@@ -919,16 +799,10 @@ func init() {
 	gatewayCmd.PersistentFlags().StringVar(&gwUser, "user", envOr("GATEWAY_ADMIN_USER", ""), "gateway admin username")
 	gatewayCmd.PersistentFlags().StringVar(&gwPassword, "password", envOr("GATEWAY_ADMIN_PASSWORD", ""), "gateway admin password")
 
-	gatewayProviderCreateCmd.Flags().StringVarP(&gatewayProviderConfigFile, "file", "f", "", "path to provider JSON file")
-	gatewayProviderUpdateCmd.Flags().StringVarP(&gatewayProviderConfigFile, "file", "f", "", "path to provider JSON file")
-	gatewayRouteCreateCmd.Flags().StringVarP(&gatewayRouteConfigFile, "file", "f", "", "path to route JSON file")
-	gatewayRouteUpdateCmd.Flags().StringVarP(&gatewayRouteConfigFile, "file", "f", "", "path to route JSON file")
-	gatewayVirtualKeyCreateCmd.Flags().StringVarP(&gatewayVirtualKeyFile, "file", "f", "", "path to virtual key JSON file")
-	gatewayVirtualKeyUpdateCmd.Flags().StringVarP(&gatewayVirtualKeyFile, "file", "f", "", "path to virtual key JSON file")
-	gatewayCredentialCreateCmd.Flags().StringVarP(&gatewayCredentialFile, "file", "f", "", "path to credential JSON file")
-	gatewayCredentialUpdateCmd.Flags().StringVarP(&gatewayCredentialFile, "file", "f", "", "path to credential JSON file")
 	gatewayModelsManagedListCmd.Flags().StringVar(&gatewayManagedModelProviderID, "provider-id", "", "filter managed models by provider ID")
-	gatewayModelsManagedUpsertCmd.Flags().StringVarP(&gatewayManagedModelFile, "file", "f", "", "path to managed model JSON file")
+	gatewayValidateCmd.Flags().StringVarP(&gatewayBundleFile, "file", "f", "", "path to gateway bundle YAML file")
+	gatewayApplyCmd.Flags().StringVarP(&gatewayBundleFile, "file", "f", "", "path to gateway bundle YAML file")
+	gatewayExportCmd.Flags().StringVarP(&gatewayExportFile, "file", "f", "", "write bundle YAML to this file instead of stdout")
 	gatewayCLIAuthAuthenticatorsEnableCmd.Flags().StringVarP(&gatewayCLIAuthEnableConfigFile, "file", "f", "", "path to CLI auth enable JSON file containing {\"config\":...}")
 	gatewayCLIAuthAuthenticatorsEnableCmd.Flags().IntVar(&gatewayCLIAuthCallbackPort, "callback-port", 0, "callback port override")
 	gatewayCLIAuthAuthenticatorsEnableCmd.Flags().BoolVar(&gatewayCLIAuthNoBrowser, "no-browser", false, "print the login URL instead of opening a browser")
@@ -939,8 +813,6 @@ func init() {
 	gatewayProviderCmd.AddCommand(
 		gatewayProviderListCmd,
 		gatewayProviderGetCmd,
-		gatewayProviderCreateCmd,
-		gatewayProviderUpdateCmd,
 		gatewayProviderDeleteCmd,
 		gatewayProviderEnableCmd,
 		gatewayProviderDisableCmd,
@@ -948,8 +820,6 @@ func init() {
 	gatewayRouteCmd.AddCommand(
 		gatewayRouteListCmd,
 		gatewayRouteGetCmd,
-		gatewayRouteCreateCmd,
-		gatewayRouteUpdateCmd,
 		gatewayRouteDeleteCmd,
 		gatewayRouteEnableCmd,
 		gatewayRouteDisableCmd,
@@ -957,8 +827,6 @@ func init() {
 	gatewayVirtualKeyCmd.AddCommand(
 		gatewayVirtualKeyListCmd,
 		gatewayVirtualKeyGetCmd,
-		gatewayVirtualKeyCreateCmd,
-		gatewayVirtualKeyUpdateCmd,
 		gatewayVirtualKeyDeleteCmd,
 		gatewayVirtualKeyEnableCmd,
 		gatewayVirtualKeyDisableCmd,
@@ -966,8 +834,6 @@ func init() {
 	gatewayCredentialCmd.AddCommand(
 		gatewayCredentialListCmd,
 		gatewayCredentialGetCmd,
-		gatewayCredentialCreateCmd,
-		gatewayCredentialUpdateCmd,
 		gatewayCredentialDeleteCmd,
 	)
 	gatewayModelsDiscoveredCmd.AddCommand(
@@ -977,7 +843,6 @@ func init() {
 	gatewayModelsManagedCmd.AddCommand(
 		gatewayModelsManagedListCmd,
 		gatewayModelsManagedGetCmd,
-		gatewayModelsManagedUpsertCmd,
 		gatewayModelsManagedDeleteCmd,
 	)
 	gatewayModelsCmd.AddCommand(gatewayModelsDiscoveredCmd, gatewayModelsManagedCmd)
@@ -1007,6 +872,9 @@ func init() {
 	gatewayCLIAuthCmd.AddCommand(gatewayCLIAuthAuthenticatorsCmd, gatewayCLIAuthLoginsCmd, gatewayCLIAuthRefresherCmd)
 
 	gatewayCmd.AddCommand(
+		gatewayValidateCmd,
+		gatewayApplyCmd,
+		gatewayExportCmd,
 		gatewayProviderCmd,
 		gatewayRouteCmd,
 		gatewayVirtualKeyCmd,

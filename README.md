@@ -125,124 +125,58 @@ List remote gateway CLI auth authenticators and refresher status:
   cliauth refresher status
 ```
 
-Create or update gateway objects from JSON files:
+Validate a gateway bundle YAML file locally:
+
+```bash
+./agwctl gateway validate -f ./examples/gateway.bundle.minimal.yaml
+```
+
+Apply a gateway bundle YAML file through the Admin API:
 
 ```bash
 ./agwctl gateway --addr http://localhost:8019 \
   --user admin \
   --password your-password \
-  provider create -f ./provider.json
+  apply -f ./examples/gateway.bundle.minimal.yaml
+```
+
+Export remote gateway objects as bundle YAML:
+
+```bash
+./agwctl gateway --addr http://localhost:8019 \
+  --user admin \
+  --password your-password \
+  export -f ./gateway.bundle.yaml
+```
+
+Recommended workflow for configuration objects:
+
+```bash
+./agwctl gateway --addr http://localhost:8019 \
+  --user admin \
+  --password your-password \
+  export -f ./gateway.bundle.yaml
+
+./agwctl gateway validate -f ./gateway.bundle.yaml
 
 ./agwctl gateway --addr http://localhost:8019 \
   --user admin \
   --password your-password \
-  route update chat-prod -f ./route.json
+  apply -f ./gateway.bundle.yaml
 ```
 
-Example JSON files for `agwctl gateway ... -f ...`:
+Configuration objects no longer use per-object JSON `create` / `update` / `upsert` commands as the recommended CLI path. Use gateway bundle YAML for:
 
-`provider.json`
+Bundle YAML examples for batch workflows:
 
-```json
-{
-  "id": "openrouter-main",
-  "provider_type": "openrouter",
-  "api_key": "sk-or-...",
-  "base_url": "https://openrouter.ai/api/v1",
-  "default_model": "openai/gpt-4o-mini",
-  "network": {
-    "request_timeout_seconds": 120,
-    "max_retries": 3,
-    "max_idle_connections": 100,
-    "max_idle_connections_per_host": 20,
-    "idle_keep_alive_timeout_seconds": 90
-  }
-}
-```
+- `examples/gateway.bundle.minimal.yaml`
+- `examples/gateway.bundle.logical-model.yaml`
 
-`route.json`
-
-```json
-{
-  "id": "chat-prod",
-  "llm_api": "openai",
-  "match": {
-    "path_prefix": "/",
-    "methods": ["POST"]
-  },
-  "target_policy": {
-    "provider_target": {
-      "provider_id": "openrouter-main"
-    }
-  },
-  "auth_policy": {
-    "require_virtual_key": true
-  }
-}
-```
-
-`virtualkey.json`
-
-```json
-{
-  "tag": "demo-user",
-  "name": "demo key",
-  "allowed_route_ids": ["chat-prod"]
-}
-```
-
-`credential-create.json`
-
-```json
-{
-  "provider_id": "openai-main",
-  "label": "primary",
-  "attributes": {
-    "api_key": "sk-...",
-    "base_url": "https://api.openai.com/v1",
-    "priority": "10"
-  }
-}
-```
-
-`credential-update.json`
-
-```json
-{
-  "label": "primary-updated",
-  "disabled": false,
-  "attributes": {
-    "api_key": "sk-...",
-    "base_url": "https://api.openai.com/v1",
-    "priority": "20"
-  }
-}
-```
-
-`managed-model.json`
-
-```json
-{
-  "enabled": true,
-  "credential_scope": "provider_id",
-  "capability_overrides": {
-    "streaming": true,
-    "tools": true
-  }
-}
-```
-
-`cliauth-enable.json`
-
-```json
-{
-  "config": {
-    "callback_port": 9002,
-    "no_browser": true,
-    "device_flow": true
-  }
-}
-```
+- `providers`
+- `managedModels`
+- `routes`
+- `virtualKeys`
+- `credentials`
 
 Common command patterns:
 
@@ -250,22 +184,15 @@ Common command patterns:
 ./agwctl gateway --addr http://localhost:8019 \
   --user admin \
   --password your-password \
-  virtualkey create -f ./virtualkey.json
+  apply -f ./examples/gateway.bundle.minimal.yaml
 
 ./agwctl gateway --addr http://localhost:8019 \
   --user admin \
   --password your-password \
-  credential update cred-123 -f ./credential-update.json
-
-./agwctl gateway --addr http://localhost:8019 \
-  --user admin \
-  --password your-password \
-  models managed upsert openai-main gpt-4.1 -f ./managed-model.json
-
-./agwctl gateway --addr http://localhost:8019 \
-  --user admin \
-  --password your-password \
-  cliauth authenticators enable codex -f ./cliauth-enable.json
+  cliauth authenticators enable codex \
+  --callback-port 9002 \
+  --no-browser \
+  --device-flow
 ```
 
 ## Quick Start
@@ -523,6 +450,7 @@ Configuration comes from two places:
 
 - static Caddyfile config under `agent_gateway`
 - persisted SQLite records managed through the Admin API
+- optional standalone static bundle YAML loaded with `agwd --static-config`
 
 Static providers, logical model bindings, routes, and virtual keys are loaded during provisioning. Persisted provider, managed model, route, credential, and virtual key records can be changed through the Admin API without rebuilding the Caddy binary.
 
@@ -535,6 +463,13 @@ Model catalog Admin API families:
 - `GET /admin/models/logical`
 
 Static records are exposed through Admin API list/read responses with source/read-only metadata where applicable. Attempts to mutate static providers or routes return conflict errors.
+
+For the standalone daemon, static bundle YAML uses the same read-only semantics as Caddyfile-owned objects:
+
+```bash
+./agwd --config-store ./data/configstore.db \
+  --static-config ./examples/gateway.bundle.minimal.yaml
+```
 
 ## Admin API
 

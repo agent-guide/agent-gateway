@@ -38,7 +38,10 @@ func main() {
 	rootCmd.Flags().StringVar(&opts.AdminAddr, "admin-addr", "127.0.0.1:8081", "Admin API listen address")
 	rootCmd.Flags().StringVar(&opts.AdminUser, "admin-user", os.Getenv("AGW_ADMIN_USER"), "admin username")
 	rootCmd.Flags().StringVar(&opts.AdminPasswordHash, "admin-password-hash", os.Getenv("AGW_ADMIN_PASSWORD_HASH"), "bcrypt hash of admin password")
-	rootCmd.Flags().StringVar(&opts.ConfigPath, "config", "./data/configstore.db", "SQLite config store file")
+	rootCmd.Flags().StringVar(&opts.ConfigStorePath, "config-store", "./data/configstore.db", "SQLite config store file")
+	rootCmd.Flags().StringVar(&opts.LegacyConfigPath, "config", "", "deprecated alias for --config-store")
+	rootCmd.Flags().StringVar(&opts.StaticConfigPath, "static-config", "", "gateway bundle YAML file loaded as read-only static configuration")
+	_ = rootCmd.Flags().MarkDeprecated("config", "use --config-store instead")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

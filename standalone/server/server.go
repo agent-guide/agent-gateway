@@ -14,8 +14,13 @@ import (
 	anthropicapi "github.com/agent-guide/caddy-agent-gateway/pkg/dispatcher/llmapi/anthropic"
 	openaiapi "github.com/agent-guide/caddy-agent-gateway/pkg/dispatcher/llmapi/openai"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway/modelcatalog"
+	routepkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/route"
+	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/virtualkey"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/gatewaybundle"
 	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
 	credentialmgrscheduler "github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr/scheduler"
+	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -25,7 +30,9 @@ const shutdownTimeout = 10 * time.Second
 type Options struct {
 	Addr              string
 	AdminAddr         string
-	ConfigPath        string
+	ConfigStorePath   string
+	LegacyConfigPath  string
+	StaticConfigPath  string
 	AdminUser         string
 	AdminPasswordHash string
 }
@@ -37,8 +44,12 @@ func (o *Options) setDefaults() {
 	if o.AdminAddr == "" {
 		o.AdminAddr = o.Addr
 	}
-	if o.ConfigPath == "" {
-		o.ConfigPath = "./data/configstore.db"
+	if o.ConfigStorePath == "" {
+		if o.LegacyConfigPath != "" {
+			o.ConfigStorePath = o.LegacyConfigPath
+		} else {
+			o.ConfigStorePath = "./data/configstore.db"
+		}
 	}
 }
 
@@ -102,7 +113,12 @@ func Run(ctx context.Context, opts Options) error {
 }
 
 func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*gateway.AgentGateway, *cliauth.AutoRefresher, error) {
-	configStore, err := configstoresqlite.Open(ctx, configstoresqlite.Config{SQLitePath: opts.ConfigPath}, logger.Named("sqlite"))
+	staticConfig, err := loadStaticConfig(ctx, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	configStore, err := configstoresqlite.Open(ctx, configstoresqlite.Config{SQLitePath: opts.ConfigStorePath}, logger.Named("sqlite"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("open config store: %w", err)
 	}
@@ -121,6 +137,10 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 	cliauthManager.SetCredentialManager(credentialManager)
 	cliauthRefresher := cliauth.NewAutoRefresher(cliauth.WrapSharedCredentialManager(credentialManager), cliauthManager)
 
+	if err := registerStaticProviderCredentials(ctx, credentialManager, staticConfig.Providers); err != nil {
+		return nil, nil, err
+	}
+
 	if err := credentialManager.Load(ctx); err != nil {
 		return nil, nil, fmt.Errorf("load credentials: %w", err)
 	}
@@ -130,6 +150,10 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(ctx, gateway.BootstrapOptions{
+		StaticRoutes:        staticConfig.Routes,
+		StaticVirtualKeys:   staticConfig.VirtualKeys,
+		StaticProviders:     staticConfig.Providers,
+		StaticModels:        staticConfig.ManagedModels,
 		ConfigStore:         configStore,
 		CLIAuthManager:      cliauthManager,
 		CLIAuthRefresher:    cliauthRefresher,
@@ -139,6 +163,72 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 		return nil, nil, fmt.Errorf("bootstrap agent gateway: %w", err)
 	}
 	return agentGateway, cliauthRefresher, nil
+}
+
+type staticConfig struct {
+	Providers     map[string]provider.Provider
+	ManagedModels []modelcatalog.ManagedModel
+	Routes        []routepkg.AgentRoute
+	VirtualKeys   []virtualkeypkg.VirtualKey
+}
+
+func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) {
+	_ = ctx
+	cfg := &staticConfig{
+		Providers: map[string]provider.Provider{},
+	}
+	if opts.StaticConfigPath == "" {
+		return cfg, nil
+	}
+
+	bundle, err := gatewaybundle.LoadFile(opts.StaticConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("load static gateway bundle: %w", err)
+	}
+	if err := bundle.Validate(); err != nil {
+		return nil, fmt.Errorf("validate static gateway bundle: %w", err)
+	}
+	providers, err := instantiateStaticProviders(bundle)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Providers = providers
+	cfg.ManagedModels = append([]modelcatalog.ManagedModel(nil), bundle.ManagedModels...)
+	cfg.Routes = append([]routepkg.AgentRoute(nil), bundle.Routes...)
+	cfg.VirtualKeys = append([]virtualkeypkg.VirtualKey(nil), bundle.VirtualKeys...)
+	return cfg, nil
+}
+
+func instantiateStaticProviders(bundle *gatewaybundle.GatewayBundle) (map[string]provider.Provider, error) {
+	out := make(map[string]provider.Provider, len(bundle.Providers))
+	for _, cfg := range bundle.Providers {
+		cfg = provider.NormalizeConfig(cfg, cfg.Id, cfg.ProviderType)
+		prov, err := provider.NewProvider(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("init static provider %q: %w", cfg.Id, err)
+		}
+		out[cfg.Id] = prov
+	}
+	return out, nil
+}
+
+func registerStaticProviderCredentials(ctx context.Context, credentialManager *credentialmgr.Manager, providers map[string]provider.Provider) error {
+	if credentialManager == nil {
+		return nil
+	}
+	for providerID, prov := range providers {
+		if prov == nil {
+			continue
+		}
+		cred := provider.StaticAPIKeyCredential(prov.Config(), providerID)
+		if cred == nil {
+			continue
+		}
+		if err := credentialManager.RegisterCredential(credentialmgr.WithSkipPersist(ctx), cred); err != nil {
+			return fmt.Errorf("register static credential for provider %q: %w", providerID, err)
+		}
+	}
+	return nil
 }
 
 func newLLMAPIHandlers(logger *zap.Logger) map[string]dispatcher.LLMApiHandler {
