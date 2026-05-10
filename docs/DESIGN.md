@@ -15,6 +15,8 @@ The project is built around four practical goals:
 - Centralize provider configuration, upstream credentials, and gateway-side API keys
 - Leave room for richer agent runtime features such as MCP, memory, and orchestration without forcing them into every caller
 
+The current Go module path is `github.com/agent-guide/agent-gateway`.
+
 Related extension design notes live in `docs/` when a topic needs more detail than this architecture overview. The gateway bundle YAML proposal is documented in [docs/gateway-bundle-yaml-design.md](gateway-bundle-yaml-design.md).
 
 ## 3. Top-Level Architecture
@@ -26,21 +28,20 @@ Client
   |
   v
 HTTP handlers
-  - http.handlers.agent_route_dispatcher
-  - http.handlers.agent_gateway_admin
+  - Caddy adapters: http.handlers.agent_route_dispatcher, http.handlers.agent_gateway_admin
+  - Standalone server: net/http handlers assembled by standalone/server
 Dispatcher LLM API modules
   - agent_route_dispatcher.llm_apis.openai
   - agent_route_dispatcher.llm_apis.anthropic
   |
   v
-agent_gateway Caddy app
-  - provider loading
+Shared gateway runtime
+  - provider loading and resolution
   - authenticator loading
   - config store loading
   - route registry / route loader
-  - provider resolver
   - virtual key lookup
-  - auth manager
+  - credential and auth managers
   |
   v
 External systems
@@ -51,9 +52,9 @@ External systems
 
 ## 4. Main Components
 
-### 4.1 `caddy/gateway/` And `pkg/gateway/`: App Adapter And Runtime Backbone
+### 4.1 `caddy/gateway/`, `standalone/server/`, And `pkg/gateway/`: Runtime Assembly And Backbone
 
-The `caddy/gateway.App` type is the root Caddy app module with module ID `agent_gateway`.
+The `caddy/gateway.App` type is the root Caddy app module with module ID `agent_gateway`. The standalone daemon in `standalone/server/` assembles the same core runtime services without depending on a Caddy app lifecycle.
 
 Its responsibilities are:
 
@@ -70,7 +71,7 @@ The app owns both:
 - statically configured routes from the Caddyfile
 - dynamically persisted route and provider records from the config store
 
-This is the key design choice in the project: the HTTP handlers are intentionally thin, the Caddy app owns Caddy lifecycle wiring, and `pkg/gateway` owns the reusable gateway services.
+This is the key design choice in the project: transport adapters are intentionally thin, runtime assembly is allowed to differ between `agw` and `agwd`, and `pkg/gateway` owns the reusable gateway services.
 
 ### 4.2 `caddy/dispatcher/` And `pkg/dispatcher/`: Compatible LLM Ingress
 
@@ -278,7 +279,7 @@ Current runtime resolution treats `TargetPolicy.ProviderTarget.ProviderID` as th
 
 ### 6.2 Selection and Resolution
 
-At startup, the gateway app builds:
+At startup, the runtime assembly layer builds:
 
 - a route loader
 - a provider resolver
@@ -286,7 +287,7 @@ At startup, the gateway app builds:
 
 Provider resolution currently combines:
 
-- statically provisioned provider instances from the Caddy app
+- statically provisioned provider instances from the active runtime assembly
 - dynamically decoded provider configs from the config store
 
 This allows the request path to resolve a named target provider without hard-coding the source of truth to either the Caddyfile or the database alone.
@@ -352,6 +353,7 @@ Authenticators configured by Caddyfile are read-only and cannot be disabled thro
 The following are implemented enough to be production-shape code, even if still early:
 
 - Caddy app provisioning
+- standalone server assembly
 - provider module loading
 - authenticator module loading
 - SQLite config persistence
@@ -379,13 +381,13 @@ The codebase is designed to be extended in a few stable ways:
 
 ### 9.1 New Provider
 
-Add a Caddy module under `llm.providers.<name>` that implements `provider.Provider`.
+Implement `provider.Provider` in `pkg/llm/provider/<name>`. If the provider should also be available in the `agw` binary, add the corresponding Caddy adapter under `caddy/provider/<name>` and link it from `cmd/agw/main.go`.
 
 This is the most mature extension path in the project today.
 
 ### 9.2 New Authenticator
 
-Add a Caddy module under `llm.authenticators.<name>` that implements the auth manager's authenticator contract.
+Implement the auth manager's authenticator contract and register its factory. If it should be available in the Caddy-based runtime, ensure the linked registration path remains included in `cmd/agw/main.go`.
 
 This integrates naturally with the existing admin CLI login API.
 
@@ -407,7 +409,7 @@ Those boundaries are already visible in code, but they should still be treated a
 
 ## 10. Design Tradeoffs
 
-### 10.1 Why a Caddy App Instead of a Standalone Gateway Server
+### 10.1 Why Support Both a Caddy App and a Standalone Gateway Server
 
 Using a Caddy app gives the project:
 
@@ -416,15 +418,15 @@ Using a Caddy app gives the project:
 - established HTTP pipeline integration
 - existing config loading and deployment patterns
 
-The downside is that some gateway concepts must fit Caddy's lifecycle and config style, which is why the project uses both app-level modules and persisted operational records.
+The standalone daemon avoids coupling everything to Caddy's lifecycle and makes it easier to run the gateway as a conventional service. The downside is that the project must maintain two assembly paths over the same runtime core.
 
 ### 10.2 Why Hybrid Static + Dynamic Config
 
-Only static config would make operational updates clumsy. Only dynamic config would weaken the value of Caddy's module graph and startup-time composition.
+Only static config would make operational updates clumsy. Only dynamic config would weaken the value of reproducible startup composition, especially in the Caddy-based runtime.
 
 The hybrid model keeps:
 
-- static infra wiring in the Caddyfile
+- static infra wiring in the Caddyfile or standalone bundle
 - mutable provider and route records in SQLite
 
 This is slightly more complex, but it matches how the gateway is meant to be operated.
@@ -446,4 +448,4 @@ The most coherent next steps for the architecture are:
 - expand Caddyfile route syntax to cover more of the existing route data model
 - decide how the separate web UI becomes a first-class operator surface
 
-Until then, the project should be understood primarily as a route-based Caddy LLM gateway with a broader agent-runtime architecture under active construction.
+Until then, the project should be understood primarily as a route-based LLM gateway with both Caddy-based and standalone deployment modes, and with a broader agent-runtime architecture still under active construction.

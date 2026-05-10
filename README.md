@@ -1,12 +1,16 @@
 # agent-gateway
 
-`agent-gateway` is an AI gateway for LLM and agent workloads. It supports both a custom Caddy binary (`agw`) and a standalone daemon (`agwd`), and provides:
+`agent-gateway` is an AI gateway for LLM and agent workloads. It supports both a custom Caddy-based binary (`agw`) and a standalone daemon (`agwd`), and provides:
 
 - OpenAI-compatible and Anthropic-compatible HTTP APIs
 - route-based dispatch to logical models or direct upstream providers
-- static Caddyfile configuration plus SQLite-backed dynamic configuration
-- admin APIs for providers, model catalog, routes, virtual keys, upstream credentials, CLI auth, and Caddy server management
+- static Caddyfile configuration in `agw`, plus SQLite-backed dynamic configuration shared by both runtimes
+- admin APIs for providers, model catalog, routes, virtual keys, upstream credentials, and CLI auth
 - early MCP, memory, metrics, and agent endpoint scaffolding
+
+Go module path:
+
+- `github.com/agent-guide/agent-gateway`
 
 The request path today is centered on LLM routing. MCP, memory, metrics, and agent Admin API routes are registered, but they currently return `501 not implemented`.
 
@@ -66,7 +70,7 @@ or:
 make build
 ```
 
-The `agw` binary includes Caddy standard modules, the gateway app, the admin handler, LLM API handlers, built-in providers, and CLI authenticators. `make build` also builds the standalone daemon as `agwd` and the management CLI as `agwctl`.
+The `agw` binary includes Caddy standard modules, the gateway app adapter, the admin handler, LLM API handlers, built-in providers, and CLI authenticators. `make build` also builds the standalone daemon as `agwd` and the management CLI as `agwctl`.
 
 ## Binary Names
 
@@ -76,7 +80,7 @@ The `agw` binary includes Caddy standard modules, the gateway app, the admin han
 
 ## Management CLI
 
-`agwctl` is the management CLI for the gateway Admin API, the Caddy admin API, and local CLI auth credentials.
+`agwctl` is the management CLI for the gateway Admin API, direct Caddy admin API operations, and local CLI auth credentials.
 
 Important distinction:
 
@@ -99,7 +103,7 @@ List gateway routes through the gateway Admin API:
   --password your-password
 ```
 
-List Caddy HTTP servers through the Caddy admin API:
+List Caddy HTTP servers through the Caddy admin API directly, not through the gateway Admin API:
 
 ```bash
 ./agwctl caddy --addr http://127.0.0.1:2019 server list
@@ -327,6 +331,8 @@ Admin sessions are in memory. Restarting the service invalidates existing tokens
 
 ## Caddyfile Configuration
 
+This section applies to the `agw` runtime. If you run `agwd`, use `--config-store` and optional `--static-config` bundle YAML instead of a Caddyfile.
+
 The gateway is configured in the global `agent_gateway` block:
 
 ```caddy
@@ -348,7 +354,7 @@ config_store sqlite {
 }
 ```
 
-If `path` is omitted, the store defaults to Caddy's app data directory under `agent-gateway/configstore.db`.
+If `path` is omitted in `agw`, the store defaults to Caddy's app data directory under `agent-gateway/configstore.db`.
 
 ### Providers
 
@@ -468,7 +474,7 @@ Configuration comes from two places:
 - persisted SQLite records managed through the Admin API
 - optional standalone static bundle YAML loaded with `agwd --static-config`
 
-Static providers, logical model bindings, routes, and virtual keys are loaded during provisioning. Persisted provider, managed model, route, credential, and virtual key records can be changed through the Admin API without rebuilding the Caddy binary.
+Static providers, logical model bindings, routes, and virtual keys are loaded during startup. Persisted provider, managed model, route, credential, and virtual key records can be changed through the Admin API without rebuilding the binaries.
 
 Model catalog Admin API families:
 
@@ -676,13 +682,11 @@ These endpoints currently return `501 not implemented`:
 - Metrics:
   - `GET /admin/metrics`
 
-## Caddy Server Management
+## Caddy Integration Notes
 
 The gateway admin handler does not expose Caddy server management endpoints.
-Run the standalone `caddymgr` service for `/admin/caddy/*` operations and point
-the Web UI at that service. `caddymgr` keeps its own frontend session and proxies
-non-Caddy `/admin/*` calls back to this gateway, so Caddy reloads do not force
-the frontend to log in again.
+If you need `/admin/caddy/*` operations for a Caddy-managed deployment, run the standalone `caddymgr` service and point the Web UI at that service. `caddymgr` keeps its own frontend session and proxies non-Caddy `/admin/*` calls back to this gateway, so Caddy reloads do not force the frontend to log in again.
+Similarly, `agwctl caddy ...` talks to the Caddy admin API directly and does not use the gateway Admin API route table.
 
 ## Current Limits
 
@@ -692,13 +696,13 @@ the frontend to log in again.
 - OpenAI embeddings are not fully wired through the API handler.
 - MCP, memory, metrics, and agent Admin API routes are placeholders.
 - Memory backends and embedding adapters contain interfaces and stubs, but are not production-ready request-path features.
-- Caddy server management is handled by the standalone `caddymgr` service, not this gateway module.
+- Caddy server management is handled by the standalone `caddymgr` service, not by the gateway Admin API.
 
 ## Useful Commands
 
 ```bash
 go test ./...
-go test ./admin ./gateway ./api
+go test ./pkg/admin ./pkg/gateway ./pkg/dispatcher/...
 go test ./pkg/llm/provider/... ./caddy/provider/...
 ```
 

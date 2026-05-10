@@ -1,758 +1,508 @@
-# Route Target Policy Design
+# Route Target Policy Architecture And Technical Specification
 
-## Goal
+## 1. Scope
 
-Refactor route target selection around a `TargetPolicy` interface with two concrete policies:
+This document defines the current route target policy architecture in `agent-gateway`.
 
-1. `DirectProviderPolicy`
-2. `LogicalModelPolicy`
+It is a runtime design and technical specification document, not a proposal or migration plan. It describes the implemented route target policy model, validation rules, runtime resolution behavior, credential scheduling semantics, and fallback behavior used by the gateway today.
 
-The new design separates:
+The current Go module path is:
 
-- route-facing target declaration
-- runtime model and credential scheduling
-- request execution and fallback control
+- `github.com/agent-guide/agent-gateway`
 
-It also introduces a routed execution wrapper named `RoutedProvider` to replace the current `authManagedProvider`.
+## 2. Architectural Position
 
-## Why Change
+Route target policy is the control layer between route matching and provider execution.
 
-The current route target shape mixes two route modes into one struct:
+The relevant package ownership is:
 
-- direct provider routing via `provider_target`
-- logical model routing via `model_targets`
+- `pkg/gateway/route`
+  - owns route data model, target policy normalization, validation, and target resolution
+- `pkg/gateway`
+  - owns `RoutedProvider`, provider resolution, credential scheduling, and fallback execution
+- `pkg/gateway/modelcatalog`
+  - owns managed model overlays and discovered provider model facts
+- `pkg/llm/credentialmgr`
+  - owns credential persistence, refresh, and scheduling primitives
+- `pkg/dispatcher`
+  - owns protocol parsing and protocol-specific response generation
 
-That works for simple resolution, but it becomes awkward once route-level behavior needs to express:
+The route target policy decides which concrete upstream binding may be used for a request. `RoutedProvider` executes that decision and handles bounded fallback when configured.
 
-- different target kinds with different required fields
-- model selection strategy
-- credential selection strategy
-- credential scope precedence
-- credential source precedence
-- bounded fallback behavior
-- runtime result marking and future request accounting
-
-The design should move from a passive config struct to an explicit policy abstraction.
+## 3. Design Overview
 
-## Design Principles
+The current implementation uses a concrete route target policy struct:
 
-1. `TargetPolicy` is a route-level interface, not a bag of optional fields.
-2. Direct-provider and logical-model routes are first-class, mutually exclusive policy kinds.
-3. Model selection and credential selection are both part of target policy, because they jointly decide the real upstream execution target.
-4. Fallback is a runtime concern owned by `RoutedProvider`, not by protocol adapters.
-5. `ResolvedTarget` should stay minimal and represent one concrete execution choice, not the full route policy.
-6. Credential scheduling and model scheduling must be re-entrant so the runtime can re-select credential or model after failure.
-7. The design should support future extensions such as per-route metrics, request accounting, circuit breaking, and adaptive scheduling.
+- `route.AgentRoute`
+- `route.RouteTargetPolicy`
 
-## High-Level Architecture
+It does not use a Go interface-backed policy object at runtime.
 
-```text
-AgentRoute
-  -> TargetPolicy (interface)
-      -> DirectProviderPolicy
-      -> LogicalModelPolicy
-  -> ResolveExecutionPlan(...)
-  -> RoutedProvider.Execute(...)
-      -> select model candidate if needed
-      -> select credential
-      -> invoke concrete provider
-      -> mark result
-      -> decide retry / reselect credential / reselect model
-```
+Current route target policy supports two effective modes:
 
-### Responsibility Split
+- `direct-provider`
+- `logical-model`
 
-`TargetPolicy` owns:
+The effective mode is determined by `RouteTargetPolicy.PolicyKind()` after normalization.
 
-- route configuration shape
-- static validation rules
-- candidate enumeration rules
-- scheduler preferences
+## 4. Route Data Model
 
-`RoutedProvider` owns:
+The route runtime type is `pkg/gateway/route.AgentRoute`.
 
-- runtime model selection
-- runtime credential selection
-- provider invocation
-- result marking
-- fallback loop
-- request-level execution stats
+Target selection is represented by `pkg/gateway/route.RouteTargetPolicy`.
 
-Protocol adapters own:
+The fields that define target behavior are:
 
-- wire-format parsing
-- conversion between HTTP payload and `provider.ChatRequest`
-- conversion between provider response and protocol response
-
-## Route Data Model
-
-`AgentRoute` should hold a policy interface value.
-
-Suggested shape:
-
-```go
-type AgentRoute struct {
-    ID              string               `json:"id"`
-    Description     string               `json:"description,omitempty"`
-    Disabled        bool                 `json:"disabled"`
-    LLMAPI          string               `json:"llm_api,omitempty"`
-    Match           RouteMatch           `json:"match"`
-    TargetPolicy    RouteTargetPolicy    `json:"target_policy,omitempty"`
-    AuthPolicy      RouteAuthPolicy      `json:"auth_policy"`
-    RateLimitPolicy RouteRateLimitPolicy `json:"rate_limit_policy,omitempty"`
-    QuotaPolicy     RouteQuotaPolicy     `json:"quota_policy,omitempty"`
-    CreatedAt       time.Time            `json:"created_at"`
-    UpdatedAt       time.Time            `json:"updated_at"`
-}
-
-type RouteTargetPolicy interface {
-    PolicyKind() RouteTargetPolicyKind
-    Validate() error
-    Normalize()
-}
-```
-
-Because Go interfaces do not unmarshal from JSON directly, persisted route JSON should use a tagged wrapper:
-
-```go
-type RouteTargetPolicyEnvelope struct {
-    Type string          `json:"type"`
-    Raw  json.RawMessage `json:"-"`
-}
-```
-
-Or more practically:
-
-```go
-type RouteTargetPolicy struct {
-    Type string          `json:"type"`
-    Spec json.RawMessage `json:"spec,omitempty"`
-}
-```
-
-At decode time:
-
-- `type=direct-provider` -> decode to `DirectProviderPolicy`
-- `type=logical-model` -> decode to `LogicalModelPolicy`
-
-This keeps storage stable while still giving runtime an interface-backed model.
-
-## Policy Types
-
-### DirectProviderPolicy
-
-Used when the route always forwards to one provider and the request model remains the upstream model.
-
-```go
-type DirectProviderPolicy struct {
-    ProviderID            string                        `json:"provider_id"`
-    CredentialSelector    RouteCredentialSelectStrategy `json:"credential_selector,omitempty"`
-    CredentialScopeOrder  []RouteCredentialScope        `json:"credential_scope_order,omitempty"`
-    CredentialSourceOrder []RouteCredentialSource       `json:"credential_source_order,omitempty"`
-}
-```
-
-Semantics:
+- `type`
+- `provider_id`
+- `models`
+- `default_model`
+- `model_selector_strategy`
+- `credential_selector`
+- `credential_scope_order`
+- `credential_source_order`
+- `fallback`
+- `model_targets`
+- `provider_target`
 
-- `provider_id` is required
-- request `model` is not rewritten by route resolution
-- credential selection still happens through `RoutedProvider`
-- `credential_scope_order` decides which credential scope families are searched first
+Two compatibility layers exist in the current implementation:
 
-### LogicalModelPolicy
+- `provider_id` and `provider_target.provider_id` normalize to the same effective provider target
+- `models` and `model_targets` normalize into each other
 
-Used when the route exposes logical model names and resolves them to one concrete `(provider_id, upstream_model)` binding.
+New code and new documentation must use the normalized shape:
 
-```go
-type LogicalModelPolicy struct {
-    Models                 []LogicalModelBindingGroup      `json:"models,omitempty"`
-    DefaultModel           string                          `json:"default_model,omitempty"`
-    ModelSelectorStrategy  RouteModelSelectorStrategy      `json:"model_selector_strategy,omitempty"`
-    CredentialSelector     RouteCredentialSelectStrategy   `json:"credential_selector,omitempty"`
-    CredentialScopeOrder   []RouteCredentialScope          `json:"credential_scope_order,omitempty"`
-    CredentialSourceOrder  []RouteCredentialSource         `json:"credential_source_order,omitempty"`
-    Fallback               RouteFallbackPolicy            `json:"fallback,omitempty"`
-}
+- `target_policy.provider_target.provider_id`
+- `target_policy.model_targets`
+- `target_policy.default_model`
 
-type LogicalModelBindingGroup struct {
-    Name       string                  `json:"name"`
-    Candidates []LogicalModelCandidate `json:"candidates,omitempty"`
-}
+## 5. Policy Kinds
 
-type LogicalModelCandidate struct {
-    ProviderID    string `json:"provider_id"`
-    UpstreamModel string `json:"upstream_model"`
-    Priority      int    `json:"priority,omitempty"`
-    Weight        int    `json:"weight,omitempty"`
-    Default       bool   `json:"default,omitempty"`
-}
-```
+Current route target policy kinds are:
 
-Semantics:
+- `direct-provider`
+- `logical-model`
 
-- each route-visible logical model name maps to one candidate set
-- `default_model` is optional but recommended for adapters that allow omitted request model
-- `model_selector_strategy` applies to the selected logical model's candidate set
-- credential scheduling is route-level and consistent across all candidates in the policy
-- fallback controls request-time candidate reselection bounds
+### 5.1 Direct-Provider Mode
 
-## Types And Constants
+Direct-provider mode is active when the normalized target policy contains a provider target.
 
-This design should not redefine string enums that already exist in the codebase with the same semantics.
+Effective route behavior:
 
-### Reuse Existing Definitions
+- one provider is selected explicitly
+- the request `model` is treated as the upstream model name
+- no route-local logical model resolution is performed
+- credential scheduling still runs through the route target policy
 
-The following existing definitions should be reused directly:
+This mode is the simple pass-through path for static forwarding.
 
-- credential sources:
-  - `credentialmgr.SourceAPIKey`
-  - `credentialmgr.SourceCLIAuthToken`
-- provider-id scope helpers:
-  - `credentialmgr.CredentialScopeProviderIDPrefix`
-  - `credentialmgr.ProviderIDCredentialScope(...)`
-- managed model credential scope field:
-  - `modelcatalog.ManagedModel.CredentialScope`
-- credential scheduling behaviors already implemented in scheduler:
-  - `scheduler.RoundRobinSelector`
-  - `scheduler.FillFirstSelector`
+### 5.2 Logical-Model Mode
 
-Implication:
+Logical-model mode is active when the normalized target policy contains model targets and no effective direct provider target.
 
-- route config may still use the strings `api_key`, `cliauth_token`, `round_robin`, and `fill_first`
-- but the route-layer design should map them onto existing credential-manager and scheduler semantics instead of introducing duplicate route-only constants unless implementation needs a thin adapter type
+Effective route behavior:
 
-### New Or Updated Route-Level Types
+- the request `model` is interpreted as a route-visible logical model name
+- the route-visible logical model name maps to one candidate set
+- one concrete `(provider_id, upstream_model)` candidate is selected from that set
+- the upstream request model is rewritten before provider execution
 
-The following concepts are route-policy concepts and should live in `gateway/route`:
+If the request omits `model`, `target_policy.default_model` is used when configured.
 
-```go
-type RouteTargetPolicyKind string
+## 6. Normalization Rules
 
-const (
-    RouteTargetPolicyKindDirectProvider RouteTargetPolicyKind = "direct-provider"
-    RouteTargetPolicyKindLogicalModel   RouteTargetPolicyKind = "logical-model"
-)
+`RouteTargetPolicy.Normalize()` applies the following runtime normalization:
 
-type RouteModelSelectorStrategy string
+- trims and synchronizes `provider_id` and `provider_target.provider_id`
+- infers `type` when omitted
+- expands `model_targets` into `models` when only one representation is present
+- expands `models` into `model_targets` when only the other representation is present
 
-const (
-    RouteModelSelectorPriority RouteModelSelectorStrategy = "priority"
-    RouteModelSelectorWeighted RouteModelSelectorStrategy = "weighted"
-    RouteModelSelectorAuto     RouteModelSelectorStrategy = "auto"
-)
+This means the route target policy retains compatibility fields for storage and parsing, while runtime logic operates on a normalized shape.
 
-type RouteCredentialScope string
+## 7. Logical Model Target Structure
 
-const (
-    RouteCredentialScopeModelCustom RouteCredentialScope = "model_custom"
-    RouteCredentialScopeProviderID  RouteCredentialScope = "provider_id"
-)
-```
+Logical-model routing uses `RouteModelTarget`.
 
-### Existing Route Type That Should Be Updated
+`RouteModelTarget` contains:
 
-`gateway/route/types.go` already defines:
+- `name`
+- `strategy`
+- `default_candidate`
+- `candidates`
 
-```go
-type RouteSelectionStrategy string
-```
-
-Current values include `auto`, `weighted`, `failover`, and `conditional`.
-
-Under this design, that existing type should be updated rather than paralleled by a second competing route strategy enum:
-
-- keep `auto`
-- keep `weighted`
-- add `priority`
-- remove `failover` from the new target-policy design surface
-- remove `conditional` from the new target-policy design surface unless another route feature still needs it
-
-Recommendation:
-
-- either rename `RouteSelectionStrategy` to `RouteModelSelectorStrategy`
-- or keep the existing type name and update its allowed values to match the new semantics
-
-The important constraint is to avoid having both `RouteSelectionStrategy` and `RouteModelSelectorStrategy` coexist with overlapping meanings.
-
-## Selection Semantics
-
-### Model Selector Strategy
-
-`priority`
-
-- ignore `weight`
-- sort by `priority` descending
-- choose the highest-priority candidate
-- if multiple candidates share the same highest priority, use a stable deterministic tiebreaker
-- recommended tiebreaker: preserve config order
-
-`weighted`
-
-- ignore `priority`
-- choose across all candidates purely by `weight`
-- candidates with `weight <= 0` are not eligible unless they are the only candidates
-
-`auto`
-
-- first group by `priority`
-- select only from the highest-priority tier
-- within that tier, choose by `weight`
-- if all candidates in the best tier have invalid or zero weight, use stable config order within the best tier
-
-Recommendation:
-
-- default `auto` for logical-model routes
-- use `priority` for strict primary-backup routing
-- use `weighted` for homogeneous multi-provider spreading
-
-### Credential Selector Strategy
-
-`round_robin`
-
-- distribute traffic across eligible credentials in the same source and scope
-- preferred when multiple equivalent credentials exist
-
-`fill_first`
-
-- keep using one eligible credential until it becomes unavailable or unsuitable
-- preferred when session stickiness or quota concentration is desirable
-
-### Credential Scope Order
-
-`credential_scope_order` defines how `RoutedProvider` searches candidate credential pools.
-
-Suggested meanings:
-
-- `model_custom`: prefer credentials using the `CredentialScope` declared on the resolved managed model metadata
-- `provider_id`: prefer credentials scoped to the provider regardless of model
-
-Important constraint:
-
-- scope resolution must be based on the concrete candidate actually being executed, not only on the route's logical model name
-
-Recommended concrete runtime scope expansion for a chosen candidate:
-
-1. if `model_custom`, resolve the chosen candidate through the managed model metadata and read its `CredentialScope`
-2. if `provider_id`, try `ProviderIDCredentialScope(provider_id)`
-
-If the chosen candidate does not map to a managed model with a usable `CredentialScope`, `model_custom` should be treated as unresolved for that attempt and the runtime should continue to the next configured scope.
-
-This design intentionally defines scope precedence, not the exact scheduler storage schema.
-
-### Credential Source Order
-
-`credential_source_order` defines which source families are tried first within each scope.
-
-Example:
-
-- `[api_key, cliauth_token]`: prefer managed API key credentials, then CLI-auth credentials
-- `[cliauth_token, api_key]`: prefer CLI-auth credentials first
-
-Provider config `api_key` participates in normal credential scheduling and source ordering. A static provider `api_key` is just one concrete credential source entry, not an implicit final fallback outside the scheduler.
-
-## Fallback Design
-
-### Config Shape
-
-```go
-type RouteFallbackPolicy struct {
-    Enabled bool `json:"enabled,omitempty"`
-    MaxNum  int  `json:"max_num,omitempty"`
-}
-```
-
-Semantics:
-
-- `enabled=false`: do not reselect model after execution failure
-- `max_num`: maximum number of model-level fallback attempts per request
-- `max_num` counts model reselections, not credential reselections inside one chosen candidate
-
-Recommended defaults:
-
-- `enabled=true` for logical-model routes
-- `max_num=1` by default
-- `max_num` must be bounded, for example `0..5`
-
-### Runtime Fallback Loop
-
-For logical-model routes, one request should follow this high-level loop:
-
-1. resolve the logical model requested by the client
-2. select one concrete candidate according to `model_selector_strategy`
-3. select credential for that concrete candidate according to `credential_scope_order`, `credential_source_order`, and `credential_selector`
-4. if no eligible credential exists for that candidate, mark candidate as temporarily unusable for this request and reselect another candidate
-5. invoke provider request
-6. if request succeeds, record success and return
-7. if request fails, classify the failure
-8. decide whether to:
-   - reselect credential on the same candidate
-   - reselect model candidate
-   - stop and return error
-9. enforce `fallback.max_num`
-
-Important behavior:
-
-- credential absence before provider invocation should count as candidate rejection, not as a provider failure
-- credential reselection should not consume `fallback.max_num`
-- model reselection should consume `fallback.max_num`
-
-## Failure Classification
-
-`RoutedProvider` should classify failures into at least three buckets:
-
-1. `RetrySameCredential`
-2. `ReselectCredential`
-3. `ReselectModel`
-
-Recommended approach:
-
-- use a normalized gateway-level error classification first when provider adapters can expose structured failure reasons
-- fall back to generic HTTP status and transport error heuristics when no structured classification is available
-- avoid coupling `RoutedProvider` directly to provider-specific raw error payload parsing
-
-This gives a practical phased path:
-
-1. define a small gateway-owned typed error surface such as `auth_invalid`, `auth_exhausted`, `model_unavailable`, `provider_unavailable`, `rate_limited`, `bad_request`
-2. let provider adapters optionally map upstream-specific failures into those normalized reasons
-3. let `RoutedProvider` make fallback decisions from the normalized reason first, and from HTTP status only as a fallback
-
-Suggested heuristics:
-
-### Reselect Credential
-
-Use when the failure likely belongs to the credential, not the model.
-
-Examples:
-
-- credential expired
-- credential revoked
-- upstream says invalid API key
-- upstream says auth token invalid
-- upstream says account quota exhausted for this credential
-
-### Reselect Model
-
-Use when the failure likely belongs to the provider-model target, capacity, or route candidate.
-
-Examples:
-
-- provider endpoint unavailable
-- model overloaded
-- upstream returns retryable 5xx after credential looks healthy
-- upstream returns model-not-found for that provider binding
-- scheduler cannot find any more usable credential under the current candidate
-
-### Stop Immediately
-
-Use when fallback should not hide caller-visible issues.
-
-Examples:
-
-- invalid client request
-- route model not found
-- virtual key forbidden
-- unsupported capability
-
-This classification should be centralized in `RoutedProvider`, but provider adapters should be allowed to contribute normalized typed errors so the runtime does not depend only on status code guessing.
-
-## RoutedProvider Design
-
-`authManagedProvider` is too narrow because it only wraps credential picking around one provider call. The new runtime needs a richer execution object.
-
-Suggested direction:
-
-```go
-type RoutedProvider struct {
-    route             *route.AgentRoute
-    policy            route.RouteTargetPolicy
-    providerResolver  ProviderResolver
-    credentialMgr     *credentialmgr.Manager
-    scheduler         sched.CredentialScheduler
-    modelCatalog      *modelcatalog.Service
-    statsRecorder     RequestStatsRecorder
-}
-```
-
-Suggested responsibilities:
-
-- resolve concrete provider candidate for one request
-- choose credential according to route policy
-- inject selected credential into context
-- rewrite request model for logical-model routes
-- execute `Chat`, `StreamChat`, `Embedding`, `CreateResponses`, or `StreamResponses`
-- classify errors
-- mark credential result
-- mark candidate result
-- perform bounded fallback
-- expose future hooks for request accounting and metrics
-
-Suggested helper methods:
-
-```go
-func (p *RoutedProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error)
-func (p *RoutedProvider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*schema.StreamReader[*schema.Message], error)
-func (p *RoutedProvider) resolveExecutionPlan(ctx context.Context, reqModel string) (*ExecutionPlan, error)
-func (p *RoutedProvider) selectCandidate(ctx context.Context, state *ExecutionState) (*ResolvedCandidate, error)
-func (p *RoutedProvider) selectCredential(ctx context.Context, cand *ResolvedCandidate, state *ExecutionState) (context.Context, *credentialmgr.ManagedCredential, error)
-func (p *RoutedProvider) classifyFailure(err error, cand *ResolvedCandidate, cred *credentialmgr.ManagedCredential) FailureAction
-func (p *RoutedProvider) markResult(ctx context.Context, res AttemptResult)
-```
-
-### Why `RoutedProvider` Belongs in `gateway`
-
-This object is not only a provider wrapper. It coordinates route policy, credential scheduling, provider resolution, and request execution. That is gateway runtime logic, not pure provider package logic.
-
-Placing it in `gateway` keeps ownership aligned with:
-
-- route policy semantics
-- provider resolution
-- model catalog integration
-- per-request fallback state
-
-The provider package should remain focused on upstream provider adapters and shared credential-context helpers.
-
-## Execution State Model
-
-A request-scoped execution state should be maintained during fallback.
-
-Suggested fields:
-
-```go
-type ExecutionState struct {
-    LogicalModel            string
-    TriedCandidates         map[string]int
-    TriedCredentials        map[string]int
-    ModelFallbackCount      int
-    CredentialRetryCount    int
-    LastCandidateID         string
-    LastCredentialID        string
-}
-```
-
-Candidate identity should be derived from at least:
+Each `RouteModelCandidate` contains:
 
 - `provider_id`
 - `upstream_model`
+- `weight`
+- `priority`
+- `default`
 
-This prevents one request from repeatedly selecting the same failing target.
+The route-visible model name is `RouteModelTarget.Name`. Each target name defines one candidate pool.
 
-## Caddyfile Design
+## 8. Credential Policy Structure
 
-The Caddyfile should expose one explicit `target_policy` block with typed submode.
+Credential selection is part of route target policy, not protocol handler behavior.
 
-### Direct Provider
+Current credential selector values:
+
+- `round_robin`
+- `fill_first`
+
+Current credential scope values:
+
+- `model_custom`
+- `provider_id`
+
+Current credential source values:
+
+- `api_key`
+- `cliauth_token`
+
+These values are stored on `RouteTargetPolicy` as:
+
+- `credential_selector`
+- `credential_scope_order`
+- `credential_source_order`
+
+## 9. Validation Rules
+
+The validation entrypoint is `route.AgentRoute.ValidateDefinition()`.
+
+### 9.1 Common Rules
+
+Every route must satisfy these common rules:
+
+- `id` must be set
+- `llm_api` must be set
+- `credential_selector`, when set, must be valid
+- `credential_scope_order` must contain only supported scope values
+- `credential_scope_order` must not contain duplicates
+- `credential_source_order` must not be empty
+- `credential_source_order` must contain only supported source values
+- `credential_source_order` must not contain duplicates
+
+### 9.2 Direct-Provider Rules
+
+In direct-provider mode:
+
+- `target_policy.provider_id` must be set after normalization
+- `credential_scope_order` must not contain `model_custom`
+
+The route validation path accepts direct-provider mode as the effective mode whenever a provider target is configured, even if model-target fields are also present in legacy or mixed input.
+
+That precedence is part of the current compatibility behavior.
+
+### 9.3 Logical-Model Rules
+
+In logical-model mode:
+
+- `target_policy.models` must be non-empty after normalization
+- every target must have a unique `name`
+- every target must define at least one candidate
+- every candidate must define both `provider_id` and `upstream_model`
+- duplicate `(provider_id, upstream_model)` candidates within one target are rejected
+- `default_model`, when set, must reference an existing target name
+- `model_selector_strategy` must be one of:
+  - `auto`
+  - `weighted`
+  - `priority`
+- `fallback.max_num` must be between `0` and `5`
+
+## 10. Runtime Resolution Contract
+
+The target resolution entrypoint is `route.AgentRoute.ResolveTarget(...)`.
+
+Request-side requirements are represented by `route.RequestRequirements`.
+
+Current request requirement fields:
+
+- `model`
+- `require_streaming`
+- `require_tools`
+- `require_vision`
+- `require_embeddings`
+- `excluded_candidates`
+
+Current `ResolvedTarget` fields:
+
+- `logical_model`
+- `model`
+- `provider_id`
+- `provider_type`
+- `upstream_model`
+- `credential_scope`
+- `capabilities`
+
+`ResolvedTarget` is concrete and execution-oriented. It represents one selected binding, not the full route policy.
+
+## 11. Direct-Provider Resolution
+
+In direct-provider mode, `ResolveTarget(...)`:
+
+- resolves the configured provider ID
+- derives `credential_scope` as `ProviderIDCredentialScope(provider_id)`
+- treats the request `model` as the upstream model
+- does not perform logical-model admission checks
+- returns one concrete `ResolvedTarget`
+
+This mode is provider-explicit and does not depend on managed model enablement.
+
+## 12. Logical-Model Resolution
+
+In logical-model mode, `ResolveTarget(...)`:
+
+- interprets the request `model` as the route model name
+- falls back to `target_policy.default_model` when the request omits `model`
+- rejects the request if no route model is available
+- rejects the request if the requested route model is not allowed on the matched route
+- loads all configured candidates for that route model
+- excludes request-scoped rejected candidates from consideration
+- reads managed model state from the model catalog
+- drops candidates whose managed model record is missing or disabled
+- drops candidates whose provider config is unavailable or disabled
+- drops candidates that do not satisfy request capability requirements
+- selects one candidate according to `model_selector_strategy`
+
+If no eligible candidate remains, the resolver returns a gateway error indicating that the route model has no eligible bindings.
+
+## 13. Candidate Selection Semantics
+
+The current candidate selector is implemented in `pkg/gateway/route/resolve.go`.
+
+Supported selector strategies:
+
+- `priority`
+- `weighted`
+- `auto`
+
+### 13.1 `priority`
+
+Selection behavior:
+
+- higher `priority` wins
+- `weight` is ignored
+- stable config order breaks ties
+
+### 13.2 `weighted`
+
+Selection behavior:
+
+- all candidates participate in one weighted draw
+- candidates with `weight <= 0` contribute zero weight
+- if total weight is zero or negative, the first candidate in config order is selected
+
+### 13.3 `auto`
+
+Selection behavior:
+
+- candidates are first filtered to the highest `priority` tier
+- if that tier has any positive weights, weighted selection runs within the tier
+- if the best tier has no positive weight, the first candidate in tier order is selected
+
+## 14. Capability Filtering
+
+Logical-model candidate filtering uses per-model capability requirements from `RequestRequirements`.
+
+Current capability gates are:
+
+- streaming
+- tools
+- vision
+- embeddings
+
+Capability evaluation is performed against the candidate's effective `provider.ModelCapabilities`, which come from the model catalog's resolved managed model view.
+
+## 15. Credential Scope Expansion
+
+`RoutedProvider` expands credential scopes from `ResolvedTarget` and route policy.
+
+Current scope expansion rules:
+
+- `model_custom`
+  - uses `ResolvedTarget.CredentialScope` when present
+- `provider_id`
+  - uses `credentialmgr.ProviderIDCredentialScope(target.ProviderID)`
+
+Scope expansion preserves the route-configured order. Empty scopes are skipped.
+
+## 16. Credential Source Ordering
+
+Within each expanded scope, `RoutedProvider` checks credential sources in the configured `credential_source_order`.
+
+Current source handling:
+
+- `api_key`
+- `cliauth_token`
+
+If a CLI auth token credential is selected, the credential manager refresh path may run before execution proceeds.
+
+## 17. RoutedProvider Responsibilities
+
+The runtime execution object is `pkg/gateway.RoutedProvider`.
+
+Current responsibilities:
+
+- resolve one concrete route target
+- resolve the concrete provider instance
+- select credentials through the scheduler
+- inject selected credentials into request context
+- rewrite the request model to the selected upstream model
+- execute chat and responses API calls
+- mark credential scheduling results
+- apply bounded model fallback
+
+`RoutedProvider` implements:
+
+- `Chat(...)`
+- `StreamChat(...)`
+- `CreateResponses(...)`
+- `StreamResponses(...)`
+- `ListModels(...)`
+
+## 18. Fallback Semantics
+
+Fallback is request-scoped and bounded.
+
+Current execution state tracks:
+
+- tried candidates
+- tried credentials
+- model fallback count
+
+Current fallback behavior:
+
+- fallback is active only for logical-model routes with `target_policy.fallback.enabled`
+- `fallback.max_num` defines the maximum number of model reselections
+- missing credentials for one candidate reject that candidate for the current request
+- credential rejection consumes candidate availability but does not change route policy
+- provider execution failures may trigger model reselection when classified as retryable at the model level
+
+The current implementation does not expose a separate credential-reselection action enum. It supports:
+
+- stop
+- reselect model
+
+## 19. Failure Classification
+
+`RoutedProvider.classifyFailure(...)` currently maps failures into two runtime actions:
+
+- stop
+- reselect model
+
+Current retryable model-fallback statuses are:
+
+- `429 Too Many Requests`
+- `502 Bad Gateway`
+- `503 Service Unavailable`
+- `504 Gateway Timeout`
+- any `5xx` status not otherwise handled
+
+All other failures stop request execution immediately.
+
+This is the current normative behavior for route-level target fallback.
+
+## 20. Scheduler Result Marking
+
+After each execution attempt, `RoutedProvider.markResult(...)` records a scheduler result when a concrete managed credential was used.
+
+Recorded scheduler result fields include:
+
+- credential ID
+- upstream model
+- success or failure
+- HTTP-derived error metadata when execution failed
+
+This keeps credential scheduling feedback in the gateway runtime, not in protocol adapters.
+
+## 21. Caddyfile Configuration Shape
+
+In the current Caddy-based runtime, route target policy is expressed through route-level target directives, not through a nested `target_policy { ... }` block.
+
+Current supported directives:
+
+- `target provider <provider-id>`
+- `target model <route-model> <provider-id> <upstream-model> [weight <n>] [priority <n>] [strategy <auto|weighted|priority>] [default]`
+
+Direct-provider example:
 
 ```caddy
 route openai-direct {
     llm_api openai
     path_prefix /
     require_virtual_key
-
-    target_policy direct-provider {
-        provider openai-main
-
-        credential_selector round_robin
-        credential_scope_order provider_id
-        credential_source_order api_key cliauth_token
-    }
+    target provider openai-main
 }
 ```
 
-### Logical Model
+Logical-model example:
 
 ```caddy
 route openai-chat {
     llm_api openai
     path_prefix /
     require_virtual_key
-
-    target_policy logical-model {
-        model chat-default openai-main gpt-4.1 weight 100 priority 100 default
-        model chat-default openai-backup gpt-4.1 weight 20 priority 100
-        model chat-default openrouter-main openai/gpt-4.1 weight 10 priority 80
-
-        model_selector_strategy auto
-        credential_selector round_robin
-        credential_scope_order model_custom provider_id
-        credential_source_order api_key cliauth_token
-
-        fallback {
-            enabled true
-            max_num 2
-        }
-    }
+    target model chat-default openai-main gpt-4.1 weight 100 priority 100 default
+    target model chat-default openai-backup gpt-4.1 weight 20 priority 100
+    target model chat-default openrouter-main openai/gpt-4.1 weight 10 priority 80
 }
 ```
 
-Parsing rules:
+The Caddyfile adapter compiles these directives into the normalized `RouteTargetPolicy` shape.
 
-- `target_policy <kind> { ... }` is required
-- `kind` must be `direct-provider` or `logical-model`
-- direct-provider block may not define `model ...`
-- logical-model block may not define `provider ...`
+## 22. JSON Storage Shape
 
-## JSON Storage Shape
+Persisted route JSON stores target policy as a concrete object, not as an interface envelope.
 
-Routes can still be persisted as JSON blobs with a tagged policy object.
+Current stored route payloads use fields such as:
 
-### Direct Provider JSON
+- `target_policy.type`
+- `target_policy.provider_target.provider_id`
+- `target_policy.model_targets`
+- `target_policy.default_model`
+- `target_policy.model_selector_strategy`
+- `target_policy.credential_selector`
+- `target_policy.credential_scope_order`
+- `target_policy.credential_source_order`
+- `target_policy.fallback`
 
-```json
-{
-  "id": "openai-direct",
-  "llm_api": "openai",
-  "match": {
-    "path_prefix": "/"
-  },
-  "auth_policy": {
-    "require_virtual_key": true
-  },
-  "target_policy": {
-    "type": "direct-provider",
-    "provider_id": "openai-main",
-    "credential_selector": "round_robin",
-    "credential_scope_order": ["provider_id"],
-    "credential_source_order": ["api_key", "cliauth_token"]
-  }
-}
-```
+Compatibility fields may still appear in stored route payloads, but runtime normalization defines the effective policy.
 
-### Logical Model JSON
+## 23. Naming Rules
 
-```json
-{
-  "id": "openai-chat",
-  "llm_api": "openai",
-  "match": {
-    "path_prefix": "/"
-  },
-  "auth_policy": {
-    "require_virtual_key": true
-  },
-  "target_policy": {
-    "type": "logical-model",
-    "default_model": "chat-default",
-    "model_selector_strategy": "auto",
-    "credential_selector": "round_robin",
-    "credential_scope_order": ["model_custom", "provider_id"],
-    "credential_source_order": ["api_key", "cliauth_token"],
-    "fallback": {
-      "enabled": true,
-      "max_num": 2
-    },
-    "models": [
-      {
-        "name": "chat-default",
-        "candidates": [
-          {
-            "provider_id": "openai-main",
-            "upstream_model": "gpt-4.1",
-            "priority": 100,
-            "weight": 100,
-            "default": true
-          },
-          {
-            "provider_id": "openai-backup",
-            "upstream_model": "gpt-4.1",
-            "priority": 100,
-            "weight": 20
-          }
-        ]
-      }
-    ]
-  }
-}
-```
+Use the following terms consistently:
 
-## Validation Rules
+- `agent-gateway`
+  - project and module name
+- `RouteTargetPolicy`
+  - concrete target policy struct
+- `ResolvedTarget`
+  - one concrete selected execution target
+- `RoutedProvider`
+  - route-aware provider execution runtime
+- `direct-provider`
+  - explicit provider forwarding mode
+- `logical-model`
+  - route model selection mode
 
-### Common
+Do not reintroduce:
 
-1. `target_policy.type` is required.
-2. `target_policy.type` must be `direct-provider` or `logical-model`.
-3. `credential_selector` must be valid when present.
-4. `credential_scope_order` must not contain duplicates.
-5. `credential_source_order` must not contain duplicates.
-6. `credential_source_order` should not be empty.
+- legacy repository naming
+- interface-based target policy terminology unless the code actually adopts that model
+- configuration examples that rely on a non-existent `target_policy { ... }` Caddyfile block
 
-### DirectProviderPolicy
+## 24. Summary
 
-1. `provider_id` is required.
-2. `credential_scope_order` should default to `[provider_id]`.
-3. `credential_scope_order` must not contain `model_custom` unless future direct-provider model scoping is explicitly supported.
+The current route target policy architecture in `agent-gateway` is a concrete, normalized route policy model with two effective target modes.
 
-### LogicalModelPolicy
+Its stable design rules are:
 
-1. `models` must not be empty.
-2. every logical model group must have a unique `name`.
-3. every logical model group must contain at least one candidate.
-4. every candidate must define `provider_id` and `upstream_model`.
-5. `model_selector_strategy` must be one of `priority`, `weighted`, or `auto`.
-6. `fallback.max_num` must be `>= 0`.
-7. if `default_model` is set, it must exist in `models`.
-8. `credential_scope_order` should default to `[model_custom, provider_id]`.
-9. if `weighted` or `auto` is used, at least one eligible candidate in each logical model should have `weight > 0`.
+- route target policy is owned by `pkg/gateway/route`
+- execution and fallback are owned by `pkg/gateway.RoutedProvider`
+- direct-provider mode forwards explicitly to one provider
+- logical-model mode resolves one route-visible model name to one concrete provider/model binding
+- credential scope ordering and source ordering are part of route target policy
+- fallback is bounded and request-scoped
 
-## Runtime Resolution Model
-
-`ResolvedTarget` should remain concrete and policy-free.
-
-Suggested shape:
-
-```go
-type ResolvedTarget struct {
-    LogicalModel  string
-    ProviderID    string
-    ProviderType  string
-    UpstreamModel string
-    Capabilities  provider.ModelCapabilities
-}
-```
-
-Notes:
-
-- `LogicalModel` is optional for direct-provider routes
-- route policy should not be copied into `ResolvedTarget`
-- `ResolvedTarget` describes one selected execution binding, not the full decision tree
-
-## Migration Guidance
-
-This change is not just a field rename. It changes route semantics and runtime ownership.
-
-Recommended migration order:
-
-1. add tagged policy decoding and validation in `gateway/route/types.go`
-2. add Caddyfile parsing for `target_policy direct-provider` and `target_policy logical-model`
-3. keep old stored route format unsupported in the new path unless explicit migration logic is added
-4. introduce `gateway.RoutedProvider` alongside existing `authManagedProvider`
-5. switch route execution to `RoutedProvider`
-6. remove or narrow `authManagedProvider` after runtime migration is complete
-
-## Implementation Scope
-
-This design should drive changes in:
-
-- `docs/route-target-policy-design.md`
-- `gateway/route/types.go`
-- `gateway/route/validate.go`
-- `gateway/route/resolve.go`
-- `gateway/caddyfile.go`
-- `gateway/providerresolver.go`
-- new gateway runtime files for `RoutedProvider`
-- possible cleanup in `pkg/llm/provider/staticcredential.go`
-
-This design does not require immediate changes in:
-
-- `llm/credentialmgr` storage schema
-- provider protocol adapters
-- admin API transport shape beyond route JSON serialization changes
-
-## Confirmed Decisions
-
-The following points are fixed for implementation:
-
-1. `model_custom` scope is resolved from the managed model metadata's `CredentialScope` field.
-2. Provider config `api_key` participates in normal scheduling and source ordering; it is not an implicit final fallback.
-3. Failure classification should use normalized typed reasons when available, with HTTP status as a fallback.
-4. Higher `priority` value means higher priority.
-5. Candidate tie-breaking should preserve config order.
+This is the current `agent-gateway` architecture and the normative technical specification for route target policy behavior in the repository.
