@@ -14,6 +14,12 @@ The current production path is:
 
 MCP, memory, agent, and metrics areas exist in the repo, but the main implemented runtime today is LLM routing plus Admin APIs.
 
+## Change Policy
+
+- by default, changes in this repository do not preserve backward compatibility
+- do not keep legacy aliases, deprecated field names, old route shapes, old module IDs, old CLI flags, or old API-visible IDs unless the change request explicitly requires compatibility
+- when renaming or reshaping behavior, update the code, tests, `README.md`, `DESIGN.md`, `Caddyfile.example`, and this file to describe only the current behavior unless compatibility is explicitly required
+
 ## Build & Run
 
 ```bash
@@ -181,7 +187,12 @@ Important files:
 
 - `provider.go`: provider request and response types
 - `registry.go`: provider factory registration
-- `staticcredential.go`: provider wrapper that injects managed credentials
+- `providerconfigcredential.go`: provider-config API key credential helpers
+
+Naming rules for provider-config API key credentials:
+
+- use the ID prefix `provider-config-api-key:`
+- do not generate, parse, or document the old prefix `provider-static-api-key:`
 
 Built-in provider runtime packages:
 

@@ -8,6 +8,11 @@
 - admin APIs for providers, model catalog, routes, virtual keys, upstream credentials, and CLI auth
 - early MCP, memory, metrics, and agent endpoint scaffolding
 
+Repository change policy:
+
+- backward compatibility is not preserved by default
+- legacy aliases, deprecated names, and old API-visible IDs are only kept when a change explicitly requires compatibility
+
 Go module path:
 
 - `github.com/agent-guide/agent-gateway`

@@ -12,8 +12,7 @@
 *.test
 
 # Markdown docs
-CLAUDE.md
-REQUIREMENT.md
+*_diff.md
 
 # Code coverage profiles and other test artifacts
 *.out
