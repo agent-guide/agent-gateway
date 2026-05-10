@@ -36,7 +36,7 @@ build-agwctl:
 
 build-xcaddy:
 	@echo "Buiding with xcaddy..."
-	XCADDY_DEBUG=1 $(XCADDY) build --with github.com/agent-guide/caddy-agent-gateway=$(shell pwd)
+	XCADDY_DEBUG=1 $(XCADDY) build --with github.com/agent-guide/agent-gateway=$(shell pwd)
 
 # Clean build artifacts
 clean:

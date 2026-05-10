@@ -4,9 +4,9 @@ package openai
 import (
 	"context"
 
-	caddyprovider "github.com/agent-guide/caddy-agent-gateway/caddy/provider"
-	runtimeprovider "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
-	runtimeopenai "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/openai"
+	caddyprovider "github.com/agent-guide/agent-gateway/caddy/provider"
+	runtimeprovider "github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	runtimeopenai "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/cloudwego/eino/schema"

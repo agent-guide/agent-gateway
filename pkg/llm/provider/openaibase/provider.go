@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/pkg/httpclient"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"github.com/cloudwego/eino/schema"
 )
 

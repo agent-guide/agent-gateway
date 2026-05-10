@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
+	"github.com/agent-guide/agent-gateway/internal/statuserr"
+	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 )
 
 type credentialKey struct{}

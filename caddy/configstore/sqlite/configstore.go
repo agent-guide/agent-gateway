@@ -7,8 +7,8 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
-	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/pkg/configstore/sqlite"
+	"github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	configstoresqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
 )
 
 type SQLiteConfigStore struct {
@@ -31,7 +31,7 @@ func (SQLiteConfigStore) CaddyModule() caddy.ModuleInfo {
 func (s *SQLiteConfigStore) Provision(ctx caddy.Context) error {
 	dbPath := s.SQLitePath
 	if dbPath == "" {
-		dbPath = filepath.Join(caddy.AppDataDir(), "caddy-agent-gateway", "configstore.db")
+		dbPath = filepath.Join(caddy.AppDataDir(), "agent-gateway", "configstore.db")
 		s.SQLitePath = dbPath
 	}
 

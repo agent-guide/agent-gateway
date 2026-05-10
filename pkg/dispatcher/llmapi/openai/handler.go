@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
-	"github.com/agent-guide/caddy-agent-gateway/internal/httplog"
-	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
-	dispatcher "github.com/agent-guide/caddy-agent-gateway/pkg/dispatcher"
-	routepkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/route"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/internal/httpjson"
+	"github.com/agent-guide/agent-gateway/internal/httplog"
+	"github.com/agent-guide/agent-gateway/internal/statuserr"
+	dispatcher "github.com/agent-guide/agent-gateway/pkg/dispatcher"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
 )

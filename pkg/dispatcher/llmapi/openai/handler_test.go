@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
-	dispatcher "github.com/agent-guide/caddy-agent-gateway/pkg/dispatcher"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
-	sched "github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr/scheduler"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/internal/statuserr"
+	dispatcher "github.com/agent-guide/agent-gateway/pkg/dispatcher"
+	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
+	sched "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/scheduler"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"github.com/cloudwego/eino/schema"
 )
 

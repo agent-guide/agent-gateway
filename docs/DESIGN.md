@@ -1,8 +1,8 @@
-# caddy-agent-gateway Design
+# agent-gateway Design
 
 ## 1. Scope
 
-This document describes the current architecture of `caddy-agent-gateway` as it exists in the repository today, plus the intended extension points that are already visible in the codebase.
+This document describes the current architecture of `agent-gateway` as it exists in the repository today, plus the intended extension points that are already visible in the codebase.
 
 It is not a pure future-state blueprint anymore. Where the implementation is partial, this document calls that out explicitly.
 

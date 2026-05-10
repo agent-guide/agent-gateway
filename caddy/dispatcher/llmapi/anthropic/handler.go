@@ -1,7 +1,7 @@
 package anthropic
 
 import (
-	runtimeanthropic "github.com/agent-guide/caddy-agent-gateway/pkg/dispatcher/llmapi/anthropic"
+	runtimeanthropic "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/anthropic"
 	"github.com/caddyserver/caddy/v2"
 )
 

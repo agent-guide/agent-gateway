@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
-	routepkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/route"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
-	credentialmgrscheduler "github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr/scheduler"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/internal/statuserr"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
+	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
+	credentialmgrscheduler "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/scheduler"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"github.com/cloudwego/eino/schema"
 )
 

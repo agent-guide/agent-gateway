@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
+	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 )
 
 const staticAPIKeyCredentialIDPrefix = "provider-static-api-key:"

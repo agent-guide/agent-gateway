@@ -7,8 +7,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/agwctl/caddyadminclient"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/adminclient"
+	"github.com/agent-guide/agent-gateway/internal/agwctl/caddyadminclient"
+	"github.com/agent-guide/agent-gateway/pkg/adminclient"
 )
 
 var outputFormat string

@@ -1,6 +1,6 @@
-# caddy-agent-gateway
+# agent-gateway
 
-`caddy-agent-gateway` is an AI gateway for LLM and agent workloads. It supports both a custom Caddy binary (`agw`) and a standalone daemon (`agwd`), and provides:
+`agent-gateway` is an AI gateway for LLM and agent workloads. It supports both a custom Caddy binary (`agw`) and a standalone daemon (`agwd`), and provides:
 
 - OpenAI-compatible and Anthropic-compatible HTTP APIs
 - route-based dispatch to logical models or direct upstream providers
@@ -348,7 +348,7 @@ config_store sqlite {
 }
 ```
 
-If `path` is omitted, the store defaults to Caddy's app data directory under `caddy-agent-gateway/configstore.db`.
+If `path` is omitted, the store defaults to Caddy's app data directory under `agent-gateway/configstore.db`.
 
 ### Providers
 

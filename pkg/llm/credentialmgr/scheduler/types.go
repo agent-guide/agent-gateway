@@ -3,7 +3,7 @@ package scheduler
 import (
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr/model"
+	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/model"
 )
 
 type Credential = model.Credential

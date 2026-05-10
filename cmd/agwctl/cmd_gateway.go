@@ -7,21 +7,21 @@ import (
 	"os"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/adminclient"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/cliauth"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/cliauth/authenticator"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/gatewaybundle"
+	"github.com/agent-guide/agent-gateway/pkg/adminclient"
+	"github.com/agent-guide/agent-gateway/pkg/cliauth"
+	_ "github.com/agent-guide/agent-gateway/pkg/cliauth/authenticator"
+	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
 	"github.com/spf13/cobra"
 
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/dispatcher/llmapi/anthropic"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/dispatcher/llmapi/openai"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/anthropic"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/deepseek"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/gemini"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/ollama"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/openai"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/openrouter"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/zhipu"
+	_ "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/anthropic"
+	_ "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/openai"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/anthropic"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/deepseek"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/gemini"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/ollama"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openrouter"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/zhipu"
 )
 
 var (
@@ -46,7 +46,7 @@ var (
 
 var gatewayCmd = &cobra.Command{
 	Use:   "gateway",
-	Short: "Manage the remote caddy-agent-gateway via its admin API",
+	Short: "Manage the remote agent-gateway via its admin API",
 }
 
 var gatewayValidateCmd = &cobra.Command{
@@ -794,7 +794,7 @@ func waitForGatewayCLIAuthLogin(_ string, loginID string) error {
 }
 
 func init() {
-	gatewayCmd.PersistentFlags().StringVar(&globalGatewayAddr, "addr", envOr("GATEWAY_ADDR", "http://localhost:8019"), "caddy-agent-gateway admin API address")
+	gatewayCmd.PersistentFlags().StringVar(&globalGatewayAddr, "addr", envOr("GATEWAY_ADDR", "http://localhost:8019"), "agent-gateway admin API address")
 	gatewayCmd.PersistentFlags().StringVar(&globalGatewayAddr, "admin-addr", envOr("GATEWAY_ADDR", "http://localhost:8019"), "deprecated alias for --addr")
 	gatewayCmd.PersistentFlags().StringVar(&globalGatewayAddr, "gateway-addr", envOr("GATEWAY_ADDR", "http://localhost:8019"), "deprecated alias for --addr")
 	_ = gatewayCmd.PersistentFlags().MarkDeprecated("admin-addr", "use --addr instead")

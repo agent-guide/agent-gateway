@@ -5,8 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/httpcapture"
-	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
+	"github.com/agent-guide/agent-gateway/internal/httpcapture"
+	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )

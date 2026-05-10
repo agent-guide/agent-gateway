@@ -139,7 +139,7 @@ package modelcatalog
 import (
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
 type ProviderModelSnapshot struct {
@@ -176,7 +176,7 @@ This is the persisted admin overlay for a concrete upstream model.
 ```go
 package modelcatalog
 
-import "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+import "github.com/agent-guide/agent-gateway/pkg/llm/provider"
 
 type ManagedModel struct {
 	ProviderID            string                        `json:"provider_id"`
@@ -205,7 +205,7 @@ This is the runtime-ready binding between a logical model and a concrete upstrea
 ```go
 package modelcatalog
 
-import "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+import "github.com/agent-guide/agent-gateway/pkg/llm/provider"
 
 type ModelBinding struct {
 	LogicalModelID   string                        `json:"logical_model_id"`
@@ -226,7 +226,7 @@ This is the route-facing catalog view used by Admin APIs and route validation.
 ```go
 package modelcatalog
 
-import "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+import "github.com/agent-guide/agent-gateway/pkg/llm/provider"
 
 type LogicalModel struct {
 	ID               string                        `json:"id"`

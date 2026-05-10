@@ -1,7 +1,7 @@
 package openai
 
 import (
-	runtimeopenai "github.com/agent-guide/caddy-agent-gateway/pkg/dispatcher/llmapi/openai"
+	runtimeopenai "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/openai"
 	"github.com/caddyserver/caddy/v2"
 )
 

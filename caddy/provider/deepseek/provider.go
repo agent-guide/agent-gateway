@@ -4,9 +4,9 @@ package deepseek
 import (
 	"context"
 
-	caddyprovider "github.com/agent-guide/caddy-agent-gateway/caddy/provider"
-	runtimeprovider "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
-	runtimedeepseek "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/deepseek"
+	caddyprovider "github.com/agent-guide/agent-gateway/caddy/provider"
+	runtimeprovider "github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	runtimedeepseek "github.com/agent-guide/agent-gateway/pkg/llm/provider/deepseek"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 )

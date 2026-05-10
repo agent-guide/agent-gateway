@@ -3,7 +3,7 @@ package cliauth
 import (
 	"context"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
+	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 )
 
 // CredentialManager captures the credential store/snapshot operations cliauth

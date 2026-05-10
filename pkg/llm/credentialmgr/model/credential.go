@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/utils"
+	"github.com/agent-guide/agent-gateway/internal/utils"
 )
 
 const CredentialAttributeScopeKey = "scope"

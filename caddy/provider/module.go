@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	runtimeprovider "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	runtimeprovider "github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/cloudwego/eino/schema"

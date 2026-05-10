@@ -1,13 +1,13 @@
 package adminclient
 
 import (
-	adminapi "github.com/agent-guide/caddy-agent-gateway/pkg/admin"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/cliauth"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway/modelcatalog"
-	routepkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/route"
-	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/virtualkey"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	adminapi "github.com/agent-guide/agent-gateway/pkg/admin"
+	"github.com/agent-guide/agent-gateway/pkg/cliauth"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
+	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
+	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
 type Provider = adminapi.ProviderView

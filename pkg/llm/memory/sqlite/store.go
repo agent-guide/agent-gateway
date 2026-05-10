@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/memory"
+	"github.com/agent-guide/agent-gateway/pkg/llm/memory"
 )
 
 // Store is the SQLite + sqlite-vec memory backend.

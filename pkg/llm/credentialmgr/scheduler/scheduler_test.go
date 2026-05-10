@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr/model"
+	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/model"
 )
 
 func TestPickUsesCredentialScope(t *testing.T) {

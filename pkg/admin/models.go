@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway/modelcatalog"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/internal/httpjson"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"gorm.io/gorm"
 )
 

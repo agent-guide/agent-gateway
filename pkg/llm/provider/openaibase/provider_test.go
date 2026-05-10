@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/pkg/httpclient"
+	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
 func TestBaseUsesEmbeddedProviderConfig(t *testing.T) {

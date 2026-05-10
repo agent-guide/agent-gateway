@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	configstoreintf "github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway/route"
+	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/route"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )

@@ -6,8 +6,8 @@ import (
 	"os"
 	"sort"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/adminclient"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/gatewaybundle"
+	"github.com/agent-guide/agent-gateway/pkg/adminclient"
+	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
 )
 
 func runGatewayExport(ctx context.Context, path string) error {

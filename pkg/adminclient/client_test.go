@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/cliauth"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway/modelcatalog"
+	"github.com/agent-guide/agent-gateway/pkg/cliauth"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 )
 
 func TestListProvidersAutoLogin(t *testing.T) {

@@ -10,10 +10,10 @@ import (
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/openaibase"
+	"github.com/agent-guide/agent-gateway/internal/statuserr"
+	"github.com/agent-guide/agent-gateway/pkg/httpclient"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider/openaibase"
 )
 
 func init() {

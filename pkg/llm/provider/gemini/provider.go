@@ -13,10 +13,10 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"google.golang.org/genai"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/internal/statuserr"
+	"github.com/agent-guide/agent-gateway/pkg/httpclient"
+	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
 func init() {

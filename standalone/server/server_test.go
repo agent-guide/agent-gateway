@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/cliauth/authenticator"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/dispatcher/llmapi/openai"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/openai"
+	_ "github.com/agent-guide/agent-gateway/pkg/cliauth/authenticator"
+	_ "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/openai"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
 	"go.uber.org/zap"
 )
 

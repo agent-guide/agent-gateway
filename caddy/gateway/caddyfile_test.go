@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/caddy/configstore/sqlite"
-	_ "github.com/agent-guide/caddy-agent-gateway/caddy/provider/ollama"
+	configstoresqlite "github.com/agent-guide/agent-gateway/caddy/configstore/sqlite"
+	_ "github.com/agent-guide/agent-gateway/caddy/provider/ollama"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 )
@@ -21,7 +21,7 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 		}
 
 		config_store sqlite {
-			path /tmp/caddy-agent-gateway.db
+			path /tmp/agent-gateway.db
 		}
 
 		virtualkey key1 {
@@ -94,8 +94,8 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	if err := json.Unmarshal(app.ConfigStoreRaw["sqlite"], &cfg); err != nil {
 		t.Fatalf("unmarshal sqlite config store: %v", err)
 	}
-	if cfg.SQLitePath != "/tmp/caddy-agent-gateway.db" {
-		t.Fatalf("sqlite path = %q, want /tmp/caddy-agent-gateway.db", cfg.SQLitePath)
+	if cfg.SQLitePath != "/tmp/agent-gateway.db" {
+		t.Fatalf("sqlite path = %q, want /tmp/agent-gateway.db", cfg.SQLitePath)
 	}
 	if len(app.Routes) != 1 {
 		t.Fatalf("route count = %d, want 1", len(app.Routes))

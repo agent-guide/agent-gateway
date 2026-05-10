@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway"
-	routepkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/route"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/pkg/gateway"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
 type stubLLMApiHandler struct{}

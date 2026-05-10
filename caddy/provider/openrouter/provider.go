@@ -4,9 +4,9 @@ package openrouter
 import (
 	"context"
 
-	caddyprovider "github.com/agent-guide/caddy-agent-gateway/caddy/provider"
-	runtimeprovider "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
-	runtimeopenrouter "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/openrouter"
+	caddyprovider "github.com/agent-guide/agent-gateway/caddy/provider"
+	runtimeprovider "github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	runtimeopenrouter "github.com/agent-guide/agent-gateway/pkg/llm/provider/openrouter"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/cloudwego/eino/schema"

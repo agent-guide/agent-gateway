@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"time"
 
-	credmodel "github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr/model"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	credmodel "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/model"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
 type SnapshotStatus string

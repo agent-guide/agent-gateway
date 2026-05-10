@@ -13,7 +13,7 @@ except ImportError:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Test caddy-agent-gateway with the Anthropic Python SDK.")
+    parser = argparse.ArgumentParser(description="Test agent-gateway with the Anthropic Python SDK.")
     parser.add_argument(
         "--base-url",
         default=os.getenv("AGENT_GATEWAY_BASE_URL", "http://127.0.0.1:8080"),

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
-	caddygateway "github.com/agent-guide/caddy-agent-gateway/caddy/gateway"
-	dispatcherpkg "github.com/agent-guide/caddy-agent-gateway/pkg/dispatcher"
+	caddygateway "github.com/agent-guide/agent-gateway/caddy/gateway"
+	dispatcherpkg "github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"

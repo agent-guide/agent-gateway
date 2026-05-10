@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore/intf"
 )
 
 type sqliteJSONRecord struct {

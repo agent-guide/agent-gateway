@@ -1,4 +1,4 @@
-module github.com/agent-guide/caddy-agent-gateway
+module github.com/agent-guide/agent-gateway
 
 go 1.25.5
 

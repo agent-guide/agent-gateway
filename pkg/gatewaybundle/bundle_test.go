@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/cliauth/authenticator"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/dispatcher/llmapi/openai"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/openai"
+	_ "github.com/agent-guide/agent-gateway/pkg/cliauth/authenticator"
+	_ "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/openai"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
 )
 
 func TestDecodeYAML(t *testing.T) {

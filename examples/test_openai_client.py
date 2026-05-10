@@ -14,7 +14,7 @@ except ImportError:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Test caddy-agent-gateway with the OpenAI Python SDK.")
+    parser = argparse.ArgumentParser(description="Test agent-gateway with the OpenAI Python SDK.")
     parser.add_argument(
         "--api",
         choices=("chat", "responses"),

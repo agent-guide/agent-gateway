@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/cliauth"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/httpclient"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
+	"github.com/agent-guide/agent-gateway/pkg/cliauth"
+	"github.com/agent-guide/agent-gateway/pkg/httpclient"
+	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	"github.com/google/uuid"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"

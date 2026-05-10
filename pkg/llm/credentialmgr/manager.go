@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr/model"
+	"github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/model"
 	"github.com/google/uuid"
 )
 

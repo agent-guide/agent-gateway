@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
+	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"golang.org/x/crypto/bcrypt"
 )
 

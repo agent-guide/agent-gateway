@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/adminclient"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway/modelcatalog"
-	routepkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/route"
-	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/virtualkey"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/gatewaybundle"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/pkg/adminclient"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
+	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
+	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
 type gatewayApplySummary struct {

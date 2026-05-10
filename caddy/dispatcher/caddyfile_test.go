@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/agent-guide/caddy-agent-gateway/caddy/dispatcher/llmapi/anthropic"
-	_ "github.com/agent-guide/caddy-agent-gateway/caddy/dispatcher/llmapi/openai"
+	_ "github.com/agent-guide/agent-gateway/caddy/dispatcher/llmapi/anthropic"
+	_ "github.com/agent-guide/agent-gateway/caddy/dispatcher/llmapi/openai"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	caddyfileadapter "github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"

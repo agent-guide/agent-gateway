@@ -4,9 +4,9 @@ package ollama
 import (
 	"context"
 
-	caddyprovider "github.com/agent-guide/caddy-agent-gateway/caddy/provider"
-	runtimeprovider "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
-	runtimeollama "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/ollama"
+	caddyprovider "github.com/agent-guide/agent-gateway/caddy/provider"
+	runtimeprovider "github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	runtimeollama "github.com/agent-guide/agent-gateway/pkg/llm/provider/ollama"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 )

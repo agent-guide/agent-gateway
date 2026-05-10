@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	configstoreintf "github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
+	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	"github.com/google/uuid"
 )
 

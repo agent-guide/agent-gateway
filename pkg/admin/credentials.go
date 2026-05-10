@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/internal/httpjson"
+	"github.com/agent-guide/agent-gateway/pkg/gateway"
+	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"gorm.io/gorm"
 )
 

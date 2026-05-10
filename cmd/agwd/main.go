@@ -7,20 +7,20 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/agent-guide/caddy-agent-gateway/standalone/server"
+	"github.com/agent-guide/agent-gateway/standalone/server"
 	"github.com/spf13/cobra"
 
 	// CLI authenticators register runtime factories through init.
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/cliauth/authenticator"
+	_ "github.com/agent-guide/agent-gateway/pkg/cliauth/authenticator"
 
 	// LLM providers register runtime factories through init.
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/anthropic"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/deepseek"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/gemini"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/ollama"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/openai"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/openrouter"
-	_ "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/zhipu"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/anthropic"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/deepseek"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/gemini"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/ollama"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openrouter"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/zhipu"
 )
 
 func main() {

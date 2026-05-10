@@ -3,11 +3,11 @@ package openaibase_test
 import (
 	"testing"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/deepseek"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/openai"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/openrouter"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/zhipu"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider/deepseek"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider/openrouter"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider/zhipu"
 )
 
 func TestResponsesProviderSupportMatchesUpstream(t *testing.T) {

@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/httplog"
-	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
-	routepkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/route"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/internal/httplog"
+	"github.com/agent-guide/agent-gateway/internal/statuserr"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"go.uber.org/zap"
 )
 

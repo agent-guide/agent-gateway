@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore/intf"
 	"gorm.io/gorm"
 )
 

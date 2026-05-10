@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"net/http"
 
-	adminpkg "github.com/agent-guide/caddy-agent-gateway/pkg/admin"
+	adminpkg "github.com/agent-guide/agent-gateway/pkg/admin"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 
-	caddygateway "github.com/agent-guide/caddy-agent-gateway/caddy/gateway"
+	caddygateway "github.com/agent-guide/agent-gateway/caddy/gateway"
 )
 
 func init() {

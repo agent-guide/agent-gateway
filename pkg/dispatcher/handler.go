@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/statuserr"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway"
+	"github.com/agent-guide/agent-gateway/internal/statuserr"
+	"github.com/agent-guide/agent-gateway/pkg/gateway"
 	"go.uber.org/zap"
 )
 

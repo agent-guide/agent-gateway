@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore/intf"
 )
 
 type Config struct {

@@ -3,7 +3,7 @@ package httplog
 import (
 	"net/http"
 
-	"github.com/agent-guide/caddy-agent-gateway/internal/httpjson"
+	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"go.uber.org/zap"
 )
 

@@ -8,16 +8,16 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"go.uber.org/zap"
 
-	configstoresqlite "github.com/agent-guide/caddy-agent-gateway/caddy/configstore/sqlite"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/cliauth"
-	configstoreIntf "github.com/agent-guide/caddy-agent-gateway/pkg/configstore/intf"
-	runtimegateway "github.com/agent-guide/caddy-agent-gateway/pkg/gateway"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/gateway/modelcatalog"
-	routepkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/route"
-	virtualkeypkg "github.com/agent-guide/caddy-agent-gateway/pkg/gateway/virtualkey"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr"
-	credentialmgrscheduler "github.com/agent-guide/caddy-agent-gateway/pkg/llm/credentialmgr/scheduler"
-	"github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
+	configstoresqlite "github.com/agent-guide/agent-gateway/caddy/configstore/sqlite"
+	"github.com/agent-guide/agent-gateway/pkg/cliauth"
+	configstoreIntf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	runtimegateway "github.com/agent-guide/agent-gateway/pkg/gateway"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
+	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
+	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
+	credentialmgrscheduler "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/scheduler"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
 func init() {

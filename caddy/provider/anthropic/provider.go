@@ -2,9 +2,9 @@
 package anthropic
 
 import (
-	caddyprovider "github.com/agent-guide/caddy-agent-gateway/caddy/provider"
-	runtimeprovider "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider"
-	runtimeanthropic "github.com/agent-guide/caddy-agent-gateway/pkg/llm/provider/anthropic"
+	caddyprovider "github.com/agent-guide/agent-gateway/caddy/provider"
+	runtimeprovider "github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	runtimeanthropic "github.com/agent-guide/agent-gateway/pkg/llm/provider/anthropic"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 )
