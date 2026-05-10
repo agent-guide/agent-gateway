@@ -38,7 +38,7 @@
 	}
 }
 
-http://127.0.0.1:8019 {
+http://localhost:8019 {
 	# Admin routes
 	route /admin/* {
 		agent_gateway_admin {

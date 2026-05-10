@@ -18,8 +18,14 @@ func TestLocalAndGatewayCLIAuthHelpAreDistinct(t *testing.T) {
 	if err != nil {
 		t.Fatalf("local cliauth help: %v\nstderr=%s", err, localErr)
 	}
-	if !strings.Contains(localOut, "local CLI auth credentials on the agwctl machine") {
-		t.Fatalf("local help missing local wording:\n%s", localOut)
+	if !strings.Contains(localOut, "gateway CLI auth login flows and local authenticator support") {
+		t.Fatalf("local help missing gateway wording:\n%s", localOut)
+	}
+	if strings.Contains(localOut, "authenticators") {
+		t.Fatalf("local help should not expose hidden authenticators command:\n%s", localOut)
+	}
+	if strings.Contains(localOut, "\n  list") || strings.Contains(localOut, "\n  get") || strings.Contains(localOut, "\n  delete") {
+		t.Fatalf("local help still exposes removed credential commands:\n%s", localOut)
 	}
 
 	remoteOut, remoteErr, err := executeAGWCTL(t, "gateway", "cliauth", "--help")
@@ -28,6 +34,98 @@ func TestLocalAndGatewayCLIAuthHelpAreDistinct(t *testing.T) {
 	}
 	if !strings.Contains(remoteOut, "remote gateway CLI auth runtime via the admin API") {
 		t.Fatalf("gateway help missing remote wording:\n%s", remoteOut)
+	}
+}
+
+func TestGatewayCredentialListCommandUsesSourceFilterAndDisplaysSource(t *testing.T) {
+	var gotAuthHeader string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"token":    "test-token",
+				"username": "admin",
+			})
+		case "/admin/credentials":
+			gotAuthHeader = r.Header.Get("Authorization")
+			if r.URL.Query().Get("source") != "cliauth_token" {
+				t.Fatalf("source query = %q, want cliauth_token", r.URL.Query().Get("source"))
+			}
+			if r.URL.Query().Get("provider_type") != "openai" {
+				t.Fatalf("provider_type query = %q, want openai", r.URL.Query().Get("provider_type"))
+			}
+			if r.URL.Query().Get("provider_id") != "openai-main" {
+				t.Fatalf("provider_id query = %q, want openai-main", r.URL.Query().Get("provider_id"))
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"id":            "cred-1",
+						"provider_type": "openai",
+						"provider_id":   "openai-main",
+						"source":        "cliauth_token",
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := executeAGWCTL(
+		t,
+		"gateway",
+		"--addr", srv.URL,
+		"--user", "admin",
+		"--password", "secret",
+		"credential", "list",
+		"--source", "cliauth_token",
+		"--provider-type", "openai",
+		"--provider-id", "openai-main",
+	)
+	if err != nil {
+		t.Fatalf("gateway credential list: %v\nstderr=%s", err, stderr)
+	}
+	if gotAuthHeader != "Bearer test-token" {
+		t.Fatalf("Authorization = %q, want Bearer test-token", gotAuthHeader)
+	}
+	if !strings.Contains(stdout, "SOURCE") || !strings.Contains(stdout, "cliauth_token") {
+		t.Fatalf("stdout missing source column or value:\n%s", stdout)
+	}
+}
+
+func TestGatewayCredentialListCommandSurfacesAdminAuthErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin/auth/login":
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error": "invalid credentials",
+			})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := executeAGWCTL(
+		t,
+		"gateway",
+		"--addr", srv.URL,
+		"--user", "admin",
+		"--password", "wrong-secret",
+		"credential", "list",
+		"--source", "cliauth_token",
+	)
+	if err == nil {
+		t.Fatalf("expected admin auth error, got nil\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stderr, "admin API error 401: invalid credentials") {
+		t.Fatalf("stderr = %q, want 401 auth error", stderr)
+	}
+	if strings.Contains(stdout, "no credentials found") {
+		t.Fatalf("stdout should not report empty credentials on auth error:\n%s", stdout)
 	}
 }
 
@@ -60,10 +158,10 @@ func TestGatewayProviderTypesListCommand(t *testing.T) {
 		"--addr", srv.URL,
 		"--user", "admin",
 		"--password", "secret",
-		"provider-types", "list",
+		"provider-type", "list",
 	)
 	if err != nil {
-		t.Fatalf("provider-types list: %v\nstderr=%s", err, stderr)
+		t.Fatalf("provider-type list: %v\nstderr=%s", err, stderr)
 	}
 	if gotAuthHeader != "Bearer test-token" {
 		t.Fatalf("Authorization = %q, want Bearer test-token", gotAuthHeader)
@@ -117,110 +215,39 @@ func TestGatewayCLIAuthAuthenticatorsListCommand(t *testing.T) {
 	}
 }
 
-func TestGatewayCLIAuthAuthenticatorsUpdateCommand(t *testing.T) {
-	var gotMethod string
-	var gotPath string
-	var gotBody []byte
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/admin/auth/login":
-			_ = json.NewEncoder(w).Encode(map[string]string{
-				"token":    "test-token",
-				"username": "admin",
-			})
-		case "/admin/cliauth/authenticators/codex":
-			gotMethod = r.Method
-			gotPath = r.URL.Path
-			gotBody, _ = io.ReadAll(r.Body)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"status": "enabled",
-				"authenticator": map[string]any{
-					"name":          "codex",
-					"provider_type": "openai",
-					"enabled":       true,
-					"config": map[string]any{
-						"callback_port": 9002,
-						"no_browser":    true,
-						"device_flow":   true,
-					},
-				},
-			})
-		default:
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-	}))
-	defer srv.Close()
-
-	stdout, stderr, err := executeAGWCTL(
-		t,
-		"--output", "json",
-		"gateway",
-		"--addr", srv.URL,
-		"--user", "admin",
-		"--password", "secret",
-		"cliauth", "authenticators", "update", "codex",
-		"--callback-port", "9002",
-		"--no-browser",
-		"--device-flow",
-	)
-	if err != nil {
-		t.Fatalf("gateway cliauth authenticators update: %v\nstderr=%s", err, stderr)
+func TestCLIAuthLoginRequiresAuthenticatorWithClearUsage(t *testing.T) {
+	stdout, stderr, err := executeAGWCTL(t, "cliauth", "login")
+	if err == nil {
+		t.Fatalf("expected login error\nstdout=%s\nstderr=%s", stdout, stderr)
 	}
-	if gotMethod != http.MethodPut || gotPath != "/admin/cliauth/authenticators/codex" {
-		t.Fatalf("unexpected request: %s %s", gotMethod, gotPath)
+	msg := err.Error()
+	if !strings.Contains(msg, "--authenticator is required") {
+		t.Fatalf("error = %q, want missing authenticator message", msg)
 	}
-	if !strings.Contains(string(gotBody), `"enabled":true`) || !strings.Contains(string(gotBody), `"callback_port":9002`) {
-		t.Fatalf("unexpected request body: %s", string(gotBody))
+	if !strings.Contains(msg, "supported authenticators: claude, codex, gemini") &&
+		!strings.Contains(msg, "supported authenticators: codex, claude, gemini") &&
+		!strings.Contains(msg, "supported authenticators: gemini, codex, claude") {
+		t.Fatalf("error = %q, want supported authenticators", msg)
 	}
-	if !strings.Contains(stdout, `"name": "codex"`) {
-		t.Fatalf("stdout missing authenticator:\n%s", stdout)
+	if !strings.Contains(msg, "Usage:\n  agwctl cliauth login") {
+		t.Fatalf("error = %q, want login usage", msg)
 	}
 }
 
-func TestGatewayCLIAuthLoginCommand(t *testing.T) {
-	var gotMethod string
-	var gotPath string
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/admin/auth/login":
-			_ = json.NewEncoder(w).Encode(map[string]string{
-				"token":    "test-token",
-				"username": "admin",
-			})
-		case "/admin/cliauth/authenticators/codex/login":
-			gotMethod = r.Method
-			gotPath = r.URL.Path
-			w.WriteHeader(http.StatusAccepted)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"login_id":           "login-123",
-				"status":             "running",
-				"authenticator_name": "codex",
-			})
-		default:
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-	}))
-	defer srv.Close()
-
-	stdout, stderr, err := executeAGWCTL(
-		t,
-		"--output", "json",
-		"gateway",
-		"--addr", srv.URL,
-		"--user", "admin",
-		"--password", "secret",
-		"cliauth", "login", "codex",
-	)
-	if err != nil {
-		t.Fatalf("gateway cliauth login: %v\nstderr=%s", err, stderr)
+func TestCLIAuthLoginRejectsUnknownAuthenticatorWithClearUsage(t *testing.T) {
+	stdout, stderr, err := executeAGWCTL(t, "cliauth", "login", "--authenticator", "bad-auth")
+	if err == nil {
+		t.Fatalf("expected login error\nstdout=%s\nstderr=%s", stdout, stderr)
 	}
-	if gotMethod != http.MethodPost || gotPath != "/admin/cliauth/authenticators/codex/login" {
-		t.Fatalf("unexpected request: %s %s", gotMethod, gotPath)
+	msg := err.Error()
+	if !strings.Contains(msg, `unsupported --authenticator "bad-auth"`) {
+		t.Fatalf("error = %q, want unsupported authenticator message", msg)
 	}
-	if !strings.Contains(stdout, `"login_id": "login-123"`) {
-		t.Fatalf("stdout missing login id:\n%s", stdout)
+	if !strings.Contains(msg, "supported authenticators:") {
+		t.Fatalf("error = %q, want supported authenticators", msg)
+	}
+	if !strings.Contains(msg, "Usage:\n  agwctl cliauth login") {
+		t.Fatalf("error = %q, want login usage", msg)
 	}
 }
 
@@ -252,7 +279,7 @@ routes:
       provider_target:
         provider_id: openai-main
 virtualKeys:
-  - key: vk-local-test
+  - name: vk-local-test
     allowed_route_ids:
       - chat-prod
 `), 0o644); err != nil {
@@ -303,7 +330,7 @@ providers:
     provider_type: openai
     default_model: gpt-4.1
 virtualKeys:
-  - key: vk-local-test
+  - name: vk-local-test
     allowed_route_ids: []
 cliAuthAuthenticators:
   - name: codex
@@ -357,9 +384,20 @@ cliAuthAuthenticators:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/virtual_keys" && r.Method == http.MethodPost:
 			virtualKeyCreated.Store(true)
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode virtual key create request: %v", err)
+			}
+			if _, ok := req["key"]; ok {
+				t.Fatalf("virtual key create request unexpectedly carried key: %#v", req)
+			}
+			if req["name"] != "vk-local-test" {
+				t.Fatalf("virtual key create request name = %#v, want %q", req["name"], "vk-local-test")
+			}
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"key": "vk-local-test",
+				"key":  "vk-generated",
+				"name": "vk-local-test",
 			})
 		case r.URL.Path == "/admin/cliauth/authenticators" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -427,7 +465,7 @@ providers:
     provider_type: openai
     default_model: gpt-4.1
 virtualKeys:
-  - key: vk-local-test
+  - name: vk-local-test
     allowed_route_ids: []
 cliAuthAuthenticators:
   - name: codex
@@ -474,7 +512,8 @@ cliAuthAuthenticators:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
-						"key":               "vk-local-test",
+						"key":               "vk-generated",
+						"name":              "vk-local-test",
 						"allowed_route_ids": []string{},
 						"source":            "dynamic",
 						"read_only":         false,
@@ -484,7 +523,7 @@ cliAuthAuthenticators:
 		case r.URL.Path == "/admin/virtual_keys" && r.Method == http.MethodPost:
 			virtualKeyWriteCount.Add(1)
 			t.Fatalf("unexpected virtual key create request for unchanged object")
-		case r.URL.Path == "/admin/virtual_keys/vk-local-test" && r.Method == http.MethodPut:
+		case r.URL.Path == "/admin/virtual_keys/vk-generated" && r.Method == http.MethodPut:
 			virtualKeyWriteCount.Add(1)
 			t.Fatalf("unexpected virtual key update request for unchanged object")
 		case r.URL.Path == "/admin/cliauth/authenticators" && r.Method == http.MethodGet:
@@ -673,6 +712,7 @@ func TestGatewayExportCommand(t *testing.T) {
 				"items": []map[string]any{
 					{
 						"key":               "vk-local-test",
+						"name":              "vk-local-test",
 						"allowed_route_ids": []string{"chat-prod"},
 						"source":            "dynamic",
 						"read_only":         false,
@@ -719,12 +759,15 @@ func TestGatewayExportCommand(t *testing.T) {
 		"virtualKeys:",
 		"cliAuthAuthenticators:",
 		"id: openai-main",
-		"key: vk-local-test",
+		"name: vk-local-test",
 		"name: codex",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout)
 		}
+	}
+	if strings.Contains(stdout, "\n    key: ") || strings.Contains(stdout, "\n  key: ") {
+		t.Fatalf("stdout unexpectedly included generated virtual key value:\n%s", stdout)
 	}
 }
 
@@ -793,6 +836,7 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 				"items": []map[string]any{
 					{
 						"key":               "vk-local-test",
+						"name":              "vk-local-test",
 						"allowed_route_ids": []string{"chat-prod"},
 						"source":            "dynamic",
 						"read_only":         false,

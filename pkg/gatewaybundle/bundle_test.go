@@ -45,7 +45,7 @@ routes:
       provider_target:
         provider_id: openai-main
 virtualKeys:
-  - key: vk-local-test
+  - name: vk-local-test
     tag: local-test
     allowed_route_ids:
       - chat-prod
@@ -87,7 +87,7 @@ cliAuthAuthenticators:
 	if bundle.Routes[0].TargetPolicy.ProviderTarget.ProviderID != "openai-main" {
 		t.Fatalf("Routes[0].TargetPolicy.ProviderTarget.ProviderID = %q, want %q", bundle.Routes[0].TargetPolicy.ProviderTarget.ProviderID, "openai-main")
 	}
-	if len(bundle.VirtualKeys) != 1 || len(bundle.VirtualKeys[0].AllowedRouteIDs) != 1 || bundle.VirtualKeys[0].AllowedRouteIDs[0] != "chat-prod" {
+	if len(bundle.VirtualKeys) != 1 || bundle.VirtualKeys[0].Name != "vk-local-test" || len(bundle.VirtualKeys[0].AllowedRouteIDs) != 1 || bundle.VirtualKeys[0].AllowedRouteIDs[0] != "chat-prod" {
 		t.Fatalf("VirtualKeys = %#v", bundle.VirtualKeys)
 	}
 	if len(bundle.CLIAuthAuthenticators) != 1 || bundle.CLIAuthAuthenticators[0].Name != "codex" || !bundle.CLIAuthAuthenticators[0].Enabled || bundle.CLIAuthAuthenticators[0].Config.CallbackPort != 9002 {
@@ -182,7 +182,7 @@ routes:
       provider_target:
         provider_id: openai-main
 virtualKeys:
-  - key: vk-local-test
+  - name: vk-local-test
     allowed_route_ids:
       - chat-prod
 cliAuthAuthenticators:
@@ -193,7 +193,7 @@ cliAuthAuthenticators:
 		t.Fatalf("DecodeYAML() error = %v", err)
 	}
 
-	if err := bundle.Validate(); err != nil {
+	if err := bundle.ValidateForConfigStore(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
 }
@@ -236,10 +236,10 @@ routes:
       provider_target:
         provider_id: dup
 virtualKeys:
-  - key: vk-a
+  - name: vk-a
     allowed_route_ids:
       - missing-route
-  - key: vk-a
+  - name: vk-a
 cliAuthAuthenticators:
   - name: codex
   - name: codex
@@ -269,12 +269,86 @@ cliAuthAuthenticators:
 		`managedModels["openai-main/gpt-4.1"]: duplicate provider_id/upstream_model`,
 		`routes["route-a"]: duplicate id`,
 		`virtualKeys["vk-a"]: allowed_route_id "missing-route" does not exist in bundle routes`,
-		`virtualKeys["vk-a"]: duplicate key`,
+		`virtualKeys["vk-a"]: duplicate name`,
 		`cliAuthAuthenticators["codex"]: duplicate name`,
 		`cliAuthAuthenticators["missing-authenticator"]: unknown authenticator`,
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("Validate() error = %v, want substring %q", err, want)
 		}
+	}
+}
+
+func TestValidateForConfigStoreRejectsExplicitVirtualKeyValue(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+virtualKeys:
+  - key: vk-generated-elsewhere
+    name: demo
+`))
+	if err != nil {
+		t.Fatalf("DecodeYAML() error = %v", err)
+	}
+
+	err = bundle.ValidateForConfigStore()
+	if err == nil {
+		t.Fatal("ValidateForConfigStore() error = nil, want explicit key rejection")
+	}
+	if !strings.Contains(err.Error(), `virtualKeys["demo"].key must be omitted for config-store bundles`) {
+		t.Fatalf("ValidateForConfigStore() error = %v", err)
+	}
+}
+
+func TestValidateRejectsConflictingRouteDefaults(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+providerTypes:
+  - provider_type: zhipu
+    enabled: true
+  - provider_type: deepseek
+    enabled: true
+llmApiHandlerTypes:
+  - llm_api_handler_type: openai
+    enabled: true
+providers:
+  - id: zhipu-main
+    provider_type: zhipu
+  - id: deepseek-main
+    provider_type: deepseek
+routes:
+  - id: chat-test
+    llm_api: openai
+    match:
+      path_prefix: /chat
+      methods:
+        - POST
+    auth_policy:
+      require_virtual_key: true
+    target_policy:
+      default_model: chat-default
+      model_targets:
+        - name: code-default
+          candidates:
+            - provider_id: zhipu-main
+              upstream_model: glm-4.7
+              default: true
+        - name: chat-default
+          candidates:
+            - provider_id: deepseek-main
+              upstream_model: deepseek-v4-pro
+              default: true
+`))
+	if err != nil {
+		t.Fatalf("DecodeYAML() error = %v", err)
+	}
+
+	err = bundle.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want conflicting route defaults rejection")
+	}
+	if !strings.Contains(err.Error(), `routes["chat-test"]: route "chat-test" default candidates must belong to a single target model`) {
+		t.Fatalf("Validate() error = %v", err)
 	}
 }

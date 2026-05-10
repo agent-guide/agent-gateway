@@ -420,7 +420,7 @@ func parseRouteTargetPolicy(seg *caddyfile.Dispenser, route *routepkg.AgentRoute
 				return seg.ArgErr()
 			}
 			modelName := strings.Trim(args[0], "\"`")
-			candidate := routepkg.LogicalModelCandidate{
+			candidate := routepkg.RouteModelCandidate{
 				ProviderID:    strings.Trim(args[1], "\"`"),
 				UpstreamModel: strings.Trim(args[2], "\"`"),
 			}
@@ -454,13 +454,13 @@ func parseRouteTargetPolicy(seg *caddyfile.Dispenser, route *routepkg.AgentRoute
 					return seg.Errf("unknown target_policy model option: %s", token)
 				}
 			}
-			group := logicalModelGroupByName(&policy, modelName)
+			group := routeModelTargetGroupByName(&policy, modelName)
 			if group == nil {
-				policy.Models = append(policy.Models, routepkg.LogicalModelBindingGroup{Name: modelName})
-				group = &policy.Models[len(policy.Models)-1]
+				policy.ModelTargets = append(policy.ModelTargets, routepkg.RouteModelTarget{Name: modelName})
+				group = &policy.ModelTargets[len(policy.ModelTargets)-1]
 			}
 			group.Candidates = append(group.Candidates, candidate)
-			registerStaticManagedModel(app, routepkg.RouteModelCandidate(candidate))
+			registerStaticManagedModel(app, candidate)
 		case "model_selector_strategy":
 			if len(args) != 1 {
 				return seg.ArgErr()
@@ -522,10 +522,10 @@ func parseRouteTargetPolicy(seg *caddyfile.Dispenser, route *routepkg.AgentRoute
 	return nil
 }
 
-func logicalModelGroupByName(policy *routepkg.RouteTargetPolicy, name string) *routepkg.LogicalModelBindingGroup {
-	for i := range policy.Models {
-		if policy.Models[i].Name == name {
-			return &policy.Models[i]
+func routeModelTargetGroupByName(policy *routepkg.RouteTargetPolicy, name string) *routepkg.RouteModelTarget {
+	for i := range policy.ModelTargets {
+		if policy.ModelTargets[i].Name == name {
+			return &policy.ModelTargets[i]
 		}
 	}
 	return nil

@@ -15,6 +15,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	credentialmgrscheduler "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	"go.uber.org/zap"
 )
 
 type BootstrapOptions struct {
@@ -27,6 +28,7 @@ type BootstrapOptions struct {
 	CredentialManager   *credentialmgr.Manager
 	CredentialScheduler credentialmgrscheduler.CredentialScheduler
 	StaticModels        []modelcatalog.ManagedModel
+	Logger              *zap.Logger
 }
 
 type AgentGateway struct {
@@ -68,7 +70,7 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	g.cliauthRefresher = opts.CLIAuthRefresher
 	g.credentialManager = opts.CredentialManager
 	g.credentialScheduler = opts.CredentialScheduler
-	if err := g.configureModelCatalog(ctx, opts.ConfigStore, opts.StaticModels); err != nil {
+	if err := g.configureModelCatalog(ctx, opts.ConfigStore, opts.StaticModels, opts.Logger); err != nil {
 		return err
 	}
 	g.configured = true
@@ -279,7 +281,7 @@ func (g *AgentGateway) configureProviderResolver(ctx context.Context, configStor
 	return nil
 }
 
-func (g *AgentGateway) configureModelCatalog(ctx context.Context, configStore configstoreintf.ConfigStorer, staticModels []modelcatalog.ManagedModel) error {
+func (g *AgentGateway) configureModelCatalog(ctx context.Context, configStore configstoreintf.ConfigStorer, staticModels []modelcatalog.ManagedModel, logger *zap.Logger) error {
 	if g.modelCatalog != nil {
 		return fmt.Errorf("model catalog is not nil")
 	}
@@ -292,6 +294,6 @@ func (g *AgentGateway) configureModelCatalog(ctx context.Context, configStore co
 			return fmt.Errorf("get model store: %w", err)
 		}
 	}
-	g.modelCatalog = modelcatalog.NewService(modelStore, g.providerManager, staticModels)
+	g.modelCatalog = modelcatalog.NewService(modelStore, g.providerManager, staticModels, logger)
 	return nil
 }

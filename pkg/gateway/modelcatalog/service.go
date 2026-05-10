@@ -9,6 +9,7 @@ import (
 
 	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	"go.uber.org/zap"
 )
 
 type Service interface {
@@ -37,9 +38,13 @@ type service struct {
 	providerMgr   providerResolver
 	staticManaged map[string]ManagedModel
 	snapshots     map[string][]ProviderModelSnapshot
+	logger        *zap.Logger
 }
 
-func NewService(store configstoreintf.ModelStorer, providerMgr providerResolver, staticManaged []ManagedModel) Service {
+func NewService(store configstoreintf.ModelStorer, providerMgr providerResolver, staticManaged []ManagedModel, logger *zap.Logger) Service {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	staticMap := make(map[string]ManagedModel, len(staticManaged))
 	for _, item := range staticManaged {
 		item.Normalize()
@@ -50,15 +55,23 @@ func NewService(store configstoreintf.ModelStorer, providerMgr providerResolver,
 		providerMgr:   providerMgr,
 		staticManaged: staticMap,
 		snapshots:     map[string][]ProviderModelSnapshot{},
+		logger:        logger,
 	}
 }
 
 func (s *service) RefreshProvider(ctx context.Context, providerID string) error {
 	if s.providerMgr == nil {
+		s.logger.Error("provider model discovery cannot run without provider manager",
+			zap.String("provider_id", providerID))
 		return fmt.Errorf("provider manager is not configured")
 	}
+	s.logger.Info("refreshing provider model discovery",
+		zap.String("provider_id", providerID))
 	prov, err := s.providerMgr.ResolveProvider(ctx, providerID)
 	if err != nil {
+		s.logger.Error("provider model discovery failed to resolve provider",
+			zap.String("provider_id", providerID),
+			zap.Error(err))
 		return err
 	}
 	cfg := prov.Config()
@@ -73,6 +86,10 @@ func (s *service) RefreshProvider(ctx context.Context, providerID string) error 
 			FetchedAt:    now,
 			LastError:    err.Error(),
 		})
+		s.logger.Warn("provider model discovery request failed",
+			zap.String("provider_id", providerID),
+			zap.String("provider_type", cfg.ProviderType),
+			zap.Error(err))
 	} else {
 		for _, model := range models {
 			upstream := model.ID
@@ -90,6 +107,10 @@ func (s *service) RefreshProvider(ctx context.Context, providerID string) error 
 				FetchedAt:     now,
 			})
 		}
+		s.logger.Info("provider model discovery finished",
+			zap.String("provider_id", providerID),
+			zap.String("provider_type", cfg.ProviderType),
+			zap.Int("model_count", len(models)))
 	}
 	s.mu.Lock()
 	s.snapshots[providerID] = snapshots
@@ -103,10 +124,21 @@ func (s *service) ListProviderSnapshots(ctx context.Context, providerID string) 
 		out := append([]ProviderModelSnapshot(nil), s.snapshots[providerID]...)
 		s.mu.RUnlock()
 		if len(out) == 0 {
-			if err := s.RefreshProvider(ctx, providerID); err != nil && len(out) == 0 {
-				s.mu.RLock()
-				out = append([]ProviderModelSnapshot(nil), s.snapshots[providerID]...)
-				s.mu.RUnlock()
+			s.logger.Info("provider model snapshots cache miss; refreshing",
+				zap.String("provider_id", providerID))
+			err := s.RefreshProvider(ctx, providerID)
+			s.mu.RLock()
+			out = append([]ProviderModelSnapshot(nil), s.snapshots[providerID]...)
+			s.mu.RUnlock()
+			if err != nil {
+				if len(out) > 0 {
+					s.logger.Warn("provider model snapshots refresh failed; returning error snapshot",
+						zap.String("provider_id", providerID),
+						zap.Int("snapshot_count", len(out)),
+						zap.Error(err))
+					return append([]ProviderModelSnapshot(nil), out...), nil
+				}
+				return nil, err
 			}
 		}
 		return append([]ProviderModelSnapshot(nil), out...), nil

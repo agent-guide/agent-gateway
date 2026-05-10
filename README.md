@@ -81,16 +81,17 @@ The `agw` binary includes Caddy standard modules, the gateway app adapter, the a
 
 - `agw`: the main gateway runtime binary
 - `agwd`: the standalone gateway daemon without a Caddyfile runtime
-- `agwctl`: the management CLI for gateway admin, Caddy admin, and local CLI auth operations
+- `agwctl`: the management CLI for gateway admin, Caddy admin, and CLI auth operations
 
 ## Management CLI
 
-`agwctl` is the management CLI for the gateway Admin API, direct Caddy admin API operations, and local CLI auth credentials.
+`agwctl` is the management CLI for the gateway Admin API, direct Caddy admin API operations, and local CLI auth login flows.
 
 Important distinction:
 
-- `agwctl cliauth ...` manages local CLI auth credentials on the machine running `agwctl`
-- `agwctl gateway cliauth ...` inspects remote gateway CLI auth state and starts login flows through the Admin API
+- `agwctl gateway credential ...` manages remote gateway credentials through the Admin API, including `api_key` and `cliauth_token` sources
+- `agwctl cliauth ...` runs local login flows; the login usage itself shows supported authenticator names
+- `agwctl gateway cliauth ...` inspects remote gateway CLI auth authenticators and manages refresher state through the Admin API
 - `agwctl gateway apply/export ...` manages remote CLI auth authenticator config as part of the gateway bundle
 
 Show available commands:
@@ -114,11 +115,15 @@ List Caddy HTTP servers through the Caddy admin API directly, not through the ga
 ./agwctl caddy --addr http://127.0.0.1:2019 server list
 ```
 
-List supported local CLI authenticators and saved credentials:
+Start a local CLI auth login flow and list gateway-stored CLI auth credentials:
 
 ```bash
-./agwctl cliauth authenticators
-./agwctl cliauth list
+./agwctl cliauth login --authenticator codex
+./agwctl gateway --addr http://localhost:8019 \
+  --user admin \
+  --password your-password \
+  credential list \
+  --source cliauth_token
 ```
 
 List remote gateway CLI auth authenticators and refresher status:
@@ -181,6 +186,9 @@ Bundle YAML examples for batch workflows:
 
 - `examples/gateway.bundle.minimal.yaml`
 - `examples/gateway.bundle.logical-model.yaml`
+- `examples/gateway.bundle.cliauth-authenticators.yaml`
+
+For `agwctl gateway apply/export`, `virtualKeys` are declared by `name`. The gateway generates the actual `key` value when the virtual key is created in the config store.
 
 - `providers`
 - `managedModels`
@@ -197,27 +205,15 @@ Common command patterns:
   --password your-password \
   apply -f ./examples/gateway.bundle.minimal.yaml
 
-cat > gateway.yaml <<'EOF'
-apiVersion: gateway.agw/v1alpha1
-kind: GatewayBundle
-cliAuthAuthenticators:
-  - name: codex
-    enabled: true
-    config:
-      callback_port: 9002
-      no_browser: true
-      device_flow: true
-EOF
+./agwctl gateway --addr http://localhost:8019 \
+  --user admin \
+  --password your-password \
+  apply -f ./examples/gateway.bundle.cliauth-authenticators.yaml
 
 ./agwctl gateway --addr http://localhost:8019 \
   --user admin \
   --password your-password \
-  apply -f ./gateway.yaml
-
-./agwctl gateway --addr http://localhost:8019 \
-  --user admin \
-  --password your-password \
-  cliauth login codex --wait
+  cliauth authenticators get codex
 ```
 
 ## Quick Start
@@ -493,9 +489,11 @@ Static records are exposed through Admin API list/read responses with source/rea
 
 For the standalone daemon, static bundle YAML uses the same read-only semantics as Caddyfile-owned objects:
 
+Static bundle virtual keys are runtime secrets, so `virtualKeys` in `--static-config` must still set an explicit `key`.
+
 ```bash
 ./agwd --config-store ./data/configstore.db \
-  --static-config ./examples/gateway.bundle.minimal.yaml
+  --static-config ./examples/gateway.static.minimal.yaml
 ```
 
 ## Admin API
@@ -638,14 +636,12 @@ curl -X POST http://localhost:8019/admin/credentials \
 - `GET /admin/cliauth/authenticators`
 - `GET /admin/cliauth/authenticators/{authenticator_name}`
 - `PUT /admin/cliauth/authenticators/{authenticator_name}`
-- `POST /admin/cliauth/authenticators/{authenticator_name}/enable`
-- `POST /admin/cliauth/authenticators/{authenticator_name}/disable`
 - `POST /admin/cliauth/authenticators/{authenticator_name}/login`
 - `GET /admin/cliauth/logins/{login_id}`
 
 CLI auth login runs asynchronously on the server. The login endpoint returns `202 Accepted`; poll the status endpoint for completion.
 Authenticator config set through the admin API is runtime-only. Disabling an authenticator or restarting the server resets it to factory defaults.
-The `PUT` update endpoint accepts `enabled` and `config`. Use `{"enabled":true,"config":{}}` to keep factory defaults while enabling or refreshing the runtime authenticator config. The runtime authenticator is recreated from its factory defaults, then the provided config is applied. `POST .../enable` and `POST .../disable` remain available as compatibility aliases.
+The `PUT` update endpoint accepts `enabled` and `config`. Use `{"enabled":true,"config":{}}` to keep factory defaults while enabling or refreshing the runtime authenticator config. The runtime authenticator is recreated from its factory defaults, then the provided config is applied.
 
 Examples:
 

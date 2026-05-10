@@ -2,89 +2,93 @@ package cliauthstore
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"slices"
 	"strings"
-	"sync"
-	"time"
 
+	"github.com/agent-guide/agent-gateway/pkg/adminclient"
 	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
-	"github.com/google/uuid"
 )
 
-type credentialFile struct {
-	Credentials []*credentialmgr.Credential `json:"credentials"`
+type Config struct {
+	BaseURL  string
+	Username string
+	Password string
 }
 
 type Manager struct {
-	path string
-
-	mu    sync.RWMutex
-	creds map[string]*credentialmgr.Credential
+	client *adminclient.Client
 }
 
-func New(path string) (*Manager, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return nil, fmt.Errorf("credential manager: path is empty")
+func New(cfg Config) (*Manager, error) {
+	client := adminclient.New(adminclient.Config{
+		BaseURL:  strings.TrimSpace(cfg.BaseURL),
+		Username: strings.TrimSpace(cfg.Username),
+		Password: cfg.Password,
+	})
+	if client == nil {
+		return nil, fmt.Errorf("cliauth store: admin client is nil")
 	}
-
-	mgr := &Manager{
-		path:  path,
-		creds: make(map[string]*credentialmgr.Credential),
-	}
-	if err := mgr.load(); err != nil {
-		return nil, err
-	}
-	return mgr, nil
+	return &Manager{client: client}, nil
 }
 
 func (m *Manager) GetCredential(id string) *credentialmgr.Credential {
-	if m == nil {
-		return nil
+	cred, _ := m.GetCredentialWithError(id)
+	return cred
+}
+
+func (m *Manager) GetCredentialWithError(id string) (*credentialmgr.Credential, error) {
+	if m == nil || m.client == nil {
+		return nil, nil
 	}
-	id = strings.TrimSpace(id)
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if cred := m.creds[id]; cred != nil {
-		return cred.Clone()
+	item, err := m.client.GetCredential(context.Background(), strings.TrimSpace(id))
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	cred := credentialFromAdminView(item)
+	if cred == nil || cred.Source != credentialmgr.SourceCLIAuthToken {
+		return nil, nil
+	}
+	return cred, nil
 }
 
 func (m *Manager) ListCredentials(filter credentialmgr.Filter) []*credentialmgr.Credential {
-	if m == nil {
-		return nil
+	items, _ := m.ListCredentialsWithError(filter)
+	return items
+}
+
+func (m *Manager) ListCredentialsWithError(filter credentialmgr.Filter) ([]*credentialmgr.Credential, error) {
+	if m == nil || m.client == nil {
+		return nil, nil
 	}
 
 	filter = normalizeFilter(filter)
-
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	ids := make([]string, 0, len(m.creds))
-	for id := range m.creds {
-		ids = append(ids, id)
+	if filter.Source != "" && filter.Source != credentialmgr.SourceCLIAuthToken {
+		return nil, nil
 	}
-	slices.Sort(ids)
 
-	out := make([]*credentialmgr.Credential, 0, len(ids))
-	for _, id := range ids {
-		cred := m.creds[id]
+	items, err := m.client.ListCredentials(context.Background(), adminclient.CredentialListOptions{
+		ProviderType: filter.ProviderType,
+		ProviderID:   filter.ProviderID,
+		Source:       credentialmgr.SourceCLIAuthToken,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]*credentialmgr.Credential, 0, len(items))
+	for _, item := range items {
+		cred := credentialFromAdminView(&item)
 		if cred == nil || !matchesFilter(cred, filter) {
 			continue
 		}
-		out = append(out, cred.Clone())
+		out = append(out, cred)
 	}
-	return out
+	return out, nil
 }
 
-func (m *Manager) RegisterCredential(_ context.Context, cred *credentialmgr.Credential) error {
+func (m *Manager) RegisterCredential(ctx context.Context, cred *credentialmgr.Credential) error {
 	if m == nil {
 		return fmt.Errorf("credential manager: manager is nil")
 	}
@@ -93,9 +97,6 @@ func (m *Manager) RegisterCredential(_ context.Context, cred *credentialmgr.Cred
 	}
 
 	normalized := cred.Clone().Normalize()
-	if normalized.ID == "" {
-		normalized.ID = uuid.New().String()
-	}
 	if normalized.ProviderType == "" {
 		return fmt.Errorf("credential manager: provider type is required")
 	}
@@ -103,19 +104,26 @@ func (m *Manager) RegisterCredential(_ context.Context, cred *credentialmgr.Cred
 		normalized.ProviderID = normalized.ProviderType
 	}
 
-	now := time.Now().UTC()
-	if normalized.CreatedAt.IsZero() {
-		normalized.CreatedAt = now
+	managed, err := m.client.CreateCredential(ctx, createRequestFromCredential(normalized))
+	if err != nil {
+		return mapAdminClientError(err)
 	}
-	normalized.UpdatedAt = now
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.creds[normalized.ID] = normalized
-	return m.persistLocked()
+	if managed != nil {
+		cred.ID = managed.ID
+		cred.ProviderType = managed.ProviderType
+		cred.ProviderID = managed.ProviderID
+		cred.Source = managed.Source
+		cred.Label = managed.Label
+		cred.Attributes = cloneStringMap(managed.Attributes)
+		cred.Metadata = cloneAnyMap(managed.Metadata)
+		cred.Disabled = managed.Disabled
+		cred.CreatedAt = managed.CreatedAt
+		cred.UpdatedAt = managed.UpdatedAt
+	}
+	return nil
 }
 
-func (m *Manager) UpdateCredential(_ context.Context, cred *credentialmgr.Credential) error {
+func (m *Manager) UpdateCredential(ctx context.Context, cred *credentialmgr.Credential) error {
 	if m == nil {
 		return fmt.Errorf("credential manager: manager is nil")
 	}
@@ -128,30 +136,25 @@ func (m *Manager) UpdateCredential(_ context.Context, cred *credentialmgr.Creden
 		return fmt.Errorf("credential manager: credential id is required")
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	existing := m.creds[normalized.ID]
-	if existing == nil {
-		return configstoreintf.ErrNotFound
+	managed, err := m.client.UpdateCredential(ctx, normalized.ID, updateRequestFromCredential(normalized))
+	if err != nil {
+		return mapAdminClientError(err)
 	}
-
-	if normalized.CreatedAt.IsZero() {
-		normalized.CreatedAt = existing.CreatedAt
+	if managed != nil {
+		cred.ProviderType = managed.ProviderType
+		cred.ProviderID = managed.ProviderID
+		cred.Source = managed.Source
+		cred.Label = managed.Label
+		cred.Attributes = cloneStringMap(managed.Attributes)
+		cred.Metadata = cloneAnyMap(managed.Metadata)
+		cred.Disabled = managed.Disabled
+		cred.CreatedAt = managed.CreatedAt
+		cred.UpdatedAt = managed.UpdatedAt
 	}
-	if normalized.ProviderID == "" {
-		normalized.ProviderID = existing.ProviderID
-	}
-	if normalized.ProviderType == "" {
-		normalized.ProviderType = existing.ProviderType
-	}
-	normalized.UpdatedAt = time.Now().UTC()
-
-	m.creds[normalized.ID] = normalized
-	return m.persistLocked()
+	return nil
 }
 
-func (m *Manager) DeregisterCredential(_ context.Context, id string) error {
+func (m *Manager) DeregisterCredential(ctx context.Context, id string) error {
 	if m == nil {
 		return nil
 	}
@@ -159,168 +162,14 @@ func (m *Manager) DeregisterCredential(_ context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("credential manager: credential id is required")
 	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.creds[id]; !ok {
-		return nil
-	}
-	delete(m.creds, id)
-	return m.persistLocked()
-}
-
-func (m *Manager) load() error {
-	data, err := os.ReadFile(m.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("credential manager: read %s: %w", m.path, err)
-	}
-	if len(strings.TrimSpace(string(data))) == 0 {
-		return nil
-	}
-
-	items, err := decodeCredentialsFile(data)
-	if err != nil {
-		return fmt.Errorf("credential manager: decode %s: %w", m.path, err)
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, cred := range items {
-		if cred == nil {
-			continue
-		}
-		normalized := cred.Clone().Normalize()
-		if normalized.ID == "" {
-			normalized.ID = uuid.New().String()
-		}
-		if normalized.ProviderType == "" {
-			continue
-		}
-		if normalized.ProviderID == "" {
-			normalized.ProviderID = normalized.ProviderType
-		}
-		m.creds[normalized.ID] = normalized
+	if _, err := m.client.DeleteCredential(ctx, id); err != nil {
+		return mapAdminClientError(err)
 	}
 	return nil
 }
 
-func decodeCredentialsFile(data []byte) ([]*credentialmgr.Credential, error) {
-	var wrapper credentialFile
-	if err := json.Unmarshal(data, &wrapper); err == nil && wrapper.Credentials != nil {
-		return wrapper.Credentials, nil
-	}
-
-	var items []*credentialmgr.Credential
-	if err := json.Unmarshal(data, &items); err == nil {
-		return items, nil
-	}
-
-	var single credentialmgr.Credential
-	if err := json.Unmarshal(data, &single); err == nil && single.ID != "" {
-		return []*credentialmgr.Credential{&single}, nil
-	}
-
-	return nil, fmt.Errorf("unsupported credential file format")
-}
-
-func (m *Manager) persistLocked() error {
-	dir := filepath.Dir(m.path)
-	if dir == "" {
-		dir = "."
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("credential manager: create dir %s: %w", dir, err)
-	}
-
-	ids := make([]string, 0, len(m.creds))
-	for id := range m.creds {
-		ids = append(ids, id)
-	}
-	slices.Sort(ids)
-
-	payload := credentialFile{
-		Credentials: make([]*credentialmgr.Credential, 0, len(ids)),
-	}
-	for _, id := range ids {
-		payload.Credentials = append(payload.Credentials, m.creds[id].Clone())
-	}
-
-	data, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return fmt.Errorf("credential manager: marshal: %w", err)
-	}
-	data = append(data, '\n')
-
-	tmp, err := os.CreateTemp(dir, filepath.Base(m.path)+".tmp-*")
-	if err != nil {
-		return fmt.Errorf("credential manager: create temp file: %w", err)
-	}
-
-	tmpName := tmp.Name()
-	cleanup := func() {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-	}
-
-	if _, err := tmp.Write(data); err != nil {
-		cleanup()
-		return fmt.Errorf("credential manager: write temp file: %w", err)
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		cleanup()
-		return fmt.Errorf("credential manager: chmod temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("credential manager: close temp file: %w", err)
-	}
-	if err := os.Rename(tmpName, m.path); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("credential manager: replace %s: %w", m.path, err)
-	}
-
-	return nil
-}
-
-func DefaultStorePath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve home dir: %w", err)
-	}
-	return filepath.Join(home, ".cliauthhelper", "credentials.json"), nil
-}
-
-func NewFromPath(storePath string) (*Manager, error) {
-	expanded, err := ExpandPath(storePath)
-	if err != nil {
-		return nil, err
-	}
-	return New(expanded)
-}
-
-func ExpandPath(path string) (string, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return "", fmt.Errorf("path is empty")
-	}
-	if path == "~" || strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve home dir: %w", err)
-		}
-		if path == "~" {
-			return home, nil
-		}
-		path = filepath.Join(home, path[2:])
-	}
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", fmt.Errorf("resolve absolute path for %s: %w", path, err)
-	}
-	return abs, nil
+func DefaultGatewayAddr() string {
+	return "http://localhost:8019"
 }
 
 func normalizeFilter(filter credentialmgr.Filter) credentialmgr.Filter {
@@ -354,4 +203,90 @@ func matchesFilter(cred *credentialmgr.Credential, filter credentialmgr.Filter) 
 		}
 	}
 	return true
+}
+
+func credentialFromAdminView(item *adminclient.Credential) *credentialmgr.Credential {
+	if item == nil {
+		return nil
+	}
+	return (&credentialmgr.Credential{
+		ID:           item.ID,
+		ProviderType: item.ProviderType,
+		ProviderID:   item.ProviderID,
+		Source:       item.Source,
+		Label:        item.Label,
+		Attributes:   cloneStringMap(item.Attributes),
+		Metadata:     cloneAnyMap(item.Metadata),
+		Disabled:     item.Disabled,
+		CreatedAt:    item.CreatedAt,
+		UpdatedAt:    item.UpdatedAt,
+	}).Normalize()
+}
+
+func createRequestFromCredential(cred *credentialmgr.Credential) adminclient.CreateCredentialRequest {
+	if cred == nil {
+		return adminclient.CreateCredentialRequest{}
+	}
+	return adminclient.CreateCredentialRequest{
+		ID:           cred.ID,
+		Source:       cred.Source,
+		ProviderType: cred.ProviderType,
+		ProviderID:   cred.ProviderID,
+		Label:        cred.Label,
+		Attributes:   cloneStringMap(cred.Attributes),
+		Metadata:     cloneAnyMap(cred.Metadata),
+		Disabled:     cred.Disabled,
+		CreatedAt:    cred.CreatedAt,
+		UpdatedAt:    cred.UpdatedAt,
+	}
+}
+
+func updateRequestFromCredential(cred *credentialmgr.Credential) adminclient.UpdateCredentialRequest {
+	if cred == nil {
+		return adminclient.UpdateCredentialRequest{}
+	}
+	return adminclient.UpdateCredentialRequest{
+		Source:       cred.Source,
+		ProviderType: cred.ProviderType,
+		ProviderID:   cred.ProviderID,
+		Label:        cred.Label,
+		Attributes:   cloneStringMap(cred.Attributes),
+		Metadata:     cloneAnyMap(cred.Metadata),
+		Disabled:     cred.Disabled,
+		CreatedAt:    cred.CreatedAt,
+		UpdatedAt:    cred.UpdatedAt,
+	}
+}
+
+func mapAdminClientError(err error) error {
+	var adminErr *adminclient.Error
+	if !errors.As(err, &adminErr) {
+		return err
+	}
+	if adminErr.StatusCode == 404 {
+		return configstoreintf.ErrNotFound
+	}
+	return err
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func cloneAnyMap(src map[string]any) map[string]any {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]any, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }

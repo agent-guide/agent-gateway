@@ -36,8 +36,8 @@ func (r AgentRoute) ValidateDefinition() error {
 		return fmt.Errorf("route %q targets are required in model-target mode", r.ID)
 	}
 
-	if len(r.TargetPolicy.Models) == 0 {
-		return fmt.Errorf("route %q target_policy.models are required in logical-model mode", r.ID)
+	if len(r.TargetPolicy.ModelTargets) == 0 {
+		return fmt.Errorf("route %q target_policy.model_targets are required in logical-model mode", r.ID)
 	}
 
 	switch r.TargetPolicy.ModelSelectorStrategy {
@@ -49,9 +49,10 @@ func (r AgentRoute) ValidateDefinition() error {
 		return fmt.Errorf("route %q fallback.max_num must be between 0 and 5", r.ID)
 	}
 
-	targetNames := make([]string, 0, len(r.TargetPolicy.Models))
+	targetNames := make([]string, 0, len(r.TargetPolicy.ModelTargets))
 	seenNames := map[string]struct{}{}
-	for _, target := range r.TargetPolicy.Models {
+	defaultCandidateTargets := map[string]struct{}{}
+	for _, target := range r.TargetPolicy.ModelTargets {
 		if target.Name == "" {
 			return fmt.Errorf("route %q target name is required", r.ID)
 		}
@@ -64,6 +65,7 @@ func (r AgentRoute) ValidateDefinition() error {
 			return fmt.Errorf("route %q target %q must define at least one candidate", r.ID, target.Name)
 		}
 		candidateIDs := map[string]struct{}{}
+		defaultCandidateCount := 0
 		for _, candidate := range target.Candidates {
 			if candidate.ProviderID == "" || candidate.UpstreamModel == "" {
 				return fmt.Errorf("route %q target %q candidates require provider_id and upstream_model", r.ID, target.Name)
@@ -73,10 +75,29 @@ func (r AgentRoute) ValidateDefinition() error {
 				return fmt.Errorf("route %q target %q duplicates candidate %q", r.ID, target.Name, key)
 			}
 			candidateIDs[key] = struct{}{}
+			if candidate.Default {
+				defaultCandidateCount++
+			}
+		}
+		if defaultCandidateCount > 1 {
+			return fmt.Errorf("route %q target %q may define at most one default candidate", r.ID, target.Name)
+		}
+		if defaultCandidateCount == 1 {
+			defaultCandidateTargets[target.Name] = struct{}{}
 		}
 	}
 	if r.TargetPolicy.DefaultModel != "" && !slices.Contains(targetNames, r.TargetPolicy.DefaultModel) {
 		return fmt.Errorf("route %q default_model %q must appear in targets", r.ID, r.TargetPolicy.DefaultModel)
+	}
+	if len(defaultCandidateTargets) > 1 {
+		return fmt.Errorf("route %q default candidates must belong to a single target model", r.ID)
+	}
+	if r.TargetPolicy.DefaultModel != "" {
+		for targetName := range defaultCandidateTargets {
+			if targetName != r.TargetPolicy.DefaultModel {
+				return fmt.Errorf("route %q default candidate target %q must match default_model %q", r.ID, targetName, r.TargetPolicy.DefaultModel)
+			}
+		}
 	}
 
 	return nil
@@ -124,7 +145,7 @@ func (r AgentRoute) ProviderIDs() []string {
 	if r.TargetPolicy.ProviderID != "" {
 		ids[r.TargetPolicy.ProviderID] = struct{}{}
 	}
-	for _, target := range r.TargetPolicy.Models {
+	for _, target := range r.TargetPolicy.ModelTargets {
 		for _, candidate := range target.Candidates {
 			if candidate.ProviderID == "" {
 				continue

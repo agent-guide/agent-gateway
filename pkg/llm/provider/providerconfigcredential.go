@@ -7,9 +7,11 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 )
 
-const staticAPIKeyCredentialIDPrefix = "provider-static-api-key:"
+const (
+	providerConfigAPIKeyCredentialIDPrefix = "provider-config-api-key:"
+)
 
-func StaticAPIKeyCredential(cfg ProviderConfig, providerID string) *credentialmgr.Credential {
+func ProviderConfigAPIKeyCredential(cfg ProviderConfig, providerID string) *credentialmgr.Credential {
 	apiKey := strings.TrimSpace(cfg.APIKey)
 	if apiKey == "" {
 		return nil
@@ -36,7 +38,7 @@ func StaticAPIKeyCredential(cfg ProviderConfig, providerID string) *credentialmg
 	attrs["scope"] = credentialmgr.ProviderIDCredentialScope(providerID)
 	now := time.Now().UTC()
 	return &credentialmgr.Credential{
-		ID:           StaticAPIKeyCredentialID(cfg),
+		ID:           ProviderConfigAPIKeyCredentialID(cfg),
 		ProviderType: providerType,
 		ProviderID:   providerID,
 		Source:       credentialmgr.SourceAPIKey,
@@ -46,7 +48,7 @@ func StaticAPIKeyCredential(cfg ProviderConfig, providerID string) *credentialmg
 	}
 }
 
-func StaticAPIKeyCredentialID(cfg ProviderConfig) string {
+func ProviderConfigAPIKeyCredentialID(cfg ProviderConfig) string {
 	id := strings.TrimSpace(cfg.Id)
 	if id == "" {
 		id = strings.TrimSpace(cfg.ProviderType)
@@ -54,15 +56,18 @@ func StaticAPIKeyCredentialID(cfg ProviderConfig) string {
 	if id == "" {
 		id = "default"
 	}
-	return staticAPIKeyCredentialIDPrefix + id
+	return providerConfigAPIKeyCredentialIDPrefix + id
 }
 
-func StaticAPIKeyCredentialProviderID(credentialID string) (string, bool) {
+func ProviderConfigAPIKeyCredentialProviderID(credentialID string) (string, bool) {
 	credentialID = strings.TrimSpace(credentialID)
-	if credentialID == "" || !strings.HasPrefix(credentialID, staticAPIKeyCredentialIDPrefix) {
+	if credentialID == "" {
 		return "", false
 	}
-	providerID := strings.TrimSpace(strings.TrimPrefix(credentialID, staticAPIKeyCredentialIDPrefix))
+	if !strings.HasPrefix(credentialID, providerConfigAPIKeyCredentialIDPrefix) {
+		return "", false
+	}
+	providerID := strings.TrimSpace(strings.TrimPrefix(credentialID, providerConfigAPIKeyCredentialIDPrefix))
 	if providerID == "" {
 		return "", false
 	}

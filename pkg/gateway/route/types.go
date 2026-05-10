@@ -79,7 +79,6 @@ type AgentRoute struct {
 type RouteTargetPolicy struct {
 	Type                  RouteTargetPolicyKind         `json:"type,omitempty"`
 	ProviderID            string                        `json:"provider_id,omitempty"`
-	Models                []LogicalModelBindingGroup    `json:"models,omitempty"`
 	DefaultModel          string                        `json:"default_model,omitempty"`
 	ModelSelectorStrategy RouteSelectionStrategy        `json:"model_selector_strategy,omitempty"`
 	CredentialSelector    RouteCredentialSelectStrategy `json:"credential_selector,omitempty"`
@@ -95,7 +94,6 @@ func (p RouteTargetPolicy) MarshalJSON() ([]byte, error) {
 	type routeTargetPolicyJSON struct {
 		Type                  RouteTargetPolicyKind         `json:"type,omitempty"`
 		ProviderID            string                        `json:"provider_id,omitempty"`
-		Models                []LogicalModelBindingGroup    `json:"models,omitempty"`
 		DefaultModel          string                        `json:"default_model,omitempty"`
 		ModelSelectorStrategy RouteSelectionStrategy        `json:"model_selector_strategy,omitempty"`
 		CredentialSelector    RouteCredentialSelectStrategy `json:"credential_selector,omitempty"`
@@ -108,7 +106,6 @@ func (p RouteTargetPolicy) MarshalJSON() ([]byte, error) {
 	return json.Marshal(routeTargetPolicyJSON{
 		Type:                  p.Type,
 		ProviderID:            p.ProviderID,
-		Models:                p.Models,
 		DefaultModel:          p.DefaultModel,
 		ModelSelectorStrategy: p.ModelSelectorStrategy,
 		CredentialSelector:    p.CredentialSelector,
@@ -138,13 +135,6 @@ type RouteModelCandidate struct {
 type DirectProviderTarget struct {
 	ProviderID string `json:"provider_id"`
 }
-
-type LogicalModelBindingGroup struct {
-	Name       string                  `json:"name"`
-	Candidates []LogicalModelCandidate `json:"candidates,omitempty"`
-}
-
-type LogicalModelCandidate = RouteModelCandidate
 
 type RouteFallbackPolicy struct {
 	Enabled bool `json:"enabled,omitempty"`
@@ -222,7 +212,7 @@ func (p RouteTargetPolicy) PolicyKind() RouteTargetPolicyKind {
 	if strings.TrimSpace(p.ProviderID) != "" || strings.TrimSpace(p.ProviderTarget.ProviderID) != "" {
 		return RouteTargetPolicyKindDirectProvider
 	}
-	if len(p.Models) > 0 || len(p.ModelTargets) > 0 {
+	if len(p.ModelTargets) > 0 {
 		return RouteTargetPolicyKindLogicalModel
 	}
 	return ""
@@ -233,6 +223,7 @@ func (p *RouteTargetPolicy) Normalize() {
 		return
 	}
 	p.ProviderID = strings.TrimSpace(p.ProviderID)
+	p.DefaultModel = strings.TrimSpace(p.DefaultModel)
 	p.ProviderTarget.ProviderID = strings.TrimSpace(p.ProviderTarget.ProviderID)
 	if p.ProviderID == "" && p.ProviderTarget.ProviderID != "" {
 		p.ProviderID = p.ProviderTarget.ProviderID
@@ -244,37 +235,17 @@ func (p *RouteTargetPolicy) Normalize() {
 		p.Type = p.PolicyKind()
 	}
 
-	if len(p.Models) == 0 && len(p.ModelTargets) > 0 {
-		p.Models = make([]LogicalModelBindingGroup, 0, len(p.ModelTargets))
-		for _, target := range p.ModelTargets {
-			target.Normalize()
-			p.Models = append(p.Models, LogicalModelBindingGroup{
-				Name:       target.Name,
-				Candidates: append([]LogicalModelCandidate(nil), target.Candidates...),
-			})
-		}
-	}
-	if len(p.ModelTargets) == 0 && len(p.Models) > 0 {
-		p.ModelTargets = make([]RouteModelTarget, 0, len(p.Models))
-		for _, model := range p.Models {
-			p.ModelTargets = append(p.ModelTargets, RouteModelTarget{
-				Name:       model.Name,
-				Strategy:   p.ModelSelectorStrategy,
-				Candidates: append([]RouteModelCandidate(nil), model.Candidates...),
-			})
-		}
-	}
-	for i := range p.Models {
-		for j := range p.Models[i].Candidates {
-			p.Models[i].Candidates[j].ProviderID = strings.TrimSpace(p.Models[i].Candidates[j].ProviderID)
-			p.Models[i].Candidates[j].UpstreamModel = strings.TrimSpace(p.Models[i].Candidates[j].UpstreamModel)
-			if p.Models[i].Candidates[j].Default && p.DefaultModel == "" {
-				p.DefaultModel = p.Models[i].Name
-			}
-		}
-	}
 	for i := range p.ModelTargets {
 		p.ModelTargets[i].Normalize()
+		hasDefaultCandidate := false
+		for j := range p.ModelTargets[i].Candidates {
+			p.ModelTargets[i].Candidates[j].ProviderID = strings.TrimSpace(p.ModelTargets[i].Candidates[j].ProviderID)
+			p.ModelTargets[i].Candidates[j].UpstreamModel = strings.TrimSpace(p.ModelTargets[i].Candidates[j].UpstreamModel)
+			hasDefaultCandidate = hasDefaultCandidate || p.ModelTargets[i].Candidates[j].Default
+		}
+		if hasDefaultCandidate && p.DefaultModel == "" {
+			p.DefaultModel = p.ModelTargets[i].Name
+		}
 	}
 
 	switch p.Type {

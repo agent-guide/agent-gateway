@@ -185,7 +185,7 @@ func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) 
 	if err != nil {
 		return nil, fmt.Errorf("load static gateway bundle: %w", err)
 	}
-	if err := bundle.Validate(); err != nil {
+	if err := bundle.ValidateForStaticConfig(); err != nil {
 		return nil, fmt.Errorf("validate static gateway bundle: %w", err)
 	}
 	providers, err := instantiateStaticProviders(bundle)
@@ -195,7 +195,9 @@ func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) 
 	cfg.Providers = providers
 	cfg.ManagedModels = append([]modelcatalog.ManagedModel(nil), bundle.ManagedModels...)
 	cfg.Routes = append([]routepkg.AgentRoute(nil), bundle.Routes...)
-	cfg.VirtualKeys = append([]virtualkeypkg.VirtualKey(nil), bundle.VirtualKeys...)
+	for _, item := range bundle.VirtualKeys {
+		cfg.VirtualKeys = append(cfg.VirtualKeys, item.ToRuntimeVirtualKey(item.Key))
+	}
 	return cfg, nil
 }
 
@@ -220,7 +222,7 @@ func registerStaticProviderCredentials(ctx context.Context, credentialManager *c
 		if prov == nil {
 			continue
 		}
-		cred := provider.StaticAPIKeyCredential(prov.Config(), providerID)
+		cred := provider.ProviderConfigAPIKeyCredential(prov.Config(), providerID)
 		if cred == nil {
 			continue
 		}

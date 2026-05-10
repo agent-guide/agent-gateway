@@ -48,16 +48,14 @@ routes:
             - provider_id: openai-main
               upstream_model: gpt-4.1
               weight: 100
-              default: true
         - name: reasoning-default
           candidates:
             - provider_id: anthropic-main
               upstream_model: claude-sonnet-4-5
               weight: 100
-              default: true
 
 virtualKeys:
-  - key: vk-prod
+  - name: vk-prod
     tag: prod
     allowed_route_ids:
       - chat-prod

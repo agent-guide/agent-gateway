@@ -65,10 +65,9 @@ The fields that define target behavior are:
 - `model_targets`
 - `provider_target`
 
-Two compatibility layers exist in the current implementation:
+One compatibility layer exists in the current implementation:
 
 - `provider_id` and `provider_target.provider_id` normalize to the same effective provider target
-- `models` and `model_targets` normalize into each other
 
 New code and new documentation must use the normalized shape:
 
@@ -115,10 +114,8 @@ If the request omits `model`, `target_policy.default_model` is used when configu
 
 - trims and synchronizes `provider_id` and `provider_target.provider_id`
 - infers `type` when omitted
-- expands `model_targets` into `models` when only one representation is present
-- expands `models` into `model_targets` when only the other representation is present
 
-This means the route target policy retains compatibility fields for storage and parsing, while runtime logic operates on a normalized shape.
+This means the route target policy keeps one normalized logical-model shape at runtime: `model_targets`.
 
 ## 7. Logical Model Target Structure
 
@@ -198,7 +195,7 @@ That precedence is part of the current compatibility behavior.
 
 In logical-model mode:
 
-- `target_policy.models` must be non-empty after normalization
+- `target_policy.model_targets` must be non-empty after normalization
 - every target must have a unique `name`
 - every target must define at least one candidate
 - every candidate must define both `provider_id` and `upstream_model`

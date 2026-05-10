@@ -68,7 +68,7 @@ func runGatewayExport(ctx context.Context, path string) error {
 		bundle.Routes = append(bundle.Routes, item.AgentRoute)
 	}
 	for _, item := range virtualKeys {
-		bundle.VirtualKeys = append(bundle.VirtualKeys, item.VirtualKey)
+		bundle.VirtualKeys = append(bundle.VirtualKeys, gatewaybundle.BundleVirtualKeyFromRuntime(item.VirtualKey))
 	}
 	for _, item := range cliAuthAuthenticators {
 		bundle.CLIAuthAuthenticators = append(bundle.CLIAuthAuthenticators, gatewaybundle.CLIAuthAuthenticator{
@@ -120,7 +120,7 @@ func sortGatewayBundle(bundle *gatewaybundle.GatewayBundle) {
 		return bundle.Routes[i].ID < bundle.Routes[j].ID
 	})
 	sort.Slice(bundle.VirtualKeys, func(i, j int) bool {
-		return bundle.VirtualKeys[i].Key < bundle.VirtualKeys[j].Key
+		return bundle.VirtualKeys[i].Name < bundle.VirtualKeys[j].Name
 	})
 	sort.Slice(bundle.CLIAuthAuthenticators, func(i, j int) bool {
 		return bundle.CLIAuthAuthenticators[i].Name < bundle.CLIAuthAuthenticators[j].Name

@@ -72,7 +72,7 @@ Current route target policy fields of record are:
 Important normalization rules in `pkg/gateway/route`:
 
 - `provider_id` and `provider_target.provider_id` are normalized to the same effective value
-- legacy `models` and current `model_targets` are normalized into each other
+- logical-model routes use `model_targets`
 - policy kind is inferred from the effective direct provider target or model target set when `type` is omitted
 
 ## 5. Logical-Model Mode

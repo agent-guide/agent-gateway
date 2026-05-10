@@ -1,0 +1,10 @@
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+
+cliAuthAuthenticators:
+  - name: codex
+    enabled: false
+    config:
+      callback_port: 9002
+      no_browser: true
+      device_flow: true

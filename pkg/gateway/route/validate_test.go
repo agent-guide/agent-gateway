@@ -121,3 +121,70 @@ func TestProviderIDsIncludesModelTargetProviders(t *testing.T) {
 		t.Fatalf("ProviderIDs = %#v, want [openai zhipu]", ids)
 	}
 }
+
+func TestValidateDefinitionRejectsMultipleDefaultCandidateTargets(t *testing.T) {
+	err := (AgentRoute{
+		ID:     "chat-prod",
+		LLMAPI: "openai",
+		TargetPolicy: RouteTargetPolicy{
+			DefaultModel: "chat-default",
+			ModelTargets: []RouteModelTarget{
+				{
+					Name: "code-default",
+					Candidates: []RouteModelCandidate{{
+						ProviderID:    "zhipu-main",
+						UpstreamModel: "glm-4.7",
+						Default:       true,
+					}},
+				},
+				{
+					Name: "chat-default",
+					Candidates: []RouteModelCandidate{{
+						ProviderID:    "deepseek-main",
+						UpstreamModel: "deepseek-v4-pro",
+						Default:       true,
+					}},
+				},
+			},
+		},
+	}).ValidateDefinition()
+	if err == nil {
+		t.Fatal("ValidateDefinition returned nil error, want conflicting default candidate rejection")
+	}
+	if !strings.Contains(err.Error(), "default candidates must belong to a single target model") {
+		t.Fatalf("ValidateDefinition error = %q, want conflicting default candidate rejection", err)
+	}
+}
+
+func TestValidateDefinitionRejectsDefaultCandidateTargetMismatch(t *testing.T) {
+	err := (AgentRoute{
+		ID:     "chat-prod",
+		LLMAPI: "openai",
+		TargetPolicy: RouteTargetPolicy{
+			DefaultModel: "chat-default",
+			ModelTargets: []RouteModelTarget{
+				{
+					Name: "code-default",
+					Candidates: []RouteModelCandidate{{
+						ProviderID:    "zhipu-main",
+						UpstreamModel: "glm-4.7",
+						Default:       true,
+					}},
+				},
+				{
+					Name: "chat-default",
+					Candidates: []RouteModelCandidate{{
+						ProviderID:    "deepseek-main",
+						UpstreamModel: "deepseek-v4-pro",
+					}},
+				},
+			},
+		},
+	}).ValidateDefinition()
+	if err == nil {
+		t.Fatal("ValidateDefinition returned nil error, want default_model mismatch rejection")
+	}
+	if !strings.Contains(err.Error(), `default candidate target "code-default" must match default_model "chat-default"`) {
+		t.Fatalf("ValidateDefinition error = %q, want default_model mismatch rejection", err)
+	}
+}

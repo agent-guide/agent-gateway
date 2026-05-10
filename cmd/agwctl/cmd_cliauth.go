@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -16,26 +17,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var cliauthStorePath string
-
 // ── cliauth ───────────────────────────────────────────────────────────────────
 
 var cliauthCmd = &cobra.Command{
 	Use:   "cliauth",
-	Short: "Manage local CLI auth credentials on the agwctl machine",
-}
-
-// ── cliauth authenticators ────────────────────────────────────────────────────
-
-var cliauthAuthenticatorsCmd = &cobra.Command{
-	Use:   "authenticators",
-	Short: "List supported CLI authenticator types",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		for _, name := range cliauth.ListAuthenticatorTypes() {
-			fmt.Println(name)
-		}
-		return nil
-	},
+	Short: "Manage gateway CLI auth login flows and local authenticator support",
 }
 
 // ── cliauth login ─────────────────────────────────────────────────────────────
@@ -53,11 +39,16 @@ var cliauthLoginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Run an interactive CLI auth login flow and save the credential",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if strings.TrimSpace(loginAuthenticator) == "" {
-			return fmt.Errorf("--authenticator is required")
+		authenticator, err := validateLoginAuthenticator(cmd, loginAuthenticator)
+		if err != nil {
+			return err
 		}
 
-		credMgr, err := cliauthstore.NewFromPath(cliauthStorePath)
+		credMgr, err := cliauthstore.New(cliauthstore.Config{
+			BaseURL:  globalGatewayAddr,
+			Username: gwUser,
+			Password: gwPassword,
+		})
 		if err != nil {
 			return err
 		}
@@ -66,7 +57,7 @@ var cliauthLoginCmd = &cobra.Command{
 			return err
 		}
 
-		auth, err := cliauth.NewAuthenticator(loginAuthenticator)
+		auth, err := cliauth.NewAuthenticator(authenticator)
 		if err != nil {
 			return err
 		}
@@ -104,7 +95,10 @@ var cliauthLoginCmd = &cobra.Command{
 			return err
 		}
 
-		saved := credMgr.GetCredential(cred.ID)
+		saved, err := credMgr.GetCredentialWithError(cred.ID)
+		if err != nil {
+			return err
+		}
 		if saved == nil {
 			return fmt.Errorf("credential saved but could not be reloaded")
 		}
@@ -113,79 +107,7 @@ var cliauthLoginCmd = &cobra.Command{
 			return printJSON(saved)
 		}
 		printCliauthCredentialTable([]*credentialmgr.Credential{saved})
-		fmt.Fprintf(os.Stderr, "saved to %s\n", cliauthStorePath)
-		return nil
-	},
-}
-
-// ── cliauth list ──────────────────────────────────────────────────────────────
-
-var (
-	listSource       string
-	listProviderType string
-	listProviderID   string
-)
-
-var cliauthListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List stored CLI auth credentials",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		credMgr, err := cliauthstore.NewFromPath(cliauthStorePath)
-		if err != nil {
-			return err
-		}
-		items := credMgr.ListCredentials(credentialmgr.Filter{
-			Source:       listSource,
-			ProviderType: listProviderType,
-			ProviderID:   listProviderID,
-		})
-
-		if outputFormat == "json" {
-			return printJSON(items)
-		}
-		if len(items) == 0 {
-			fmt.Println("no credentials found")
-			return nil
-		}
-		printCliauthCredentialTable(items)
-		return nil
-	},
-}
-
-// ── cliauth get ───────────────────────────────────────────────────────────────
-
-var cliauthGetCmd = &cobra.Command{
-	Use:   "get <id>",
-	Short: "Show one stored credential",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		credMgr, err := cliauthstore.NewFromPath(cliauthStorePath)
-		if err != nil {
-			return err
-		}
-		cred := credMgr.GetCredential(args[0])
-		if cred == nil {
-			return fmt.Errorf("credential %q not found", args[0])
-		}
-		return printJSON(cred)
-	},
-}
-
-// ── cliauth delete ────────────────────────────────────────────────────────────
-
-var cliauthDeleteCmd = &cobra.Command{
-	Use:   "delete <id>",
-	Short: "Delete one stored credential",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		credMgr, err := cliauthstore.NewFromPath(cliauthStorePath)
-		if err != nil {
-			return err
-		}
-		if err := credMgr.DeregisterCredential(context.Background(), args[0]); err != nil {
-			return err
-		}
-		fmt.Printf("deleted credential %s\n", args[0])
+		fmt.Fprintf(os.Stderr, "saved to gateway %s\n", globalGatewayAddr)
 		return nil
 	},
 }
@@ -241,12 +163,24 @@ func (r *cliauthStatusReporter) UpdateLoginStatus(update cliauth.LoginStatusUpda
 	fmt.Fprintln(os.Stderr)
 }
 
+func validateLoginAuthenticator(cmd *cobra.Command, raw string) (string, error) {
+	authenticator := strings.TrimSpace(raw)
+	supported := cliauth.ListAuthenticatorTypes()
+	if authenticator == "" {
+		return "", fmt.Errorf("--authenticator is required\nsupported authenticators: %s\n\n%s", strings.Join(supported, ", "), cmd.UsageString())
+	}
+	if !slices.Contains(supported, authenticator) {
+		return "", fmt.Errorf("unsupported --authenticator %q\nsupported authenticators: %s\n\n%s", authenticator, strings.Join(supported, ", "), cmd.UsageString())
+	}
+	return authenticator, nil
+}
+
 // ── init ──────────────────────────────────────────────────────────────────────
 
 func init() {
-	defaultStore, _ := cliauthstore.DefaultStorePath()
-
-	cliauthCmd.PersistentFlags().StringVar(&cliauthStorePath, "store", defaultStore, "credential JSON file path")
+	cliauthCmd.PersistentFlags().StringVar(&globalGatewayAddr, "addr", envOr("GATEWAY_ADDR", cliauthstore.DefaultGatewayAddr()), "agent-gateway admin API address")
+	cliauthCmd.PersistentFlags().StringVar(&gwUser, "user", envOr("GATEWAY_ADMIN_USER", ""), "gateway admin username")
+	cliauthCmd.PersistentFlags().StringVar(&gwPassword, "password", envOr("GATEWAY_ADMIN_PASSWORD", ""), "gateway admin password")
 
 	cliauthLoginCmd.Flags().StringVar(&loginAuthenticator, "authenticator", "", "authenticator type: codex, claude, gemini (required)")
 	cliauthLoginCmd.Flags().StringVar(&loginProviderID, "provider-id", "", "provider ID override (defaults to provider type)")
@@ -255,16 +189,8 @@ func init() {
 	cliauthLoginCmd.Flags().BoolVar(&loginNoBrowser, "no-browser", false, "print the login URL instead of opening a browser")
 	cliauthLoginCmd.Flags().BoolVar(&loginDeviceFlow, "device-flow", false, "use device flow when supported (Codex only)")
 
-	cliauthListCmd.Flags().StringVar(&listSource, "source", "", "filter by source")
-	cliauthListCmd.Flags().StringVar(&listProviderType, "provider-type", "", "filter by provider type")
-	cliauthListCmd.Flags().StringVar(&listProviderID, "provider-id", "", "filter by provider ID")
-
 	cliauthCmd.AddCommand(
-		cliauthAuthenticatorsCmd,
 		cliauthLoginCmd,
-		cliauthListCmd,
-		cliauthGetCmd,
-		cliauthDeleteCmd,
 	)
 	rootCmd.AddCommand(cliauthCmd)
 }

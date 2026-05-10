@@ -1,11 +1,12 @@
 package adminclient
 
 import (
+	"time"
+
 	adminapi "github.com/agent-guide/agent-gateway/pkg/admin"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
-	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
@@ -21,8 +22,18 @@ type DiscoveredModel = modelcatalog.ProviderModelSnapshot
 
 type ProviderConfig = provider.ProviderConfig
 type RouteConfig = routepkg.AgentRoute
-type VirtualKeyConfig = virtualkeypkg.VirtualKey
 type ManagedCredential = credentialmgr.ManagedCredential
+
+type VirtualKeyConfig struct {
+	Key             string    `json:"key,omitempty"`
+	Tag             string    `json:"tag,omitempty"`
+	Name            string    `json:"name,omitempty"`
+	Description     string    `json:"description,omitempty"`
+	Disabled        bool      `json:"disabled,omitempty"`
+	AllowedRouteIDs []string  `json:"allowed_route_ids,omitempty"`
+	StatusMessage   string    `json:"status_message,omitempty"`
+	ExpiresAt       time.Time `json:"expires_at,omitempty"`
+}
 
 type ProviderListOptions struct {
 	ProviderType string
@@ -44,15 +55,28 @@ type CredentialListOptions struct {
 }
 
 type CreateCredentialRequest struct {
-	ProviderID string            `json:"provider_id"`
-	Label      string            `json:"label,omitempty"`
-	Attributes map[string]string `json:"attributes,omitempty"`
+	ID           string            `json:"id,omitempty"`
+	Source       string            `json:"source,omitempty"`
+	ProviderType string            `json:"provider_type,omitempty"`
+	ProviderID   string            `json:"provider_id"`
+	Label        string            `json:"label,omitempty"`
+	Attributes   map[string]string `json:"attributes,omitempty"`
+	Metadata     map[string]any    `json:"metadata,omitempty"`
+	Disabled     bool              `json:"disabled,omitempty"`
+	CreatedAt    time.Time         `json:"created_at,omitempty"`
+	UpdatedAt    time.Time         `json:"updated_at,omitempty"`
 }
 
 type UpdateCredentialRequest struct {
-	Label      string            `json:"label,omitempty"`
-	Attributes map[string]string `json:"attributes,omitempty"`
-	Disabled   bool              `json:"disabled,omitempty"`
+	Source       string            `json:"source,omitempty"`
+	ProviderType string            `json:"provider_type,omitempty"`
+	ProviderID   string            `json:"provider_id,omitempty"`
+	Label        string            `json:"label,omitempty"`
+	Attributes   map[string]string `json:"attributes,omitempty"`
+	Metadata     map[string]any    `json:"metadata,omitempty"`
+	Disabled     bool              `json:"disabled,omitempty"`
+	CreatedAt    time.Time         `json:"created_at,omitempty"`
+	UpdatedAt    time.Time         `json:"updated_at,omitempty"`
 }
 
 type CLIAuthAuthenticator struct {

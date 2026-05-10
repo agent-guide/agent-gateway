@@ -101,6 +101,7 @@ func (a *App) Provision(ctx caddy.Context) error {
 		CLIAuthRefresher:    a.cliauthRefresher,
 		CredentialManager:   a.credentialMgr,
 		CredentialScheduler: a.credentialSched,
+		Logger:              a.logger,
 	}); err != nil {
 		return fmt.Errorf("configure agent gateway: %w", err)
 	}
@@ -245,7 +246,7 @@ func (a *App) registerStaticProviderCredentials(ctx context.Context) error {
 		if prov == nil {
 			continue
 		}
-		cred := provider.StaticAPIKeyCredential(prov.Config(), providerID)
+		cred := provider.ProviderConfigAPIKeyCredential(prov.Config(), providerID)
 		if cred == nil {
 			continue
 		}

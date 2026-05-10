@@ -185,13 +185,14 @@ func printGatewayVirtualKeysTable(items []adminclient.VirtualKey) {
 // printGatewayCredentialsTable renders a list of CredentialView items.
 // Fields: id, provider_id, provider_type, label, disabled, unavailable.
 func printGatewayCredentialsTable(items []adminclient.Credential) {
-	headers := []string{"ID", "PROVIDER-ID", "TYPE", "LABEL", "DISABLED", "UNAVAILABLE"}
+	headers := []string{"ID", "PROVIDER-ID", "TYPE", "SOURCE", "LABEL", "DISABLED", "UNAVAILABLE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
 		rows = append(rows, []string{
 			dash(item.ID),
 			dash(item.ProviderID),
 			dash(item.ProviderType),
+			dash(item.Source),
 			dash(item.Label),
 			boolStr(item.Disabled),
 			boolStr(item.Unavailable),
@@ -201,7 +202,7 @@ func printGatewayCredentialsTable(items []adminclient.Credential) {
 }
 
 func printGatewayDiscoveredModelsTable(items []adminclient.DiscoveredModel) {
-	headers := []string{"PROVIDER-ID", "UPSTREAM-MODEL", "TYPE", "STATUS", "DISPLAY-NAME"}
+	headers := []string{"PROVIDER-ID", "UPSTREAM-MODEL", "TYPE", "STATUS", "DISPLAY-NAME", "LAST-ERROR"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
 		rows = append(rows, []string{
@@ -210,6 +211,7 @@ func printGatewayDiscoveredModelsTable(items []adminclient.DiscoveredModel) {
 			dash(item.ProviderType),
 			dash(string(item.Status)),
 			dash(item.DisplayName),
+			dash(item.LastError),
 		})
 	}
 	printTable(headers, rows)
