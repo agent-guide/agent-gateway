@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/agent-guide/agent-gateway/standalone/server"
+	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 
 	// CLI authenticators register runtime factories through init.
@@ -24,6 +26,11 @@ import (
 )
 
 func main() {
+	if err := loadRuntimeEnv(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
 	var opts server.Options
 	rootCmd := &cobra.Command{
 		Use:   "agwd",
@@ -35,7 +42,7 @@ func main() {
 		},
 	}
 	rootCmd.Flags().StringVar(&opts.Addr, "addr", "127.0.0.1:8080", "LLM gateway listen address")
-	rootCmd.Flags().StringVar(&opts.AdminAddr, "admin-addr", "127.0.0.1:8081", "Admin API listen address")
+	rootCmd.Flags().StringVar(&opts.AdminAddr, "admin-addr", "localhost:8019", "Admin API listen address")
 	rootCmd.Flags().StringVar(&opts.AdminUser, "admin-user", os.Getenv("AGW_ADMIN_USER"), "admin username")
 	rootCmd.Flags().StringVar(&opts.AdminPasswordHash, "admin-password-hash", os.Getenv("AGW_ADMIN_PASSWORD_HASH"), "bcrypt hash of admin password")
 	rootCmd.Flags().StringVar(&opts.ConfigStorePath, "config-store", "./data/configstore.db", "SQLite config store file")
@@ -45,4 +52,26 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func loadRuntimeEnv() error {
+	for _, path := range []string{".env.local", ".env"} {
+		if err := loadOptionalEnvFile(path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func loadOptionalEnvFile(path string) error {
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("stat %s: %w", path, err)
+	}
+	if err := godotenv.Load(path); err != nil {
+		return fmt.Errorf("load %s: %w", path, err)
+	}
+	return nil
 }

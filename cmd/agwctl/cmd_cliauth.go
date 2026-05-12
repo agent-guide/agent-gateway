@@ -178,9 +178,9 @@ func validateLoginAuthenticator(cmd *cobra.Command, raw string) (string, error) 
 // ── init ──────────────────────────────────────────────────────────────────────
 
 func init() {
-	cliauthCmd.PersistentFlags().StringVar(&globalGatewayAddr, "addr", envOr("GATEWAY_ADDR", cliauthstore.DefaultGatewayAddr()), "agent-gateway admin API address")
-	cliauthCmd.PersistentFlags().StringVar(&gwUser, "user", envOr("GATEWAY_ADMIN_USER", ""), "gateway admin username")
-	cliauthCmd.PersistentFlags().StringVar(&gwPassword, "password", envOr("GATEWAY_ADMIN_PASSWORD", ""), "gateway admin password")
+	cliauthCmd.PersistentFlags().StringVar(&globalGatewayAddr, "addr", envOr("AGW_ADMIN_ADDR", cliauthstore.DefaultGatewayAddr()), "agent-gateway admin API address")
+	cliauthCmd.PersistentFlags().StringVar(&gwUser, "user", envOr("AGW_ADMIN_USER", ""), "gateway admin username")
+	cliauthCmd.PersistentFlags().StringVar(&gwPassword, "password", envOr("AGW_ADMIN_PASSWORD", ""), "gateway admin password")
 
 	cliauthLoginCmd.Flags().StringVar(&loginAuthenticator, "authenticator", "", "authenticator type: codex, claude, gemini (required)")
 	cliauthLoginCmd.Flags().StringVar(&loginProviderID, "provider-id", "", "provider ID override (defaults to provider type)")
