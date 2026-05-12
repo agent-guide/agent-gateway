@@ -625,15 +625,9 @@ func newGatewayClient() *adminclient.Client {
 }
 
 func init() {
-	gatewayCmd.PersistentFlags().StringVar(&globalGatewayAddr, "addr", envOr("AGW_ADMIN_ADDR", "http://localhost:8019"), "agent-gateway admin API address")
-	gatewayCmd.PersistentFlags().StringVar(&globalGatewayAddr, "admin-addr", envOr("AGW_ADMIN_ADDR", "http://localhost:8019"), "deprecated alias for --addr")
-	gatewayCmd.PersistentFlags().StringVar(&globalGatewayAddr, "gateway-addr", envOr("AGW_ADMIN_ADDR", "http://localhost:8019"), "deprecated alias for --addr")
-	_ = gatewayCmd.PersistentFlags().MarkDeprecated("admin-addr", "use --addr instead")
-	_ = gatewayCmd.PersistentFlags().MarkDeprecated("gateway-addr", "use --addr instead")
-	_ = gatewayCmd.PersistentFlags().MarkHidden("admin-addr")
-	_ = gatewayCmd.PersistentFlags().MarkHidden("gateway-addr")
-	gatewayCmd.PersistentFlags().StringVar(&gwUser, "user", envOr("AGW_ADMIN_USER", ""), "gateway admin username")
-	gatewayCmd.PersistentFlags().StringVar(&gwPassword, "password", envOr("AGW_ADMIN_PASSWORD", ""), "gateway admin password")
+	gatewayCmd.PersistentFlags().StringVar(&globalGatewayAddr, "admin-addr", envOr("AGW_ADMIN_ADDR", "http://localhost:8019"), "agent-gateway admin API address")
+	gatewayCmd.PersistentFlags().StringVar(&gwUser, "admin-user", envOr("AGW_ADMIN_USER", ""), "gateway admin username")
+	gatewayCmd.PersistentFlags().StringVar(&gwPassword, "admin-password", envOr("AGW_ADMIN_PASSWORD", ""), "gateway admin password")
 
 	gatewayModelsManagedListCmd.Flags().StringVar(&gatewayManagedModelProviderID, "provider-id", "", "filter managed models by provider ID")
 	gatewayCredentialListCmd.Flags().StringVar(&gatewayCredentialSource, "source", "", "filter credentials by source (api_key or cliauth_token)")

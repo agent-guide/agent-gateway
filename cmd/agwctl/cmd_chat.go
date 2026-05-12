@@ -255,11 +255,11 @@ func doLLMRequest(url string, body map[string]any, handle func(*http.Response) e
 }
 
 func defaultPrompt() string {
-	return envOr("AGENT_GATEWAY_PROMPT", "用一句中文回答：2 + 2 等于几？")
+	return envOr("AGW_PROMPT", "用一句中文回答：2 + 2 等于几？")
 }
 
 func defaultMaxTokens() int {
-	if v := strings.TrimSpace(os.Getenv("AGENT_GATEWAY_MAX_TOKENS")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("AGW_MAX_TOKENS")); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil {
 			return parsed
 		}
@@ -268,7 +268,7 @@ func defaultMaxTokens() int {
 }
 
 func defaultTimeoutSeconds() float64 {
-	if v := strings.TrimSpace(os.Getenv("AGENT_GATEWAY_TIMEOUT")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("AGW_TIMEOUT")); v != "" {
 		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
 			return parsed
 		}
@@ -295,15 +295,15 @@ func anthropicEndpointURL(baseURL, path string) string {
 // ── init ──────────────────────────────────────────────────────────────────────
 
 func init() {
-	chatCmd.Flags().StringVar(&chatAPI, "api", envOr("AGENT_GATEWAY_API", "openai"),
+	chatCmd.Flags().StringVar(&chatAPI, "api", envOr("AGW_API", "openai"),
 		"LLM API surface: openai or anthropic")
-	chatCmd.Flags().StringVar(&chatBaseURL, "base-url", envOr("AGENT_GATEWAY_BASE_URL", "http://127.0.0.1:8080/v1"),
+	chatCmd.Flags().StringVar(&chatBaseURL, "base-url", envOr("AGW_BASE_URL", "http://127.0.0.1:8080/v1"),
 		"gateway LLM API base URL (OpenAI usually includes /v1; Anthropic may omit it)")
-	chatCmd.Flags().StringVar(&chatAPIKey, "api-key", envOr("AGENT_GATEWAY_API_KEY", "test-key"),
+	chatCmd.Flags().StringVar(&chatAPIKey, "api-key", envOr("AGW_API_KEY", "test-key"),
 		"virtual key sent as Authorization: Bearer and x-api-key")
-	chatCmd.Flags().StringVar(&chatModel, "model", envOr("AGENT_GATEWAY_MODEL", ""),
+	chatCmd.Flags().StringVar(&chatModel, "model", envOr("AGW_MODEL", ""),
 		"optional model name; leave empty to let the gateway route/provider default apply")
-	chatCmd.Flags().StringVar(&chatSystem, "system", envOr("AGENT_GATEWAY_SYSTEM_PROMPT", ""),
+	chatCmd.Flags().StringVar(&chatSystem, "system", envOr("AGW_SYSTEM_PROMPT", ""),
 		"optional system prompt")
 	chatCmd.Flags().BoolVar(&chatStream, "stream", false,
 		"use SSE streaming response")

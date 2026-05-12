@@ -45,8 +45,8 @@ func TestAnthropicEndpointURL(t *testing.T) {
 }
 
 func TestDefaultEnvValues(t *testing.T) {
-	t.Setenv("AGENT_GATEWAY_MAX_TOKENS", "321")
-	t.Setenv("AGENT_GATEWAY_TIMEOUT", "45.5")
+	t.Setenv("AGW_MAX_TOKENS", "321")
+	t.Setenv("AGW_TIMEOUT", "45.5")
 
 	if got := defaultMaxTokens(); got != 321 {
 		t.Fatalf("defaultMaxTokens() = %d, want 321", got)

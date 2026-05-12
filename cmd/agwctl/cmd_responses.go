@@ -126,13 +126,13 @@ func streamResponses(r io.Reader) error {
 }
 
 func init() {
-	responsesCmd.Flags().StringVar(&chatBaseURL, "base-url", envOr("AGENT_GATEWAY_BASE_URL", "http://127.0.0.1:8080/v1"),
+	responsesCmd.Flags().StringVar(&chatBaseURL, "base-url", envOr("AGW_BASE_URL", "http://127.0.0.1:8080/v1"),
 		"gateway OpenAI Responses API base URL (usually includes /v1)")
-	responsesCmd.Flags().StringVar(&chatAPIKey, "api-key", envOr("AGENT_GATEWAY_API_KEY", "test-key"),
+	responsesCmd.Flags().StringVar(&chatAPIKey, "api-key", envOr("AGW_API_KEY", "test-key"),
 		"virtual key sent as Authorization: Bearer and x-api-key")
-	responsesCmd.Flags().StringVar(&chatModel, "model", envOr("AGENT_GATEWAY_MODEL", ""),
+	responsesCmd.Flags().StringVar(&chatModel, "model", envOr("AGW_MODEL", ""),
 		"optional model name; leave empty to let the gateway route/provider default apply")
-	responsesCmd.Flags().StringVar(&chatSystem, "system", envOr("AGENT_GATEWAY_SYSTEM_PROMPT", ""),
+	responsesCmd.Flags().StringVar(&chatSystem, "system", envOr("AGW_SYSTEM_PROMPT", ""),
 		"optional system instructions")
 	responsesCmd.Flags().BoolVar(&chatStream, "stream", false,
 		"use SSE streaming response")

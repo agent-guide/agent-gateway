@@ -76,9 +76,9 @@ func TestGatewayCredentialListCommandUsesSourceFilterAndDisplaysSource(t *testin
 	stdout, stderr, err := executeAGWCTL(
 		t,
 		"gateway",
-		"--addr", srv.URL,
-		"--user", "admin",
-		"--password", "secret",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
 		"credential", "list",
 		"--source", "cliauth_token",
 		"--provider-type", "openai",
@@ -112,9 +112,9 @@ func TestGatewayCredentialListCommandSurfacesAdminAuthErrors(t *testing.T) {
 	stdout, stderr, err := executeAGWCTL(
 		t,
 		"gateway",
-		"--addr", srv.URL,
-		"--user", "admin",
-		"--password", "wrong-secret",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "wrong-secret",
 		"credential", "list",
 		"--source", "cliauth_token",
 	)
@@ -155,9 +155,9 @@ func TestGatewayProviderTypesListCommand(t *testing.T) {
 		t,
 		"--output", "json",
 		"gateway",
-		"--addr", srv.URL,
-		"--user", "admin",
-		"--password", "secret",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
 		"provider-type", "list",
 	)
 	if err != nil {
@@ -202,9 +202,9 @@ func TestGatewayCLIAuthAuthenticatorsListCommand(t *testing.T) {
 		t,
 		"--output", "json",
 		"gateway",
-		"--addr", srv.URL,
-		"--user", "admin",
-		"--password", "secret",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
 		"cliauth", "authenticators", "list",
 	)
 	if err != nil {
@@ -420,9 +420,9 @@ cliAuthAuthenticators:
 		t,
 		"--output", "json",
 		"gateway",
-		"--addr", srv.URL,
-		"--user", "admin",
-		"--password", "secret",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
 		"apply",
 		"-f", path,
 	)
@@ -543,9 +543,9 @@ cliAuthAuthenticators:
 		t,
 		"--output", "json",
 		"gateway",
-		"--addr", srv.URL,
-		"--user", "admin",
-		"--password", "secret",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
 		"apply",
 		"-f", path,
 	)
@@ -613,9 +613,9 @@ providers:
 		t,
 		"--output", "json",
 		"gateway",
-		"--addr", srv.URL,
-		"--user", "admin",
-		"--password", "secret",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
 		"apply",
 		"-f", path,
 	)
@@ -726,9 +726,9 @@ func TestGatewayExportCommand(t *testing.T) {
 	stdout, stderr, err := executeAGWCTL(
 		t,
 		"gateway",
-		"--addr", srv.URL,
-		"--user", "admin",
-		"--password", "secret",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
 		"export",
 	)
 	if err != nil {
@@ -843,9 +843,9 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 	_, stderr, err := executeAGWCTL(
 		t,
 		"gateway",
-		"--addr", srv.URL,
-		"--user", "admin",
-		"--password", "secret",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
 		"export",
 		"-f", exportPath,
 	)

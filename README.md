@@ -103,10 +103,10 @@ Show available commands:
 List gateway routes through the gateway Admin API:
 
 ```bash
-./agwctl gateway --addr http://localhost:8019 \
+./agwctl gateway --admin-addr http://localhost:8019 \
   route list \
-  --user admin \
-  --password your-password
+  --admin-user admin \
+  --admin-password your-password
 ```
 
 List Caddy HTTP servers through the Caddy admin API directly, not through the gateway Admin API:
@@ -119,9 +119,9 @@ Start a local CLI auth login flow and list gateway-stored CLI auth credentials:
 
 ```bash
 ./agwctl cliauth login --authenticator codex
-./agwctl gateway --addr http://localhost:8019 \
-  --user admin \
-  --password your-password \
+./agwctl gateway --admin-addr http://localhost:8019 \
+  --admin-user admin \
+  --admin-password your-password \
   credential list \
   --source cliauth_token
 ```
@@ -129,14 +129,14 @@ Start a local CLI auth login flow and list gateway-stored CLI auth credentials:
 List remote gateway CLI auth authenticators and refresher status:
 
 ```bash
-./agwctl gateway --addr http://localhost:8019 \
-  --user admin \
-  --password your-password \
+./agwctl gateway --admin-addr http://localhost:8019 \
+  --admin-user admin \
+  --admin-password your-password \
   cliauth authenticators list
 
-./agwctl gateway --addr http://localhost:8019 \
-  --user admin \
-  --password your-password \
+./agwctl gateway --admin-addr http://localhost:8019 \
+  --admin-user admin \
+  --admin-password your-password \
   cliauth refresher status
 ```
 
@@ -149,34 +149,34 @@ Validate a gateway bundle YAML file locally:
 Apply a gateway bundle YAML file through the Admin API:
 
 ```bash
-./agwctl gateway --addr http://localhost:8019 \
-  --user admin \
-  --password your-password \
+./agwctl gateway --admin-addr http://localhost:8019 \
+  --admin-user admin \
+  --admin-password your-password \
   apply -f ./examples/gateway.bundle.minimal.yaml
 ```
 
 Export remote gateway objects as bundle YAML:
 
 ```bash
-./agwctl gateway --addr http://localhost:8019 \
-  --user admin \
-  --password your-password \
+./agwctl gateway --admin-addr http://localhost:8019 \
+  --admin-user admin \
+  --admin-password your-password \
   export -f ./gateway.bundle.yaml
 ```
 
 Recommended workflow for configuration objects:
 
 ```bash
-./agwctl gateway --addr http://localhost:8019 \
-  --user admin \
-  --password your-password \
+./agwctl gateway --admin-addr http://localhost:8019 \
+  --admin-user admin \
+  --admin-password your-password \
   export -f ./gateway.bundle.yaml
 
 ./agwctl gateway validate -f ./gateway.bundle.yaml
 
-./agwctl gateway --addr http://localhost:8019 \
-  --user admin \
-  --password your-password \
+./agwctl gateway --admin-addr http://localhost:8019 \
+  --admin-user admin \
+  --admin-password your-password \
   apply -f ./gateway.bundle.yaml
 ```
 
@@ -205,19 +205,19 @@ For `agwctl gateway apply/export`, `virtualKeys` are declared by `id`. The gatew
 Common command patterns:
 
 ```bash
-./agwctl gateway --addr http://localhost:8019 \
-  --user admin \
-  --password your-password \
+./agwctl gateway --admin-addr http://localhost:8019 \
+  --admin-user admin \
+  --admin-password your-password \
   apply -f ./examples/gateway.bundle.minimal.yaml
 
-./agwctl gateway --addr http://localhost:8019 \
-  --user admin \
-  --password your-password \
+./agwctl gateway --admin-addr http://localhost:8019 \
+  --admin-user admin \
+  --admin-password your-password \
   apply -f ./examples/gateway.bundle.cliauth-authenticators.yaml
 
-./agwctl gateway --addr http://localhost:8019 \
-  --user admin \
-  --password your-password \
+./agwctl gateway --admin-addr http://localhost:8019 \
+  --admin-user admin \
+  --admin-password your-password \
   cliauth authenticators get codex
 ```
 
@@ -263,10 +263,10 @@ Run the gateway:
 OPENAI_API_KEY=sk-... ./agw run --config ./Caddyfile
 ```
 
-After startup, create a virtual key through the Admin API, set `AGENT_GATEWAY_API_KEY` to the generated key value, then call the OpenAI-compatible endpoint:
+After startup, create a virtual key through the Admin API, set `AGW_API_KEY` to the generated key value, then call the OpenAI-compatible endpoint:
 
 ```bash
-AGENT_GATEWAY_API_KEY=$(
+AGW_API_KEY=$(
   curl -s -X POST http://localhost:8019/admin/virtual_keys \
     -H "Authorization: Bearer $TOKEN" \
     -H 'Content-Type: application/json' \
@@ -276,7 +276,7 @@ AGENT_GATEWAY_API_KEY=$(
 
 curl http://127.0.0.1:8080/v1/chat/completions \
   -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $AGENT_GATEWAY_API_KEY" \
+  -H "Authorization: Bearer $AGW_API_KEY" \
   -d '{
     "model": "gpt-4.1",
     "messages": [{"role": "user", "content": "hello"}]
@@ -295,7 +295,7 @@ python3 examples/test_openai_client.py --api responses
 python3 examples/test_openai_client.py --api responses --stream
 ```
 
-Override example defaults with `AGENT_GATEWAY_BASE_URL`, `AGENT_GATEWAY_API_KEY`, `AGENT_GATEWAY_MODEL`, `AGENT_GATEWAY_OPENAI_API`, or CLI flags.
+Override example defaults with `AGW_BASE_URL`, `AGW_API_KEY`, `AGW_MODEL`, `AGW_OPENAI_API`, or CLI flags.
 
 ## Admin API Setup
 
