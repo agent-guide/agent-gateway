@@ -60,7 +60,6 @@ var gatewayValidateCmd = &cobra.Command{
 				"file":   gatewayBundleFile,
 				"counts": map[string]int{
 					"provider_types":         len(bundle.ProviderTypes),
-					"llm_api_handler_types":  len(bundle.LLMAPIHandlerTypes),
 					"providers":              len(bundle.Providers),
 					"managed_models":         len(bundle.ManagedModels),
 					"routes":                 len(bundle.Routes),
@@ -401,32 +400,6 @@ var gatewayLLMAPIHandlerTypesListCmd = &cobra.Command{
 	},
 }
 
-var gatewayLLMAPIHandlerTypesEnableCmd = &cobra.Command{
-	Use:   "enable <handler-type>",
-	Short: "Enable one gateway LLM API handler type",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		resp, err := newGatewayClient().EnableLLMAPIHandlerType(context.Background(), args[0])
-		if err != nil {
-			return err
-		}
-		return printJSON(resp)
-	},
-}
-
-var gatewayLLMAPIHandlerTypesDisableCmd = &cobra.Command{
-	Use:   "disable <handler-type>",
-	Short: "Disable one gateway LLM API handler type",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		resp, err := newGatewayClient().DisableLLMAPIHandlerType(context.Background(), args[0])
-		if err != nil {
-			return err
-		}
-		return printJSON(resp)
-	},
-}
-
 var gatewayModelsDiscoveredCmd = &cobra.Command{
 	Use:   "discovered",
 	Short: "Manage discovered provider models",
@@ -713,8 +686,6 @@ func init() {
 	)
 	gatewayLLMAPIHandlerTypesCmd.AddCommand(
 		gatewayLLMAPIHandlerTypesListCmd,
-		gatewayLLMAPIHandlerTypesEnableCmd,
-		gatewayLLMAPIHandlerTypesDisableCmd,
 	)
 	gatewayCLIAuthAuthenticatorsCmd.AddCommand(
 		gatewayCLIAuthAuthenticatorsListCmd,

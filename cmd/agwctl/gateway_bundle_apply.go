@@ -79,9 +79,6 @@ func runGatewayApply(ctx context.Context, path string) error {
 	if err := applyProviderTypes(ctx, client, bundle, record); err != nil {
 		return err
 	}
-	if err := applyLLMAPIHandlerTypes(ctx, client, bundle, record); err != nil {
-		return err
-	}
 	if err := applyProviders(ctx, client, bundle, record); err != nil {
 		return err
 	}
@@ -141,41 +138,6 @@ func applyProviderTypes(ctx context.Context, client *adminclient.Client, bundle 
 			record("provider_type", id, "update", nil)
 		} else {
 			record("provider_type", id, "create", nil)
-		}
-	}
-	return nil
-}
-
-func applyLLMAPIHandlerTypes(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
-	items, err := client.ListLLMAPIHandlerTypes(ctx)
-	if err != nil {
-		return err
-	}
-	current := map[string]bool{}
-	for _, item := range items {
-		current[strings.ToLower(strings.TrimSpace(item.LLMApiHandlerType))] = item.Enabled
-	}
-	for _, item := range bundle.LLMAPIHandlerTypes {
-		id := strings.ToLower(strings.TrimSpace(item.LLMAPIHandlerType))
-		enabled, ok := current[id]
-		if ok && enabled == item.Enabled {
-			record("llm_api_handler_type", id, "skip", nil)
-			continue
-		}
-		var callErr error
-		if item.Enabled {
-			_, callErr = client.EnableLLMAPIHandlerType(ctx, id)
-		} else {
-			_, callErr = client.DisableLLMAPIHandlerType(ctx, id)
-		}
-		if callErr != nil {
-			record("llm_api_handler_type", id, "error", fmt.Errorf("llm_api_handler_type %q: %w", id, callErr))
-			continue
-		}
-		if ok {
-			record("llm_api_handler_type", id, "update", nil)
-		} else {
-			record("llm_api_handler_type", id, "create", nil)
 		}
 	}
 	return nil

@@ -494,8 +494,6 @@ All endpoints below are under the path where `agent_gateway_admin` is mounted. E
 - `POST /admin/provider_types/{provider_type}/enable`
 - `POST /admin/provider_types/{provider_type}/disable`
 - `GET /admin/llm_api_handler_types`
-- `POST /admin/llm_api_handler_types/{llm_api_handler_type}/enable`
-- `POST /admin/llm_api_handler_types/{llm_api_handler_type}/disable`
 - `GET /admin/providers`
 - `POST /admin/providers`
 - `GET /admin/providers/{id}`

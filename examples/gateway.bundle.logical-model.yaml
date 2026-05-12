@@ -7,12 +7,6 @@ providerTypes:
   - provider_type: anthropic
     enabled: true
 
-llmApiHandlerTypes:
-  - llm_api_handler_type: openai
-    enabled: true
-  - llm_api_handler_type: anthropic
-    enabled: true
-
 providers:
   - id: openai-main
     provider_type: openai

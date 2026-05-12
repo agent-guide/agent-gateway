@@ -17,10 +17,6 @@ func runGatewayExport(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	handlerTypes, err := client.ListLLMAPIHandlerTypes(ctx)
-	if err != nil {
-		return err
-	}
 	providers, err := client.ListProviders(ctx, adminclient.ProviderListOptions{})
 	if err != nil {
 		return err
@@ -50,12 +46,6 @@ func runGatewayExport(ctx context.Context, path string) error {
 		bundle.ProviderTypes = append(bundle.ProviderTypes, gatewaybundle.ProviderTypeSetting{
 			ProviderType: item.ProviderType,
 			Enabled:      item.Enabled,
-		})
-	}
-	for _, item := range handlerTypes {
-		bundle.LLMAPIHandlerTypes = append(bundle.LLMAPIHandlerTypes, gatewaybundle.LLMAPIHandlerSetting{
-			LLMAPIHandlerType: item.LLMApiHandlerType,
-			Enabled:           item.Enabled,
 		})
 	}
 	for _, item := range providers {
@@ -103,9 +93,6 @@ func runGatewayExport(ctx context.Context, path string) error {
 func sortGatewayBundle(bundle *gatewaybundle.GatewayBundle) {
 	sort.Slice(bundle.ProviderTypes, func(i, j int) bool {
 		return bundle.ProviderTypes[i].ProviderType < bundle.ProviderTypes[j].ProviderType
-	})
-	sort.Slice(bundle.LLMAPIHandlerTypes, func(i, j int) bool {
-		return bundle.LLMAPIHandlerTypes[i].LLMAPIHandlerType < bundle.LLMAPIHandlerTypes[j].LLMAPIHandlerType
 	})
 	sort.Slice(bundle.Providers, func(i, j int) bool {
 		return bundle.Providers[i].Id < bundle.Providers[j].Id

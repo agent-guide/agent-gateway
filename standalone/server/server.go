@@ -30,7 +30,6 @@ type Options struct {
 	Addr              string
 	AdminAddr         string
 	ConfigStorePath   string
-	LegacyConfigPath  string
 	StaticConfigPath  string
 	AdminUser         string
 	AdminPasswordHash string
@@ -44,11 +43,7 @@ func (o *Options) setDefaults() {
 		o.AdminAddr = o.Addr
 	}
 	if o.ConfigStorePath == "" {
-		if o.LegacyConfigPath != "" {
-			o.ConfigStorePath = o.LegacyConfigPath
-		} else {
-			o.ConfigStorePath = "./data/configstore.db"
-		}
+		o.ConfigStorePath = "./data/configstore.db"
 	}
 }
 

@@ -44,7 +44,6 @@ type ProviderTypeView struct {
 
 type LLMApiHandlerTypeView struct {
 	LLMApiHandlerType string `json:"llm_api_handler_type"`
-	Enabled           bool   `json:"enabled"`
 }
 
 // Route defines an admin API route.
@@ -73,8 +72,6 @@ func (h *Handler) Routes() []Route {
 
 		// LLM API handler types
 		{Method: http.MethodGet, Path: "/admin/llm_api_handler_types", Handler: h.handleListLLMApiHandlerTypes, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/llm_api_handler_types/{llm_api_handler_type}/enable", Handler: h.handleEnableLLMApiHandlerType, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/llm_api_handler_types/{llm_api_handler_type}/disable", Handler: h.handleDisableLLMApiHandlerType, RequireAuth: true},
 
 		// Providers
 		{Method: http.MethodGet, Path: "/admin/providers", Handler: h.handleListProviders, RequireAuth: true},
@@ -192,53 +189,11 @@ func (h *Handler) handleListLLMApiHandlerTypes(w http.ResponseWriter, r *http.Re
 	types := dispatcherpkg.ListLLMApiHandlerTypes()
 	items := make([]LLMApiHandlerTypeView, 0, len(types))
 	for _, handlerType := range types {
-		enabled, ok := dispatcherpkg.IsLLMApiHandlerTypeEnabled(handlerType)
-		if !ok {
-			continue
-		}
 		items = append(items, LLMApiHandlerTypeView{
 			LLMApiHandlerType: handlerType,
-			Enabled:           enabled,
 		})
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": items})
-}
-
-func (h *Handler) handleEnableLLMApiHandlerType(w http.ResponseWriter, r *http.Request) {
-	h.handleSetLLMApiHandlerTypeEnabled(w, r, true)
-}
-
-func (h *Handler) handleDisableLLMApiHandlerType(w http.ResponseWriter, r *http.Request) {
-	h.handleSetLLMApiHandlerTypeEnabled(w, r, false)
-}
-
-func (h *Handler) handleSetLLMApiHandlerTypeEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
-	handlerType := strings.ToLower(strings.TrimSpace(r.PathValue("llm_api_handler_type")))
-	if handlerType == "" {
-		_ = httpjson.Error(w, http.StatusBadRequest, "llm_api_handler_type is required")
-		return
-	}
-
-	var err error
-	if enabled {
-		err = dispatcherpkg.EnableLLMApiHandlerType(handlerType)
-	} else {
-		err = dispatcherpkg.DisableLLMApiHandlerType(handlerType)
-	}
-	if err != nil {
-		_ = httpjson.Error(w, http.StatusNotFound, err.Error())
-		return
-	}
-
-	status := "disabled"
-	if enabled {
-		status = "enabled"
-	}
-	_ = httpjson.Write(w, http.StatusOK, map[string]any{
-		"status":               status,
-		"llm_api_handler_type": handlerType,
-		"enabled":              enabled,
-	})
 }
 
 func (h *Handler) handleEnableProviderType(w http.ResponseWriter, r *http.Request) {

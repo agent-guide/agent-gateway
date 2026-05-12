@@ -332,7 +332,7 @@ Implemented families:
 - `/admin/auth/...`
 - `/admin/providers/...`
 - `/admin/provider_types/...`
-- `/admin/llm_api_handler_types/...`
+- `/admin/llm_api_handler_types`
 - `/admin/routes/...`
 - `/admin/virtual_keys/...`
 - `/admin/credentials/...`

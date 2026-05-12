@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
-	dispatcherpkg "github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
@@ -29,7 +28,6 @@ type GatewayBundle struct {
 	APIVersion            string                      `json:"apiVersion"`
 	Kind                  string                      `json:"kind"`
 	ProviderTypes         []ProviderTypeSetting       `json:"providerTypes,omitempty"`
-	LLMAPIHandlerTypes    []LLMAPIHandlerSetting      `json:"llmApiHandlerTypes,omitempty"`
 	Providers             []provider.ProviderConfig   `json:"providers,omitempty"`
 	ManagedModels         []modelcatalog.ManagedModel `json:"managedModels,omitempty"`
 	Routes                []routepkg.AgentRoute       `json:"routes,omitempty"`
@@ -50,11 +48,6 @@ type BundleVirtualKey struct {
 type ProviderTypeSetting struct {
 	ProviderType string `json:"provider_type"`
 	Enabled      bool   `json:"enabled"`
-}
-
-type LLMAPIHandlerSetting struct {
-	LLMAPIHandlerType string `json:"llm_api_handler_type"`
-	Enabled           bool   `json:"enabled"`
 }
 
 type CLIAuthAuthenticator struct {
@@ -162,16 +155,6 @@ func (b *GatewayBundle) validate(_ bool) error {
 		}
 		if _, ok := provider.IsProviderTypeEnabled(item.ProviderType); !ok {
 			errs.Append(fmt.Errorf("providerTypes[%q]: unknown provider_type", item.ProviderType))
-		}
-	}
-	for _, item := range b.LLMAPIHandlerTypes {
-		item.LLMAPIHandlerType = strings.ToLower(strings.TrimSpace(item.LLMAPIHandlerType))
-		if item.LLMAPIHandlerType == "" {
-			errs.Append(fmt.Errorf("llmApiHandlerTypes[].llm_api_handler_type is required"))
-			continue
-		}
-		if _, ok := dispatcherpkg.IsLLMApiHandlerTypeEnabled(item.LLMAPIHandlerType); !ok {
-			errs.Append(fmt.Errorf("llmApiHandlerTypes[%q]: unknown llm_api_handler_type", item.LLMAPIHandlerType))
 		}
 	}
 	for i := range b.Providers {

@@ -155,20 +155,6 @@ func TestParseAppRejectsDuplicateRouteID(t *testing.T) {
 	}
 }
 
-func TestParseAppRejectsLegacyRouteTargetSyntax(t *testing.T) {
-	d := caddyfile.NewTestDispenser(`
-	agent_gateway {
-		route openai-chat {
-			target ollama
-		}
-	}
-	`)
-
-	if _, err := parseApp(d, nil); err == nil {
-		t.Fatal("expected legacy route target syntax to fail")
-	}
-}
-
 func TestParseAppRejectsLogicalModelDirective(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`
 	agent_gateway {

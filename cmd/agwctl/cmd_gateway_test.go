@@ -260,9 +260,6 @@ kind: GatewayBundle
 providerTypes:
   - provider_type: openai
     enabled: true
-llmApiHandlerTypes:
-  - llm_api_handler_type: openai
-    enabled: true
 providers:
   - id: openai-main
     provider_type: openai
@@ -353,8 +350,6 @@ cliAuthAuthenticators:
 				"username": "admin",
 			})
 		case r.URL.Path == "/admin/provider_types":
-			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case r.URL.Path == "/admin/llm_api_handler_types":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/providers" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -487,8 +482,6 @@ cliAuthAuthenticators:
 			})
 		case r.URL.Path == "/admin/provider_types":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case r.URL.Path == "/admin/llm_api_handler_types":
-			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/providers" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
@@ -590,8 +583,6 @@ providers:
 			})
 		case r.URL.Path == "/admin/provider_types":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case r.URL.Path == "/admin/llm_api_handler_types":
-			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/providers" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
@@ -654,12 +645,6 @@ func TestGatewayExportCommand(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{"provider_type": "openai", "enabled": true},
-				},
-			})
-		case "/admin/llm_api_handler_types":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"items": []map[string]any{
-					{"llm_api_handler_type": "openai", "enabled": true},
 				},
 			})
 		case "/admin/providers":
@@ -753,7 +738,6 @@ func TestGatewayExportCommand(t *testing.T) {
 		"apiVersion: gateway.agw/v1alpha1",
 		"kind: GatewayBundle",
 		"providerTypes:",
-		"llmApiHandlerTypes:",
 		"providers:",
 		"routes:",
 		"virtualKeys:",
@@ -786,12 +770,6 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{"provider_type": "openai", "enabled": true},
-				},
-			})
-		case "/admin/llm_api_handler_types":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"items": []map[string]any{
-					{"llm_api_handler_type": "openai", "enabled": true},
 				},
 			})
 		case "/admin/providers":

@@ -12,20 +12,6 @@ import (
 	_ "github.com/caddyserver/caddy/v2/modules/standard"
 )
 
-func TestLegacyLLMAPIDirectiveIsRemoved(t *testing.T) {
-	input := []byte(`
-		:8080 {
-			llm_api openai
-		}
-	`)
-
-	adapter := caddyfileadapter.Adapter{ServerType: httpcaddyfile.ServerType{}}
-	_, _, err := adapter.Adapt(input, nil)
-	if err == nil || !strings.Contains(err.Error(), "unrecognized directive: llm_api") {
-		t.Fatalf("expected unrecognized llm_api directive error, got %v", err)
-	}
-}
-
 func TestParseAgentRouteDispatcher(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`
 	agent_route_dispatcher {

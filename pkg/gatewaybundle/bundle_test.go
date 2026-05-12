@@ -20,9 +20,6 @@ kind: GatewayBundle
 providerTypes:
   - provider_type: openai
     enabled: true
-llmApiHandlerTypes:
-  - llm_api_handler_type: openai
-    enabled: true
 providers:
   - id: openai-main
     provider_type: openai
@@ -68,9 +65,6 @@ cliAuthAuthenticators:
 	}
 	if len(bundle.ProviderTypes) != 1 || bundle.ProviderTypes[0].ProviderType != "openai" || !bundle.ProviderTypes[0].Enabled {
 		t.Fatalf("ProviderTypes = %#v", bundle.ProviderTypes)
-	}
-	if len(bundle.LLMAPIHandlerTypes) != 1 || bundle.LLMAPIHandlerTypes[0].LLMAPIHandlerType != "openai" || !bundle.LLMAPIHandlerTypes[0].Enabled {
-		t.Fatalf("LLMAPIHandlerTypes = %#v", bundle.LLMAPIHandlerTypes)
 	}
 	if len(bundle.Providers) != 1 {
 		t.Fatalf("len(Providers) = %d, want 1", len(bundle.Providers))
@@ -163,9 +157,6 @@ kind: GatewayBundle
 providerTypes:
   - provider_type: openai
     enabled: true
-llmApiHandlerTypes:
-  - llm_api_handler_type: openai
-    enabled: true
 providers:
   - id: openai-main
     provider_type: openai
@@ -204,8 +195,6 @@ apiVersion: wrong
 kind: WrongKind
 providerTypes:
   - provider_type: missing-provider
-llmApiHandlerTypes:
-  - llm_api_handler_type: missing-handler
 providers:
   - id: dup
     provider_type: openai
@@ -264,7 +253,6 @@ cliAuthAuthenticators:
 		`apiVersion must be "gateway.agw/v1alpha1"`,
 		`kind must be "GatewayBundle"`,
 		`providerTypes["missing-provider"]: unknown provider_type`,
-		`llmApiHandlerTypes["missing-handler"]: unknown llm_api_handler_type`,
 		`providers["dup"]: duplicate id`,
 		`managedModels["openai-main/gpt-4.1"]: duplicate provider_id/upstream_model`,
 		`routes["route-a"]: duplicate id`,
@@ -324,9 +312,6 @@ providerTypes:
   - provider_type: zhipu
     enabled: true
   - provider_type: deepseek
-    enabled: true
-llmApiHandlerTypes:
-  - llm_api_handler_type: openai
     enabled: true
 providers:
   - id: zhipu-main

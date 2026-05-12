@@ -5,10 +5,6 @@ providerTypes:
   - provider_type: openai
     enabled: true
 
-llmApiHandlerTypes:
-  - llm_api_handler_type: openai
-    enabled: true
-
 providers:
   - id: openai-main
     provider_type: openai

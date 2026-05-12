@@ -263,12 +263,11 @@ func printGatewayProviderTypesTable(items []adminclient.ProviderType) {
 }
 
 func printGatewayLLMAPIHandlerTypesTable(items []adminclient.LLMAPIHandlerType) {
-	headers := []string{"HANDLER-TYPE", "ENABLED"}
+	headers := []string{"HANDLER-TYPE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
 		rows = append(rows, []string{
 			dash(item.LLMApiHandlerType),
-			boolStr(item.Enabled),
 		})
 	}
 	printTable(headers, rows)

@@ -88,7 +88,6 @@ Static objects are not persisted into SQLite as pre-seeded rows. They remain a d
 Configuration-type objects are:
 
 - `providerTypes`
-- `llmApiHandlerTypes`
 - `providers`
 - `managedModels`
 - `routes`
@@ -146,8 +145,6 @@ Flag meaning:
 - `--config-store`: SQLite config store path
 - `--static-config`: gateway bundle YAML loaded as static read-only configuration
 
-The older `--config` flag is retained only as a deprecated alias for `--config-store`.
-
 ## 7. Bundle Schema
 
 The bundle format is a serialization wrapper over existing runtime object shapes.
@@ -165,10 +162,6 @@ kind: GatewayBundle
 
 providerTypes:
   - provider_type: openai
-    enabled: true
-
-llmApiHandlerTypes:
-  - llm_api_handler_type: openai
     enabled: true
 
 providers:
@@ -210,7 +203,6 @@ Field naming is intentionally kept close to existing JSON model fields so the bu
 The current implemented bundle path covers:
 
 - `providerTypes`
-- `llmApiHandlerTypes`
 - `providers`
 - `managedModels`
 - `routes`
@@ -256,7 +248,6 @@ Current validation includes:
 - duplicate route IDs
 - duplicate virtual key keys
 - provider type existence checks
-- LLM API handler type existence checks
 - route target references to provider IDs inside the bundle
 - virtual key route references inside the bundle
 - route normalization and route definition validation through existing route helpers
@@ -279,11 +270,10 @@ Current behavior:
 Current object application order:
 
 1. `providerTypes`
-2. `llmApiHandlerTypes`
-3. `providers`
-4. `managedModels`
-5. `routes`
-6. `virtualKeys`
+2. `providers`
+3. `managedModels`
+4. `routes`
+5. `virtualKeys`
 
 Current non-behavior:
 

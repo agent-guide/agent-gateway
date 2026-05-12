@@ -738,14 +738,9 @@ func TestProviderTypeListEnableDisable(t *testing.T) {
 	}
 }
 
-func TestLLMApiHandlerTypeListEnableDisable(t *testing.T) {
+func TestLLMApiHandlerTypeList(t *testing.T) {
 	const handlerType = "test-admin-llm-api-handler"
 	dispatcherpkg.RegisterLLMApiHandlerType(handlerType)
-	defer func() {
-		if err := dispatcherpkg.EnableLLMApiHandlerType(handlerType); err != nil {
-			t.Fatalf("restore llm api handler type: %v", err)
-		}
-	}()
 
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
@@ -754,14 +749,6 @@ func TestLLMApiHandlerTypeListEnableDisable(t *testing.T) {
 
 	handler := NewHandler(nil, nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
-
-	disableReq := httptest.NewRequest(http.MethodPost, "/admin/llm_api_handler_types/"+handlerType+"/disable", nil)
-	disableReq.Header.Set("Authorization", "Bearer "+token)
-	disableRec := httptest.NewRecorder()
-	handler.ServeHTTP(disableRec, disableReq)
-	if disableRec.Code != http.StatusOK {
-		t.Fatalf("disable status = %d, want %d", disableRec.Code, http.StatusOK)
-	}
 
 	listReq := httptest.NewRequest(http.MethodGet, "/admin/llm_api_handler_types", nil)
 	listReq.Header.Set("Authorization", "Bearer "+token)
@@ -783,32 +770,9 @@ func TestLLMApiHandlerTypeListEnableDisable(t *testing.T) {
 			continue
 		}
 		found = true
-		if item.Enabled {
-			t.Fatal("llm api handler type enabled = true, want false")
-		}
 	}
 	if !found {
 		t.Fatalf("llm api handler type %q not listed", handlerType)
-	}
-
-	enableReq := httptest.NewRequest(http.MethodPost, "/admin/llm_api_handler_types/"+handlerType+"/enable", nil)
-	enableReq.Header.Set("Authorization", "Bearer "+token)
-	enableRec := httptest.NewRecorder()
-	handler.ServeHTTP(enableRec, enableReq)
-	if enableRec.Code != http.StatusOK {
-		t.Fatalf("enable status = %d, want %d", enableRec.Code, http.StatusOK)
-	}
-
-	var enabled struct {
-		Status            string `json:"status"`
-		LLMApiHandlerType string `json:"llm_api_handler_type"`
-		Enabled           bool   `json:"enabled"`
-	}
-	if err := json.NewDecoder(enableRec.Body).Decode(&enabled); err != nil {
-		t.Fatalf("decode enabled llm api handler type: %v", err)
-	}
-	if enabled.Status != "enabled" || enabled.LLMApiHandlerType != handlerType || !enabled.Enabled {
-		t.Fatalf("unexpected enable response: %#v", enabled)
 	}
 }
 
