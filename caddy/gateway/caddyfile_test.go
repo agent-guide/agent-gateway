@@ -2,8 +2,8 @@ package gateway
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
-	"time"
 
 	configstoresqlite "github.com/agent-guide/agent-gateway/caddy/configstore/sqlite"
 	_ "github.com/agent-guide/agent-gateway/caddy/provider/ollama"
@@ -22,13 +22,6 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 
 		config_store sqlite {
 			path /tmp/agent-gateway.db
-		}
-
-		virtualkey key1 {
-			tag admin
-			description "configured from caddyfile"
-			allowed_route openai-chat
-			expires_at 2030-01-02T03:04:05Z
 		}
 
 		route openai-chat {
@@ -99,10 +92,6 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	if len(app.Routes) != 1 {
 		t.Fatalf("route count = %d, want 1", len(app.Routes))
 	}
-	if len(app.VirtualKeys) != 1 {
-		t.Fatalf("virtual key count = %d, want 1", len(app.VirtualKeys))
-	}
-
 	route := app.Routes[0]
 	if route.ID != "openai-chat" {
 		t.Fatalf("route id = %q, want openai-chat", route.ID)
@@ -123,23 +112,6 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 		t.Fatalf("route provider_target = %#v", route.TargetPolicy.ProviderTarget)
 	}
 
-	key := app.VirtualKeys[0]
-	if key.ID != "key1" {
-		t.Fatalf("virtual key id = %q, want key1", key.ID)
-	}
-	if key.Key == "" {
-		t.Fatal("virtual key key should be generated")
-	}
-	if key.Tag != "admin" {
-		t.Fatalf("virtual key tag = %q, want admin", key.Tag)
-	}
-	if len(key.AllowedRouteIDs) != 1 || key.AllowedRouteIDs[0] != "openai-chat" {
-		t.Fatalf("virtual key allowed routes = %#v", key.AllowedRouteIDs)
-	}
-	wantExpiresAt := time.Date(2030, time.January, 2, 3, 4, 5, 0, time.UTC)
-	if !key.ExpiresAt.Equal(wantExpiresAt) {
-		t.Fatalf("virtual key expires_at = %v, want %v", key.ExpiresAt, wantExpiresAt)
-	}
 }
 
 func TestParseAppRejectsUnknownConfigStore(t *testing.T) {
@@ -255,40 +227,18 @@ func TestParseAppInlineModelTargetsRegisterStaticManagedModels(t *testing.T) {
 	}
 }
 
-func TestParseAppRejectsDuplicateVirtualKey(t *testing.T) {
+func TestParseAppRejectsVirtualKeyDirective(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`
 	agent_gateway {
 		virtualkey key1 {}
-		virtualkey key1 {}
 	}
 	`)
 
-	if _, err := parseApp(d, nil); err == nil {
-		t.Fatal("expected duplicate virtualkey to fail")
+	_, err := parseApp(d, nil)
+	if err == nil {
+		t.Fatal("expected virtualkey directive to fail")
 	}
-}
-
-func TestParseVirtualKeySegmentAcceptsEmptyBlock(t *testing.T) {
-	d := caddyfile.NewTestDispenser(`
-	virtualkey key1 {
-	}
-	`)
-
-	if !d.Next() {
-		t.Fatal("expected virtualkey directive")
-	}
-	key, err := parseVirtualKeySegment(d)
-	if err != nil {
-		t.Fatalf("parseVirtualKeySegment() error = %v", err)
-	}
-
-	if key.ID != "key1" {
-		t.Fatalf("virtual key id = %q, want key1", key.ID)
-	}
-	if key.Key == "" {
-		t.Fatal("virtual key key should be generated")
-	}
-	if key.Tag != "" || key.Description != "" || key.Disabled || len(key.AllowedRouteIDs) != 0 || key.StatusMessage != "" || !key.ExpiresAt.IsZero() {
-		t.Fatalf("unexpected virtual key defaults: %#v", key)
+	if !strings.Contains(err.Error(), "virtualkey is no longer supported in the Caddyfile") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

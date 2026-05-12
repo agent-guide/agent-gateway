@@ -16,7 +16,6 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
-	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	credentialmgrscheduler "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/scheduler"
@@ -151,7 +150,6 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(ctx, gateway.BootstrapOptions{
 		StaticRoutes:        staticConfig.Routes,
-		StaticVirtualKeys:   staticConfig.VirtualKeys,
 		StaticProviders:     staticConfig.Providers,
 		StaticModels:        staticConfig.ManagedModels,
 		ConfigStore:         configStore,
@@ -169,7 +167,6 @@ type staticConfig struct {
 	Providers     map[string]provider.Provider
 	ManagedModels []modelcatalog.ManagedModel
 	Routes        []routepkg.AgentRoute
-	VirtualKeys   []virtualkeypkg.VirtualKey
 }
 
 func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) {
@@ -195,13 +192,6 @@ func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) 
 	cfg.Providers = providers
 	cfg.ManagedModels = append([]modelcatalog.ManagedModel(nil), bundle.ManagedModels...)
 	cfg.Routes = append([]routepkg.AgentRoute(nil), bundle.Routes...)
-	for _, item := range bundle.VirtualKeys {
-		generatedKey, err := virtualkeypkg.GenerateKey()
-		if err != nil {
-			return nil, fmt.Errorf("generate static virtual key %q: %w", item.ID, err)
-		}
-		cfg.VirtualKeys = append(cfg.VirtualKeys, item.ToRuntimeVirtualKey(generatedKey))
-	}
 	return cfg, nil
 }
 

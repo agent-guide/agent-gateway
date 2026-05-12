@@ -188,7 +188,7 @@ Bundle YAML examples for batch workflows:
 - `examples/gateway.bundle.logical-model.yaml`
 - `examples/gateway.bundle.cliauth-authenticators.yaml`
 
-For `agwctl gateway apply/export`, `virtualKeys` are declared by `name`. The gateway generates the actual `key` value when the virtual key is created in the config store.
+For `agwctl gateway apply/export`, `virtualKeys` are declared by `id`. The gateway generates the actual `key` value when the virtual key is created in the config store.
 
 - `providers`
 - `managedModels`
@@ -235,11 +235,6 @@ Create a minimal `Caddyfile`:
 			default_model gpt-4.1
 		}
 
-		virtualkey test-key {
-			tag local-test
-			allowed_route openai-chat
-		}
-
 		route openai-chat {
 			llm_api openai
 			path_prefix /
@@ -263,12 +258,14 @@ Run the gateway:
 OPENAI_API_KEY=sk-... ./agw run --config ./Caddyfile
 ```
 
-After startup, set `AGENT_GATEWAY_API_KEY` to the generated key value for virtual key ID `test-key`, then call the OpenAI-compatible endpoint:
+After startup, create a virtual key through the Admin API, set `AGENT_GATEWAY_API_KEY` to the generated key value, then call the OpenAI-compatible endpoint:
 
 ```bash
 AGENT_GATEWAY_API_KEY=$(
-  curl -s http://localhost:8019/admin/virtual_keys/test-key \
-    -H "Authorization: Bearer $TOKEN" |
+  curl -s -X POST http://localhost:8019/admin/virtual_keys \
+    -H "Authorization: Bearer $TOKEN" \
+    -H 'Content-Type: application/json' \
+    -d '{"id":"test-key","allowed_route_ids":["openai-chat"]}' |
     jq -r '.key'
 )
 
@@ -346,7 +343,6 @@ The gateway is configured in the global `agent_gateway` block:
 	agent_gateway {
 		config_store sqlite { ... }
 		provider <provider-id> { ... }
-		virtualkey <id> { ... }
 		route <route-id> { ... }
 	}
 }
@@ -427,29 +423,9 @@ Supported route subdirectives:
 
 ### Virtual Keys
 
-```caddy
-virtualkey test-key {
-	tag local-test
-	description "Used by local examples"
-	disabled false
-	allowed_route openai-chat
-	status_message "active"
-	expires_at 2027-01-01T00:00:00Z
-}
-```
+`agw` does not support static `virtualkey` declarations in the Caddyfile.
 
-Supported subdirectives:
-
-- `tag <tag>`
-- `description <text>`
-- `disabled [true|false]`
-- `allowed_route <route-id> [more-route-ids...]`
-- `status_message <text>`
-- `expires_at <rfc3339>`
-
-The directive argument is the virtual key `id`. The actual bearer key value is generated automatically.
-
-If `allowed_route` is omitted, the key can be used on any route that requires virtual key authentication.
+If a route sets `require_virtual_key`, create virtual keys through the Admin API after startup. The gateway persists them in the config store and generates the bearer `key` value at creation time.
 
 ## Runtime Request Flow
 
@@ -480,7 +456,7 @@ Configuration comes from two places:
 - persisted SQLite records managed through the Admin API
 - optional standalone static bundle YAML loaded with `agwd --static-config`
 
-Static providers, logical model bindings, routes, and virtual keys are loaded during startup. Persisted provider, managed model, route, credential, and virtual key records can be changed through the Admin API without rebuilding the binaries.
+Static providers, logical model bindings, and routes are loaded during startup. Persisted provider, managed model, route, credential, and virtual key records can be changed through the Admin API without rebuilding the binaries.
 
 Model catalog Admin API families:
 
@@ -494,7 +470,7 @@ Static records are exposed through Admin API list/read responses with source/rea
 
 For the standalone daemon, static bundle YAML uses the same read-only semantics as Caddyfile-owned objects:
 
-Static bundle virtual keys are runtime secrets, so `virtualKeys` in `--static-config` must still set an explicit `key`.
+`--static-config` does not support `virtualKeys`. Create virtual keys through the Admin API after startup.
 
 ```bash
 ./agwd --config-store ./data/configstore.db \

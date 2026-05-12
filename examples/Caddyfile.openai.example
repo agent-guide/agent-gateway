@@ -15,23 +15,18 @@
 			path ./data/configstore.db
 		}
 
-		provider deepseek-main {
+		provider deepseek-test {
 			provider_type deepseek
 			api_key {$DEEPSEEK_API_KEY}
 			base_url https://api.deepseek.com
 			default_model deepseek-chat
 		}
 
-		virtualkey test-key {
-			tag local-test
-			allowed_route my-openai-chat
-		}
-
-		route my-openai-chat {
+		route chat-test {
 			llm_api openai
-			path_prefix /
-			require_virtual_key
-			target provider deepseek-main
+			path_prefix /chattest
+			require_virtual_key false
+			target provider deepseek-test
 		}
 	}
 }

@@ -14,7 +14,6 @@ import (
 	runtimegateway "github.com/agent-guide/agent-gateway/pkg/gateway"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
-	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	credentialmgrscheduler "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
@@ -35,8 +34,6 @@ type App struct {
 	Routes []routepkg.AgentRoute `json:"routes,omitempty"`
 	// Models lists statically configured managed concrete models derived from the Caddyfile app block.
 	Models []modelcatalog.ManagedModel `json:"models,omitempty"`
-	// VirtualKeys lists statically configured gateway consumer API keys from the Caddyfile app block.
-	VirtualKeys []virtualkeypkg.VirtualKey `json:"virtual_keys,omitempty"`
 
 	logger           *zap.Logger
 	cliauthManager   *cliauth.Manager
@@ -93,7 +90,6 @@ func (a *App) Provision(ctx caddy.Context) error {
 
 	if err := a.agentGateway.Bootstrap(ctx, runtimegateway.BootstrapOptions{
 		StaticRoutes:        a.Routes,
-		StaticVirtualKeys:   a.VirtualKeys,
 		StaticProviders:     a.providers,
 		StaticModels:        a.Models,
 		ConfigStore:         a.configStorer,

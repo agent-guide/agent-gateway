@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
-	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
@@ -51,9 +49,7 @@ func parseApp(d *caddyfile.Dispenser, existingVal any) (any, error) {
 		case "logical_model":
 			return nil, d.Err("logical_model is no longer supported; define model targets inline within route blocks")
 		case "virtualkey":
-			if err := parseVirtualKey(d, app); err != nil {
-				return nil, err
-			}
+			return nil, d.Err("virtualkey is no longer supported in the Caddyfile; create virtual keys through the Admin API")
 		default:
 			return nil, d.Errf("unknown subdirective: %s", d.Val())
 		}
@@ -159,97 +155,6 @@ func parseRoute(d *caddyfile.Dispenser, app *App) error {
 	}
 	app.Routes = append(app.Routes, route)
 	return nil
-}
-
-func parseVirtualKey(d *caddyfile.Dispenser, app *App) error {
-	key, err := parseVirtualKeySegment(d)
-	if err != nil {
-		return err
-	}
-
-	for _, declared := range app.VirtualKeys {
-		if declared.ID == key.ID {
-			return d.Errf("duplicate virtualkey %q", key.ID)
-		}
-	}
-	app.VirtualKeys = append(app.VirtualKeys, key)
-	return nil
-}
-
-func parseVirtualKeySegment(d *caddyfile.Dispenser) (virtualkeypkg.VirtualKey, error) {
-	seg := d.NewFromNextSegment()
-	if !seg.Next() {
-		return virtualkeypkg.VirtualKey{}, d.Err("expected virtualkey directive")
-	}
-
-	args := seg.RemainingArgsRaw()
-	if len(args) != 1 {
-		return virtualkeypkg.VirtualKey{}, seg.ArgErr()
-	}
-
-	generatedKey, err := virtualkeypkg.GenerateKey()
-	if err != nil {
-		return virtualkeypkg.VirtualKey{}, err
-	}
-	key := virtualkeypkg.VirtualKey{
-		ID:  strings.Trim(args[0], "\"`"),
-		Key: generatedKey,
-	}
-
-	for seg.NextBlock(0) {
-		name := seg.Val()
-		args := seg.RemainingArgsRaw()
-		switch name {
-		case "tag":
-			if len(args) != 1 {
-				return virtualkeypkg.VirtualKey{}, seg.ArgErr()
-			}
-			key.Tag = strings.Trim(args[0], "\"`")
-		case "description":
-			if len(args) != 1 {
-				return virtualkeypkg.VirtualKey{}, seg.ArgErr()
-			}
-			key.Description = strings.Trim(args[0], "\"`")
-		case "disabled":
-			if len(args) == 0 {
-				key.Disabled = true
-				continue
-			}
-			if len(args) != 1 {
-				return virtualkeypkg.VirtualKey{}, seg.ArgErr()
-			}
-			v, err := strconv.ParseBool(strings.Trim(args[0], "\"`"))
-			if err != nil {
-				return virtualkeypkg.VirtualKey{}, seg.Errf("invalid disabled value: %s", args[0])
-			}
-			key.Disabled = v
-		case "allowed_route":
-			if len(args) == 0 {
-				return virtualkeypkg.VirtualKey{}, seg.ArgErr()
-			}
-			for _, arg := range args {
-				key.AllowedRouteIDs = append(key.AllowedRouteIDs, strings.Trim(arg, "\"`"))
-			}
-		case "status_message":
-			if len(args) != 1 {
-				return virtualkeypkg.VirtualKey{}, seg.ArgErr()
-			}
-			key.StatusMessage = strings.Trim(args[0], "\"`")
-		case "expires_at":
-			if len(args) != 1 {
-				return virtualkeypkg.VirtualKey{}, seg.ArgErr()
-			}
-			expiresAt, err := time.Parse(time.RFC3339, strings.Trim(args[0], "\"`"))
-			if err != nil {
-				return virtualkeypkg.VirtualKey{}, seg.Errf("invalid expires_at value: %s", args[0])
-			}
-			key.ExpiresAt = expiresAt
-		default:
-			return virtualkeypkg.VirtualKey{}, seg.Errf("unknown subdirective: %s", name)
-		}
-	}
-
-	return key, nil
 }
 
 // ParseRouteSegment parses a route declaration from the current directive or subdirective.

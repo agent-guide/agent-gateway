@@ -296,6 +296,26 @@ virtualKeys:
 	}
 }
 
+func TestValidateForStaticConfigRejectsVirtualKeys(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+virtualKeys:
+  - id: demo
+`))
+	if err != nil {
+		t.Fatalf("DecodeYAML() error = %v", err)
+	}
+
+	err = bundle.ValidateForStaticConfig()
+	if err == nil {
+		t.Fatal("ValidateForStaticConfig() error = nil, want virtual key rejection")
+	}
+	if !strings.Contains(err.Error(), "virtualKeys are not supported in static config") {
+		t.Fatalf("ValidateForStaticConfig() error = %v", err)
+	}
+}
+
 func TestValidateRejectsConflictingRouteDefaults(t *testing.T) {
 	bundle, err := DecodeYAML([]byte(`
 apiVersion: gateway.agw/v1alpha1

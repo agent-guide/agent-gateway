@@ -36,10 +36,6 @@ routes:
     target_policy:
       provider_target:
         provider_id: openai-main
-virtualKeys:
-  - id: vk-local-test
-    allowed_route_ids:
-      - chat-prod
 managedModels:
   - provider_id: openai-main
     upstream_model: gpt-4.1
@@ -57,9 +53,6 @@ managedModels:
 	}
 	if len(cfg.Routes) != 1 || cfg.Routes[0].ID != "chat-prod" {
 		t.Fatalf("Routes = %#v", cfg.Routes)
-	}
-	if len(cfg.VirtualKeys) != 1 || cfg.VirtualKeys[0].ID != "vk-local-test" || cfg.VirtualKeys[0].Key == "" {
-		t.Fatalf("VirtualKeys = %#v", cfg.VirtualKeys)
 	}
 	if len(cfg.ManagedModels) != 1 || cfg.ManagedModels[0].ProviderID != "openai-main" {
 		t.Fatalf("ManagedModels = %#v", cfg.ManagedModels)
@@ -91,10 +84,6 @@ routes:
     target_policy:
       provider_target:
         provider_id: openai-main
-virtualKeys:
-  - id: vk-local-test
-    allowed_route_ids:
-      - chat-prod
 managedModels:
   - provider_id: openai-main
     upstream_model: gpt-4.1
@@ -116,15 +105,28 @@ managedModels:
 	if gw.AgentRouteManager() == nil || !gw.AgentRouteManager().IsStatic("chat-prod") {
 		t.Fatal("expected static route chat-prod")
 	}
-	if gw.VirtualKeyManager() == nil || !gw.VirtualKeyManager().IsStatic("vk-local-test") {
-		t.Fatal("expected static virtual key vk-local-test")
-	}
 	model, ok, err := gw.ModelCatalog().GetManagedModel(context.Background(), "openai-main", "gpt-4.1")
 	if err != nil {
 		t.Fatalf("GetManagedModel() error = %v", err)
 	}
 	if !ok || model == nil {
 		t.Fatal("expected static managed model openai-main/gpt-4.1")
+	}
+}
+
+func TestLoadStaticConfigRejectsVirtualKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gateway.yaml")
+	writeFile(t, path, `
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+virtualKeys:
+  - id: vk-local-test
+`)
+
+	_, err := loadStaticConfig(context.Background(), Options{StaticConfigPath: path})
+	if err == nil {
+		t.Fatal("expected static config virtualKeys to fail")
 	}
 }
 

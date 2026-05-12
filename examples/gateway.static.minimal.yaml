@@ -19,9 +19,3 @@ routes:
     target_policy:
       provider_target:
         provider_id: openai-main
-
-virtualKeys:
-  - id: vk-local-test
-    tag: local-test
-    allowed_route_ids:
-      - chat-prod

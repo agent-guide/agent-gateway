@@ -15,7 +15,7 @@
 			path ./data/configstore.db
 		}
 
-		provider zhipu-main {
+		provider zhipu-test {
 			provider_type zhipu
 			api_key {$ZHIPU_API_KEY}
 			base_url https://open.bigmodel.cn/api/paas/v4
@@ -23,16 +23,11 @@
 			option thinking_type disabled
 		}
 
-		virtualkey test-key {
-			tag local-test
-			allowed_route my-anthropic-chat
-		}
-
-		route my-anthropic-chat {
+		route code-test {
 			llm_api anthropic
-			path_prefix /
-			require_virtual_key
-			target provider zhipu-main
+			path_prefix /codetest
+			require_virtual_key false
+			target provider zhipu-test
 		}
 	}
 }
