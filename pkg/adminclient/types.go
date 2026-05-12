@@ -25,9 +25,8 @@ type RouteConfig = routepkg.AgentRoute
 type ManagedCredential = credentialmgr.ManagedCredential
 
 type VirtualKeyConfig struct {
-	Key             string    `json:"key,omitempty"`
+	ID              string    `json:"id,omitempty"`
 	Tag             string    `json:"tag,omitempty"`
-	Name            string    `json:"name,omitempty"`
 	Description     string    `json:"description,omitempty"`
 	Disabled        bool      `json:"disabled,omitempty"`
 	AllowedRouteIDs []string  `json:"allowed_route_ids,omitempty"`

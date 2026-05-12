@@ -38,9 +38,8 @@ type GatewayBundle struct {
 }
 
 type BundleVirtualKey struct {
-	Key             string    `json:"key,omitempty"`
+	ID              string    `json:"id,omitempty"`
 	Tag             string    `json:"tag,omitempty"`
-	Name            string    `json:"name,omitempty"`
 	Description     string    `json:"description,omitempty"`
 	Disabled        bool      `json:"disabled"`
 	AllowedRouteIDs []string  `json:"allowed_route_ids,omitempty"`
@@ -130,19 +129,10 @@ func (b *GatewayBundle) ValidateForStaticConfig() error {
 	if err := b.validate(false); err != nil {
 		return err
 	}
-	errs := &ValidationErrors{}
-	for i := range b.VirtualKeys {
-		if strings.TrimSpace(b.VirtualKeys[i].Key) == "" {
-			errs.Append(fmt.Errorf("virtualKeys[%q].key is required for static config", b.VirtualKeys[i].effectiveName()))
-		}
-	}
-	if errs.HasErrors() {
-		return errs
-	}
 	return nil
 }
 
-func (b *GatewayBundle) validate(forConfigStore bool) error {
+func (b *GatewayBundle) validate(_ bool) error {
 	if b == nil {
 		return fmt.Errorf("gateway bundle is required")
 	}
@@ -235,28 +225,25 @@ func (b *GatewayBundle) validate(forConfigStore bool) error {
 	}
 	virtualKeys := map[string]struct{}{}
 	for i := range b.VirtualKeys {
-		name := b.VirtualKeys[i].effectiveName()
-		if name == "" {
-			errs.Append(fmt.Errorf("virtualKeys[%d].name is required", i))
+		id := strings.TrimSpace(b.VirtualKeys[i].ID)
+		if id == "" {
+			errs.Append(fmt.Errorf("virtualKeys[%d].id is required", i))
 			continue
 		}
-		if _, exists := virtualKeys[name]; exists {
-			errs.Append(fmt.Errorf("virtualKeys[%q]: duplicate name", name))
+		if _, exists := virtualKeys[id]; exists {
+			errs.Append(fmt.Errorf("virtualKeys[%q]: duplicate id", id))
 		} else {
-			virtualKeys[name] = struct{}{}
-		}
-		if forConfigStore && strings.TrimSpace(b.VirtualKeys[i].Key) != "" {
-			errs.Append(fmt.Errorf("virtualKeys[%q].key must be omitted for config-store bundles", name))
+			virtualKeys[id] = struct{}{}
 		}
 		for _, routeID := range b.VirtualKeys[i].AllowedRouteIDs {
 			trimmedRouteID := strings.TrimSpace(routeID)
 			if trimmedRouteID == "" {
-				errs.Append(fmt.Errorf("virtualKeys[%q]: allowed_route_ids entries must not be empty", name))
+				errs.Append(fmt.Errorf("virtualKeys[%q]: allowed_route_ids entries must not be empty", id))
 				continue
 			}
 			if len(routeIDs) > 0 {
 				if _, ok := routeIDs[trimmedRouteID]; !ok {
-					errs.Append(fmt.Errorf("virtualKeys[%q]: allowed_route_id %q does not exist in bundle routes", name, trimmedRouteID))
+					errs.Append(fmt.Errorf("virtualKeys[%q]: allowed_route_id %q does not exist in bundle routes", id, trimmedRouteID))
 				}
 			}
 		}
@@ -285,19 +272,11 @@ func (b *GatewayBundle) validate(forConfigStore bool) error {
 	return nil
 }
 
-func (key BundleVirtualKey) effectiveName() string {
-	name := strings.TrimSpace(key.Name)
-	if name != "" {
-		return name
-	}
-	return strings.TrimSpace(key.Key)
-}
-
 func (key BundleVirtualKey) ToRuntimeVirtualKey(generatedKey string) virtualkeypkg.VirtualKey {
 	return virtualkeypkg.VirtualKey{
+		ID:              key.ID,
 		Key:             generatedKey,
 		Tag:             key.Tag,
-		Name:            key.Name,
 		Description:     key.Description,
 		Disabled:        key.Disabled,
 		AllowedRouteIDs: append([]string(nil), key.AllowedRouteIDs...),
@@ -307,13 +286,9 @@ func (key BundleVirtualKey) ToRuntimeVirtualKey(generatedKey string) virtualkeyp
 }
 
 func BundleVirtualKeyFromRuntime(key virtualkeypkg.VirtualKey) BundleVirtualKey {
-	name := strings.TrimSpace(key.Name)
-	if name == "" {
-		name = strings.TrimSpace(key.Key)
-	}
 	return BundleVirtualKey{
+		ID:              key.ID,
 		Tag:             key.Tag,
-		Name:            name,
 		Description:     key.Description,
 		Disabled:        key.Disabled,
 		AllowedRouteIDs: append([]string(nil), key.AllowedRouteIDs...),

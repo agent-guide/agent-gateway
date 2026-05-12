@@ -162,9 +162,9 @@ func printGatewayRoutesTable(items []adminclient.Route) {
 }
 
 // printGatewayVirtualKeysTable renders a list of VirtualKeyView items.
-// Fields: key (truncated), tag, disabled, allowed_route_ids, source.
+// Fields: id, key (truncated), tag, disabled, allowed_route_ids, source.
 func printGatewayVirtualKeysTable(items []adminclient.VirtualKey) {
-	headers := []string{"KEY", "TAG", "DISABLED", "ALLOWED-ROUTES", "SOURCE"}
+	headers := []string{"ID", "KEY", "TAG", "DISABLED", "ALLOWED-ROUTES", "SOURCE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
 		key := item.Key
@@ -172,6 +172,7 @@ func printGatewayVirtualKeysTable(items []adminclient.VirtualKey) {
 			key = key[:16] + "..."
 		}
 		rows = append(rows, []string{
+			dash(item.ID),
 			dash(key),
 			dash(item.Tag),
 			boolStr(item.Disabled),

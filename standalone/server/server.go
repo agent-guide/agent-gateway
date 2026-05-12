@@ -196,7 +196,11 @@ func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) 
 	cfg.ManagedModels = append([]modelcatalog.ManagedModel(nil), bundle.ManagedModels...)
 	cfg.Routes = append([]routepkg.AgentRoute(nil), bundle.Routes...)
 	for _, item := range bundle.VirtualKeys {
-		cfg.VirtualKeys = append(cfg.VirtualKeys, item.ToRuntimeVirtualKey(item.Key))
+		generatedKey, err := virtualkeypkg.GenerateKey()
+		if err != nil {
+			return nil, fmt.Errorf("generate static virtual key %q: %w", item.ID, err)
+		}
+		cfg.VirtualKeys = append(cfg.VirtualKeys, item.ToRuntimeVirtualKey(generatedKey))
 	}
 	return cfg, nil
 }

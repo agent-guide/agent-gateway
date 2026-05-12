@@ -26,7 +26,6 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 
 		virtualkey key1 {
 			tag admin
-			name "Primary virtual key"
 			description "configured from caddyfile"
 			allowed_route openai-chat
 			expires_at 2030-01-02T03:04:05Z
@@ -125,14 +124,14 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	}
 
 	key := app.VirtualKeys[0]
-	if key.Key != "key1" {
-		t.Fatalf("virtual key = %q, want key1", key.Key)
+	if key.ID != "key1" {
+		t.Fatalf("virtual key id = %q, want key1", key.ID)
+	}
+	if key.Key == "" {
+		t.Fatal("virtual key key should be generated")
 	}
 	if key.Tag != "admin" {
 		t.Fatalf("virtual key tag = %q, want admin", key.Tag)
-	}
-	if key.Name != "Primary virtual key" {
-		t.Fatalf("virtual key name = %q", key.Name)
 	}
 	if len(key.AllowedRouteIDs) != 1 || key.AllowedRouteIDs[0] != "openai-chat" {
 		t.Fatalf("virtual key allowed routes = %#v", key.AllowedRouteIDs)
@@ -283,10 +282,13 @@ func TestParseVirtualKeySegmentAcceptsEmptyBlock(t *testing.T) {
 		t.Fatalf("parseVirtualKeySegment() error = %v", err)
 	}
 
-	if key.Key != "key1" {
-		t.Fatalf("virtual key = %q, want key1", key.Key)
+	if key.ID != "key1" {
+		t.Fatalf("virtual key id = %q, want key1", key.ID)
 	}
-	if key.Tag != "" || key.Name != "" || key.Description != "" || key.Disabled || len(key.AllowedRouteIDs) != 0 || key.StatusMessage != "" || !key.ExpiresAt.IsZero() {
+	if key.Key == "" {
+		t.Fatal("virtual key key should be generated")
+	}
+	if key.Tag != "" || key.Description != "" || key.Disabled || len(key.AllowedRouteIDs) != 0 || key.StatusMessage != "" || !key.ExpiresAt.IsZero() {
 		t.Fatalf("unexpected virtual key defaults: %#v", key)
 	}
 }

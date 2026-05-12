@@ -22,17 +22,21 @@ type VirtualKeyListOptions struct {
 type VirtualKeyManager struct {
 	mu sync.RWMutex
 
-	staticKeys   map[string]VirtualKey
-	dynamicCache map[string]VirtualKey
+	staticKeysByID   map[string]VirtualKey
+	staticKeyIndex   map[string]string
+	dynamicCacheByID map[string]VirtualKey
+	dynamicKeyIndex  map[string]string
 
 	store configstoreintf.VirtualKeyStorer
 }
 
 func NewVirtualKeyManager(store configstoreintf.VirtualKeyStorer) *VirtualKeyManager {
 	return &VirtualKeyManager{
-		staticKeys:   map[string]VirtualKey{},
-		dynamicCache: map[string]VirtualKey{},
-		store:        store,
+		staticKeysByID:   map[string]VirtualKey{},
+		staticKeyIndex:   map[string]string{},
+		dynamicCacheByID: map[string]VirtualKey{},
+		dynamicKeyIndex:  map[string]string{},
+		store:            store,
 	}
 }
 
@@ -40,45 +44,88 @@ func (m *VirtualKeyManager) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.staticKeys = map[string]VirtualKey{}
-	m.dynamicCache = map[string]VirtualKey{}
+	m.staticKeysByID = map[string]VirtualKey{}
+	m.staticKeyIndex = map[string]string{}
+	m.dynamicCacheByID = map[string]VirtualKey{}
+	m.dynamicKeyIndex = map[string]string{}
 }
 
 func (m *VirtualKeyManager) InitStaticKeys(keys []VirtualKey) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.staticKeys = make(map[string]VirtualKey, len(keys))
+	m.staticKeysByID = make(map[string]VirtualKey, len(keys))
+	m.staticKeyIndex = make(map[string]string, len(keys))
 	for _, key := range keys {
-		if key.Key == "" {
+		if key.ID == "" || key.Key == "" {
 			continue
 		}
-		m.staticKeys[key.Key] = key
+		m.staticKeysByID[key.ID] = key
+		m.staticKeyIndex[key.Key] = key.ID
 	}
 }
 
-func (m *VirtualKeyManager) IsStatic(key string) bool {
+func (m *VirtualKeyManager) IsStatic(id string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	_, ok := m.staticKeys[key]
+	_, ok := m.staticKeysByID[id]
 	return ok
 }
 
-func (m *VirtualKeyManager) Get(ctx context.Context, key string) (VirtualKey, error) {
+func (m *VirtualKeyManager) GetByKey(ctx context.Context, key string) (VirtualKey, error) {
 	if key == "" {
 		return VirtualKey{}, ErrVirtualKeyNotCarried
 	}
 
 	m.mu.RLock()
-	staticKey, ok := m.staticKeys[key]
-	m.mu.RUnlock()
+	staticID, ok := m.staticKeyIndex[key]
 	if ok {
+		staticKey := m.staticKeysByID[staticID]
+		m.mu.RUnlock()
 		return staticKey, nil
+	}
+	dynamicID, ok := m.dynamicKeyIndex[key]
+	if ok {
+		cachedKey := m.dynamicCacheByID[dynamicID]
+		m.mu.RUnlock()
+		return cachedKey, nil
+	}
+	store := m.store
+	m.mu.RUnlock()
+
+	if store == nil {
+		return VirtualKey{}, ErrVirtualKeyNotConfigured
+	}
+
+	item, err := store.GetByKey(ctx, key)
+	if err != nil {
+		if errors.Is(err, configstoreintf.ErrNotFound) {
+			return VirtualKey{}, ErrVirtualKeyNotConfigured
+		}
+		return VirtualKey{}, fmt.Errorf("load virtual key %q: %w", key, err)
+	}
+
+	virtualKey, err := decodeVirtualKeyItem("", item)
+	if err != nil {
+		return VirtualKey{}, err
+	}
+	m.cacheDynamicKey(virtualKey)
+	return virtualKey, nil
+}
+
+func (m *VirtualKeyManager) GetByID(ctx context.Context, id string) (VirtualKey, error) {
+	if id == "" {
+		return VirtualKey{}, fmt.Errorf("id is required")
 	}
 
 	m.mu.RLock()
-	cachedKey, ok := m.dynamicCache[key]
+	staticKey, ok := m.staticKeysByID[id]
+	if ok {
+		m.mu.RUnlock()
+		return staticKey, nil
+	}
+	cachedKey, ok := m.dynamicCacheByID[id]
 	store := m.store
 	m.mu.RUnlock()
 	if ok {
@@ -89,15 +136,15 @@ func (m *VirtualKeyManager) Get(ctx context.Context, key string) (VirtualKey, er
 		return VirtualKey{}, ErrVirtualKeyNotConfigured
 	}
 
-	item, err := store.Get(ctx, key)
+	item, err := store.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, configstoreintf.ErrNotFound) {
 			return VirtualKey{}, ErrVirtualKeyNotConfigured
 		}
-		return VirtualKey{}, fmt.Errorf("load virtual key %q: %w", key, err)
+		return VirtualKey{}, fmt.Errorf("load virtual key %q: %w", id, err)
 	}
 
-	virtualKey, err := decodeVirtualKeyItem(key, item)
+	virtualKey, err := decodeVirtualKeyItem(id, item)
 	if err != nil {
 		return VirtualKey{}, err
 	}
@@ -108,9 +155,9 @@ func (m *VirtualKeyManager) Get(ctx context.Context, key string) (VirtualKey, er
 func (m *VirtualKeyManager) List(ctx context.Context, opts VirtualKeyListOptions) ([]VirtualKey, error) {
 	m.mu.RLock()
 	store := m.store
-	staticKeys := make(map[string]VirtualKey, len(m.staticKeys))
-	for key, item := range m.staticKeys {
-		staticKeys[key] = item
+	staticKeys := make(map[string]VirtualKey, len(m.staticKeysByID))
+	for id, item := range m.staticKeysByID {
+		staticKeys[id] = item
 	}
 	m.mu.RUnlock()
 
@@ -137,9 +184,9 @@ func (m *VirtualKeyManager) List(ctx context.Context, opts VirtualKeyListOptions
 		if err != nil {
 			return nil, err
 		}
-		cached[virtualKey.Key] = virtualKey
-		if _, ok := out[virtualKey.Key]; !ok {
-			out[virtualKey.Key] = virtualKey
+		cached[virtualKey.ID] = virtualKey
+		if _, ok := out[virtualKey.ID]; !ok {
+			out[virtualKey.ID] = virtualKey
 		}
 	}
 	m.cacheDynamicKeys(cached)
@@ -147,10 +194,13 @@ func (m *VirtualKeyManager) List(ctx context.Context, opts VirtualKeyListOptions
 }
 
 func (m *VirtualKeyManager) Create(ctx context.Context, key VirtualKey) error {
+	if key.ID == "" {
+		return fmt.Errorf("id is required")
+	}
 	if key.Key == "" {
 		return fmt.Errorf("key is required")
 	}
-	if err := m.ensureWritable(key.Key); err != nil {
+	if err := m.ensureWritable(key.ID); err != nil {
 		return err
 	}
 
@@ -160,7 +210,7 @@ func (m *VirtualKeyManager) Create(ctx context.Context, key VirtualKey) error {
 	if store == nil {
 		return fmt.Errorf("virtual key store is not configured")
 	}
-	if err := store.Create(ctx, key.Key, key.Tag, &key); err != nil {
+	if err := store.Create(ctx, key.ID, key.Tag, &key); err != nil {
 		return err
 	}
 
@@ -168,15 +218,20 @@ func (m *VirtualKeyManager) Create(ctx context.Context, key VirtualKey) error {
 	return nil
 }
 
-func (m *VirtualKeyManager) Update(ctx context.Context, keyID string, key VirtualKey) error {
-	if keyID == "" {
-		return fmt.Errorf("key is required")
+func (m *VirtualKeyManager) Update(ctx context.Context, id string, key VirtualKey) error {
+	if id == "" {
+		return fmt.Errorf("id is required")
 	}
-	if err := m.ensureWritable(keyID); err != nil {
+	if err := m.ensureWritable(id); err != nil {
 		return err
 	}
 
-	key.Key = keyID
+	current, err := m.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	key.ID = id
+	key.Key = current.Key
 
 	m.mu.RLock()
 	store := m.store
@@ -184,7 +239,7 @@ func (m *VirtualKeyManager) Update(ctx context.Context, keyID string, key Virtua
 	if store == nil {
 		return fmt.Errorf("virtual key store is not configured")
 	}
-	if err := store.Update(ctx, keyID, &key); err != nil {
+	if err := store.Update(ctx, id, &key); err != nil {
 		return err
 	}
 
@@ -192,11 +247,11 @@ func (m *VirtualKeyManager) Update(ctx context.Context, keyID string, key Virtua
 	return nil
 }
 
-func (m *VirtualKeyManager) Delete(ctx context.Context, key string) error {
-	if key == "" {
-		return fmt.Errorf("key is required")
+func (m *VirtualKeyManager) Delete(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("id is required")
 	}
-	if err := m.ensureWritable(key); err != nil {
+	if err := m.ensureWritable(id); err != nil {
 		return err
 	}
 
@@ -206,37 +261,46 @@ func (m *VirtualKeyManager) Delete(ctx context.Context, key string) error {
 	if store == nil {
 		return fmt.Errorf("virtual key store is not configured")
 	}
-	if err := store.Delete(ctx, key); err != nil {
+	current, err := m.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := store.Delete(ctx, id); err != nil {
 		return err
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.dynamicCache, key)
+	delete(m.dynamicCacheByID, id)
+	delete(m.dynamicKeyIndex, current.Key)
 	return nil
 }
 
-func (m *VirtualKeyManager) ensureWritable(key string) error {
+func (m *VirtualKeyManager) ensureWritable(id string) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	if _, ok := m.staticKeys[key]; ok {
-		return fmt.Errorf("%w: %q", ErrStaticVirtualKeyReadOnly, key)
+	if _, ok := m.staticKeysByID[id]; ok {
+		return fmt.Errorf("%w: %q", ErrStaticVirtualKeyReadOnly, id)
 	}
 	return nil
 }
 
 func (m *VirtualKeyManager) cacheDynamicKey(key VirtualKey) {
-	if key.Key == "" {
+	if key.ID == "" || key.Key == "" {
 		return
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.dynamicCache == nil {
-		m.dynamicCache = map[string]VirtualKey{}
+	if m.dynamicCacheByID == nil {
+		m.dynamicCacheByID = map[string]VirtualKey{}
 	}
-	m.dynamicCache[key.Key] = key
+	if m.dynamicKeyIndex == nil {
+		m.dynamicKeyIndex = map[string]string{}
+	}
+	m.dynamicCacheByID[key.ID] = key
+	m.dynamicKeyIndex[key.Key] = key.ID
 }
 
 func (m *VirtualKeyManager) cacheDynamicKeys(keys map[string]VirtualKey) {
@@ -246,17 +310,21 @@ func (m *VirtualKeyManager) cacheDynamicKeys(keys map[string]VirtualKey) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.dynamicCache == nil {
-		m.dynamicCache = map[string]VirtualKey{}
+	if m.dynamicCacheByID == nil {
+		m.dynamicCacheByID = map[string]VirtualKey{}
 	}
-	for id, key := range keys {
-		m.dynamicCache[id] = key
+	if m.dynamicKeyIndex == nil {
+		m.dynamicKeyIndex = map[string]string{}
+	}
+	for _, key := range keys {
+		m.dynamicCacheByID[key.ID] = key
+		m.dynamicKeyIndex[key.Key] = key.ID
 	}
 }
 
 func decodeVirtualKeyItem(keyID string, item any) (VirtualKey, error) {
 	virtualKey, ok := item.(*VirtualKey)
-	if !ok || virtualKey == nil || virtualKey.Key == "" {
+	if !ok || virtualKey == nil || virtualKey.ID == "" || virtualKey.Key == "" {
 		if keyID == "" {
 			keyID = "<unknown>"
 		}

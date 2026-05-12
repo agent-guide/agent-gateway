@@ -296,7 +296,7 @@ func (s *testVirtualKeyStore) ListByTag(_ context.Context, tag string) ([]any, e
 	return out, nil
 }
 
-func (s *testVirtualKeyStore) Create(_ context.Context, key string, _ string, obj any) error {
+func (s *testVirtualKeyStore) Create(_ context.Context, id string, _ string, obj any) error {
 	item, ok := obj.(*virtualkeypkg.VirtualKey)
 	if !ok {
 		return errors.New("unexpected type")
@@ -305,28 +305,37 @@ func (s *testVirtualKeyStore) Create(_ context.Context, key string, _ string, ob
 		s.items = map[string]*virtualkeypkg.VirtualKey{}
 	}
 	cloned := *item
-	s.items[key] = &cloned
+	s.items[id] = &cloned
 	return nil
 }
 
-func (s *testVirtualKeyStore) Update(ctx context.Context, key string, obj any) error {
-	if _, ok := s.items[key]; !ok {
+func (s *testVirtualKeyStore) Update(ctx context.Context, id string, obj any) error {
+	if _, ok := s.items[id]; !ok {
 		return gorm.ErrRecordNotFound
 	}
-	return s.Create(ctx, key, "", obj)
+	return s.Create(ctx, id, "", obj)
 }
 
-func (s *testVirtualKeyStore) Delete(_ context.Context, key string) error {
-	delete(s.items, key)
+func (s *testVirtualKeyStore) Delete(_ context.Context, id string) error {
+	delete(s.items, id)
 	return nil
 }
 
-func (s *testVirtualKeyStore) Get(_ context.Context, key string) (any, error) {
-	item, ok := s.items[key]
+func (s *testVirtualKeyStore) Get(_ context.Context, id string) (any, error) {
+	item, ok := s.items[id]
 	if !ok {
 		return nil, gorm.ErrRecordNotFound
 	}
 	return item, nil
+}
+
+func (s *testVirtualKeyStore) GetByKey(_ context.Context, key string) (any, error) {
+	for _, item := range s.items {
+		if item.Key == key {
+			return item, nil
+		}
+	}
+	return nil, gorm.ErrRecordNotFound
 }
 
 func TestRouteCRUD(t *testing.T) {
@@ -394,9 +403,8 @@ func TestVirtualKeyCRUD(t *testing.T) {
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body, err := json.Marshal(virtualkeypkg.VirtualKey{
-		Key:             "client-supplied-key-is-ignored",
+		ID:              "vk-test",
 		Tag:             "admin",
-		Name:            "test key",
 		AllowedRouteIDs: []string{"chat-prod"},
 	})
 	if err != nil {
@@ -418,14 +426,14 @@ func TestVirtualKeyCRUD(t *testing.T) {
 	if created.Key == "" {
 		t.Fatal("created virtual key is empty")
 	}
-	if !strings.HasPrefix(created.Key, generatedVirtualKeyPrefix) {
-		t.Fatalf("created virtual key = %q, want prefix %q", created.Key, generatedVirtualKeyPrefix)
+	if !strings.HasPrefix(created.Key, virtualkeypkg.GeneratedKeyPrefix) {
+		t.Fatalf("created virtual key = %q, want prefix %q", created.Key, virtualkeypkg.GeneratedKeyPrefix)
 	}
-	if created.Key == "client-supplied-key-is-ignored" {
-		t.Fatal("created virtual key used client-supplied key")
+	if created.ID != "vk-test" {
+		t.Fatalf("created virtual key id = %q, want vk-test", created.ID)
 	}
 
-	getReq := httptest.NewRequest(http.MethodGet, "/admin/virtual_keys/"+created.Key, nil)
+	getReq := httptest.NewRequest(http.MethodGet, "/admin/virtual_keys/"+created.ID, nil)
 	getReq.Header.Set("Authorization", "Bearer "+token)
 	getRec := httptest.NewRecorder()
 	handler.ServeHTTP(getRec, getReq)
@@ -439,6 +447,9 @@ func TestVirtualKeyCRUD(t *testing.T) {
 	}
 	if got.Key != created.Key {
 		t.Fatalf("unexpected virtual key: got %q want %q", got.Key, created.Key)
+	}
+	if got.ID != created.ID {
+		t.Fatalf("unexpected virtual key id: got %q want %q", got.ID, created.ID)
 	}
 	if len(got.AllowedRouteIDs) != 1 || got.AllowedRouteIDs[0] != "chat-prod" {
 		t.Fatalf("unexpected allowed routes: %#v", got.AllowedRouteIDs)
@@ -456,11 +467,11 @@ func TestVirtualKeyGetMarksStaticKeyAsReadOnly(t *testing.T) {
 
 	virtualKeyManager := virtualkeypkg.NewVirtualKeyManager(&testVirtualKeyStore{
 		items: map[string]*virtualkeypkg.VirtualKey{
-			"lk-static": {Key: "lk-static", Tag: "admin", Name: "dynamic copy"},
+			"vk-static": {ID: "vk-static", Key: "lk-static", Tag: "dynamic copy"},
 		},
 	})
 	virtualKeyManager.InitStaticKeys([]virtualkeypkg.VirtualKey{
-		{Key: "lk-static", Tag: "admin", Name: "static key"},
+		{ID: "vk-static", Key: "lk-static", Tag: "static key"},
 	})
 
 	agentGateway := gateway.NewAgentGateway()
@@ -469,7 +480,7 @@ func TestVirtualKeyGetMarksStaticKeyAsReadOnly(t *testing.T) {
 			virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{}},
 		},
 		StaticVirtualKeys: []virtualkeypkg.VirtualKey{
-			{Key: "lk-static", Tag: "admin", Name: "static key"},
+			{ID: "vk-static", Key: "lk-static", Tag: "static key"},
 		},
 	}); err != nil {
 		t.Fatalf("bootstrap gateway: %v", err)
@@ -477,7 +488,7 @@ func TestVirtualKeyGetMarksStaticKeyAsReadOnly(t *testing.T) {
 	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/virtual_keys/lk-static", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/virtual_keys/vk-static", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -490,8 +501,11 @@ func TestVirtualKeyGetMarksStaticKeyAsReadOnly(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode virtual key: %v", err)
 	}
-	if got.Name != "static key" {
-		t.Fatalf("name = %q, want static key", got.Name)
+	if got.ID != "vk-static" {
+		t.Fatalf("id = %q, want vk-static", got.ID)
+	}
+	if got.Tag != "static key" {
+		t.Fatalf("tag = %q, want static key", got.Tag)
 	}
 	if got.Source != "caddyfile" || !got.ReadOnly {
 		t.Fatalf("unexpected virtual key metadata: %#v", got)
@@ -505,13 +519,13 @@ func TestVirtualKeyListMarksStaticKeysAsReadOnly(t *testing.T) {
 	}
 
 	store := &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{
-		"lk-dynamic": {Key: "lk-dynamic", Tag: "admin", Name: "dynamic key"},
+		"vk-dynamic": {ID: "vk-dynamic", Key: "lk-dynamic", Tag: "dynamic key"},
 	}}
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
 		ConfigStore: &testConfigStore{virtualKeyStore: store},
 		StaticVirtualKeys: []virtualkeypkg.VirtualKey{
-			{Key: "lk-static", Tag: "admin", Name: "static key"},
+			{ID: "vk-static", Key: "lk-static", Tag: "static key"},
 		},
 	}); err != nil {
 		t.Fatalf("bootstrap gateway: %v", err)
@@ -538,15 +552,15 @@ func TestVirtualKeyListMarksStaticKeysAsReadOnly(t *testing.T) {
 		t.Fatalf("item count = %d, want 2", len(got.Items))
 	}
 
-	byKey := map[string]VirtualKeyView{}
+	byID := map[string]VirtualKeyView{}
 	for _, item := range got.Items {
-		byKey[item.Key] = item
+		byID[item.ID] = item
 	}
-	if byKey["lk-static"].Source != "caddyfile" || !byKey["lk-static"].ReadOnly {
-		t.Fatalf("unexpected static virtual key metadata: %#v", byKey["lk-static"])
+	if byID["vk-static"].Source != "caddyfile" || !byID["vk-static"].ReadOnly {
+		t.Fatalf("unexpected static virtual key metadata: %#v", byID["vk-static"])
 	}
-	if byKey["lk-dynamic"].Source != "store" || byKey["lk-dynamic"].ReadOnly {
-		t.Fatalf("unexpected dynamic virtual key metadata: %#v", byKey["lk-dynamic"])
+	if byID["vk-dynamic"].Source != "store" || byID["vk-dynamic"].ReadOnly {
+		t.Fatalf("unexpected dynamic virtual key metadata: %#v", byID["vk-dynamic"])
 	}
 }
 
@@ -857,12 +871,12 @@ func TestVirtualKeyEnableDisable(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{
-			"lk-test": {Key: "lk-test", Tag: "admin"},
+			"vk-test": {ID: "vk-test", Key: "lk-test", Tag: "admin"},
 		}},
 	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	disableReq := httptest.NewRequest(http.MethodPost, "/admin/virtual_keys/lk-test/disable", nil)
+	disableReq := httptest.NewRequest(http.MethodPost, "/admin/virtual_keys/vk-test/disable", nil)
 	disableReq.Header.Set("Authorization", "Bearer "+token)
 	disableRec := httptest.NewRecorder()
 	handler.ServeHTTP(disableRec, disableReq)
@@ -878,7 +892,7 @@ func TestVirtualKeyEnableDisable(t *testing.T) {
 		t.Fatal("virtual key disabled = false, want true")
 	}
 
-	enableReq := httptest.NewRequest(http.MethodPost, "/admin/virtual_keys/lk-test/enable", nil)
+	enableReq := httptest.NewRequest(http.MethodPost, "/admin/virtual_keys/vk-test/enable", nil)
 	enableReq.Header.Set("Authorization", "Bearer "+token)
 	enableRec := httptest.NewRecorder()
 	handler.ServeHTTP(enableRec, enableReq)
@@ -1305,7 +1319,7 @@ func TestCreateVirtualKeyDoesNotBindTagToSessionUser(t *testing.T) {
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body, err := json.Marshal(virtualkeypkg.VirtualKey{
-		Key: "lk-test",
+		ID:  "vk-tag-test",
 		Tag: "someone-else",
 	})
 	if err != nil {
@@ -1337,8 +1351,8 @@ func TestListVirtualKeysFiltersByTag(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{
-			"lk-admin": {Key: "lk-admin", Tag: "admin"},
-			"lk-other": {Key: "lk-other", Tag: "someone-else"},
+			"vk-admin": {ID: "vk-admin", Key: "lk-admin", Tag: "admin"},
+			"vk-other": {ID: "vk-other", Key: "lk-other", Tag: "someone-else"},
 		}},
 	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 
@@ -1358,7 +1372,7 @@ func TestListVirtualKeysFiltersByTag(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode virtual keys: %v", err)
 	}
-	if len(got.Items) != 1 || got.Items[0].Key != "lk-other" {
+	if len(got.Items) != 1 || got.Items[0].ID != "vk-other" || got.Items[0].Key != "lk-other" {
 		t.Fatalf("unexpected filtered virtual keys: %#v", got.Items)
 	}
 }

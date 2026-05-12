@@ -37,7 +37,7 @@ routes:
       provider_target:
         provider_id: openai-main
 virtualKeys:
-  - key: vk-local-test
+  - id: vk-local-test
     allowed_route_ids:
       - chat-prod
 managedModels:
@@ -58,7 +58,7 @@ managedModels:
 	if len(cfg.Routes) != 1 || cfg.Routes[0].ID != "chat-prod" {
 		t.Fatalf("Routes = %#v", cfg.Routes)
 	}
-	if len(cfg.VirtualKeys) != 1 || cfg.VirtualKeys[0].Key != "vk-local-test" {
+	if len(cfg.VirtualKeys) != 1 || cfg.VirtualKeys[0].ID != "vk-local-test" || cfg.VirtualKeys[0].Key == "" {
 		t.Fatalf("VirtualKeys = %#v", cfg.VirtualKeys)
 	}
 	if len(cfg.ManagedModels) != 1 || cfg.ManagedModels[0].ProviderID != "openai-main" {
@@ -92,7 +92,7 @@ routes:
       provider_target:
         provider_id: openai-main
 virtualKeys:
-  - key: vk-local-test
+  - id: vk-local-test
     allowed_route_ids:
       - chat-prod
 managedModels:

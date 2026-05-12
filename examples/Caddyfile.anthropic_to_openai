@@ -33,7 +33,6 @@
 
 		virtualkey test-key {
 			tag local-test
-			name "Local Python test key"
 			allowed_route anthropic-chat
 		}
 

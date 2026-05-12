@@ -55,7 +55,7 @@ routes:
               weight: 100
 
 virtualKeys:
-  - name: vk-prod
+  - id: vk-prod
     tag: prod
     allowed_route_ids:
       - chat-prod

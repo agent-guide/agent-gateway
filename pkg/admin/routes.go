@@ -2,8 +2,6 @@ package admin
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -20,7 +18,6 @@ import (
 )
 
 const defaultRouteTag = ""
-const generatedVirtualKeyPrefix = "vk-"
 
 type VirtualKeyView struct {
 	virtualkeypkg.VirtualKey
@@ -103,11 +100,11 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodDelete, Path: "/admin/routes/{id}", Handler: h.handleDeleteRoute, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/virtual_keys", Handler: h.handleListVirtualKeys, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/virtual_keys", Handler: h.handleCreateVirtualKey, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/virtual_keys/{key}", Handler: h.handleGetVirtualKey, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/virtual_keys/{key}", Handler: h.handleUpdateVirtualKey, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/virtual_keys/{key}/enable", Handler: h.handleEnableVirtualKey, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/virtual_keys/{key}/disable", Handler: h.handleDisableVirtualKey, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/virtual_keys/{key}", Handler: h.handleDeleteVirtualKey, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/virtual_keys/{id}", Handler: h.handleGetVirtualKey, RequireAuth: true},
+		{Method: http.MethodPut, Path: "/admin/virtual_keys/{id}", Handler: h.handleUpdateVirtualKey, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/virtual_keys/{id}/enable", Handler: h.handleEnableVirtualKey, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/virtual_keys/{id}/disable", Handler: h.handleDisableVirtualKey, RequireAuth: true},
+		{Method: http.MethodDelete, Path: "/admin/virtual_keys/{id}", Handler: h.handleDeleteVirtualKey, RequireAuth: true},
 		// Credentials (api_key and cliauth)
 		{Method: http.MethodGet, Path: "/admin/credentials", Handler: h.handleListCredentials, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/credentials", Handler: h.handleCreateCredential, RequireAuth: true},
@@ -692,26 +689,22 @@ func (h *Handler) handleCreateVirtualKey(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	generatedKey, err := generateVirtualKey()
+	generatedKey, err := virtualkeypkg.GenerateKey()
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, "failed to generate virtual key")
 		return
 	}
 	key.Key = generatedKey
+	if strings.TrimSpace(key.ID) == "" {
+		_ = httpjson.Error(w, http.StatusBadRequest, "virtual key id is required")
+		return
+	}
 
 	if err := manager.Create(r.Context(), key); err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	_ = httpjson.Write(w, http.StatusCreated, key)
-}
-
-func generateVirtualKey() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return generatedVirtualKeyPrefix + base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 func (h *Handler) handleGetVirtualKey(w http.ResponseWriter, r *http.Request) {
@@ -721,7 +714,7 @@ func (h *Handler) handleGetVirtualKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item, err := manager.Get(r.Context(), r.PathValue("key"))
+	item, err := manager.GetByID(r.Context(), r.PathValue("id"))
 	if err != nil {
 		if errors.Is(err, virtualkeypkg.ErrVirtualKeyNotConfigured) {
 			_ = httpjson.Error(w, http.StatusNotFound, "virtual key not found")
@@ -745,16 +738,20 @@ func (h *Handler) handleUpdateVirtualKey(w http.ResponseWriter, r *http.Request)
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}
-	pathKey := r.PathValue("key")
-	if key.Key == "" {
-		key.Key = pathKey
+	pathID := r.PathValue("id")
+	if key.ID == "" {
+		key.ID = pathID
 	}
-	if key.Key != pathKey {
-		_ = httpjson.Error(w, http.StatusBadRequest, "virtual key in body must match path")
+	if key.ID != pathID {
+		_ = httpjson.Error(w, http.StatusBadRequest, "virtual key id in body must match path")
+		return
+	}
+	if key.Key != "" {
+		_ = httpjson.Error(w, http.StatusBadRequest, "virtual key key is generated and must be omitted")
 		return
 	}
 
-	if _, err := manager.Get(r.Context(), pathKey); err != nil {
+	if _, err := manager.GetByID(r.Context(), pathID); err != nil {
 		if errors.Is(err, virtualkeypkg.ErrVirtualKeyNotConfigured) {
 			_ = httpjson.Error(w, http.StatusNotFound, "virtual key not found")
 			return
@@ -763,7 +760,7 @@ func (h *Handler) handleUpdateVirtualKey(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := manager.Update(r.Context(), key.Key, key); err != nil {
+	if err := manager.Update(r.Context(), key.ID, key); err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -777,12 +774,12 @@ func (h *Handler) handleDeleteVirtualKey(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	key := r.PathValue("key")
-	if err := manager.Delete(r.Context(), key); err != nil {
+	id := r.PathValue("id")
+	if err := manager.Delete(r.Context(), id); err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "deleted", "key": key})
+	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "deleted", "id": id})
 }
 
 func (h *Handler) handleEnableVirtualKey(w http.ResponseWriter, r *http.Request) {
@@ -800,8 +797,8 @@ func (h *Handler) handleSetVirtualKeyDisabled(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	keyID := r.PathValue("key")
-	key, err := manager.Get(r.Context(), keyID)
+	keyID := r.PathValue("id")
+	key, err := manager.GetByID(r.Context(), keyID)
 	if err != nil {
 		if errors.Is(err, virtualkeypkg.ErrVirtualKeyNotConfigured) {
 			_ = httpjson.Error(w, http.StatusNotFound, "virtual key not found")
@@ -825,7 +822,7 @@ func (h *Handler) handleSetVirtualKeyDisabled(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	updated, err := manager.Get(r.Context(), keyID)
+	updated, err := manager.GetByID(r.Context(), keyID)
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -960,7 +957,7 @@ func virtualKeyViewFromKey(manager *virtualkeypkg.VirtualKeyManager, key virtual
 		Source:     "store",
 		ReadOnly:   false,
 	}
-	if manager != nil && manager.IsStatic(key.Key) {
+	if manager != nil && manager.IsStatic(key.ID) {
 		view.Source = "caddyfile"
 		view.ReadOnly = true
 	}

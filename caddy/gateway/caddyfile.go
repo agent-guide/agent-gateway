@@ -168,8 +168,8 @@ func parseVirtualKey(d *caddyfile.Dispenser, app *App) error {
 	}
 
 	for _, declared := range app.VirtualKeys {
-		if declared.Key == key.Key {
-			return d.Errf("duplicate virtualkey %q", key.Key)
+		if declared.ID == key.ID {
+			return d.Errf("duplicate virtualkey %q", key.ID)
 		}
 	}
 	app.VirtualKeys = append(app.VirtualKeys, key)
@@ -187,8 +187,13 @@ func parseVirtualKeySegment(d *caddyfile.Dispenser) (virtualkeypkg.VirtualKey, e
 		return virtualkeypkg.VirtualKey{}, seg.ArgErr()
 	}
 
+	generatedKey, err := virtualkeypkg.GenerateKey()
+	if err != nil {
+		return virtualkeypkg.VirtualKey{}, err
+	}
 	key := virtualkeypkg.VirtualKey{
-		Key: strings.Trim(args[0], "\"`"),
+		ID:  strings.Trim(args[0], "\"`"),
+		Key: generatedKey,
 	}
 
 	for seg.NextBlock(0) {
@@ -200,11 +205,6 @@ func parseVirtualKeySegment(d *caddyfile.Dispenser) (virtualkeypkg.VirtualKey, e
 				return virtualkeypkg.VirtualKey{}, seg.ArgErr()
 			}
 			key.Tag = strings.Trim(args[0], "\"`")
-		case "name":
-			if len(args) != 1 {
-				return virtualkeypkg.VirtualKey{}, seg.ArgErr()
-			}
-			key.Name = strings.Trim(args[0], "\"`")
 		case "description":
 			if len(args) != 1 {
 				return virtualkeypkg.VirtualKey{}, seg.ArgErr()

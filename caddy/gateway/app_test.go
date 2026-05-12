@@ -36,7 +36,7 @@ func (s *testProvisionVirtualKeyStore) ListByTag(context.Context, string) ([]any
 	return nil, nil
 }
 
-func (s *testProvisionVirtualKeyStore) Create(_ context.Context, key string, _ string, obj any) error {
+func (s *testProvisionVirtualKeyStore) Create(_ context.Context, id string, _ string, obj any) error {
 	item, ok := obj.(*virtualkeypkg.VirtualKey)
 	if !ok {
 		return errors.New("unexpected type")
@@ -45,11 +45,11 @@ func (s *testProvisionVirtualKeyStore) Create(_ context.Context, key string, _ s
 		s.items = map[string]*virtualkeypkg.VirtualKey{}
 	}
 	cloned := *item
-	s.items[key] = &cloned
+	s.items[id] = &cloned
 	return nil
 }
 
-func (s *testProvisionVirtualKeyStore) Update(_ context.Context, key string, obj any) error {
+func (s *testProvisionVirtualKeyStore) Update(_ context.Context, id string, obj any) error {
 	item, ok := obj.(*virtualkeypkg.VirtualKey)
 	if !ok {
 		return errors.New("unexpected type")
@@ -57,20 +57,29 @@ func (s *testProvisionVirtualKeyStore) Update(_ context.Context, key string, obj
 	if s.items == nil {
 		s.items = map[string]*virtualkeypkg.VirtualKey{}
 	}
-	if _, exists := s.items[key]; !exists {
+	if _, exists := s.items[id]; !exists {
 		return configstoreintf.ErrNotFound
 	}
 	cloned := *item
-	s.items[key] = &cloned
+	s.items[id] = &cloned
 	return nil
 }
 
 func (s *testProvisionVirtualKeyStore) Delete(context.Context, string) error { return nil }
 
-func (s *testProvisionVirtualKeyStore) Get(_ context.Context, key string) (any, error) {
-	item, ok := s.items[key]
+func (s *testProvisionVirtualKeyStore) Get(_ context.Context, id string) (any, error) {
+	item, ok := s.items[id]
 	if !ok {
 		return nil, configstoreintf.ErrNotFound
 	}
 	return item, nil
+}
+
+func (s *testProvisionVirtualKeyStore) GetByKey(_ context.Context, key string) (any, error) {
+	for _, item := range s.items {
+		if item.Key == key {
+			return item, nil
+		}
+	}
+	return nil, configstoreintf.ErrNotFound
 }

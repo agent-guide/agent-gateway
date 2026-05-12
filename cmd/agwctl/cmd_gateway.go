@@ -264,8 +264,8 @@ var gatewayVirtualKeyListCmd = &cobra.Command{
 }
 
 var gatewayVirtualKeyGetCmd = &cobra.Command{
-	Use:   "get <key>",
-	Short: "Get one virtual key",
+	Use:   "get <id>",
+	Short: "Get one virtual key by id",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		item, err := newGatewayClient().GetVirtualKey(context.Background(), args[0])
@@ -277,8 +277,8 @@ var gatewayVirtualKeyGetCmd = &cobra.Command{
 }
 
 var gatewayVirtualKeyDeleteCmd = &cobra.Command{
-	Use:   "delete <key>",
-	Short: "Delete a virtual key",
+	Use:   "delete <id>",
+	Short: "Delete a virtual key by id",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		resp, err := newGatewayClient().DeleteVirtualKey(context.Background(), args[0])
@@ -290,8 +290,8 @@ var gatewayVirtualKeyDeleteCmd = &cobra.Command{
 }
 
 var gatewayVirtualKeyEnableCmd = &cobra.Command{
-	Use:   "enable <key>",
-	Short: "Enable a virtual key",
+	Use:   "enable <id>",
+	Short: "Enable a virtual key by id",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		item, err := newGatewayClient().EnableVirtualKey(context.Background(), args[0])
@@ -303,8 +303,8 @@ var gatewayVirtualKeyEnableCmd = &cobra.Command{
 }
 
 var gatewayVirtualKeyDisableCmd = &cobra.Command{
-	Use:   "disable <key>",
-	Short: "Disable a virtual key",
+	Use:   "disable <id>",
+	Short: "Disable a virtual key by id",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		item, err := newGatewayClient().DisableVirtualKey(context.Background(), args[0])

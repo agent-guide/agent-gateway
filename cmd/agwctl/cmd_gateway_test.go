@@ -279,7 +279,7 @@ routes:
       provider_target:
         provider_id: openai-main
 virtualKeys:
-  - name: vk-local-test
+  - id: vk-local-test
     allowed_route_ids:
       - chat-prod
 `), 0o644); err != nil {
@@ -330,7 +330,7 @@ providers:
     provider_type: openai
     default_model: gpt-4.1
 virtualKeys:
-  - name: vk-local-test
+  - id: vk-local-test
     allowed_route_ids: []
 cliAuthAuthenticators:
   - name: codex
@@ -391,13 +391,13 @@ cliAuthAuthenticators:
 			if _, ok := req["key"]; ok {
 				t.Fatalf("virtual key create request unexpectedly carried key: %#v", req)
 			}
-			if req["name"] != "vk-local-test" {
-				t.Fatalf("virtual key create request name = %#v, want %q", req["name"], "vk-local-test")
+			if req["id"] != "vk-local-test" {
+				t.Fatalf("virtual key create request id = %#v, want %q", req["id"], "vk-local-test")
 			}
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"key":  "vk-generated",
-				"name": "vk-local-test",
+				"id":  "vk-local-test",
+				"key": "vk-generated",
 			})
 		case r.URL.Path == "/admin/cliauth/authenticators" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -465,7 +465,7 @@ providers:
     provider_type: openai
     default_model: gpt-4.1
 virtualKeys:
-  - name: vk-local-test
+  - id: vk-local-test
     allowed_route_ids: []
 cliAuthAuthenticators:
   - name: codex
@@ -512,8 +512,8 @@ cliAuthAuthenticators:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
+						"id":                "vk-local-test",
 						"key":               "vk-generated",
-						"name":              "vk-local-test",
 						"allowed_route_ids": []string{},
 						"source":            "dynamic",
 						"read_only":         false,
@@ -523,7 +523,7 @@ cliAuthAuthenticators:
 		case r.URL.Path == "/admin/virtual_keys" && r.Method == http.MethodPost:
 			virtualKeyWriteCount.Add(1)
 			t.Fatalf("unexpected virtual key create request for unchanged object")
-		case r.URL.Path == "/admin/virtual_keys/vk-generated" && r.Method == http.MethodPut:
+		case r.URL.Path == "/admin/virtual_keys/vk-local-test" && r.Method == http.MethodPut:
 			virtualKeyWriteCount.Add(1)
 			t.Fatalf("unexpected virtual key update request for unchanged object")
 		case r.URL.Path == "/admin/cliauth/authenticators" && r.Method == http.MethodGet:
@@ -711,8 +711,8 @@ func TestGatewayExportCommand(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
+						"id":                "vk-local-test",
 						"key":               "vk-local-test",
-						"name":              "vk-local-test",
 						"allowed_route_ids": []string{"chat-prod"},
 						"source":            "dynamic",
 						"read_only":         false,
@@ -759,7 +759,7 @@ func TestGatewayExportCommand(t *testing.T) {
 		"virtualKeys:",
 		"cliAuthAuthenticators:",
 		"id: openai-main",
-		"name: vk-local-test",
+		"id: vk-local-test",
 		"name: codex",
 	} {
 		if !strings.Contains(stdout, want) {
@@ -835,8 +835,8 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
+						"id":                "vk-local-test",
 						"key":               "vk-local-test",
-						"name":              "vk-local-test",
 						"allowed_route_ids": []string{"chat-prod"},
 						"source":            "dynamic",
 						"read_only":         false,

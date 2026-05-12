@@ -29,7 +29,7 @@ routes:
         provider_id: openai-main
 
 virtualKeys:
-  - name: vk-local-test
+  - id: vk-local-test
     tag: local-test
     allowed_route_ids:
       - chat-prod

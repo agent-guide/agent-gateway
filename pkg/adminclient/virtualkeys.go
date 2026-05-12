@@ -18,9 +18,9 @@ func (c *Client) ListVirtualKeys(ctx context.Context, opts VirtualKeyListOptions
 	return resp.Items, nil
 }
 
-func (c *Client) GetVirtualKey(ctx context.Context, key string) (*VirtualKey, error) {
+func (c *Client) GetVirtualKey(ctx context.Context, id string) (*VirtualKey, error) {
 	var resp VirtualKey
-	if err := c.do(ctx, http.MethodGet, "/admin/virtual_keys/"+url.PathEscape(key), nil, &resp, true, http.StatusOK); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/admin/virtual_keys/"+url.PathEscape(id), nil, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -34,37 +34,37 @@ func (c *Client) CreateVirtualKey(ctx context.Context, key VirtualKeyConfig) (*V
 	return &resp, nil
 }
 
-func (c *Client) UpdateVirtualKey(ctx context.Context, key string, req VirtualKeyConfig) (*VirtualKeyConfig, error) {
+func (c *Client) UpdateVirtualKey(ctx context.Context, id string, req VirtualKeyConfig) (*VirtualKeyConfig, error) {
 	var resp VirtualKeyConfig
-	if err := c.do(ctx, http.MethodPut, "/admin/virtual_keys/"+url.PathEscape(key), req, &resp, true, http.StatusOK); err != nil {
+	if err := c.do(ctx, http.MethodPut, "/admin/virtual_keys/"+url.PathEscape(id), req, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-func (c *Client) DeleteVirtualKey(ctx context.Context, key string) (*StatusResponse, error) {
+func (c *Client) DeleteVirtualKey(ctx context.Context, id string) (*StatusResponse, error) {
 	var resp StatusResponse
-	if err := c.do(ctx, http.MethodDelete, "/admin/virtual_keys/"+url.PathEscape(key), nil, &resp, true, http.StatusOK); err != nil {
+	if err := c.do(ctx, http.MethodDelete, "/admin/virtual_keys/"+url.PathEscape(id), nil, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-func (c *Client) EnableVirtualKey(ctx context.Context, key string) (*VirtualKey, error) {
-	return c.setVirtualKeyEnabled(ctx, key, true)
+func (c *Client) EnableVirtualKey(ctx context.Context, id string) (*VirtualKey, error) {
+	return c.setVirtualKeyEnabled(ctx, id, true)
 }
 
-func (c *Client) DisableVirtualKey(ctx context.Context, key string) (*VirtualKey, error) {
-	return c.setVirtualKeyEnabled(ctx, key, false)
+func (c *Client) DisableVirtualKey(ctx context.Context, id string) (*VirtualKey, error) {
+	return c.setVirtualKeyEnabled(ctx, id, false)
 }
 
-func (c *Client) setVirtualKeyEnabled(ctx context.Context, key string, enabled bool) (*VirtualKey, error) {
+func (c *Client) setVirtualKeyEnabled(ctx context.Context, id string, enabled bool) (*VirtualKey, error) {
 	action := "disable"
 	if enabled {
 		action = "enable"
 	}
 	var resp VirtualKey
-	if err := c.do(ctx, http.MethodPost, "/admin/virtual_keys/"+url.PathEscape(key)+"/"+action, nil, &resp, true, http.StatusOK); err != nil {
+	if err := c.do(ctx, http.MethodPost, "/admin/virtual_keys/"+url.PathEscape(id)+"/"+action, nil, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &resp, nil

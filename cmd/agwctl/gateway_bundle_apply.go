@@ -339,44 +339,44 @@ func applyVirtualKeys(ctx context.Context, client *adminclient.Client, bundle *g
 	}
 	current := map[string]adminclient.VirtualKey{}
 	for _, item := range items {
-		name := effectiveVirtualKeyName(item.VirtualKey)
-		if name == "" {
-			record("virtual_key", item.Key, "error", fmt.Errorf("virtual_key %q has neither name nor key", item.Key))
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			record("virtual_key", item.Key, "error", fmt.Errorf("virtual_key with key %q has empty id", item.Key))
 			continue
 		}
-		if existing, exists := current[name]; exists && existing.Key != item.Key {
-			record("virtual_key", name, "error", fmt.Errorf("virtual_key name %q is ambiguous across keys %q and %q", name, existing.Key, item.Key))
+		if existing, exists := current[id]; exists && existing.Key != item.Key {
+			record("virtual_key", id, "error", fmt.Errorf("virtual_key id %q is ambiguous across keys %q and %q", id, existing.Key, item.Key))
 			continue
 		}
-		current[name] = item
+		current[id] = item
 	}
 	for _, desired := range bundle.VirtualKeys {
-		name := desired.Name
-		item, ok := current[name]
+		id := desired.ID
+		item, ok := current[id]
 		if !ok {
-			req := bundleVirtualKeyConfig(desired, "")
+			req := bundleVirtualKeyConfig(desired)
 			if _, err := client.CreateVirtualKey(ctx, req); err != nil {
-				record("virtual_key", name, "error", fmt.Errorf("virtual_key %q create: %w", name, err))
+				record("virtual_key", id, "error", fmt.Errorf("virtual_key %q create: %w", id, err))
 			} else {
-				record("virtual_key", name, "create", nil)
+				record("virtual_key", id, "create", nil)
 			}
 			continue
 		}
 		currentKey := normalizeComparableVirtualKey(item.VirtualKey)
 		desiredKey := normalizeComparableVirtualKey(desired.ToRuntimeVirtualKey(item.Key))
 		if reflect.DeepEqual(currentKey, desiredKey) {
-			record("virtual_key", name, "skip", nil)
+			record("virtual_key", id, "skip", nil)
 			continue
 		}
 		if item.ReadOnly {
-			record("virtual_key", name, "error", fmt.Errorf("virtual_key %q is read-only", name))
+			record("virtual_key", id, "error", fmt.Errorf("virtual_key %q is read-only", id))
 			continue
 		}
-		req := bundleVirtualKeyConfig(desired, item.Key)
-		if _, err := client.UpdateVirtualKey(ctx, item.Key, req); err != nil {
-			record("virtual_key", name, "error", fmt.Errorf("virtual_key %q update: %w", name, err))
+		req := bundleVirtualKeyConfig(desired)
+		if _, err := client.UpdateVirtualKey(ctx, item.ID, req); err != nil {
+			record("virtual_key", id, "error", fmt.Errorf("virtual_key %q update: %w", id, err))
 		} else {
-			record("virtual_key", name, "update", nil)
+			record("virtual_key", id, "update", nil)
 		}
 	}
 	return nil
@@ -408,18 +408,10 @@ func normalizeComparableVirtualKey(key virtualkeypkg.VirtualKey) virtualkeypkg.V
 	return key
 }
 
-func effectiveVirtualKeyName(key virtualkeypkg.VirtualKey) string {
-	if strings.TrimSpace(key.Name) != "" {
-		return strings.TrimSpace(key.Name)
-	}
-	return strings.TrimSpace(key.Key)
-}
-
-func bundleVirtualKeyConfig(key gatewaybundle.BundleVirtualKey, generatedKey string) adminclient.VirtualKeyConfig {
+func bundleVirtualKeyConfig(key gatewaybundle.BundleVirtualKey) adminclient.VirtualKeyConfig {
 	return adminclient.VirtualKeyConfig{
-		Key:             generatedKey,
+		ID:              key.ID,
 		Tag:             key.Tag,
-		Name:            key.Name,
 		Description:     key.Description,
 		Disabled:        key.Disabled,
 		AllowedRouteIDs: append([]string(nil), key.AllowedRouteIDs...),

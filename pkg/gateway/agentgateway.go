@@ -201,7 +201,7 @@ func (g *AgentGateway) ResolveVirtualKey(ctx context.Context, httpReq *http.Requ
 		return nil, statuserr.New(http.StatusServiceUnavailable, "virtual key manager is not configured")
 	}
 
-	virtualKey, err := virtualKeyManager.Get(ctx, rawKey)
+	virtualKey, err := virtualKeyManager.GetByKey(ctx, rawKey)
 	if err != nil {
 		return nil, statuserr.New(http.StatusUnauthorized, "invalid virtual key")
 	}

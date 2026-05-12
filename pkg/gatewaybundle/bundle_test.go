@@ -45,7 +45,7 @@ routes:
       provider_target:
         provider_id: openai-main
 virtualKeys:
-  - name: vk-local-test
+  - id: vk-local-test
     tag: local-test
     allowed_route_ids:
       - chat-prod
@@ -87,7 +87,7 @@ cliAuthAuthenticators:
 	if bundle.Routes[0].TargetPolicy.ProviderTarget.ProviderID != "openai-main" {
 		t.Fatalf("Routes[0].TargetPolicy.ProviderTarget.ProviderID = %q, want %q", bundle.Routes[0].TargetPolicy.ProviderTarget.ProviderID, "openai-main")
 	}
-	if len(bundle.VirtualKeys) != 1 || bundle.VirtualKeys[0].Name != "vk-local-test" || len(bundle.VirtualKeys[0].AllowedRouteIDs) != 1 || bundle.VirtualKeys[0].AllowedRouteIDs[0] != "chat-prod" {
+	if len(bundle.VirtualKeys) != 1 || bundle.VirtualKeys[0].ID != "vk-local-test" || len(bundle.VirtualKeys[0].AllowedRouteIDs) != 1 || bundle.VirtualKeys[0].AllowedRouteIDs[0] != "chat-prod" {
 		t.Fatalf("VirtualKeys = %#v", bundle.VirtualKeys)
 	}
 	if len(bundle.CLIAuthAuthenticators) != 1 || bundle.CLIAuthAuthenticators[0].Name != "codex" || !bundle.CLIAuthAuthenticators[0].Enabled || bundle.CLIAuthAuthenticators[0].Config.CallbackPort != 9002 {
@@ -182,7 +182,7 @@ routes:
       provider_target:
         provider_id: openai-main
 virtualKeys:
-  - name: vk-local-test
+  - id: vk-local-test
     allowed_route_ids:
       - chat-prod
 cliAuthAuthenticators:
@@ -236,10 +236,10 @@ routes:
       provider_target:
         provider_id: dup
 virtualKeys:
-  - name: vk-a
+  - id: vk-a
     allowed_route_ids:
       - missing-route
-  - name: vk-a
+  - id: vk-a
 cliAuthAuthenticators:
   - name: codex
   - name: codex
@@ -269,7 +269,7 @@ cliAuthAuthenticators:
 		`managedModels["openai-main/gpt-4.1"]: duplicate provider_id/upstream_model`,
 		`routes["route-a"]: duplicate id`,
 		`virtualKeys["vk-a"]: allowed_route_id "missing-route" does not exist in bundle routes`,
-		`virtualKeys["vk-a"]: duplicate name`,
+		`virtualKeys["vk-a"]: duplicate id`,
 		`cliAuthAuthenticators["codex"]: duplicate name`,
 		`cliAuthAuthenticators["missing-authenticator"]: unknown authenticator`,
 	} {
@@ -279,23 +279,19 @@ cliAuthAuthenticators:
 	}
 }
 
-func TestValidateForConfigStoreRejectsExplicitVirtualKeyValue(t *testing.T) {
+func TestValidateForConfigStoreAcceptsGeneratedVirtualKeys(t *testing.T) {
 	bundle, err := DecodeYAML([]byte(`
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
 virtualKeys:
-  - key: vk-generated-elsewhere
-    name: demo
+  - id: demo
 `))
 	if err != nil {
 		t.Fatalf("DecodeYAML() error = %v", err)
 	}
 
 	err = bundle.ValidateForConfigStore()
-	if err == nil {
-		t.Fatal("ValidateForConfigStore() error = nil, want explicit key rejection")
-	}
-	if !strings.Contains(err.Error(), `virtualKeys["demo"].key must be omitted for config-store bundles`) {
+	if err != nil {
 		t.Fatalf("ValidateForConfigStore() error = %v", err)
 	}
 }

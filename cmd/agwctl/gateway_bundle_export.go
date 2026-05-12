@@ -120,7 +120,7 @@ func sortGatewayBundle(bundle *gatewaybundle.GatewayBundle) {
 		return bundle.Routes[i].ID < bundle.Routes[j].ID
 	})
 	sort.Slice(bundle.VirtualKeys, func(i, j int) bool {
-		return bundle.VirtualKeys[i].Name < bundle.VirtualKeys[j].Name
+		return bundle.VirtualKeys[i].ID < bundle.VirtualKeys[j].ID
 	})
 	sort.Slice(bundle.CLIAuthAuthenticators, func(i, j int) bool {
 		return bundle.CLIAuthAuthenticators[i].Name < bundle.CLIAuthAuthenticators[j].Name
