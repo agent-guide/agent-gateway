@@ -16,9 +16,6 @@ func TestValidateDefinitionRejectsRouteWithoutAnyTargetMode(t *testing.T) {
 	err := (AgentRoute{
 		ID:     "chat-prod",
 		LLMAPI: "openai",
-		TargetPolicy: RouteTargetPolicy{
-			ProviderTarget: DirectProviderTarget{},
-		},
 	}).ValidateDefinition()
 	if err == nil {
 		t.Fatal("ValidateDefinition returned nil error, want missing target rejection")
@@ -32,7 +29,7 @@ func TestValidateDefinitionRejectsTargetWithoutCandidates(t *testing.T) {
 	err := (AgentRoute{
 		ID:     "chat-prod",
 		LLMAPI: "openai",
-		TargetPolicy: RouteTargetPolicy{
+		TargetPolicy: &RouteLogicalModelTargetPolicy{
 			ModelTargets: []RouteModelTarget{{
 				Name: "chat-fast",
 			}},
@@ -46,7 +43,7 @@ func TestValidateDefinitionRejectsTargetWithoutCandidates(t *testing.T) {
 func TestValidateDefinitionRejectsMissingLLMAPI(t *testing.T) {
 	err := (AgentRoute{
 		ID: "chat-prod",
-		TargetPolicy: RouteTargetPolicy{
+		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "openai"},
 		},
 	}).ValidateDefinition()
@@ -59,25 +56,8 @@ func TestValidateDefinitionAllowsDirectProviderWithoutModelTargets(t *testing.T)
 	err := (AgentRoute{
 		ID:     "chat-prod",
 		LLMAPI: "openai",
-		TargetPolicy: RouteTargetPolicy{
+		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
-		},
-	}).ValidateDefinition()
-	if err != nil {
-		t.Fatalf("ValidateDefinition returned error: %v", err)
-	}
-}
-
-func TestValidateDefinitionPrefersDirectProviderWhenMixedTargetsConfigured(t *testing.T) {
-	err := (AgentRoute{
-		ID:     "chat-prod",
-		LLMAPI: "openai",
-		TargetPolicy: RouteTargetPolicy{
-			ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
-			DefaultModel:   "chat-fast",
-			ModelTargets: []RouteModelTarget{{
-				Name: "chat-fast",
-			}},
 		},
 	}).ValidateDefinition()
 	if err != nil {
@@ -88,7 +68,7 @@ func TestValidateDefinitionPrefersDirectProviderWhenMixedTargetsConfigured(t *te
 func TestProviderIDsReturnsDirectProviderID(t *testing.T) {
 	ids := (AgentRoute{
 		ID: "chat-prod",
-		TargetPolicy: RouteTargetPolicy{
+		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "openai"},
 		},
 	}).ProviderIDs()
@@ -104,7 +84,7 @@ func TestProviderIDsIncludesModelTargetProviders(t *testing.T) {
 	ids := (AgentRoute{
 		ID:     "chat-prod",
 		LLMAPI: "openai",
-		TargetPolicy: RouteTargetPolicy{
+		TargetPolicy: &RouteLogicalModelTargetPolicy{
 			ModelTargets: []RouteModelTarget{{
 				Name: "chat-fast",
 				Candidates: []RouteModelCandidate{
@@ -126,7 +106,7 @@ func TestValidateDefinitionRejectsMultipleDefaultCandidateTargets(t *testing.T) 
 	err := (AgentRoute{
 		ID:     "chat-prod",
 		LLMAPI: "openai",
-		TargetPolicy: RouteTargetPolicy{
+		TargetPolicy: &RouteLogicalModelTargetPolicy{
 			DefaultModel: "chat-default",
 			ModelTargets: []RouteModelTarget{
 				{
@@ -160,7 +140,7 @@ func TestValidateDefinitionRejectsDefaultCandidateTargetMismatch(t *testing.T) {
 	err := (AgentRoute{
 		ID:     "chat-prod",
 		LLMAPI: "openai",
-		TargetPolicy: RouteTargetPolicy{
+		TargetPolicy: &RouteLogicalModelTargetPolicy{
 			DefaultModel: "chat-default",
 			ModelTargets: []RouteModelTarget{
 				{

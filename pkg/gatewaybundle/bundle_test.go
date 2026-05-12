@@ -8,6 +8,7 @@ import (
 
 	_ "github.com/agent-guide/agent-gateway/pkg/cliauth/authenticator"
 	_ "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/openai"
+	route "github.com/agent-guide/agent-gateway/pkg/gateway/route"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
 )
 
@@ -78,8 +79,9 @@ cliAuthAuthenticators:
 	if len(bundle.Routes) != 1 {
 		t.Fatalf("len(Routes) = %d, want 1", len(bundle.Routes))
 	}
-	if bundle.Routes[0].TargetPolicy.ProviderTarget.ProviderID != "openai-main" {
-		t.Fatalf("Routes[0].TargetPolicy.ProviderTarget.ProviderID = %q, want %q", bundle.Routes[0].TargetPolicy.ProviderTarget.ProviderID, "openai-main")
+	directPolicy, ok := route.DirectProviderPolicyOf(bundle.Routes[0].TargetPolicy)
+	if !ok || directPolicy.ProviderTarget.ProviderID != "openai-main" {
+		t.Fatalf("Routes[0].TargetPolicy = %#v, want direct provider openai-main", bundle.Routes[0].TargetPolicy)
 	}
 	if len(bundle.VirtualKeys) != 1 || bundle.VirtualKeys[0].ID != "vk-local-test" || len(bundle.VirtualKeys[0].AllowedRouteIDs) != 1 || bundle.VirtualKeys[0].AllowedRouteIDs[0] != "chat-prod" {
 		t.Fatalf("VirtualKeys = %#v", bundle.VirtualKeys)
@@ -351,5 +353,46 @@ routes:
 	}
 	if !strings.Contains(err.Error(), `routes["chat-test"]: route "chat-test" default candidates must belong to a single target model`) {
 		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestValidateForStaticConfigRejectsLogicalModelRoutes(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+providerTypes:
+  - provider_type: openai
+    enabled: true
+providers:
+  - id: openai-main
+    provider_type: openai
+routes:
+  - id: chat-test
+    llm_api: openai
+    match:
+      path_prefix: /chat
+      methods:
+        - POST
+    auth_policy:
+      require_virtual_key: true
+    target_policy:
+      default_model: chat-default
+      model_targets:
+        - name: chat-default
+          candidates:
+            - provider_id: openai-main
+              upstream_model: gpt-4.1
+              default: true
+`))
+	if err != nil {
+		t.Fatalf("DecodeYAML() error = %v", err)
+	}
+
+	err = bundle.ValidateForStaticConfig()
+	if err == nil {
+		t.Fatal("ValidateForStaticConfig() error = nil, want logical-model rejection")
+	}
+	if !strings.Contains(err.Error(), `routes["chat-test"]: route "chat-test" logical-model target_policy is not supported in static config`) {
+		t.Fatalf("ValidateForStaticConfig() error = %v", err)
 	}
 }

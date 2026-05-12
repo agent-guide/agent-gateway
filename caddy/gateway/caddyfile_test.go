@@ -7,6 +7,7 @@ import (
 
 	configstoresqlite "github.com/agent-guide/agent-gateway/caddy/configstore/sqlite"
 	_ "github.com/agent-guide/agent-gateway/caddy/provider/ollama"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 )
@@ -108,8 +109,9 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	if !route.AuthPolicy.RequireVirtualKey {
 		t.Fatal("expected route require_virtual_key to be true")
 	}
-	if route.TargetPolicy.ProviderTarget.ProviderID != "local-ollama" {
-		t.Fatalf("route provider_target = %#v", route.TargetPolicy.ProviderTarget)
+	directPolicy, ok := routepkg.DirectProviderPolicyOf(route.TargetPolicy)
+	if !ok || directPolicy.ProviderTarget.ProviderID != "local-ollama" {
+		t.Fatalf("route target_policy = %#v", route.TargetPolicy)
 	}
 
 }
@@ -169,47 +171,43 @@ func TestParseAppRejectsLogicalModelDirective(t *testing.T) {
 	}
 }
 
-func TestParseAppInlineModelTargetsRegisterStaticManagedModels(t *testing.T) {
+func TestParseAppRejectsTargetModel(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`
 	agent_gateway {
 		route openai-chat {
 			llm_api openai
 			target model chat-fast openai-main gpt-4.1-mini weight 100 default
-			target model chat-fast zhipu-main glm-4.5-air weight 50
 		}
 	}
 	`)
 
-	val, err := parseApp(d, nil)
-	if err != nil {
-		t.Fatalf("parseApp() error = %v", err)
+	_, err := parseApp(d, nil)
+	if err == nil {
+		t.Fatal("expected target model to fail")
 	}
+	if !strings.Contains(err.Error(), "target model is no longer supported in the Caddyfile") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
 
-	appVal := val.(httpcaddyfile.App)
-	var app App
-	if err := json.Unmarshal(appVal.Value, &app); err != nil {
-		t.Fatalf("unmarshal app json: %v", err)
-	}
-
-	if len(app.Routes) != 1 {
-		t.Fatalf("route count = %d, want 1", len(app.Routes))
-	}
-	if len(app.Models) != 2 {
-		t.Fatalf("managed model count = %d, want 2", len(app.Models))
-	}
-	if app.Routes[0].TargetPolicy.DefaultModel != "chat-fast" {
-		t.Fatalf("default model = %q, want chat-fast", app.Routes[0].TargetPolicy.DefaultModel)
-	}
-	if len(app.Routes[0].TargetPolicy.ModelTargets) != 1 {
-		t.Fatalf("target count = %d, want 1", len(app.Routes[0].TargetPolicy.ModelTargets))
-	}
-	if len(app.Routes[0].TargetPolicy.ModelTargets[0].Candidates) != 2 {
-		t.Fatalf("candidate count = %d, want 2", len(app.Routes[0].TargetPolicy.ModelTargets[0].Candidates))
-	}
-	for _, model := range app.Models {
-		if !model.Enabled {
-			t.Fatalf("managed model defaults = %#v, want enabled", model)
+func TestParseAppRejectsLogicalTargetPolicy(t *testing.T) {
+	d := caddyfile.NewTestDispenser(`
+	agent_gateway {
+		route openai-chat {
+			llm_api openai
+			target_policy logical-model {
+				model chat-fast openai-main gpt-4.1-mini
+			}
 		}
+	}
+	`)
+
+	_, err := parseApp(d, nil)
+	if err == nil {
+		t.Fatal("expected logical-model target_policy to fail")
+	}
+	if !strings.Contains(err.Error(), "target_policy logical-model is no longer supported in the Caddyfile") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

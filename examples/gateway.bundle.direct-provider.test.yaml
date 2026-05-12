@@ -1,0 +1,43 @@
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+
+providers:
+  - id: zhipu-test
+    provider_type: zhipu
+    api_key: ${ZHIPU_API_KEY}
+    default_model: glm-5.1
+  - id: deepseek-test
+    provider_type: deepseek
+    api_key: ${DEEPSEEK_API_KEY}
+    default_model: deepseek-v4-pro
+
+routes:
+  - id: code-test-direct-provider
+    llm_api: openai
+    match:
+      path_prefix: /codetestdirectprovider
+      methods:
+        - POST
+    auth_policy:
+      require_virtual_key: true
+    target_policy:
+      provider_target:
+        provider_id: zhipu-test
+  - id: chat-test-direct-provider
+    llm_api: openai
+    match:
+      path_prefix: /chattestdirectprovider
+      methods:
+        - POST
+    auth_policy:
+      require_virtual_key: true
+    target_policy:
+      provider_target:
+        provider_id: deepseek-test
+
+virtualKeys:
+  - id: vk-local-direct-provider
+    tag: local-test
+    allowed_route_ids:
+      - code-test-direct-provider
+      - chat-test-direct-provider

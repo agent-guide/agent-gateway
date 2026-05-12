@@ -9,7 +9,7 @@ import (
 func TestRouteTargetPolicyMarshalJSONUsesModelTargets(t *testing.T) {
 	t.Parallel()
 
-	policy := RouteTargetPolicy{
+	policy := &RouteLogicalModelTargetPolicy{
 		ModelTargets: []RouteModelTarget{{
 			Name: "chat-default",
 			Candidates: []RouteModelCandidate{{

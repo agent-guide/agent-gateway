@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -72,4 +73,45 @@ func ProviderConfigAPIKeyCredentialProviderID(credentialID string) (string, bool
 		return "", false
 	}
 	return providerID, true
+}
+
+func SyncProviderConfigAPIKeyCredential(ctx context.Context, mgr *credentialmgr.Manager, cfg ProviderConfig, providerID string) error {
+	if mgr == nil {
+		return nil
+	}
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		providerID = strings.TrimSpace(cfg.Id)
+	}
+	if providerID == "" {
+		return nil
+	}
+
+	credID := ProviderConfigAPIKeyCredentialID(ProviderConfig{Id: providerID, ProviderType: cfg.ProviderType})
+	cred := ProviderConfigAPIKeyCredential(cfg, providerID)
+	if cred == nil {
+		if existing := mgr.GetCredential(credID); existing != nil {
+			return mgr.DeregisterCredential(credentialmgr.WithSkipPersist(ctx), credID)
+		}
+		return nil
+	}
+	if existing := mgr.GetCredential(cred.ID); existing != nil {
+		return mgr.UpdateCredential(credentialmgr.WithSkipPersist(ctx), cred)
+	}
+	return mgr.RegisterCredential(credentialmgr.WithSkipPersist(ctx), cred)
+}
+
+func RemoveProviderConfigAPIKeyCredential(ctx context.Context, mgr *credentialmgr.Manager, providerID string) error {
+	if mgr == nil {
+		return nil
+	}
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		return nil
+	}
+	credID := ProviderConfigAPIKeyCredentialID(ProviderConfig{Id: providerID})
+	if mgr.GetCredential(credID) == nil {
+		return nil
+	}
+	return mgr.DeregisterCredential(credentialmgr.WithSkipPersist(ctx), credID)
 }

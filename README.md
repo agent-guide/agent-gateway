@@ -188,6 +188,11 @@ Bundle YAML examples for batch workflows:
 - `examples/gateway.bundle.logical-model.yaml`
 - `examples/gateway.bundle.cliauth-authenticators.yaml`
 
+Static route restriction:
+
+- Caddyfile routes and `agwd --static-config` routes only support direct-provider targets
+- logical-model routes remain supported through the Admin API and `agwctl gateway apply`
+
 For `agwctl gateway apply/export`, `virtualKeys` are declared by `id`. The gateway generates the actual `key` value when the virtual key is created in the config store.
 
 - `providers`
@@ -239,7 +244,7 @@ Create a minimal `Caddyfile`:
 			llm_api openai
 			path_prefix /
 			require_virtual_key
-			target model chat-default openai-main gpt-4.1 weight 100 default
+			target provider openai-main
 		}
 	}
 }
@@ -273,14 +278,14 @@ curl http://127.0.0.1:8080/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $AGENT_GATEWAY_API_KEY" \
   -d '{
-    "model": "chat-default",
+    "model": "gpt-4.1",
     "messages": [{"role": "user", "content": "hello"}]
   }'
 ```
 
 The VirtualKey may be sent as either `x-api-key: <key>` or `Authorization: Bearer <key>`.
 
-The Python OpenAI SDK example uses `http://127.0.0.1:8080/v1` and `chat-default` by default:
+The Python OpenAI SDK example uses `http://127.0.0.1:8080/v1` and `gpt-4.1` by default:
 
 ```bash
 python3 -m pip install openai
@@ -401,9 +406,7 @@ route openai-chat {
 	path_prefix /v1
 	method POST
 	require_virtual_key
-	target model chat-default openai-main gpt-4.1 weight 100 default
-	target model chat-fast openai-main gpt-4.1-mini weight 100
-	target model chat-fast zhipu-main glm-4.5-air weight 50
+	target provider openai-main
 }
 ```
 
@@ -414,12 +417,9 @@ Supported route subdirectives:
 - `path_prefix <prefix>`
 - `method <method> [more-methods...]`
 - `require_virtual_key [true|false]`
-- `target model <route-model> <provider-id> <upstream-model> [weight <n>] [priority <n>] [strategy <auto|weighted|failover|conditional>] [default]`
 - `target provider <provider-id>`
 
-`target model` enables route-local model routing. In that mode the request `model` is interpreted as a route target name, and each `target model` line contributes one concrete candidate `(provider_id, upstream_model)` for that target.
-
-`target provider` is the simple pass-through escape hatch and may appear at most once per route. If a route defines both `target provider` and one or more `target model` entries, the route is treated as direct-provider mode at runtime and the model-target entries are ignored for request resolution.
+Static Caddyfile routes only support direct-provider mode. The request `model` is forwarded upstream as the provider model name.
 
 ### Virtual Keys
 
@@ -456,7 +456,7 @@ Configuration comes from two places:
 - persisted SQLite records managed through the Admin API
 - optional standalone static bundle YAML loaded with `agwd --static-config`
 
-Static providers, logical model bindings, and routes are loaded during startup. Persisted provider, managed model, route, credential, and virtual key records can be changed through the Admin API without rebuilding the binaries.
+Static providers and routes are loaded during startup. Persisted provider, managed model, route, credential, and virtual key records can be changed through the Admin API without rebuilding the binaries.
 
 Model catalog Admin API families:
 
@@ -471,6 +471,7 @@ Static records are exposed through Admin API list/read responses with source/rea
 For the standalone daemon, static bundle YAML uses the same read-only semantics as Caddyfile-owned objects:
 
 `--static-config` does not support `virtualKeys`. Create virtual keys through the Admin API after startup.
+`--static-config` routes must use `target_policy.provider_target.provider_id`. Logical-model route policies are rejected in static startup config.
 
 ```bash
 ./agwd --config-store ./data/configstore.db \
@@ -552,15 +553,17 @@ curl -X POST http://localhost:8019/admin/routes \
         "provider_id": "openrouter-main"
       }
     },
-    "policy": {
-      "auth": {
-        "require_virtual_key": true
-      }
+    "auth_policy": {
+      "require_virtual_key": true
     }
   }'
 ```
 
-When `target_policy.provider_target.provider_id` is present, the route is resolved in direct-provider mode. Any `target_policy.model_targets` on the same route are ignored during request routing.
+`llm_api` and `target_policy` are required.
+
+When `target_policy.provider_target.provider_id` is present, the route is resolved in direct-provider mode.
+
+Logical-model routes that use `target_policy.model_targets` remain supported through dynamic route management and config-store bundle workflows such as `agwctl gateway apply`, but they are not accepted in Caddyfile routes or `agwd --static-config`.
 
 ### Virtual Keys
 

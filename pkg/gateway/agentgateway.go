@@ -70,6 +70,9 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	g.cliauthRefresher = opts.CLIAuthRefresher
 	g.credentialManager = opts.CredentialManager
 	g.credentialScheduler = opts.CredentialScheduler
+	if err := g.syncProviderConfigCredentials(ctx); err != nil {
+		return err
+	}
 	if err := g.configureModelCatalog(ctx, opts.ConfigStore, opts.StaticModels, opts.Logger); err != nil {
 		return err
 	}
@@ -278,6 +281,22 @@ func (g *AgentGateway) configureProviderResolver(ctx context.Context, configStor
 		return fmt.Errorf("init static providers: %w", err)
 	}
 	g.providerManager = providerManager
+	return nil
+}
+
+func (g *AgentGateway) syncProviderConfigCredentials(ctx context.Context) error {
+	if g.providerManager == nil || g.credentialManager == nil {
+		return nil
+	}
+	items, err := g.providerManager.ListConfigs(ctx, ProviderListOptions{})
+	if err != nil {
+		return fmt.Errorf("list provider configs: %w", err)
+	}
+	for _, cfg := range items {
+		if err := provider.SyncProviderConfigAPIKeyCredential(ctx, g.credentialManager, cfg, cfg.Id); err != nil {
+			return fmt.Errorf("sync provider config credential for %q: %w", cfg.Id, err)
+		}
+	}
 	return nil
 }
 

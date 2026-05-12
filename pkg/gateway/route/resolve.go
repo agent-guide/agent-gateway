@@ -25,7 +25,6 @@ type RequestRequirements struct {
 
 type ResolvedTarget struct {
 	LogicalModel    string
-	Model           string
 	ProviderID      string
 	ProviderType    string
 	UpstreamModel   string
@@ -50,33 +49,41 @@ func (r AgentRoute) ResolveTarget(ctx context.Context, catalog ModelCatalogResol
 	if providers == nil {
 		return nil, statuserr.New(http.StatusServiceUnavailable, "provider resolver is not configured")
 	}
-
-	if r.usesDirectProvider() {
-		providerID := r.TargetPolicy.ProviderID
-		credentialScope := credentialmgr.ProviderIDCredentialScope(providerID)
-		cfg, err := providers.GetConfig(ctx, providerID)
-		if err != nil {
-			return nil, err
-		}
-		return &ResolvedTarget{
-			ProviderID:      providerID,
-			ProviderType:    cfg.ProviderType,
-			UpstreamModel:   req.Model,
-			CredentialScope: credentialScope,
-		}, nil
+	if r.TargetPolicy == nil {
+		return nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("route %q target policy is not configured", r.ID))
 	}
+	return r.TargetPolicy.ResolveTarget(ctx, r.ID, catalog, providers, req)
+}
 
+func (p *RouteDirectProviderPolicy) ResolveTarget(ctx context.Context, routeID string, _ ModelCatalogResolver, providers ProviderConfigResolver, req RequestRequirements) (*ResolvedTarget, error) {
+	p.Normalize()
+	providerID := p.ProviderID
+	credentialScope := credentialmgr.ProviderIDCredentialScope(providerID)
+	cfg, err := providers.GetConfig(ctx, providerID)
+	if err != nil {
+		return nil, err
+	}
+	return &ResolvedTarget{
+		ProviderID:      providerID,
+		ProviderType:    cfg.ProviderType,
+		UpstreamModel:   req.Model,
+		CredentialScope: credentialScope,
+	}, nil
+}
+
+func (p *RouteLogicalModelTargetPolicy) ResolveTarget(ctx context.Context, routeID string, catalog ModelCatalogResolver, providers ProviderConfigResolver, req RequestRequirements) (*ResolvedTarget, error) {
+	p.Normalize()
 	modelName := req.Model
 	if modelName == "" {
-		modelName = r.TargetPolicy.DefaultModel
+		modelName = p.DefaultModel
 	}
 	if modelName == "" {
-		return nil, statuserr.New(http.StatusBadRequest, fmt.Sprintf("route %q requires a model", r.ID))
+		return nil, statuserr.New(http.StatusBadRequest, fmt.Sprintf("route %q requires a model", routeID))
 	}
 
-	target := r.targetByName(modelName)
+	target := p.targetByName(modelName)
 	if target == nil {
-		return nil, statuserr.New(http.StatusForbidden, fmt.Sprintf("model %q is not allowed on route %q", modelName, r.ID))
+		return nil, statuserr.New(http.StatusForbidden, fmt.Sprintf("model %q is not allowed on route %q", modelName, routeID))
 	}
 
 	candidates := make([]resolvedCandidate, 0, len(target.Candidates))
@@ -116,10 +123,9 @@ func (r AgentRoute) ResolveTarget(ctx context.Context, catalog ModelCatalogResol
 		return nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("model target %q has no eligible bindings", modelName))
 	}
 
-	chosen := chooseCandidate(candidates, r.TargetPolicy.ModelSelectorStrategy)
+	chosen := chooseCandidate(candidates, p.ModelSelectorStrategy)
 	return &ResolvedTarget{
 		LogicalModel:    modelName,
-		Model:           modelName,
 		ProviderID:      chosen.ProviderID,
 		ProviderType:    chosen.ProviderType,
 		UpstreamModel:   chosen.UpstreamModel,
@@ -132,10 +138,10 @@ func CandidateKey(providerID string, upstreamModel string) string {
 	return providerID + "/" + upstreamModel
 }
 
-func (r AgentRoute) targetByName(name string) *RouteModelTarget {
-	for i := range r.TargetPolicy.ModelTargets {
-		if r.TargetPolicy.ModelTargets[i].Name == name {
-			return &r.TargetPolicy.ModelTargets[i]
+func (p *RouteLogicalModelTargetPolicy) targetByName(name string) *RouteModelTarget {
+	for i := range p.ModelTargets {
+		if p.ModelTargets[i].Name == name {
+			return &p.ModelTargets[i]
 		}
 	}
 	return nil

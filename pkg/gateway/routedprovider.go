@@ -133,15 +133,18 @@ func (p *RoutedProvider) executeWithFallback(ctx context.Context, reqModel strin
 		triedCredentials: map[string]struct{}{},
 	}
 	maxFallbacks := 0
-	if p.route.UsesLogicalModel() && p.route.TargetPolicy.Fallback.Enabled {
-		maxFallbacks = p.route.TargetPolicy.Fallback.MaxNum
+	if p.route.UsesLogicalModel() {
+		fallback := p.route.TargetPolicy.FallbackPolicy()
+		if fallback.Enabled {
+			maxFallbacks = fallback.MaxNum
+		}
 	}
 
 	var lastErr error
 	for {
 		attempt, err := p.prepareAttempt(ctx, reqModel, state)
 		if err != nil {
-			if errors.Is(err, errCandidateRejected) && state.modelFallbacks <= maxFallbacks {
+			if p.route.UsesLogicalModel() && errors.Is(err, errCandidateRejected) && state.modelFallbacks <= maxFallbacks {
 				lastErr = err
 				continue
 			}
@@ -215,12 +218,12 @@ func (p *RoutedProvider) selectCredential(ctx context.Context, target *routepkg.
 		if scope == "" {
 			continue
 		}
-		for _, source := range p.route.TargetPolicy.CredentialSourceOrder {
+		for _, source := range p.route.TargetPolicy.CredentialSourceOrder() {
 			cred, err := p.scheduler.Pick(ctx, credentialmgrscheduler.Filter{
 				Source:          string(source),
 				CredentialScope: scope,
 				Model:           target.UpstreamModel,
-				Selector:        string(p.route.TargetPolicy.CredentialSelector),
+				Selector:        string(p.route.TargetPolicy.CredentialSelector()),
 			}, state.triedCredentials)
 			if err != nil || cred == nil {
 				continue
@@ -237,15 +240,12 @@ func (p *RoutedProvider) selectCredential(ctx context.Context, target *routepkg.
 			return provider.WithCredential(ctx, cred.Credential.Clone()), cred, nil
 		}
 	}
-	if p.route.UsesLogicalModel() {
-		return ctx, nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("no credential available for provider %q model %q", target.ProviderID, target.UpstreamModel))
-	}
-	return ctx, nil, nil
+	return ctx, nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("no credential available for provider %q model %q", target.ProviderID, target.UpstreamModel))
 }
 
 func (p *RoutedProvider) expandCredentialScopes(target *routepkg.ResolvedTarget) []string {
-	out := make([]string, 0, len(p.route.TargetPolicy.CredentialScopeOrder))
-	for _, scope := range p.route.TargetPolicy.CredentialScopeOrder {
+	out := make([]string, 0, len(p.route.TargetPolicy.CredentialScopeOrder()))
+	for _, scope := range p.route.TargetPolicy.CredentialScopeOrder() {
 		switch scope {
 		case routepkg.RouteCredentialScopeModelCustom:
 			if target.CredentialScope != "" {

@@ -122,6 +122,11 @@ func (b *GatewayBundle) ValidateForStaticConfig() error {
 	if err := b.validate(false); err != nil {
 		return err
 	}
+	for i := range b.Routes {
+		if err := b.Routes[i].ValidateStaticDefinition(); err != nil {
+			return fmt.Errorf("routes[%q]: %w", strings.TrimSpace(b.Routes[i].ID), err)
+		}
+	}
 	if len(b.VirtualKeys) > 0 {
 		return fmt.Errorf("virtualKeys are not supported in static config; create virtual keys through the Admin API after startup")
 	}

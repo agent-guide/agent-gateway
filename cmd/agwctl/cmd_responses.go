@@ -39,10 +39,12 @@ func runResponses(prompt string) error {
 	input = append(input, map[string]any{"role": "user", "content": prompt})
 
 	body := map[string]any{
-		"model":             chatModel,
 		"input":             input,
 		"max_output_tokens": chatMaxTokens,
 		"stream":            chatStream,
+	}
+	if strings.TrimSpace(chatModel) != "" {
+		body["model"] = chatModel
 	}
 
 	url := openAIEndpointURL(chatBaseURL, "/responses")
@@ -128,8 +130,8 @@ func init() {
 		"gateway OpenAI Responses API base URL (usually includes /v1)")
 	responsesCmd.Flags().StringVar(&chatAPIKey, "api-key", envOr("AGENT_GATEWAY_API_KEY", "test-key"),
 		"virtual key sent as Authorization: Bearer and x-api-key")
-	responsesCmd.Flags().StringVar(&chatModel, "model", envOr("AGENT_GATEWAY_MODEL", "gpt-4.1"),
-		"model name allowed by the gateway route")
+	responsesCmd.Flags().StringVar(&chatModel, "model", envOr("AGENT_GATEWAY_MODEL", ""),
+		"optional model name; leave empty to let the gateway route/provider default apply")
 	responsesCmd.Flags().StringVar(&chatSystem, "system", envOr("AGENT_GATEWAY_SYSTEM_PROMPT", ""),
 		"optional system instructions")
 	responsesCmd.Flags().BoolVar(&chatStream, "stream", false,

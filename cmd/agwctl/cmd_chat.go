@@ -65,10 +65,12 @@ func runChatOpenAI(prompt string) error {
 	messages = append(messages, map[string]any{"role": "user", "content": prompt})
 
 	body := map[string]any{
-		"model":      chatModel,
 		"messages":   messages,
 		"max_tokens": chatMaxTokens,
 		"stream":     chatStream,
+	}
+	if strings.TrimSpace(chatModel) != "" {
+		body["model"] = chatModel
 	}
 
 	url := openAIEndpointURL(chatBaseURL, "/chat/completions")
@@ -139,7 +141,6 @@ func streamOpenAI(r io.Reader) error {
 
 func runChatAnthropic(prompt string) error {
 	body := map[string]any{
-		"model":      chatModel,
 		"max_tokens": chatMaxTokens,
 		"messages": []map[string]any{
 			{
@@ -150,6 +151,9 @@ func runChatAnthropic(prompt string) error {
 			},
 		},
 		"stream": chatStream,
+	}
+	if strings.TrimSpace(chatModel) != "" {
+		body["model"] = chatModel
 	}
 	if chatSystem != "" {
 		body["system"] = chatSystem
@@ -297,8 +301,8 @@ func init() {
 		"gateway LLM API base URL (OpenAI usually includes /v1; Anthropic may omit it)")
 	chatCmd.Flags().StringVar(&chatAPIKey, "api-key", envOr("AGENT_GATEWAY_API_KEY", "test-key"),
 		"virtual key sent as Authorization: Bearer and x-api-key")
-	chatCmd.Flags().StringVar(&chatModel, "model", envOr("AGENT_GATEWAY_MODEL", "gpt-4.1"),
-		"model name allowed by the gateway route")
+	chatCmd.Flags().StringVar(&chatModel, "model", envOr("AGENT_GATEWAY_MODEL", ""),
+		"optional model name; leave empty to let the gateway route/provider default apply")
 	chatCmd.Flags().StringVar(&chatSystem, "system", envOr("AGENT_GATEWAY_SYSTEM_PROMPT", ""),
 		"optional system prompt")
 	chatCmd.Flags().BoolVar(&chatStream, "stream", false,

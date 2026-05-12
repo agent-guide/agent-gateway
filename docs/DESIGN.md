@@ -71,6 +71,11 @@ The app owns both:
 - statically configured routes from the Caddyfile
 - dynamically persisted route and provider records from the config store
 
+Static route limitation:
+
+- Caddyfile routes only support direct-provider targets
+- logical-model routes are configured through the Admin API and config-store-backed workflows
+
 This is the key design choice in the project: transport adapters are intentionally thin, runtime assembly is allowed to differ between `agw` and `agwd`, and `pkg/gateway` owns the reusable gateway services.
 
 ### 4.2 `caddy/dispatcher/` And `pkg/dispatcher/`: Compatible LLM Ingress
@@ -231,7 +236,7 @@ Static route parsing is intentionally small right now. Supported route subdirect
 - `require_virtual_key`
 - `target provider <provider-id> [weight]`
 
-The Go route model is richer than the current Caddyfile grammar. That mismatch is intentional for now: the data model has been opened up earlier than the human-facing config syntax.
+The Go route model is richer than the current static config grammar. That mismatch is intentional: the runtime and Admin API support logical-model routes, while Caddyfile and standalone startup config only accept direct-provider routes to keep static bootstrap simpler.
 
 ### 5.2 Dynamic Persisted Configuration
 

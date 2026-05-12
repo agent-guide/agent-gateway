@@ -124,6 +124,39 @@ func TestRunResponsesUsesResponsesEndpoint(t *testing.T) {
 	}
 }
 
+func TestRunResponsesOmitsModelWhenEmpty(t *testing.T) {
+	t.Parallel()
+
+	var gotModel any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		gotModel = payload["model"]
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"output_text":"done"}`))
+	}))
+	defer srv.Close()
+
+	chatBaseURL = srv.URL
+	chatAPIKey = "vk-test"
+	chatModel = ""
+	chatSystem = ""
+	chatStream = false
+	chatMaxTokens = 77
+	chatTimeout = 5
+
+	if err := runResponses("hello"); err != nil {
+		t.Fatalf("runResponses: %v", err)
+	}
+	if gotModel != nil {
+		t.Fatalf("model = %#v, want omitted field", gotModel)
+	}
+}
+
 func TestPrintResponsesResponseOutputFallback(t *testing.T) {
 	var out bytes.Buffer
 	stdout := os.Stdout

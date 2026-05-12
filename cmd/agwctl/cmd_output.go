@@ -9,6 +9,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/agwctl/caddyadminclient"
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
 )
 
 var outputFormat string
@@ -274,8 +275,11 @@ func printGatewayLLMAPIHandlerTypesTable(items []adminclient.LLMAPIHandlerType) 
 }
 
 func extractRouteTargetID(item adminclient.Route) string {
-	if item.TargetPolicy.ProviderID != "" {
-		return item.TargetPolicy.ProviderID
+	if directPolicy, ok := routepkg.DirectProviderPolicyOf(item.TargetPolicy); ok {
+		if directPolicy.ProviderID != "" {
+			return directPolicy.ProviderID
+		}
+		return directPolicy.ProviderTarget.ProviderID
 	}
-	return item.TargetPolicy.ProviderTarget.ProviderID
+	return ""
 }

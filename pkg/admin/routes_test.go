@@ -352,7 +352,7 @@ func TestRouteCRUD(t *testing.T) {
 	createBody, err := json.Marshal(routepkg.AgentRoute{
 		ID:     "chat-prod",
 		LLMAPI: "openai",
-		TargetPolicy: routepkg.RouteTargetPolicy{
+		TargetPolicy: &routepkg.RouteDirectProviderPolicy{
 			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
 		},
 	})
@@ -383,8 +383,9 @@ func TestRouteCRUD(t *testing.T) {
 	if got.ID != "chat-prod" {
 		t.Fatalf("unexpected route id: got %q want %q", got.ID, "chat-prod")
 	}
-	if got.TargetPolicy.ProviderTarget.ProviderID != "openai" {
-		t.Fatalf("unexpected provider_target: %#v", got.TargetPolicy.ProviderTarget)
+	directPolicy, ok := routepkg.DirectProviderPolicyOf(got.TargetPolicy)
+	if !ok || directPolicy.ProviderTarget.ProviderID != "openai" {
+		t.Fatalf("unexpected target_policy: %#v", got.TargetPolicy)
 	}
 	if got.Source != "store" || got.ReadOnly {
 		t.Fatalf("unexpected route metadata: %#v", got)
@@ -786,7 +787,7 @@ func TestRouteEnableDisable(t *testing.T) {
 		routeStore: &testRouteStore{items: map[string]*routepkg.AgentRoute{
 			"chat-prod": {
 				ID: "chat-prod",
-				TargetPolicy: routepkg.RouteTargetPolicy{
+				TargetPolicy: &routepkg.RouteDirectProviderPolicy{
 					ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
 				},
 			},
@@ -1234,6 +1235,83 @@ func TestCredentialGetPrefersReadOnlyViewForProviderStaticAPIKeys(t *testing.T) 
 	}
 }
 
+func TestProviderCreateSyncsProviderConfigCredential(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	credMgr := credentialmgr.NewManager(nil)
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler.credentialManager = credMgr
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	body, err := json.Marshal(map[string]any{
+		"id":            "deepseek-test",
+		"provider_type": "deepseek",
+		"api_key":       "deepseek-key",
+		"base_url":      "https://deepseek.example",
+	})
+	if err != nil {
+		t.Fatalf("marshal create request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/providers", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("unexpected create status: got %d want %d", rec.Code, http.StatusCreated)
+	}
+
+	cred := credMgr.GetCredential("provider-config-api-key:deepseek-test")
+	if cred == nil {
+		t.Fatal("expected provider config credential to be synced into credential manager")
+	}
+	if got := cred.APIKey(); got != "deepseek-key" {
+		t.Fatalf("credential api_key = %q, want deepseek-key", got)
+	}
+}
+
+func TestProviderDeleteRemovesProviderConfigCredential(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	credMgr := credentialmgr.NewManager(nil)
+	if err := provider.SyncProviderConfigAPIKeyCredential(context.Background(), credMgr, provider.ProviderConfig{
+		Id:           "deepseek-test",
+		ProviderType: "deepseek",
+		APIKey:       "deepseek-key",
+	}, "deepseek-test"); err != nil {
+		t.Fatalf("seed provider config credential: %v", err)
+	}
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
+			"deepseek-test": {Id: "deepseek-test", ProviderType: "deepseek", APIKey: "deepseek-key"},
+		}},
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler.credentialManager = credMgr
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	req := httptest.NewRequest(http.MethodDelete, "/admin/providers/deepseek-test", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected delete status: got %d want %d", rec.Code, http.StatusOK)
+	}
+	if cred := credMgr.GetCredential("provider-config-api-key:deepseek-test"); cred != nil {
+		t.Fatalf("expected provider config credential to be removed, got %#v", cred)
+	}
+}
+
 func TestProviderDeleteRejectsStaticProvider(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
@@ -1351,7 +1429,7 @@ func TestRouteGetPrefersStaticAgentRouteManager(t *testing.T) {
 		items: map[string]*routepkg.AgentRoute{
 			"chat-prod": {
 				ID: "chat-prod",
-				TargetPolicy: routepkg.RouteTargetPolicy{
+				TargetPolicy: &routepkg.RouteDirectProviderPolicy{
 					ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
 				},
 			},
@@ -1359,7 +1437,7 @@ func TestRouteGetPrefersStaticAgentRouteManager(t *testing.T) {
 	}
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []routepkg.AgentRoute{{
 		ID: "chat-prod",
-		TargetPolicy: routepkg.RouteTargetPolicy{
+		TargetPolicy: &routepkg.RouteDirectProviderPolicy{
 			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "anthropic"},
 		},
 	}}, nil), nil, "admin", string(passwordHash))
@@ -1396,7 +1474,7 @@ func TestRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 		items: map[string]*routepkg.AgentRoute{
 			"chat-dynamic": {
 				ID: "chat-dynamic",
-				TargetPolicy: routepkg.RouteTargetPolicy{
+				TargetPolicy: &routepkg.RouteDirectProviderPolicy{
 					ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
 				},
 			},
@@ -1404,7 +1482,7 @@ func TestRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 	}
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []routepkg.AgentRoute{{
 		ID: "chat-static",
-		TargetPolicy: routepkg.RouteTargetPolicy{
+		TargetPolicy: &routepkg.RouteDirectProviderPolicy{
 			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "anthropic"},
 		},
 	}}, nil), nil, "admin", string(passwordHash))

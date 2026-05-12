@@ -41,7 +41,7 @@ func (r testProviderConfigResolver) GetConfig(_ context.Context, providerID stri
 func TestAgentRouteResolveTargetUsesRouteDefaultModel(t *testing.T) {
 	route := AgentRoute{
 		ID: "chat-prod",
-		TargetPolicy: RouteTargetPolicy{
+		TargetPolicy: &RouteLogicalModelTargetPolicy{
 			DefaultModel: "chat-fast",
 			ModelTargets: []RouteModelTarget{{
 				Name: "chat-fast",
@@ -78,8 +78,8 @@ func TestAgentRouteResolveTargetUsesRouteDefaultModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveTarget returned error: %v", err)
 	}
-	if target.Model != "chat-fast" {
-		t.Fatalf("Model = %q, want chat-fast", target.Model)
+	if target.LogicalModel != "chat-fast" {
+		t.Fatalf("LogicalModel = %q, want chat-fast", target.LogicalModel)
 	}
 	if target.ProviderID != "openai-main" {
 		t.Fatalf("ProviderID = %q, want openai-main", target.ProviderID)
@@ -95,7 +95,7 @@ func TestAgentRouteResolveTargetUsesRouteDefaultModel(t *testing.T) {
 func TestAgentRouteResolveTargetRejectsUnknownModel(t *testing.T) {
 	route := AgentRoute{
 		ID: "chat-prod",
-		TargetPolicy: RouteTargetPolicy{
+		TargetPolicy: &RouteLogicalModelTargetPolicy{
 			ModelTargets: []RouteModelTarget{{Name: "chat-fast"}},
 		},
 	}
@@ -113,7 +113,7 @@ func TestAgentRouteResolveTargetRejectsUnknownModel(t *testing.T) {
 func TestAgentRouteResolveTargetUsesDirectProvider(t *testing.T) {
 	route := AgentRoute{
 		ID: "chat-prod",
-		TargetPolicy: RouteTargetPolicy{
+		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
 		},
 	}
@@ -141,8 +141,8 @@ func TestAgentRouteResolveTargetUsesDirectProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveTarget returned error: %v", err)
 	}
-	if target.Model != "" {
-		t.Fatalf("Model = %q, want empty in direct-provider mode", target.Model)
+	if target.LogicalModel != "" {
+		t.Fatalf("LogicalModel = %q, want empty in direct-provider mode", target.LogicalModel)
 	}
 	if target.ProviderID != "openai-main" {
 		t.Fatalf("ProviderID = %q, want openai-main", target.ProviderID)
@@ -158,19 +158,11 @@ func TestAgentRouteResolveTargetUsesDirectProvider(t *testing.T) {
 	}
 }
 
-func TestAgentRouteResolveTargetPrefersDirectProviderOverModelTargets(t *testing.T) {
+func TestAgentRouteResolveTargetUsesDirectProviderWhenModelNameIsPresent(t *testing.T) {
 	route := AgentRoute{
 		ID: "chat-prod",
-		TargetPolicy: RouteTargetPolicy{
+		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
-			DefaultModel:   "chat-fast",
-			ModelTargets: []RouteModelTarget{{
-				Name: "chat-fast",
-				Candidates: []RouteModelCandidate{{
-					ProviderID:    "ignored-provider",
-					UpstreamModel: "ignored-model",
-				}},
-			}},
 		},
 	}
 
@@ -193,7 +185,7 @@ func TestAgentRouteResolveTargetPrefersDirectProviderOverModelTargets(t *testing
 	if target.UpstreamModel != "gpt-4.1" {
 		t.Fatalf("UpstreamModel = %q, want gpt-4.1", target.UpstreamModel)
 	}
-	if target.Model != "" {
-		t.Fatalf("Model = %q, want empty in direct-provider mode", target.Model)
+	if target.LogicalModel != "" {
+		t.Fatalf("LogicalModel = %q, want empty in direct-provider mode", target.LogicalModel)
 	}
 }

@@ -130,6 +130,40 @@ virtualKeys:
 	}
 }
 
+func TestLoadStaticConfigRejectsLogicalModelRoutes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gateway.yaml")
+	writeFile(t, path, `
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+providers:
+  - id: openai-main
+    provider_type: openai
+routes:
+  - id: chat-prod
+    llm_api: openai
+    match:
+      path_prefix: /
+      methods:
+        - POST
+    auth_policy:
+      require_virtual_key: true
+    target_policy:
+      default_model: chat-default
+      model_targets:
+        - name: chat-default
+          candidates:
+            - provider_id: openai-main
+              upstream_model: gpt-4.1
+              default: true
+`)
+
+	_, err := loadStaticConfig(context.Background(), Options{StaticConfigPath: path})
+	if err == nil {
+		t.Fatal("expected static config logical-model routes to fail")
+	}
+}
+
 func writeFile(t *testing.T, path string, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {

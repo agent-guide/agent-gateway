@@ -52,7 +52,7 @@ func TestHandlerDefersVirtualKeyUntilLLMApiMatch(t *testing.T) {
 			ID:     "broad-route",
 			LLMAPI: "stub",
 			Match:  routepkg.RouteMatch{PathPrefix: "/"},
-			TargetPolicy: routepkg.RouteTargetPolicy{
+			TargetPolicy: &routepkg.RouteDirectProviderPolicy{
 				ProviderTarget: routepkg.DirectProviderTarget{
 					ProviderID: "openai",
 				},

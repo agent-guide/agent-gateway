@@ -26,7 +26,7 @@ func TestRouteStoreTagColumn(t *testing.T) {
 
 	want := &route.AgentRoute{
 		ID: "chat-prod",
-		TargetPolicy: route.RouteTargetPolicy{
+		TargetPolicy: &route.RouteDirectProviderPolicy{
 			ProviderTarget: route.DirectProviderTarget{ProviderID: "openai"},
 		},
 	}
@@ -84,7 +84,7 @@ func TestRouteStoreCreateRejectsDuplicateID(t *testing.T) {
 
 	item := &route.AgentRoute{
 		ID: "chat-prod",
-		TargetPolicy: route.RouteTargetPolicy{
+		TargetPolicy: &route.RouteDirectProviderPolicy{
 			ProviderTarget: route.DirectProviderTarget{ProviderID: "openai"},
 		},
 	}
@@ -114,7 +114,7 @@ func TestRouteStoreUpdateRejectsMissingID(t *testing.T) {
 
 	err = store.Update(ctx, "missing", &route.AgentRoute{
 		ID: "missing",
-		TargetPolicy: route.RouteTargetPolicy{
+		TargetPolicy: &route.RouteDirectProviderPolicy{
 			ProviderTarget: route.DirectProviderTarget{ProviderID: "openai"},
 		},
 	})

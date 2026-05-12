@@ -77,6 +77,11 @@ Static bundle objects are intentionally equivalent to Caddyfile-owned static obj
 - they are read-only through Admin API mutation paths
 - they are merged with dynamic objects at read time
 
+Static route limitation:
+
+- standalone `--static-config` routes only support direct-provider targets
+- logical-model routes remain valid in config-store bundle workflows such as `agwctl gateway apply`
+
 Dynamic objects remain writable through the Admin API and are persisted in SQLite.
 
 Static objects are not persisted into SQLite as pre-seeded rows. They remain a distinct runtime source.

@@ -124,7 +124,7 @@ func TestAgentRouteManagerCreateUpdateDeleteManageCache(t *testing.T) {
 
 	if err := manager.Create(context.Background(), AgentRoute{
 		ID: "chat-prod",
-		TargetPolicy: RouteTargetPolicy{
+		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "openai"},
 		},
 	}, ""); err != nil {
@@ -142,7 +142,7 @@ func TestAgentRouteManagerCreateUpdateDeleteManageCache(t *testing.T) {
 
 	if err := manager.Update(context.Background(), "chat-prod", AgentRoute{
 		Description: "updated",
-		TargetPolicy: RouteTargetPolicy{
+		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "anthropic"},
 		},
 	}); err != nil {
@@ -245,7 +245,7 @@ func TestAgentRouteManagerValidateAcceptsDirectProviderRoute(t *testing.T) {
 			"chat-prod": {
 				ID:     "chat-prod",
 				LLMAPI: "openai",
-				TargetPolicy: RouteTargetPolicy{
+				TargetPolicy: &RouteDirectProviderPolicy{
 					ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
 				},
 			},
@@ -267,8 +267,7 @@ func TestAgentRouteManagerValidateChecksAllReferencedProviderIDs(t *testing.T) {
 			"chat-prod": {
 				ID:     "chat-prod",
 				LLMAPI: "openai",
-				TargetPolicy: RouteTargetPolicy{
-					ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
+				TargetPolicy: &RouteLogicalModelTargetPolicy{
 					ModelTargets: []RouteModelTarget{{
 						Name: "chat-fast",
 						Candidates: []RouteModelCandidate{{

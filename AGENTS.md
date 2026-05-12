@@ -136,7 +136,7 @@ Important files:
 
 ### `pkg/gateway/route/`
 
-Defines the route model used by both Caddyfile config and the Admin API.
+Defines the route model used by static config, the Admin API, and runtime resolution.
 
 Important types:
 
@@ -152,6 +152,11 @@ Current route modes:
 
 - model-target mode: `target_policy.model_targets` with optional `default_model`
 - direct-provider mode: `target_policy.provider_target.provider_id`
+
+Static config restriction:
+
+- Caddyfile routes and standalone `--static-config` bundle routes only support direct-provider mode
+- logical-model routes remain supported through the Admin API and config-store-backed bundle workflows
 
 The route model uses `llm_api` and `require_virtual_key`. Do not reintroduce the old `local API key` naming in new code or docs.
 
@@ -306,7 +311,7 @@ Minimal example:
             llm_api openai
             path_prefix /
             require_virtual_key
-            target model chat-default openai-main gpt-4.1 weight 100 default
+            target provider openai-main
         }
     }
 }
