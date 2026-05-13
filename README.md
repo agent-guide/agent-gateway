@@ -64,6 +64,12 @@ The request path today is centered on LLM routing. MCP, memory, metrics, and age
 - `pkg/mcp/` - early MCP transport and client scaffolding
 - `pkg/llm/memory/`, `pkg/llm/agent/` - early memory and agent runtime scaffolding
 
+## Architecture Docs
+
+- [docs/DESIGN.md](docs/DESIGN.md) - current architecture overview
+- [docs/configstore-design.md](docs/configstore-design.md) - ConfigStore architecture and technical specification
+- [docs/gateway-bundle-yaml-design.md](docs/gateway-bundle-yaml-design.md) - gateway bundle YAML proposal
+
 ## Build
 
 ```bash
