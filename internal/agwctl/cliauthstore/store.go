@@ -236,8 +236,6 @@ func createRequestFromCredential(cred *credentialmgr.Credential) adminclient.Cre
 		Attributes:   cloneStringMap(cred.Attributes),
 		Metadata:     cloneAnyMap(cred.Metadata),
 		Disabled:     cred.Disabled,
-		CreatedAt:    cred.CreatedAt,
-		UpdatedAt:    cred.UpdatedAt,
 	}
 }
 
@@ -253,8 +251,6 @@ func updateRequestFromCredential(cred *credentialmgr.Credential) adminclient.Upd
 		Attributes:   cloneStringMap(cred.Attributes),
 		Metadata:     cloneAnyMap(cred.Metadata),
 		Disabled:     cred.Disabled,
-		CreatedAt:    cred.CreatedAt,
-		UpdatedAt:    cred.UpdatedAt,
 	}
 }
 

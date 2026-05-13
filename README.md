@@ -561,6 +561,8 @@ curl -X POST http://localhost:8019/admin/routes \
 
 `llm_api` and `target_policy` are required.
 
+`created_at` and `updated_at` are server-managed fields. Omit them from `POST /admin/routes` and `PUT /admin/routes/{id}` request bodies.
+
 When `target_policy.provider_target.provider_id` is present, the route is resolved in direct-provider mode.
 
 Logical-model routes that use `target_policy.model_targets` remain supported through dynamic route management and config-store bundle workflows such as `agwctl gateway apply`, but they are not accepted in Caddyfile routes or `agwd --static-config`.
@@ -596,12 +598,15 @@ Example response:
   "key": "vk-...",
   "tag": "demo-user",
   "allowed_route_ids": ["chat-prod"],
+  "created_at": "2026-05-13T03:00:00Z",
+  "updated_at": "2026-05-13T03:00:00Z",
   "source": "store",
   "read_only": false
 }
 ```
 
 The `id` is the stable management identifier. The `key` is the bearer credential value clients must send on requests.
+`created_at` and `updated_at` are server-managed fields. Omit them from `POST /admin/virtual_keys` and `PUT /admin/virtual_keys/{id}` request bodies.
 
 For statically configured virtual keys, the same `GET /admin/virtual_keys/{id}` endpoint returns the generated `key` value after startup.
 
@@ -629,6 +634,8 @@ curl -X POST http://localhost:8019/admin/credentials \
     }
   }'
 ```
+
+Credential `created_at` and `updated_at` values are server-managed response fields. Do not send them in `POST /admin/credentials` or `PUT /admin/credentials/{credential_id}` request bodies.
 
 ### CLI Auth
 

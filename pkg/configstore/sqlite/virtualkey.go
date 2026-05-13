@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"gorm.io/gorm"
 )
 
@@ -161,6 +162,10 @@ func (s *VirtualKeyStore) decodeRow(row virtualKeyRecord) (any, error) {
 	obj, err := s.decodeVirtualKey([]byte(row.Config))
 	if err != nil {
 		return nil, err
+	}
+	if key, ok := obj.(*virtualkeypkg.VirtualKey); ok {
+		key.CreatedAt = row.CreatedAt
+		key.UpdatedAt = row.UpdatedAt
 	}
 	return obj, nil
 }

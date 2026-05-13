@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
 	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
@@ -368,6 +369,20 @@ func TestRouteCRUD(t *testing.T) {
 		t.Fatalf("unexpected create status: got %d want %d", createRec.Code, http.StatusCreated)
 	}
 
+	var created RouteView
+	if err := json.NewDecoder(createRec.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created route: %v", err)
+	}
+	if created.CreatedAt.IsZero() {
+		t.Fatal("created route CreatedAt is zero")
+	}
+	if created.UpdatedAt.IsZero() {
+		t.Fatal("created route UpdatedAt is zero")
+	}
+	if created.Source != "store" || created.ReadOnly {
+		t.Fatalf("unexpected created route metadata: %#v", created)
+	}
+
 	getReq := httptest.NewRequest(http.MethodGet, "/admin/routes/chat-prod", nil)
 	getReq.Header.Set("Authorization", "Bearer "+token)
 	getRec := httptest.NewRecorder()
@@ -389,6 +404,95 @@ func TestRouteCRUD(t *testing.T) {
 	}
 	if got.Source != "store" || got.ReadOnly {
 		t.Fatalf("unexpected route metadata: %#v", got)
+	}
+	if !got.CreatedAt.Equal(created.CreatedAt) {
+		t.Fatalf("got CreatedAt = %v, want %v", got.CreatedAt, created.CreatedAt)
+	}
+}
+
+func TestRouteUpdatePreservesCreatedAt(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	createdAt := time.Now().UTC().Add(-time.Hour).Round(0)
+	updatedAt := createdAt
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		routeStore: &testRouteStore{items: map[string]*routepkg.AgentRoute{
+			"chat-prod": {
+				ID:        "chat-prod",
+				LLMAPI:    "openai",
+				CreatedAt: createdAt,
+				UpdatedAt: updatedAt,
+				TargetPolicy: &routepkg.RouteDirectProviderPolicy{
+					ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
+				},
+			},
+		}, tags: map[string]string{"chat-prod": defaultRouteTag}},
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	updateBody, err := json.Marshal(routepkg.AgentRoute{
+		LLMAPI: "openai",
+		TargetPolicy: &routepkg.RouteDirectProviderPolicy{
+			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "anthropic"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal route update: %v", err)
+	}
+
+	updateReq := httptest.NewRequest(http.MethodPut, "/admin/routes/chat-prod", bytes.NewReader(updateBody))
+	updateReq.Header.Set("Authorization", "Bearer "+token)
+	updateRec := httptest.NewRecorder()
+	handler.ServeHTTP(updateRec, updateReq)
+	if updateRec.Code != http.StatusOK {
+		t.Fatalf("unexpected update status: got %d want %d", updateRec.Code, http.StatusOK)
+	}
+
+	var updated RouteView
+	if err := json.NewDecoder(updateRec.Body).Decode(&updated); err != nil {
+		t.Fatalf("decode updated route: %v", err)
+	}
+	if !updated.CreatedAt.Equal(createdAt) {
+		t.Fatalf("updated CreatedAt = %v, want %v", updated.CreatedAt, createdAt)
+	}
+	if !updated.UpdatedAt.After(updatedAt) {
+		t.Fatalf("updated UpdatedAt = %v, want after %v", updated.UpdatedAt, updatedAt)
+	}
+}
+
+func TestRouteCreateRejectsClientManagedTimestamps(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		routeStore: &testRouteStore{items: map[string]*routepkg.AgentRoute{}},
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	body, err := json.Marshal(routepkg.AgentRoute{
+		ID:        "chat-prod",
+		LLMAPI:    "openai",
+		CreatedAt: time.Now().UTC(),
+		TargetPolicy: &routepkg.RouteDirectProviderPolicy{
+			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal route: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/routes", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected create status: got %d want %d", rec.Code, http.StatusBadRequest)
 	}
 }
 
@@ -433,6 +537,12 @@ func TestVirtualKeyCRUD(t *testing.T) {
 	if created.ID != "vk-test" {
 		t.Fatalf("created virtual key id = %q, want vk-test", created.ID)
 	}
+	if created.CreatedAt.IsZero() {
+		t.Fatal("created virtual key CreatedAt is zero")
+	}
+	if created.UpdatedAt.IsZero() {
+		t.Fatal("created virtual key UpdatedAt is zero")
+	}
 
 	getReq := httptest.NewRequest(http.MethodGet, "/admin/virtual_keys/"+created.ID, nil)
 	getReq.Header.Set("Authorization", "Bearer "+token)
@@ -457,6 +567,44 @@ func TestVirtualKeyCRUD(t *testing.T) {
 	}
 	if got.Source != "store" || got.ReadOnly {
 		t.Fatalf("unexpected virtual key metadata: %#v", got)
+	}
+	if got.CreatedAt.IsZero() {
+		t.Fatal("got virtual key CreatedAt is zero")
+	}
+	if got.UpdatedAt.IsZero() {
+		t.Fatal("got virtual key UpdatedAt is zero")
+	}
+	if !got.CreatedAt.Equal(created.CreatedAt) {
+		t.Fatalf("got CreatedAt = %v, want %v", got.CreatedAt, created.CreatedAt)
+	}
+}
+
+func TestVirtualKeyCreateRejectsClientManagedTimestamps(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{}},
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	body, err := json.Marshal(virtualkeypkg.VirtualKey{
+		ID:        "vk-test",
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("marshal virtual key: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/virtual_keys", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected create status: got %d want %d", rec.Code, http.StatusBadRequest)
 	}
 }
 
@@ -834,9 +982,11 @@ func TestVirtualKeyEnableDisable(t *testing.T) {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
+	createdAt := time.Now().UTC().Add(-time.Hour).Round(0)
+	updatedAt := createdAt
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{
-			"vk-test": {ID: "vk-test", Key: "lk-test", Tag: "admin"},
+			"vk-test": {ID: "vk-test", Key: "lk-test", Tag: "admin", CreatedAt: createdAt, UpdatedAt: updatedAt},
 		}},
 	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
@@ -856,6 +1006,13 @@ func TestVirtualKeyEnableDisable(t *testing.T) {
 	if !disabled.Disabled {
 		t.Fatal("virtual key disabled = false, want true")
 	}
+	if !disabled.CreatedAt.Equal(createdAt) {
+		t.Fatalf("disabled CreatedAt = %v, want %v", disabled.CreatedAt, createdAt)
+	}
+	if !disabled.UpdatedAt.After(updatedAt) {
+		t.Fatalf("disabled UpdatedAt = %v, want after %v", disabled.UpdatedAt, updatedAt)
+	}
+	firstUpdatedAt := disabled.UpdatedAt
 
 	enableReq := httptest.NewRequest(http.MethodPost, "/admin/virtual_keys/vk-test/enable", nil)
 	enableReq.Header.Set("Authorization", "Bearer "+token)
@@ -871,6 +1028,12 @@ func TestVirtualKeyEnableDisable(t *testing.T) {
 	}
 	if enabled.Disabled {
 		t.Fatal("virtual key disabled = true, want false")
+	}
+	if !enabled.CreatedAt.Equal(createdAt) {
+		t.Fatalf("enabled CreatedAt = %v, want %v", enabled.CreatedAt, createdAt)
+	}
+	if !enabled.UpdatedAt.After(firstUpdatedAt) {
+		t.Fatalf("enabled UpdatedAt = %v, want after %v", enabled.UpdatedAt, firstUpdatedAt)
 	}
 }
 
@@ -1235,6 +1398,73 @@ func TestCredentialGetPrefersReadOnlyViewForProviderStaticAPIKeys(t *testing.T) 
 	}
 }
 
+func TestCredentialGetUsesStableManagerTimestampsForProviderStaticAPIKeys(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	credMgr := credentialmgr.NewManager(nil)
+	agentGateway := gateway.NewAgentGateway()
+	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
+		ConfigStore: &testConfigStore{
+			providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
+		},
+		CredentialManager: credMgr,
+		StaticProviders: map[string]provider.Provider{
+			"openai-static": &stubAdminProvider{cfg: provider.ProviderConfig{
+				Id:           "openai-static",
+				ProviderType: "openai",
+				APIKey:       "static-key",
+			}},
+		},
+	}); err != nil {
+		t.Fatalf("bootstrap gateway: %v", err)
+	}
+	staticCred := provider.ProviderConfigAPIKeyCredential(provider.ProviderConfig{
+		Id:           "openai-static",
+		ProviderType: "openai",
+		APIKey:       "static-key",
+	}, "openai-static")
+	if staticCred == nil {
+		t.Fatal("expected static credential")
+	}
+	if err := credMgr.RegisterCredential(context.Background(), staticCred); err != nil {
+		t.Fatalf("register static credential in manager: %v", err)
+	}
+	managed := credMgr.GetCredential(staticCred.ID)
+	if managed == nil {
+		t.Fatal("expected managed static credential")
+	}
+
+	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
+	handler.credentialManager = credMgr
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/credentials/"+staticCred.ID, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected get status: got %d want %d", rec.Code, http.StatusOK)
+	}
+
+	var got CredentialView
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode credential: %v", err)
+	}
+	if !got.ReadOnly {
+		t.Fatalf("static credential should be read-only: %#v", got)
+	}
+	if !got.CreatedAt.Equal(managed.CreatedAt) {
+		t.Fatalf("got CreatedAt = %v, want %v", got.CreatedAt, managed.CreatedAt)
+	}
+	if !got.UpdatedAt.Equal(managed.UpdatedAt) {
+		t.Fatalf("got UpdatedAt = %v, want %v", got.UpdatedAt, managed.UpdatedAt)
+	}
+}
+
 func TestProviderCreateSyncsProviderConfigCredential(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
@@ -1309,6 +1539,73 @@ func TestProviderDeleteRemovesProviderConfigCredential(t *testing.T) {
 	}
 	if cred := credMgr.GetCredential("provider-config-api-key:deepseek-test"); cred != nil {
 		t.Fatalf("expected provider config credential to be removed, got %#v", cred)
+	}
+}
+
+func TestProviderUpdatePreservesProviderConfigCredentialCreatedAt(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	credMgr := credentialmgr.NewManager(nil)
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
+			"deepseek-test": {
+				Id:           "deepseek-test",
+				ProviderType: "deepseek",
+				APIKey:       "deepseek-key",
+			},
+		}},
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler.credentialManager = credMgr
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	if err := provider.SyncProviderConfigAPIKeyCredential(context.Background(), credMgr, provider.ProviderConfig{
+		Id:           "deepseek-test",
+		ProviderType: "deepseek",
+		APIKey:       "deepseek-key",
+	}, "deepseek-test"); err != nil {
+		t.Fatalf("seed provider config credential: %v", err)
+	}
+	seeded := credMgr.GetCredential("provider-config-api-key:deepseek-test")
+	if seeded == nil {
+		t.Fatal("expected seeded provider config credential")
+	}
+	createdAt := seeded.CreatedAt
+	updatedAt := seeded.UpdatedAt
+
+	body, err := json.Marshal(map[string]any{
+		"id":            "deepseek-test",
+		"provider_type": "deepseek",
+		"api_key":       "deepseek-key-2",
+		"base_url":      "https://deepseek.example",
+	})
+	if err != nil {
+		t.Fatalf("marshal update request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/admin/providers/deepseek-test", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected update status: got %d want %d", rec.Code, http.StatusOK)
+	}
+
+	updated := credMgr.GetCredential("provider-config-api-key:deepseek-test")
+	if updated == nil {
+		t.Fatal("expected updated provider config credential")
+	}
+	if !updated.CreatedAt.Equal(createdAt) {
+		t.Fatalf("updated CreatedAt = %v, want %v", updated.CreatedAt, createdAt)
+	}
+	if !updated.UpdatedAt.After(updatedAt) {
+		t.Fatalf("updated UpdatedAt = %v, want after %v", updated.UpdatedAt, updatedAt)
+	}
+	if got := updated.APIKey(); got != "deepseek-key-2" {
+		t.Fatalf("updated api_key = %q, want deepseek-key-2", got)
 	}
 }
 

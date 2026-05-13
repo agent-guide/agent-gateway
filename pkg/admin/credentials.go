@@ -66,6 +66,10 @@ func (h *Handler) handleGetCredential(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if spec := h.getProviderStaticCredential(r.Context(), id); spec != nil {
+		if item := h.credentialManager.GetCredential(id); item != nil {
+			_ = httpjson.Write(w, http.StatusOK, credentialView(item, true))
+			return
+		}
 		_ = httpjson.Write(w, http.StatusOK, credentialViewFromSpec(spec, true))
 		return
 	}
@@ -88,8 +92,6 @@ type credentialCreateRequest struct {
 	Attributes   map[string]string `json:"attributes,omitempty"`
 	Metadata     map[string]any    `json:"metadata,omitempty"`
 	Disabled     bool              `json:"disabled,omitempty"`
-	CreatedAt    any               `json:"created_at,omitempty"`
-	UpdatedAt    any               `json:"updated_at,omitempty"`
 }
 
 // credentialUpdateRequest is the request body for PUT /admin/credentials/{credential_id}.
@@ -101,8 +103,6 @@ type credentialUpdateRequest struct {
 	Attributes   map[string]string `json:"attributes,omitempty"`
 	Metadata     map[string]any    `json:"metadata,omitempty"`
 	Disabled     bool              `json:"disabled,omitempty"`
-	CreatedAt    any               `json:"created_at,omitempty"`
-	UpdatedAt    any               `json:"updated_at,omitempty"`
 }
 
 func (h *Handler) handleCreateCredential(w http.ResponseWriter, r *http.Request) {

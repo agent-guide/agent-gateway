@@ -62,8 +62,6 @@ type CreateCredentialRequest struct {
 	Attributes   map[string]string `json:"attributes,omitempty"`
 	Metadata     map[string]any    `json:"metadata,omitempty"`
 	Disabled     bool              `json:"disabled,omitempty"`
-	CreatedAt    time.Time         `json:"created_at,omitempty"`
-	UpdatedAt    time.Time         `json:"updated_at,omitempty"`
 }
 
 type UpdateCredentialRequest struct {
@@ -74,8 +72,6 @@ type UpdateCredentialRequest struct {
 	Attributes   map[string]string `json:"attributes,omitempty"`
 	Metadata     map[string]any    `json:"metadata,omitempty"`
 	Disabled     bool              `json:"disabled,omitempty"`
-	CreatedAt    time.Time         `json:"created_at,omitempty"`
-	UpdatedAt    time.Time         `json:"updated_at,omitempty"`
 }
 
 type CLIAuthAuthenticator struct {

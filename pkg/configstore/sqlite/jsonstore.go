@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -14,34 +15,38 @@ import (
 )
 
 type sqliteJSONRecord struct {
-	ID   string `gorm:"primaryKey"`
-	Tag  string `gorm:"index;not null"`
-	Data string `gorm:"type:text;not null"`
+	ID        string    `gorm:"primaryKey"`
+	Tag       string    `gorm:"index;not null"`
+	Data      string    `gorm:"type:text;not null"`
+	CreatedAt time.Time `gorm:"autoCreateTime"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 }
 
 type sqliteJSONStore struct {
-	db        *gorm.DB
-	table     string
-	kind      string
-	idField   string
-	tagField  string
-	dataField string
-	decode    intf.ConfigObjectDecoder
+	db          *gorm.DB
+	table       string
+	kind        string
+	idField     string
+	tagField    string
+	dataField   string
+	timestamped bool
+	decode      intf.ConfigObjectDecoder
 }
 
 func newSQLiteJSONStore(db *gorm.DB, table string, kind string, decode intf.ConfigObjectDecoder) *sqliteJSONStore {
-	return newSQLiteJSONStoreWithColumns(db, table, kind, "id", "tag", "data", decode)
+	return newSQLiteJSONStoreWithColumns(db, table, kind, "id", "tag", "data", true, decode)
 }
 
-func newSQLiteJSONStoreWithColumns(db *gorm.DB, table string, kind string, idField string, tagField string, dataField string, decode intf.ConfigObjectDecoder) *sqliteJSONStore {
+func newSQLiteJSONStoreWithColumns(db *gorm.DB, table string, kind string, idField string, tagField string, dataField string, timestamped bool, decode intf.ConfigObjectDecoder) *sqliteJSONStore {
 	return &sqliteJSONStore{
-		db:        db,
-		table:     table,
-		kind:      kind,
-		idField:   idField,
-		tagField:  tagField,
-		dataField: dataField,
-		decode:    decode,
+		db:          db,
+		table:       table,
+		kind:        kind,
+		idField:     idField,
+		tagField:    tagField,
+		dataField:   dataField,
+		timestamped: timestamped,
+		decode:      decode,
 	}
 }
 
@@ -133,7 +138,7 @@ func (s *sqliteJSONStore) Update(ctx context.Context, id string, obj any) error 
 	result := s.db.WithContext(ctx).
 		Table(s.table).
 		Where(s.quotedColumnName(s.idField)+" = ?", id).
-		Update(s.columnName(s.dataField), string(data))
+		Updates(s.updateMap(string(data)))
 	if result.Error != nil {
 		return result.Error
 	}
@@ -179,11 +184,18 @@ func (s *sqliteJSONStore) newRecord(id string, tag string, obj any) (sqliteJSONR
 		return sqliteJSONRecord{}, fmt.Errorf("%s marshal: %w", s.kind, err)
 	}
 
-	return sqliteJSONRecord{
+	record := sqliteJSONRecord{
 		ID:   id,
 		Tag:  tag,
 		Data: string(data),
-	}, nil
+	}
+	if s.timestamped {
+		now := time.Now().UTC()
+		record.CreatedAt = now
+		record.UpdatedAt = now
+	}
+
+	return record, nil
 }
 
 func (s *sqliteJSONStore) baseQuery(ctx context.Context) *gorm.DB {
@@ -198,11 +210,26 @@ func (s *sqliteJSONStore) baseQuery(ctx context.Context) *gorm.DB {
 }
 
 func (s *sqliteJSONStore) dbRecord(row sqliteJSONRecord) map[string]any {
-	return map[string]any{
+	record := map[string]any{
 		s.idField:   row.ID,
 		s.tagField:  row.Tag,
 		s.dataField: row.Data,
 	}
+	if s.timestamped {
+		record["created_at"] = row.CreatedAt
+		record["updated_at"] = row.UpdatedAt
+	}
+	return record
+}
+
+func (s *sqliteJSONStore) updateMap(data string) map[string]any {
+	values := map[string]any{
+		s.dataField: data,
+	}
+	if s.timestamped {
+		values["updated_at"] = time.Now().UTC()
+	}
+	return values
 }
 
 func (s *sqliteJSONStore) columnName(name string) string {

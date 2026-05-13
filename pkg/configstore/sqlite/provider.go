@@ -36,6 +36,7 @@ func NewProviderConfigStore(ctx context.Context, db *gorm.DB, decodeProviderConf
 			"id",
 			"tag",
 			"config",
+			true,
 			decodeProviderConfig,
 		),
 	}, nil

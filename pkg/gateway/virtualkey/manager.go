@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
 )
@@ -210,6 +211,7 @@ func (m *VirtualKeyManager) Create(ctx context.Context, key VirtualKey) error {
 	if store == nil {
 		return fmt.Errorf("virtual key store is not configured")
 	}
+	key.NormalizeTimestamps(time.Now().UTC())
 	if err := store.Create(ctx, key.ID, key.Tag, &key); err != nil {
 		return err
 	}
@@ -232,6 +234,8 @@ func (m *VirtualKeyManager) Update(ctx context.Context, id string, key VirtualKe
 	}
 	key.ID = id
 	key.Key = current.Key
+	key.CreatedAt = current.CreatedAt
+	key.UpdatedAt = time.Now().UTC()
 
 	m.mu.RLock()
 	store := m.store

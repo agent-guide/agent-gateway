@@ -48,3 +48,12 @@ func DecodeStoredVirtualKey(data []byte) (any, error) {
 	}
 	return &key, nil
 }
+
+func (key *VirtualKey) NormalizeTimestamps(now time.Time) {
+	if key.CreatedAt.IsZero() {
+		key.CreatedAt = now
+	}
+	if key.UpdatedAt.IsZero() {
+		key.UpdatedAt = now
+	}
+}

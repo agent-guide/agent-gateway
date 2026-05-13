@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
@@ -139,6 +140,14 @@ func TestAgentRouteManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	if got.Description != "" {
 		t.Fatalf("Description = %q, want empty cached value", got.Description)
 	}
+	if got.CreatedAt.IsZero() {
+		t.Fatal("CreatedAt is zero after create")
+	}
+	if got.UpdatedAt.IsZero() {
+		t.Fatal("UpdatedAt is zero after create")
+	}
+	createdAt := got.CreatedAt
+	firstUpdatedAt := got.UpdatedAt
 
 	if err := manager.Update(context.Background(), "chat-prod", AgentRoute{
 		Description: "updated",
@@ -154,6 +163,15 @@ func TestAgentRouteManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	}
 	if got.Description != "updated" {
 		t.Fatalf("Description = %q, want updated", got.Description)
+	}
+	if !got.CreatedAt.Equal(createdAt) {
+		t.Fatalf("CreatedAt changed on update: got %v want %v", got.CreatedAt, createdAt)
+	}
+	if got.UpdatedAt.Before(firstUpdatedAt) {
+		t.Fatalf("UpdatedAt moved backwards: got %v want >= %v", got.UpdatedAt, firstUpdatedAt)
+	}
+	if got.UpdatedAt.Equal(time.Time{}) {
+		t.Fatal("UpdatedAt is zero after update")
 	}
 
 	if err := manager.Delete(context.Background(), "chat-prod"); err != nil {

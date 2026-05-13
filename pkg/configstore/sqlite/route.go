@@ -31,7 +31,7 @@ func NewRouteStore(ctx context.Context, db *gorm.DB, decodeRoute intf.ConfigObje
 	}
 
 	return &RouteStore{
-		sqliteJSONStore: newSQLiteJSONStoreWithColumns(db, routeRecord{}.TableName(), "route", "id", "tag", "config", decodeRoute),
+		sqliteJSONStore: newSQLiteJSONStoreWithColumns(db, routeRecord{}.TableName(), "route", "id", "tag", "config", true, decodeRoute),
 	}, nil
 }
 

@@ -84,13 +84,7 @@ func DecodeStoredRoute(data []byte) (any, error) {
 		return nil, fmt.Errorf("decode route: %w", err)
 	}
 	r.Normalize()
-	now := time.Now().UTC()
-	if r.CreatedAt.IsZero() {
-		r.CreatedAt = now
-	}
-	if r.UpdatedAt.IsZero() {
-		r.UpdatedAt = now
-	}
+	r.NormalizeTimestamps(time.Now().UTC())
 	return &r, nil
 }
 
@@ -140,6 +134,18 @@ type RouteMatch struct {
 
 type RouteAuthPolicy struct {
 	RequireVirtualKey bool `json:"require_virtual_key"`
+}
+
+func (r *AgentRoute) NormalizeTimestamps(now time.Time) {
+	if r == nil {
+		return
+	}
+	if r.CreatedAt.IsZero() {
+		r.CreatedAt = now
+	}
+	if r.UpdatedAt.IsZero() {
+		r.UpdatedAt = now
+	}
 }
 
 func (r *AgentRoute) UnmarshalJSON(data []byte) error {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
@@ -168,6 +169,7 @@ func (m *AgentRouteManager) Create(ctx context.Context, route AgentRoute, tag st
 	}
 
 	route.Normalize()
+	route.NormalizeTimestamps(time.Now().UTC())
 
 	m.mu.RLock()
 	store := m.routeStore
@@ -193,6 +195,12 @@ func (m *AgentRouteManager) Update(ctx context.Context, routeID string, route Ag
 
 	route.ID = routeID
 	route.Normalize()
+	current, err := m.Get(ctx, routeID)
+	if err != nil {
+		return err
+	}
+	route.CreatedAt = current.CreatedAt
+	route.UpdatedAt = time.Now().UTC()
 
 	m.mu.RLock()
 	store := m.routeStore

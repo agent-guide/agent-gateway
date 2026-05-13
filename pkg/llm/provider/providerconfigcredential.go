@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 )
@@ -37,15 +36,12 @@ func ProviderConfigAPIKeyCredential(cfg ProviderConfig, providerID string) *cred
 	}
 	attrs["priority"] = "-1"
 	attrs["scope"] = credentialmgr.ProviderIDCredentialScope(providerID)
-	now := time.Now().UTC()
 	return &credentialmgr.Credential{
 		ID:           ProviderConfigAPIKeyCredentialID(cfg),
 		ProviderType: providerType,
 		ProviderID:   providerID,
 		Source:       credentialmgr.SourceAPIKey,
 		Attributes:   attrs,
-		CreatedAt:    now,
-		UpdatedAt:    now,
 	}
 }
 
@@ -96,6 +92,7 @@ func SyncProviderConfigAPIKeyCredential(ctx context.Context, mgr *credentialmgr.
 		return nil
 	}
 	if existing := mgr.GetCredential(cred.ID); existing != nil {
+		cred.CreatedAt = existing.CreatedAt
 		return mgr.UpdateCredential(credentialmgr.WithSkipPersist(ctx), cred)
 	}
 	return mgr.RegisterCredential(credentialmgr.WithSkipPersist(ctx), cred)

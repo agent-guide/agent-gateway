@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
 )
@@ -136,6 +137,14 @@ func TestVirtualKeyManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	if got.Tag != "created" {
 		t.Fatalf("Tag = %q, want created", got.Tag)
 	}
+	if got.CreatedAt.IsZero() {
+		t.Fatal("CreatedAt is zero after create")
+	}
+	if got.UpdatedAt.IsZero() {
+		t.Fatal("UpdatedAt is zero after create")
+	}
+	createdAt := got.CreatedAt
+	firstUpdatedAt := got.UpdatedAt
 
 	if err := manager.Update(context.Background(), "vk-test", VirtualKey{
 		Tag: "updated",
@@ -148,6 +157,15 @@ func TestVirtualKeyManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	}
 	if got.Tag != "updated" {
 		t.Fatalf("Tag = %q, want updated", got.Tag)
+	}
+	if !got.CreatedAt.Equal(createdAt) {
+		t.Fatalf("CreatedAt changed on update: got %v want %v", got.CreatedAt, createdAt)
+	}
+	if got.UpdatedAt.Before(firstUpdatedAt) {
+		t.Fatalf("UpdatedAt moved backwards: got %v want >= %v", got.UpdatedAt, firstUpdatedAt)
+	}
+	if got.UpdatedAt.Equal(time.Time{}) {
+		t.Fatal("UpdatedAt is zero after update")
 	}
 
 	if err := manager.Delete(context.Background(), "vk-test"); err != nil {

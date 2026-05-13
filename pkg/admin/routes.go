@@ -498,6 +498,10 @@ func (h *Handler) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusBadRequest, "id is required")
 		return
 	}
+	if !route.CreatedAt.IsZero() || !route.UpdatedAt.IsZero() {
+		_ = httpjson.Error(w, http.StatusBadRequest, "created_at and updated_at are managed by the server and must be omitted")
+		return
+	}
 	route.Normalize()
 	if err := route.ValidateDefinition(); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
@@ -517,7 +521,12 @@ func (h *Handler) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = httpjson.Write(w, http.StatusCreated, route)
+	created, err := manager.Get(r.Context(), route.ID)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusCreated, routeViewFromRoute(manager, created))
 }
 
 func (h *Handler) handleGetRoute(w http.ResponseWriter, r *http.Request) {
@@ -559,6 +568,10 @@ func (h *Handler) handleUpdateRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusBadRequest, "route id in body must match path")
 		return
 	}
+	if !route.CreatedAt.IsZero() || !route.UpdatedAt.IsZero() {
+		_ = httpjson.Error(w, http.StatusBadRequest, "created_at and updated_at are managed by the server and must be omitted")
+		return
+	}
 	route.Normalize()
 	if err := route.ValidateDefinition(); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
@@ -583,7 +596,7 @@ func (h *Handler) handleUpdateRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = httpjson.Write(w, http.StatusOK, item)
+	_ = httpjson.Write(w, http.StatusOK, routeViewFromRoute(manager, item))
 }
 
 func (h *Handler) handleDeleteRoute(w http.ResponseWriter, r *http.Request) {
@@ -707,12 +720,21 @@ func (h *Handler) handleCreateVirtualKey(w http.ResponseWriter, r *http.Request)
 		_ = httpjson.Error(w, http.StatusBadRequest, "virtual key id is required")
 		return
 	}
+	if !key.CreatedAt.IsZero() || !key.UpdatedAt.IsZero() {
+		_ = httpjson.Error(w, http.StatusBadRequest, "created_at and updated_at are managed by the server and must be omitted")
+		return
+	}
 
 	if err := manager.Create(r.Context(), key); err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = httpjson.Write(w, http.StatusCreated, key)
+	created, err := manager.GetByID(r.Context(), key.ID)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusCreated, created)
 }
 
 func (h *Handler) handleGetVirtualKey(w http.ResponseWriter, r *http.Request) {
@@ -754,6 +776,10 @@ func (h *Handler) handleUpdateVirtualKey(w http.ResponseWriter, r *http.Request)
 		_ = httpjson.Error(w, http.StatusBadRequest, "virtual key id in body must match path")
 		return
 	}
+	if !key.CreatedAt.IsZero() || !key.UpdatedAt.IsZero() {
+		_ = httpjson.Error(w, http.StatusBadRequest, "created_at and updated_at are managed by the server and must be omitted")
+		return
+	}
 	if key.Key != "" {
 		_ = httpjson.Error(w, http.StatusBadRequest, "virtual key key is generated and must be omitted")
 		return
@@ -772,7 +798,12 @@ func (h *Handler) handleUpdateVirtualKey(w http.ResponseWriter, r *http.Request)
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = httpjson.Write(w, http.StatusOK, key)
+	updated, err := manager.GetByID(r.Context(), key.ID)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, updated)
 }
 
 func (h *Handler) handleDeleteVirtualKey(w http.ResponseWriter, r *http.Request) {

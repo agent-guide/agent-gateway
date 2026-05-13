@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/route"
@@ -14,7 +15,7 @@ import (
 func TestRouteStoreTagColumn(t *testing.T) {
 	ctx := context.Background()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("file:route_store_timestamps?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite db: %v", err)
 	}
@@ -72,7 +73,7 @@ func TestRouteStoreTagColumn(t *testing.T) {
 func TestRouteStoreCreateRejectsDuplicateID(t *testing.T) {
 	ctx := context.Background()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("file:route_store_timestamps?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite db: %v", err)
 	}
@@ -120,5 +121,61 @@ func TestRouteStoreUpdateRejectsMissingID(t *testing.T) {
 	})
 	if !errors.Is(err, configstoreintf.ErrNotFound) {
 		t.Fatalf("update missing route error = %v, want %v", err, configstoreintf.ErrNotFound)
+	}
+}
+
+func TestRouteStoreMaintainsDBTimestamps(t *testing.T) {
+	ctx := context.Background()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite db: %v", err)
+	}
+
+	store, err := NewRouteStore(ctx, db, route.DecodeStoredRoute)
+	if err != nil {
+		t.Fatalf("new route store: %v", err)
+	}
+
+	item := &route.AgentRoute{
+		ID: "chat-prod",
+		TargetPolicy: &route.RouteDirectProviderPolicy{
+			ProviderTarget: route.DirectProviderTarget{ProviderID: "openai"},
+		},
+	}
+
+	if err := store.Create(ctx, item.ID, defaultRouteTag, item); err != nil {
+		t.Fatalf("create route: %v", err)
+	}
+
+	var created routeRecord
+	if err := db.WithContext(ctx).Where("id = ?", item.ID).First(&created).Error; err != nil {
+		t.Fatalf("load created row: %v", err)
+	}
+	if created.CreatedAt.IsZero() {
+		t.Fatal("created row CreatedAt is zero")
+	}
+	if created.UpdatedAt.IsZero() {
+		t.Fatal("created row UpdatedAt is zero")
+	}
+	initialCreatedAt := created.CreatedAt
+	initialUpdatedAt := created.UpdatedAt
+
+	time.Sleep(10 * time.Millisecond)
+
+	item.Description = "updated"
+	if err := store.Update(ctx, item.ID, item); err != nil {
+		t.Fatalf("update route: %v", err)
+	}
+
+	var updated routeRecord
+	if err := db.WithContext(ctx).Where("id = ?", item.ID).First(&updated).Error; err != nil {
+		t.Fatalf("load updated row: %v", err)
+	}
+	if !updated.CreatedAt.Equal(initialCreatedAt) {
+		t.Fatalf("updated CreatedAt = %v, want %v", updated.CreatedAt, initialCreatedAt)
+	}
+	if !updated.UpdatedAt.After(initialUpdatedAt) {
+		t.Fatalf("updated UpdatedAt = %v, want after %v", updated.UpdatedAt, initialUpdatedAt)
 	}
 }
