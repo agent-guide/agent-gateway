@@ -1,51 +1,50 @@
 package sqlite
 
 import (
-	"context"
 	"path/filepath"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 
-	"github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	configstoresqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
 )
 
-type SQLiteConfigStore struct {
+type SQLiteConfigStoreBackend struct {
 	SQLitePath string `json:"sqlite_path,omitempty"`
 
-	store *configstoresqlite.SQLiteConfigStore
+	backend configstore.ConfigStoreBackend
 }
 
 func init() {
-	caddy.RegisterModule(SQLiteConfigStore{})
+	caddy.RegisterModule(SQLiteConfigStoreBackend{})
 }
 
-func (SQLiteConfigStore) CaddyModule() caddy.ModuleInfo {
+func (SQLiteConfigStoreBackend) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "agent_gateway.config_stores.sqlite",
-		New: func() caddy.Module { return new(SQLiteConfigStore) },
+		ID:  "agent_gateway.config_store_backends.sqlite",
+		New: func() caddy.Module { return new(SQLiteConfigStoreBackend) },
 	}
 }
 
-func (s *SQLiteConfigStore) Provision(ctx caddy.Context) error {
+func (s *SQLiteConfigStoreBackend) Provision(ctx caddy.Context) error {
 	dbPath := s.SQLitePath
 	if dbPath == "" {
 		dbPath = filepath.Join(caddy.AppDataDir(), "agent-gateway", "configstore.db")
 		s.SQLitePath = dbPath
 	}
 
-	store, err := configstoresqlite.Open(ctx, configstoresqlite.Config{
+	backend, err := configstore.OpenBackend(ctx, "sqlite", configstoresqlite.Config{
 		SQLitePath: dbPath,
 	}, ctx.Logger(s))
 	if err != nil {
 		return err
 	}
-	s.store = store
+	s.backend = backend
 	return nil
 }
 
-func (s *SQLiteConfigStore) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+func (s *SQLiteConfigStoreBackend) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	for d.Next() {
 		for d.NextBlock(0) {
 			switch d.Val() {
@@ -62,29 +61,17 @@ func (s *SQLiteConfigStore) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
-func (s *SQLiteConfigStore) GetCredentialStore(ctx context.Context, decodeCredential intf.ConfigObjectDecoder) (intf.CredentialStorer, error) {
-	return s.store.GetCredentialStore(ctx, decodeCredential)
+func (s *SQLiteConfigStoreBackend) Register(name string, storeSchema configstore.StoreSchema) error {
+	return s.backend.Register(name, storeSchema)
 }
 
-func (s *SQLiteConfigStore) GetProviderConfigStore(ctx context.Context, decodeProviderConfig intf.ConfigObjectDecoder) (intf.ProviderConfigStorer, error) {
-	return s.store.GetProviderConfigStore(ctx, decodeProviderConfig)
-}
-
-func (s *SQLiteConfigStore) GetVirtualKeyStore(ctx context.Context, decodeVirtualKey intf.ConfigObjectDecoder) (intf.VirtualKeyStorer, error) {
-	return s.store.GetVirtualKeyStore(ctx, decodeVirtualKey)
-}
-
-func (s *SQLiteConfigStore) GetRouteStore(ctx context.Context, decodeRoute intf.ConfigObjectDecoder) (intf.RouteStorer, error) {
-	return s.store.GetRouteStore(ctx, decodeRoute)
-}
-
-func (s *SQLiteConfigStore) GetModelStore(ctx context.Context, decodeModel intf.ConfigObjectDecoder) (intf.ModelStorer, error) {
-	return s.store.GetModelStore(ctx, decodeModel)
+func (s *SQLiteConfigStoreBackend) Get(name string) (configstore.ConfigStore, error) {
+	return s.backend.Get(name)
 }
 
 var (
-	_ caddy.Module          = (*SQLiteConfigStore)(nil)
-	_ caddy.Provisioner     = (*SQLiteConfigStore)(nil)
-	_ caddyfile.Unmarshaler = (*SQLiteConfigStore)(nil)
-	_ intf.ConfigStorer     = (*SQLiteConfigStore)(nil)
+	_ caddy.Module                   = (*SQLiteConfigStoreBackend)(nil)
+	_ caddy.Provisioner              = (*SQLiteConfigStoreBackend)(nil)
+	_ caddyfile.Unmarshaler          = (*SQLiteConfigStoreBackend)(nil)
+	_ configstore.ConfigStoreBackend = (*SQLiteConfigStoreBackend)(nil)
 )

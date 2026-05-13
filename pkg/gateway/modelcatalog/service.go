@@ -2,12 +2,13 @@ package modelcatalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
 	"time"
 
-	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"go.uber.org/zap"
 )
@@ -34,14 +35,14 @@ type providerResolver interface {
 type service struct {
 	mu sync.RWMutex
 
-	store         configstoreintf.ModelStorer
+	store         configstore.ConfigStore
 	providerMgr   providerResolver
 	staticManaged map[string]ManagedModel
 	snapshots     map[string][]ProviderModelSnapshot
 	logger        *zap.Logger
 }
 
-func NewService(store configstoreintf.ModelStorer, providerMgr providerResolver, staticManaged []ManagedModel, logger *zap.Logger) Service {
+func NewService(store configstore.ConfigStore, providerMgr providerResolver, staticManaged []ManagedModel, logger *zap.Logger) Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -249,9 +250,12 @@ func (s *service) getManagedModel(ctx context.Context, providerID string, upstre
 	if s.store == nil {
 		return ManagedModel{}, false, nil
 	}
-	obj, ok, err := s.store.Get(ctx, providerID, upstreamModel)
-	if err != nil || !ok {
-		return ManagedModel{}, ok, err
+	obj, err := s.store.Get(ctx, providerID, upstreamModel)
+	if err != nil {
+		if errors.Is(err, configstore.ErrNotFound) {
+			return ManagedModel{}, false, nil
+		}
+		return ManagedModel{}, false, err
 	}
 	model, ok := obj.(*ManagedModel)
 	if !ok || model == nil {

@@ -270,9 +270,9 @@ When provider discovery fails:
 
 ## 13. Config Store Contract
 
-The model catalog persists managed model overlays through `pkg/configstore/intf.ModelStorer`.
+The model catalog persists managed model overlays through the generic schema-bound `ConfigStore` built with the `managed_models` store name.
 
-The config store entrypoint remains `ConfigStorer`, which vends `GetModelStore(...)`.
+The `managed_models` schema uses the composite primary key `(provider_id, upstream_model)`.
 
 Managed model persistence is limited to administrator-owned state such as:
 

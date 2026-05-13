@@ -7,7 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	configstoreschema "github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
@@ -137,7 +138,11 @@ type testGatewayProviderStore struct {
 
 type testGatewayModelCatalogResolver struct{}
 
-func (s *testGatewayProviderStore) ListByType(_ context.Context, name string) ([]any, error) {
+func (s *testGatewayProviderStore) List(ctx context.Context) ([]any, error) {
+	return s.ListByTag(ctx, "")
+}
+
+func (s *testGatewayProviderStore) ListByTag(_ context.Context, name string) ([]any, error) {
 	out := make([]any, 0, len(s.items))
 	for _, item := range s.items {
 		if name != "" && item.ProviderType != name {
@@ -149,42 +154,45 @@ func (s *testGatewayProviderStore) ListByType(_ context.Context, name string) ([
 	return out, nil
 }
 
-func (s *testGatewayProviderStore) Create(_ context.Context, id string, name string, obj any) (string, error) {
+func (s *testGatewayProviderStore) ListByTagPrefix(ctx context.Context, tagPrefix string) ([]any, error) {
+	return s.ListByTag(ctx, tagPrefix)
+}
+
+func (s *testGatewayProviderStore) Create(_ context.Context, obj any) error {
 	cfg, ok := obj.(*provider.ProviderConfig)
 	if !ok {
-		return "", nil
+		return nil
 	}
 	if s.items == nil {
 		s.items = map[string]*provider.ProviderConfig{}
 	}
 	cloned := *cfg
-	cloned.Id = id
-	if cloned.ProviderType == "" {
-		cloned.ProviderType = name
-	}
-	s.items[id] = &cloned
-	return id, nil
+	s.items[cloned.Id] = &cloned
+	return nil
 }
 
-func (s *testGatewayProviderStore) Update(ctx context.Context, id string, obj any) error {
-	_, err := s.Create(ctx, id, "", obj)
-	return err
+func (s *testGatewayProviderStore) Update(ctx context.Context, obj any) error {
+	return s.Create(ctx, obj)
 }
 
-func (s *testGatewayProviderStore) Delete(_ context.Context, id string) error {
+func (s *testGatewayProviderStore) Delete(_ context.Context, keyParts ...any) error {
+	id, _ := keyParts[0].(string)
 	delete(s.items, id)
 	return nil
 }
 
-func (s *testGatewayProviderStore) Get(_ context.Context, id string) (string, any, error) {
+func (s *testGatewayProviderStore) Get(_ context.Context, keyParts ...any) (any, error) {
+	id, _ := keyParts[0].(string)
 	item := s.items[id]
 	if item == nil {
-		return "", nil, configstoreintf.ErrNotFound
+		return nil, configstore.ErrNotFound
 	}
 	cloned := *item
-	tag := cloned.ProviderType
-	cloned.ProviderType = ""
-	return tag, &cloned, nil
+	return &cloned, nil
+}
+
+func (s *testGatewayProviderStore) GetByIndex(context.Context, string, any) (any, error) {
+	return nil, configstore.ErrNotFound
 }
 
 func (testGatewayModelCatalogResolver) GetManagedModel(context.Context, string, string) (*modelcatalog.ManagedModel, bool, error) {
@@ -196,26 +204,17 @@ func (testGatewayModelCatalogResolver) GetResolvedManagedModel(context.Context, 
 }
 
 type testGatewayConfigStore struct {
-	providerStore configstoreintf.ProviderConfigStorer
+	providerStore configstore.ConfigStore
 }
 
-func (s *testGatewayConfigStore) GetCredentialStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.CredentialStorer, error) {
-	return nil, nil
+func (s *testGatewayConfigStore) Register(string, configstore.StoreSchema) error {
+	return nil
 }
 
-func (s *testGatewayConfigStore) GetProviderConfigStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.ProviderConfigStorer, error) {
-	return s.providerStore, nil
-}
-
-func (s *testGatewayConfigStore) GetVirtualKeyStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.VirtualKeyStorer, error) {
-	return nil, nil
-}
-
-func (s *testGatewayConfigStore) GetRouteStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.RouteStorer, error) {
-	return nil, nil
-}
-
-func (s *testGatewayConfigStore) GetModelStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.ModelStorer, error) {
+func (s *testGatewayConfigStore) Get(name string) (configstore.ConfigStore, error) {
+	if name == configstoreschema.StoreProviders {
+		return s.providerStore, nil
+	}
 	return nil, nil
 }
 
@@ -228,7 +227,7 @@ func TestBootstrapSyncsDynamicProviderConfigCredentials(t *testing.T) {
 
 	gw := NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
-		ConfigStore: &testGatewayConfigStore{
+		ConfigStoreBackend: &testGatewayConfigStore{
 			providerStore: &testGatewayProviderStore{
 				items: map[string]*provider.ProviderConfig{
 					"deepseek-test": {

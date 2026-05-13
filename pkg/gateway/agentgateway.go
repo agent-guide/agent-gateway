@@ -8,7 +8,8 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
-	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
@@ -22,7 +23,7 @@ type BootstrapOptions struct {
 	StaticRoutes        []routepkg.AgentRoute
 	StaticVirtualKeys   []virtualkeypkg.VirtualKey
 	StaticProviders     map[string]provider.Provider
-	ConfigStore         configstoreintf.ConfigStorer
+	ConfigStoreBackend  configstore.ConfigStoreBackend
 	CLIAuthManager      *cliauth.Manager
 	CLIAuthRefresher    *cliauth.AutoRefresher
 	CredentialManager   *credentialmgr.Manager
@@ -35,7 +36,7 @@ type AgentGateway struct {
 	mu sync.RWMutex
 
 	configured          bool
-	configStore         configstoreintf.ConfigStorer
+	configStoreBackend  configstore.ConfigStoreBackend
 	routeManager        *routepkg.AgentRouteManager
 	virtualKeyManager   *virtualkeypkg.VirtualKeyManager
 	providerManager     *ProviderManager
@@ -56,14 +57,14 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	g.configureConfigStore(opts.ConfigStore)
-	if err := g.configureAgentRouteManager(ctx, opts.ConfigStore, opts.StaticRoutes); err != nil {
+	g.configureConfigStoreBackend(opts.ConfigStoreBackend)
+	if err := g.configureAgentRouteManager(ctx, opts.ConfigStoreBackend, opts.StaticRoutes); err != nil {
 		return err
 	}
-	if err := g.configureVirtualKeyManager(ctx, opts.ConfigStore, opts.StaticVirtualKeys); err != nil {
+	if err := g.configureVirtualKeyManager(ctx, opts.ConfigStoreBackend, opts.StaticVirtualKeys); err != nil {
 		return err
 	}
-	if err := g.configureProviderResolver(ctx, opts.ConfigStore, opts.StaticProviders); err != nil {
+	if err := g.configureProviderResolver(ctx, opts.ConfigStoreBackend, opts.StaticProviders); err != nil {
 		return err
 	}
 	g.cliauthManager = opts.CLIAuthManager
@@ -73,7 +74,7 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	if err := g.syncProviderConfigCredentials(ctx); err != nil {
 		return err
 	}
-	if err := g.configureModelCatalog(ctx, opts.ConfigStore, opts.StaticModels, opts.Logger); err != nil {
+	if err := g.configureModelCatalog(ctx, opts.ConfigStoreBackend, opts.StaticModels, opts.Logger); err != nil {
 		return err
 	}
 	g.configured = true
@@ -85,7 +86,7 @@ func (g *AgentGateway) Reset() {
 	defer g.mu.Unlock()
 
 	g.configured = false
-	g.configStore = nil
+	g.configStoreBackend = nil
 	g.routeManager = nil
 	g.virtualKeyManager = nil
 	g.providerManager = nil
@@ -96,10 +97,10 @@ func (g *AgentGateway) Reset() {
 	g.modelCatalog = nil
 }
 
-func (g *AgentGateway) ConfigStore() configstoreintf.ConfigStorer {
+func (g *AgentGateway) ConfigStoreBackend() configstore.ConfigStoreBackend {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	return g.configStore
+	return g.configStoreBackend
 }
 
 func (g *AgentGateway) CLIAuthManager() *cliauth.Manager {
@@ -220,19 +221,20 @@ func (g *AgentGateway) providerResolver() ProviderResolver {
 	return g.providerManager
 }
 
-func (g *AgentGateway) configureConfigStore(configStore configstoreintf.ConfigStorer) {
-	g.configStore = configStore
+func (g *AgentGateway) configureConfigStoreBackend(configStoreBackend configstore.ConfigStoreBackend) {
+	g.configStoreBackend = configStoreBackend
 }
 
-func (g *AgentGateway) configureAgentRouteManager(ctx context.Context, configStore configstoreintf.ConfigStorer, staticRoutes []routepkg.AgentRoute) error {
+func (g *AgentGateway) configureAgentRouteManager(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend, staticRoutes []routepkg.AgentRoute) error {
+	_ = ctx
 	if g.routeManager != nil {
 		return fmt.Errorf("route manager is not nil")
 	}
 
-	var routeStore configstoreintf.RouteStorer
-	if configStore != nil {
+	var routeStore configstore.ConfigStore
+	if configStoreBackend != nil {
 		var err error
-		routeStore, err = configStore.GetRouteStore(ctx, routepkg.DecodeStoredRoute)
+		routeStore, err = configStoreBackend.Get(schema.StoreRoutes)
 		if err != nil {
 			return fmt.Errorf("get route store: %w", err)
 		}
@@ -243,15 +245,16 @@ func (g *AgentGateway) configureAgentRouteManager(ctx context.Context, configSto
 	return nil
 }
 
-func (g *AgentGateway) configureVirtualKeyManager(ctx context.Context, configStore configstoreintf.ConfigStorer, staticVirtualKeys []virtualkeypkg.VirtualKey) error {
+func (g *AgentGateway) configureVirtualKeyManager(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend, staticVirtualKeys []virtualkeypkg.VirtualKey) error {
+	_ = ctx
 	if g.virtualKeyManager != nil {
 		return fmt.Errorf("virtual key manager is not nil")
 	}
 
-	var virtualKeyStore configstoreintf.VirtualKeyStorer
-	if configStore != nil {
+	var virtualKeyStore configstore.ConfigStore
+	if configStoreBackend != nil {
 		var err error
-		virtualKeyStore, err = configStore.GetVirtualKeyStore(ctx, virtualkeypkg.DecodeStoredVirtualKey)
+		virtualKeyStore, err = configStoreBackend.Get(schema.StoreVirtualKeys)
 		if err != nil {
 			return fmt.Errorf("get virtual key store: %w", err)
 		}
@@ -262,15 +265,16 @@ func (g *AgentGateway) configureVirtualKeyManager(ctx context.Context, configSto
 	return nil
 }
 
-func (g *AgentGateway) configureProviderResolver(ctx context.Context, configStore configstoreintf.ConfigStorer, staticProviders map[string]provider.Provider) error {
+func (g *AgentGateway) configureProviderResolver(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend, staticProviders map[string]provider.Provider) error {
+	_ = ctx
 	if g.providerManager != nil {
 		return fmt.Errorf("provider resolver is not nil")
 	}
 
-	var providerStore configstoreintf.ProviderConfigStorer
-	if configStore != nil {
+	var providerStore configstore.ConfigStore
+	if configStoreBackend != nil {
 		var err error
-		providerStore, err = configStore.GetProviderConfigStore(ctx, provider.DecodeStoredProviderConfig)
+		providerStore, err = configStoreBackend.Get(schema.StoreProviders)
 		if err != nil {
 			return fmt.Errorf("get provider config store: %w", err)
 		}
@@ -300,15 +304,16 @@ func (g *AgentGateway) syncProviderConfigCredentials(ctx context.Context) error 
 	return nil
 }
 
-func (g *AgentGateway) configureModelCatalog(ctx context.Context, configStore configstoreintf.ConfigStorer, staticModels []modelcatalog.ManagedModel, logger *zap.Logger) error {
+func (g *AgentGateway) configureModelCatalog(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend, staticModels []modelcatalog.ManagedModel, logger *zap.Logger) error {
+	_ = ctx
 	if g.modelCatalog != nil {
 		return fmt.Errorf("model catalog is not nil")
 	}
 
-	var modelStore configstoreintf.ModelStorer
-	if configStore != nil {
+	var modelStore configstore.ConfigStore
+	if configStoreBackend != nil {
 		var err error
-		modelStore, err = configStore.GetModelStore(ctx, modelcatalog.DecodeStoredManagedModel)
+		modelStore, err = configStoreBackend.Get(schema.StoreManagedModels)
 		if err != nil {
 			return fmt.Errorf("get model store: %w", err)
 		}

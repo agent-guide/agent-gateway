@@ -83,7 +83,7 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 		t.Fatalf("ollama default_model = %q", ollama.DefaultModel)
 	}
 
-	var cfg configstoresqlite.SQLiteConfigStore
+	var cfg configstoresqlite.SQLiteConfigStoreBackend
 	if err := json.Unmarshal(app.ConfigStoreRaw["sqlite"], &cfg); err != nil {
 		t.Fatalf("unmarshal sqlite config store: %v", err)
 	}

@@ -12,7 +12,8 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
-	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	configstoreschema "github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	dispatcherpkg "github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
@@ -22,53 +23,53 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"github.com/cloudwego/eino/schema"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
 type testConfigStore struct {
-	providerStore   configstoreintf.ProviderConfigStorer
-	routeStore      configstoreintf.RouteStorer
-	virtualKeyStore configstoreintf.VirtualKeyStorer
-	modelStore      configstoreintf.ModelStorer
+	providerStore   configstore.ConfigStore
+	routeStore      configstore.ConfigStore
+	virtualKeyStore configstore.ConfigStore
+	modelStore      configstore.ConfigStore
 }
 
-func newTestAgentGateway(configStore configstoreintf.ConfigStorer, cliauthMgr *cliauth.Manager, cliauthRefresher *cliauth.AutoRefresher, staticRoutes []routepkg.AgentRoute, staticVirtualKeys []virtualkeypkg.VirtualKey, staticProviders ...map[string]provider.Provider) *gateway.AgentGateway {
+func newTestAgentGateway(configStoreBackend configstore.ConfigStoreBackend, cliauthMgr *cliauth.Manager, cliauthRefresher *cliauth.AutoRefresher, staticRoutes []routepkg.AgentRoute, staticVirtualKeys []virtualkeypkg.VirtualKey, staticProviders ...map[string]provider.Provider) *gateway.AgentGateway {
 	var providers map[string]provider.Provider
 	if len(staticProviders) > 0 {
 		providers = staticProviders[0]
 	}
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
-		ConfigStore:       configStore,
-		StaticRoutes:      staticRoutes,
-		StaticVirtualKeys: staticVirtualKeys,
-		StaticProviders:   providers,
-		CLIAuthManager:    cliauthMgr,
-		CLIAuthRefresher:  cliauthRefresher,
+		ConfigStoreBackend: configStoreBackend,
+		StaticRoutes:       staticRoutes,
+		StaticVirtualKeys:  staticVirtualKeys,
+		StaticProviders:    providers,
+		CLIAuthManager:     cliauthMgr,
+		CLIAuthRefresher:   cliauthRefresher,
 	}); err != nil {
 		panic(err)
 	}
 	return agentGateway
 }
 
-func (s *testConfigStore) GetCredentialStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.CredentialStorer, error) {
-	return nil, nil
+func (s *testConfigStore) Register(string, configstore.StoreSchema) error {
+	return nil
 }
 
-func (s *testConfigStore) GetProviderConfigStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.ProviderConfigStorer, error) {
-	return s.providerStore, nil
-}
-
-func (s *testConfigStore) GetVirtualKeyStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.VirtualKeyStorer, error) {
-	return s.virtualKeyStore, nil
-}
-
-func (s *testConfigStore) GetRouteStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.RouteStorer, error) {
-	return s.routeStore, nil
-}
-
-func (s *testConfigStore) GetModelStore(context.Context, configstoreintf.ConfigObjectDecoder) (configstoreintf.ModelStorer, error) {
-	return s.modelStore, nil
+func (s *testConfigStore) Get(name string) (configstore.ConfigStore, error) {
+	switch name {
+	case configstoreschema.StoreProviders:
+		return s.providerStore, nil
+	case configstoreschema.StoreRoutes:
+		return s.routeStore, nil
+	case configstoreschema.StoreVirtualKeys:
+		return s.virtualKeyStore, nil
+	case configstoreschema.StoreManagedModels:
+		return s.modelStore, nil
+	case configstoreschema.StoreCredentials:
+		return nil, nil
+	default:
+		return nil, configstore.ErrNotFound
+	}
 }
 
 type testModelStore struct {
@@ -84,13 +85,23 @@ func (s *testModelStore) List(_ context.Context) ([]any, error) {
 	return out, nil
 }
 
-func (s *testModelStore) Get(_ context.Context, providerID string, upstreamModel string) (any, bool, error) {
+func (s *testModelStore) ListByTag(context.Context, string) ([]any, error) {
+	return s.List(context.Background())
+}
+
+func (s *testModelStore) ListByTagPrefix(context.Context, string) ([]any, error) {
+	return s.List(context.Background())
+}
+
+func (s *testModelStore) Get(_ context.Context, keyParts ...any) (any, error) {
+	providerID, _ := keyParts[0].(string)
+	upstreamModel, _ := keyParts[1].(string)
 	item, ok := s.items[providerID+"\x00"+upstreamModel]
 	if !ok {
-		return nil, false, nil
+		return nil, configstore.ErrNotFound
 	}
 	cloned := *item
-	return &cloned, true, nil
+	return &cloned, nil
 }
 
 func (s *testModelStore) Create(_ context.Context, obj any) error {
@@ -120,16 +131,22 @@ func (s *testModelStore) Update(_ context.Context, obj any) error {
 	}
 	key := item.ProviderID + "\x00" + item.UpstreamModel
 	if _, exists := s.items[key]; !exists {
-		return gorm.ErrRecordNotFound
+		return configstore.ErrNotFound
 	}
 	cloned := *item
 	s.items[key] = &cloned
 	return nil
 }
 
-func (s *testModelStore) Delete(_ context.Context, providerID string, upstreamModel string) error {
+func (s *testModelStore) Delete(_ context.Context, keyParts ...any) error {
+	providerID, _ := keyParts[0].(string)
+	upstreamModel, _ := keyParts[1].(string)
 	delete(s.items, providerID+"\x00"+upstreamModel)
 	return nil
+}
+
+func (s *testModelStore) GetByIndex(context.Context, string, any) (any, error) {
+	return nil, configstore.ErrNotFound
 }
 
 type testRouteStore struct {
@@ -148,6 +165,10 @@ func (s *testRouteStore) ListByTag(_ context.Context, tag string) ([]any, error)
 	return out, nil
 }
 
+func (s *testRouteStore) List(ctx context.Context) ([]any, error) {
+	return s.ListByTag(ctx, "")
+}
+
 func (s *testRouteStore) ListByTagPrefix(_ context.Context, tagPrefix string) ([]any, error) {
 	out := make([]any, 0, len(s.items))
 	for id, item := range s.items {
@@ -159,7 +180,14 @@ func (s *testRouteStore) ListByTagPrefix(_ context.Context, tagPrefix string) ([
 	return out, nil
 }
 
-func (s *testRouteStore) Create(_ context.Context, id string, tag string, obj any) error {
+func (s *testRouteStore) Create(_ context.Context, obj any) error {
+	tag := ""
+	if carrier, ok := obj.(interface{ ConfigStoreTag() string }); ok {
+		tag = carrier.ConfigStoreTag()
+	}
+	if unwrapper, ok := obj.(interface{ ConfigStoreObject() any }); ok {
+		obj = unwrapper.ConfigStoreObject()
+	}
 	r, ok := obj.(*routepkg.AgentRoute)
 	if !ok {
 		return errors.New("unexpected type")
@@ -171,30 +199,40 @@ func (s *testRouteStore) Create(_ context.Context, id string, tag string, obj an
 		s.tags = map[string]string{}
 	}
 	cloned := *r
-	s.items[id] = &cloned
-	s.tags[id] = tag
+	s.items[cloned.ID] = &cloned
+	s.tags[cloned.ID] = tag
 	return nil
 }
 
-func (s *testRouteStore) Update(ctx context.Context, id string, obj any) error {
-	if _, ok := s.items[id]; !ok {
-		return gorm.ErrRecordNotFound
+func (s *testRouteStore) Update(ctx context.Context, obj any) error {
+	r, ok := obj.(*routepkg.AgentRoute)
+	if !ok {
+		return errors.New("unexpected type")
 	}
-	return s.Create(ctx, id, s.tags[id], obj)
+	if _, ok := s.items[r.ID]; !ok {
+		return configstore.ErrNotFound
+	}
+	return s.Create(ctx, obj)
 }
 
-func (s *testRouteStore) Delete(_ context.Context, id string) error {
+func (s *testRouteStore) Delete(_ context.Context, keyParts ...any) error {
+	id, _ := keyParts[0].(string)
 	delete(s.items, id)
 	delete(s.tags, id)
 	return nil
 }
 
-func (s *testRouteStore) Get(_ context.Context, id string) (any, error) {
+func (s *testRouteStore) Get(_ context.Context, keyParts ...any) (any, error) {
+	id, _ := keyParts[0].(string)
 	item, ok := s.items[id]
 	if !ok {
-		return nil, gorm.ErrRecordNotFound
+		return nil, configstore.ErrNotFound
 	}
 	return item, nil
+}
+
+func (s *testRouteStore) GetByIndex(context.Context, string, any) (any, error) {
+	return nil, configstore.ErrNotFound
 }
 
 type testVirtualKeyStore struct {
@@ -205,7 +243,11 @@ type testProviderConfigStore struct {
 	items map[string]*provider.ProviderConfig
 }
 
-func (s *testProviderConfigStore) ListByType(_ context.Context, name string) ([]any, error) {
+func (s *testProviderConfigStore) List(ctx context.Context) ([]any, error) {
+	return s.ListByTag(ctx, "")
+}
+
+func (s *testProviderConfigStore) ListByTag(_ context.Context, name string) ([]any, error) {
 	out := make([]any, 0, len(s.items))
 	for _, item := range s.items {
 		if name != "" && item.ProviderType != name {
@@ -217,48 +259,55 @@ func (s *testProviderConfigStore) ListByType(_ context.Context, name string) ([]
 	return out, nil
 }
 
-func (s *testProviderConfigStore) Create(_ context.Context, id string, name string, obj any) (string, error) {
+func (s *testProviderConfigStore) ListByTagPrefix(ctx context.Context, tagPrefix string) ([]any, error) {
+	return s.ListByTag(ctx, tagPrefix)
+}
+
+func (s *testProviderConfigStore) Create(_ context.Context, obj any) error {
 	cfg, ok := obj.(*provider.ProviderConfig)
 	if !ok {
-		return "", errors.New("unexpected type")
+		return errors.New("unexpected type")
 	}
 	if s.items == nil {
 		s.items = map[string]*provider.ProviderConfig{}
 	}
 	cloned := *cfg
-	cloned.Id = id
-	if cloned.ProviderType == "" {
-		cloned.ProviderType = name
-	}
-	s.items[id] = &cloned
-	return id, nil
+	s.items[cloned.Id] = &cloned
+	return nil
 }
 
-func (s *testProviderConfigStore) Update(_ context.Context, id string, obj any) error {
-	if _, ok := s.items[id]; !ok {
-		return gorm.ErrRecordNotFound
+func (s *testProviderConfigStore) Update(ctx context.Context, obj any) error {
+	cfg, ok := obj.(*provider.ProviderConfig)
+	if !ok {
+		return errors.New("unexpected type")
 	}
-	_, err := s.Create(context.Background(), id, "", obj)
-	return err
+	if _, ok := s.items[cfg.Id]; !ok {
+		return configstore.ErrNotFound
+	}
+	return s.Create(ctx, obj)
 }
 
-func (s *testProviderConfigStore) Delete(_ context.Context, id string) error {
+func (s *testProviderConfigStore) Delete(_ context.Context, keyParts ...any) error {
+	id, _ := keyParts[0].(string)
 	if _, ok := s.items[id]; !ok {
-		return gorm.ErrRecordNotFound
+		return configstore.ErrNotFound
 	}
 	delete(s.items, id)
 	return nil
 }
 
-func (s *testProviderConfigStore) Get(_ context.Context, id string) (string, any, error) {
+func (s *testProviderConfigStore) Get(_ context.Context, keyParts ...any) (any, error) {
+	id, _ := keyParts[0].(string)
 	item, ok := s.items[id]
 	if !ok {
-		return "", nil, gorm.ErrRecordNotFound
+		return nil, configstore.ErrNotFound
 	}
 	cloned := *item
-	tag := cloned.ProviderType
-	cloned.ProviderType = ""
-	return tag, &cloned, nil
+	return &cloned, nil
+}
+
+func (s *testProviderConfigStore) GetByIndex(context.Context, string, any) (any, error) {
+	return nil, configstore.ErrNotFound
 }
 
 type stubAdminProvider struct {
@@ -297,7 +346,18 @@ func (s *testVirtualKeyStore) ListByTag(_ context.Context, tag string) ([]any, e
 	return out, nil
 }
 
-func (s *testVirtualKeyStore) Create(_ context.Context, id string, _ string, obj any) error {
+func (s *testVirtualKeyStore) List(ctx context.Context) ([]any, error) {
+	return s.ListByTag(ctx, "")
+}
+
+func (s *testVirtualKeyStore) ListByTagPrefix(ctx context.Context, tagPrefix string) ([]any, error) {
+	return s.ListByTag(ctx, tagPrefix)
+}
+
+func (s *testVirtualKeyStore) Create(_ context.Context, obj any) error {
+	if unwrapper, ok := obj.(interface{ ConfigStoreObject() any }); ok {
+		obj = unwrapper.ConfigStoreObject()
+	}
 	item, ok := obj.(*virtualkeypkg.VirtualKey)
 	if !ok {
 		return errors.New("unexpected type")
@@ -306,37 +366,44 @@ func (s *testVirtualKeyStore) Create(_ context.Context, id string, _ string, obj
 		s.items = map[string]*virtualkeypkg.VirtualKey{}
 	}
 	cloned := *item
-	s.items[id] = &cloned
+	s.items[cloned.ID] = &cloned
 	return nil
 }
 
-func (s *testVirtualKeyStore) Update(ctx context.Context, id string, obj any) error {
-	if _, ok := s.items[id]; !ok {
-		return gorm.ErrRecordNotFound
+func (s *testVirtualKeyStore) Update(ctx context.Context, obj any) error {
+	item, ok := obj.(*virtualkeypkg.VirtualKey)
+	if !ok {
+		return errors.New("unexpected type")
 	}
-	return s.Create(ctx, id, "", obj)
+	if _, ok := s.items[item.ID]; !ok {
+		return configstore.ErrNotFound
+	}
+	return s.Create(ctx, obj)
 }
 
-func (s *testVirtualKeyStore) Delete(_ context.Context, id string) error {
+func (s *testVirtualKeyStore) Delete(_ context.Context, keyParts ...any) error {
+	id, _ := keyParts[0].(string)
 	delete(s.items, id)
 	return nil
 }
 
-func (s *testVirtualKeyStore) Get(_ context.Context, id string) (any, error) {
+func (s *testVirtualKeyStore) Get(_ context.Context, keyParts ...any) (any, error) {
+	id, _ := keyParts[0].(string)
 	item, ok := s.items[id]
 	if !ok {
-		return nil, gorm.ErrRecordNotFound
+		return nil, configstore.ErrNotFound
 	}
 	return item, nil
 }
 
-func (s *testVirtualKeyStore) GetByKey(_ context.Context, key string) (any, error) {
+func (s *testVirtualKeyStore) GetByIndex(_ context.Context, indexName string, value any) (any, error) {
+	key, _ := value.(string)
 	for _, item := range s.items {
 		if item.Key == key {
 			return item, nil
 		}
 	}
-	return nil, gorm.ErrRecordNotFound
+	return nil, configstore.ErrNotFound
 }
 
 func TestRouteCRUD(t *testing.T) {
@@ -625,7 +692,7 @@ func TestVirtualKeyGetMarksStaticKeyAsReadOnly(t *testing.T) {
 
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
-		ConfigStore: &testConfigStore{
+		ConfigStoreBackend: &testConfigStore{
 			virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{}},
 		},
 		StaticVirtualKeys: []virtualkeypkg.VirtualKey{
@@ -672,7 +739,7 @@ func TestVirtualKeyListMarksStaticKeysAsReadOnly(t *testing.T) {
 	}}
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
-		ConfigStore: &testConfigStore{virtualKeyStore: store},
+		ConfigStoreBackend: &testConfigStore{virtualKeyStore: store},
 		StaticVirtualKeys: []virtualkeypkg.VirtualKey{
 			{ID: "vk-static", Key: "lk-static", Tag: "static key"},
 		},
@@ -1128,7 +1195,7 @@ func TestCredentialListIncludesProviderStaticAPIKeysAsReadOnly(t *testing.T) {
 	credMgr := credentialmgr.NewManager(nil)
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
-		ConfigStore: &testConfigStore{
+		ConfigStoreBackend: &testConfigStore{
 			providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
 		},
 		CredentialManager: credMgr,
@@ -1295,7 +1362,7 @@ func TestCredentialUpdateRejectsProviderStaticAPIKeys(t *testing.T) {
 	credMgr := credentialmgr.NewManager(nil)
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
-		ConfigStore: &testConfigStore{
+		ConfigStoreBackend: &testConfigStore{
 			providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
 		},
 		CredentialManager: credMgr,
@@ -1350,7 +1417,7 @@ func TestCredentialGetPrefersReadOnlyViewForProviderStaticAPIKeys(t *testing.T) 
 	credMgr := credentialmgr.NewManager(nil)
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
-		ConfigStore: &testConfigStore{
+		ConfigStoreBackend: &testConfigStore{
 			providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
 		},
 		CredentialManager: credMgr,
@@ -1407,7 +1474,7 @@ func TestCredentialGetUsesStableManagerTimestampsForProviderStaticAPIKeys(t *tes
 	credMgr := credentialmgr.NewManager(nil)
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
-		ConfigStore: &testConfigStore{
+		ConfigStoreBackend: &testConfigStore{
 			providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
 		},
 		CredentialManager: credMgr,

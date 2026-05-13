@@ -1,4 +1,4 @@
-package intf
+package configstore
 
 import "errors"
 

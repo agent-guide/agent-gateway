@@ -7,7 +7,7 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/httpcapture"
 	"github.com/agent-guide/agent-gateway/internal/httplog"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
-	"github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
@@ -18,22 +18,22 @@ import (
 
 // Handler handles Admin API requests under /admin/.
 type Handler struct {
-	cliauthManager    *cliauth.Manager
-	cliauthRefresher  *cliauth.AutoRefresher
-	credentialManager *credentialmgr.Manager
-	configStore       intf.ConfigStorer
-	routeManager      *routepkg.AgentRouteManager
-	virtualKeyManager *virtualkeypkg.VirtualKeyManager
-	providerManager   *gateway.ProviderManager
-	modelCatalog      modelcatalog.Service
-	mux               *http.ServeMux
-	logger            *zap.Logger
-	cliAuthMu         sync.RWMutex
-	cliAuthSessions   map[string]cliAuthStatus // login_id -> cliAuthStatus
-	cliAuthActive     map[string]string        // cliname -> login_id
-	sessions          *sessionStore
-	adminUsername     string
-	adminPasswordHash string
+	cliauthManager     *cliauth.Manager
+	cliauthRefresher   *cliauth.AutoRefresher
+	credentialManager  *credentialmgr.Manager
+	configStoreBackend configstore.ConfigStoreBackend
+	routeManager       *routepkg.AgentRouteManager
+	virtualKeyManager  *virtualkeypkg.VirtualKeyManager
+	providerManager    *gateway.ProviderManager
+	modelCatalog       modelcatalog.Service
+	mux                *http.ServeMux
+	logger             *zap.Logger
+	cliAuthMu          sync.RWMutex
+	cliAuthSessions    map[string]cliAuthStatus // login_id -> cliAuthStatus
+	cliAuthActive      map[string]string        // cliname -> login_id
+	sessions           *sessionStore
+	adminUsername      string
+	adminPasswordHash  string
 }
 
 // NewHandler constructs an admin Handler.
@@ -46,7 +46,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 	var cliauthMgr *cliauth.Manager
 	var cliauthRefresher *cliauth.AutoRefresher
 	var credentialMgr *credentialmgr.Manager
-	var configStore intf.ConfigStorer
+	var configStoreBackend configstore.ConfigStoreBackend
 	var routeManager *routepkg.AgentRouteManager
 	var virtualKeyManager *virtualkeypkg.VirtualKeyManager
 	var providerManager *gateway.ProviderManager
@@ -55,7 +55,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 		cliauthMgr = agentGateway.CLIAuthManager()
 		cliauthRefresher = agentGateway.CLIAuthRefresher()
 		credentialMgr = agentGateway.CredentialManager()
-		configStore = agentGateway.ConfigStore()
+		configStoreBackend = agentGateway.ConfigStoreBackend()
 		routeManager = agentGateway.AgentRouteManager()
 		virtualKeyManager = agentGateway.VirtualKeyManager()
 		providerManager = agentGateway.ProviderManager()
@@ -63,20 +63,20 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 	}
 
 	h := &Handler{
-		cliauthManager:    cliauthMgr,
-		cliauthRefresher:  cliauthRefresher,
-		credentialManager: credentialMgr,
-		configStore:       configStore,
-		routeManager:      routeManager,
-		virtualKeyManager: virtualKeyManager,
-		providerManager:   providerManager,
-		modelCatalog:      modelCatalogSvc,
-		logger:            logger,
-		cliAuthSessions:   map[string]cliAuthStatus{},
-		cliAuthActive:     map[string]string{},
-		sessions:          newSessionStore(),
-		adminUsername:     adminUser,
-		adminPasswordHash: adminPasswordHash,
+		cliauthManager:     cliauthMgr,
+		cliauthRefresher:   cliauthRefresher,
+		credentialManager:  credentialMgr,
+		configStoreBackend: configStoreBackend,
+		routeManager:       routeManager,
+		virtualKeyManager:  virtualKeyManager,
+		providerManager:    providerManager,
+		modelCatalog:       modelCatalogSvc,
+		logger:             logger,
+		cliAuthSessions:    map[string]cliAuthStatus{},
+		cliAuthActive:      map[string]string{},
+		sessions:           newSessionStore(),
+		adminUsername:      adminUser,
+		adminPasswordHash:  adminPasswordHash,
 	}
 	h.mux = http.NewServeMux()
 	for _, route := range h.Routes() {

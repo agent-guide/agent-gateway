@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
 )
 
 var (
@@ -28,10 +28,10 @@ type VirtualKeyManager struct {
 	dynamicCacheByID map[string]VirtualKey
 	dynamicKeyIndex  map[string]string
 
-	store configstoreintf.VirtualKeyStorer
+	store configstore.ConfigStore
 }
 
-func NewVirtualKeyManager(store configstoreintf.VirtualKeyStorer) *VirtualKeyManager {
+func NewVirtualKeyManager(store configstore.ConfigStore) *VirtualKeyManager {
 	return &VirtualKeyManager{
 		staticKeysByID:   map[string]VirtualKey{},
 		staticKeyIndex:   map[string]string{},
@@ -99,9 +99,9 @@ func (m *VirtualKeyManager) GetByKey(ctx context.Context, key string) (VirtualKe
 		return VirtualKey{}, ErrVirtualKeyNotConfigured
 	}
 
-	item, err := store.GetByKey(ctx, key)
+	item, err := store.GetByIndex(ctx, "key", key)
 	if err != nil {
-		if errors.Is(err, configstoreintf.ErrNotFound) {
+		if errors.Is(err, configstore.ErrNotFound) {
 			return VirtualKey{}, ErrVirtualKeyNotConfigured
 		}
 		return VirtualKey{}, fmt.Errorf("load virtual key %q: %w", key, err)
@@ -139,7 +139,7 @@ func (m *VirtualKeyManager) GetByID(ctx context.Context, id string) (VirtualKey,
 
 	item, err := store.Get(ctx, id)
 	if err != nil {
-		if errors.Is(err, configstoreintf.ErrNotFound) {
+		if errors.Is(err, configstore.ErrNotFound) {
 			return VirtualKey{}, ErrVirtualKeyNotConfigured
 		}
 		return VirtualKey{}, fmt.Errorf("load virtual key %q: %w", id, err)
@@ -212,7 +212,7 @@ func (m *VirtualKeyManager) Create(ctx context.Context, key VirtualKey) error {
 		return fmt.Errorf("virtual key store is not configured")
 	}
 	key.NormalizeTimestamps(time.Now().UTC())
-	if err := store.Create(ctx, key.ID, key.Tag, &key); err != nil {
+	if err := store.Create(ctx, storedVirtualKey{key: &key, tag: key.Tag}); err != nil {
 		return err
 	}
 
@@ -243,12 +243,25 @@ func (m *VirtualKeyManager) Update(ctx context.Context, id string, key VirtualKe
 	if store == nil {
 		return fmt.Errorf("virtual key store is not configured")
 	}
-	if err := store.Update(ctx, id, &key); err != nil {
+	if err := store.Update(ctx, &key); err != nil {
 		return err
 	}
 
 	m.cacheDynamicKey(key)
 	return nil
+}
+
+type storedVirtualKey struct {
+	key any
+	tag string
+}
+
+func (k storedVirtualKey) ConfigStoreObject() any {
+	return k.key
+}
+
+func (k storedVirtualKey) ConfigStoreTag() string {
+	return k.tag
 }
 
 func (m *VirtualKeyManager) Delete(ctx context.Context, id string) error {

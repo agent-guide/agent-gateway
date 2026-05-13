@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sync"
 
-	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
@@ -39,10 +39,10 @@ type ProviderManager struct {
 	staticProviders map[string]provider.Provider
 	dynamicCache    map[string]cachedProviderEntry
 
-	store configstoreintf.ProviderConfigStorer
+	store configstore.ConfigStore
 }
 
-func NewProviderManager(store configstoreintf.ProviderConfigStorer) *ProviderManager {
+func NewProviderManager(store configstore.ConfigStore) *ProviderManager {
 	return &ProviderManager{
 		staticProviders: map[string]provider.Provider{},
 		dynamicCache:    map[string]cachedProviderEntry{},
@@ -113,15 +113,15 @@ func (m *ProviderManager) GetConfig(ctx context.Context, providerID string) (pro
 		return provider.ProviderConfig{}, fmt.Errorf("%w: %q", ErrProviderNotConfigured, providerID)
 	}
 
-	tag, obj, err := store.Get(ctx, providerID)
+	obj, err := store.Get(ctx, providerID)
 	if err != nil {
-		if errors.Is(err, configstoreintf.ErrNotFound) {
+		if errors.Is(err, configstore.ErrNotFound) {
 			return provider.ProviderConfig{}, fmt.Errorf("%w: %q", ErrProviderNotConfigured, providerID)
 		}
 		return provider.ProviderConfig{}, fmt.Errorf("load provider %q: %w", providerID, err)
 	}
 
-	cfg, err := decodeProviderConfigItem(providerID, tag, obj)
+	cfg, err := decodeProviderConfigItem(providerID, "", obj)
 	if err != nil {
 		return provider.ProviderConfig{}, err
 	}
@@ -150,7 +150,7 @@ func (m *ProviderManager) ListConfigs(ctx context.Context, opts ProviderListOpti
 		return mapProviderConfigs(out), nil
 	}
 
-	items, err := store.ListByType(ctx, opts.ProviderType)
+	items, err := store.ListByTag(ctx, opts.ProviderType)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +184,7 @@ func (m *ProviderManager) CreateConfig(ctx context.Context, cfg provider.Provide
 	if store == nil {
 		return fmt.Errorf("provider store is not configured")
 	}
-	if _, err := store.Create(ctx, cfg.Id, cfg.ProviderType, &cfg); err != nil {
+	if err := store.Create(ctx, &cfg); err != nil {
 		return err
 	}
 
@@ -211,7 +211,7 @@ func (m *ProviderManager) UpdateConfig(ctx context.Context, providerID string, c
 	if store == nil {
 		return fmt.Errorf("provider store is not configured")
 	}
-	if err := store.Update(ctx, providerID, &cfg); err != nil {
+	if err := store.Update(ctx, &cfg); err != nil {
 		return err
 	}
 
@@ -316,10 +316,10 @@ func (m *ProviderManager) cacheDynamicProvider(providerID string, entry cachedPr
 	m.dynamicCache[providerID] = entry
 }
 
-func (m *ProviderManager) loadDynamicProviderConfig(ctx context.Context, providerID string, store configstoreintf.ProviderConfigStorer) (dynamicProviderConfigItem, error) {
-	tag, obj, err := store.Get(ctx, providerID)
+func (m *ProviderManager) loadDynamicProviderConfig(ctx context.Context, providerID string, store configstore.ConfigStore) (dynamicProviderConfigItem, error) {
+	obj, err := store.Get(ctx, providerID)
 	if err != nil {
-		if errors.Is(err, configstoreintf.ErrNotFound) {
+		if errors.Is(err, configstore.ErrNotFound) {
 			return dynamicProviderConfigItem{}, fmt.Errorf("%w: %q", ErrProviderNotConfigured, providerID)
 		}
 		return dynamicProviderConfigItem{}, err
@@ -331,7 +331,7 @@ func (m *ProviderManager) loadDynamicProviderConfig(ctx context.Context, provide
 	}
 
 	return dynamicProviderConfigItem{
-		tag:         tag,
+		tag:         "",
 		obj:         obj,
 		fingerprint: fingerprint,
 	}, nil

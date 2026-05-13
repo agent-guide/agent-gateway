@@ -59,26 +59,38 @@ type testCredentialStore struct {
 	items []any
 }
 
-func (s *testCredentialStore) ListByProviderType(_ context.Context, _ string) ([]any, error) {
+func (s *testCredentialStore) List(ctx context.Context) ([]any, error) {
+	return s.ListByTagPrefix(ctx, "")
+}
+
+func (s *testCredentialStore) ListByTag(_ context.Context, _ string) ([]any, error) {
+	return s.ListByTagPrefix(context.Background(), "")
+}
+
+func (s *testCredentialStore) ListByTagPrefix(_ context.Context, _ string) ([]any, error) {
 	out := make([]any, len(s.items))
 	copy(out, s.items)
 	return out, nil
 }
 
-func (s *testCredentialStore) Create(_ context.Context, _ string, _ string, _ any) (string, error) {
-	return "", nil
-}
-
-func (s *testCredentialStore) Update(_ context.Context, _ string, _ any) error {
+func (s *testCredentialStore) Create(_ context.Context, _ any) error {
 	return nil
 }
 
-func (s *testCredentialStore) Delete(_ context.Context, _ string) error {
+func (s *testCredentialStore) Update(_ context.Context, _ any) error {
 	return nil
 }
 
-func (s *testCredentialStore) Get(_ context.Context, _ string) (string, any, error) {
-	return "", nil, nil
+func (s *testCredentialStore) Delete(_ context.Context, _ ...any) error {
+	return nil
+}
+
+func (s *testCredentialStore) Get(_ context.Context, _ ...any) (any, error) {
+	return nil, nil
+}
+
+func (s *testCredentialStore) GetByIndex(context.Context, string, any) (any, error) {
+	return nil, nil
 }
 
 type testManualRefresher struct {

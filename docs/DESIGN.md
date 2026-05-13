@@ -171,7 +171,7 @@ This is distinct from local gateway API keys. Upstream provider credentials and 
 
 ### 4.6 `pkg/configstore/` And `caddy/configstore/`: Persistent Control Data
 
-The default config store is `agent_gateway.config_stores.sqlite`.
+The default config store backend is `agent_gateway.config_store_backends.sqlite`.
 
 It persists:
 
@@ -179,8 +179,11 @@ It persists:
 - route definitions
 - virtual keys
 - upstream provider credentials
+- managed model overlays
 
 SQLite is the only storage backend that is provisioned end-to-end today.
+
+The runtime storage API is schema-bound. `ConfigStoreBackend.Register(name, schema)` validates a schema, prepares storage, creates a schema-bound generic `ConfigStore`, and caches it. `ConfigStoreBackend.Get(name)` returns the cached store. The gateway registers the canonical schemas for providers, credentials, routes, virtual keys, and managed models during startup. Generic store interfaces and schema primitives live under `pkg/configstore/`; built-in business schemas live under `pkg/configstore/schema/`.
 
 The config store is important for one reason beyond persistence: it allows some route and provider updates to take effect dynamically without rewriting the entire Caddy config.
 
@@ -398,7 +401,9 @@ This integrates naturally with the existing admin CLI login API.
 
 ### 9.3 New Config Store
 
-Add a module under `agent_gateway.config_stores.<name>` that implements `pkg/configstore/intf.ConfigStorer`.
+Add a store creator factory through `pkg/configstore.RegisterConfigStoreFactory(...)`. If the backend should be available in Caddy config, add a Caddy adapter under `agent_gateway.config_store_backends.<name>`.
+
+A backend-specific creator should implement `pkg/configstore.ConfigStoreCreator`. The shared `pkg/configstore.Backend` implements `pkg/configstore.ConfigStoreBackend`: `Register(name, schema)` validates and caches a schema-bound store from the creator, and `Get(name)` returns the cached store.
 
 This path exists architecturally, but SQLite is the only end-to-end store currently exercised by the main runtime.
 

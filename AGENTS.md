@@ -253,17 +253,23 @@ This package manages persisted upstream credentials and selection state. It is s
 
 Important packages:
 
-- `pkg/configstore/intf/`: storage interfaces
-- `pkg/configstore/sqlite/`: SQLite implementation
-- `caddy/configstore/sqlite/`: SQLite Caddy adapter
+- `pkg/configstore/`: generic store/backend interfaces, shared schema primitives, backend factory, and backend registration
+- `pkg/configstore/schema/`: store names and built-in business schemas for persisted config object families
+- `pkg/configstore/sqlite/`: SQLite JSON backend implementation
+- `caddy/configstore/sqlite/`: SQLite backend Caddy adapter
 
-The top-level storage interface is `ConfigStorer`, which vends:
+The top-level storage interface is `ConfigStoreBackend`, which registers and returns schema-bound generic stores:
 
-- `CredentialStorer`
-- `ProviderConfigStorer`
-- `VirtualKeyStorer`
-- `RouteStorer`
-- `ModelStorer`
+- `Register(name string, schema StoreSchema) error`
+- `Get(name string) (ConfigStore, error)`
+
+Current store names:
+
+- `providers`
+- `credentials`
+- `routes`
+- `virtual_keys`
+- `managed_models`
 
 Current persisted backend:
 

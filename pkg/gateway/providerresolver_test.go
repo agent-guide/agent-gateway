@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"github.com/cloudwego/eino/schema"
 )
@@ -17,7 +17,11 @@ type testManagedProviderStore struct {
 	getCalls int
 }
 
-func (s *testManagedProviderStore) ListByType(_ context.Context, name string) ([]any, error) {
+func (s *testManagedProviderStore) List(context.Context) ([]any, error) {
+	return s.ListByTag(context.Background(), "")
+}
+
+func (s *testManagedProviderStore) ListByTag(_ context.Context, name string) ([]any, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -32,10 +36,14 @@ func (s *testManagedProviderStore) ListByType(_ context.Context, name string) ([
 	return out, nil
 }
 
-func (s *testManagedProviderStore) Create(_ context.Context, id string, name string, obj any) (string, error) {
+func (s *testManagedProviderStore) ListByTagPrefix(ctx context.Context, tagPrefix string) ([]any, error) {
+	return s.ListByTag(ctx, tagPrefix)
+}
+
+func (s *testManagedProviderStore) Create(_ context.Context, obj any) error {
 	cfg, ok := obj.(*provider.ProviderConfig)
 	if !ok {
-		return "", nil
+		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -44,15 +52,11 @@ func (s *testManagedProviderStore) Create(_ context.Context, id string, name str
 		s.items = map[string]*provider.ProviderConfig{}
 	}
 	cloned := *cfg
-	cloned.Id = id
-	if cloned.ProviderType == "" {
-		cloned.ProviderType = name
-	}
-	s.items[id] = &cloned
-	return id, nil
+	s.items[cloned.Id] = &cloned
+	return nil
 }
 
-func (s *testManagedProviderStore) Update(_ context.Context, id string, obj any) error {
+func (s *testManagedProviderStore) Update(_ context.Context, obj any) error {
 	cfg, ok := obj.(*provider.ProviderConfig)
 	if !ok {
 		return nil
@@ -61,14 +65,14 @@ func (s *testManagedProviderStore) Update(_ context.Context, id string, obj any)
 	defer s.mu.Unlock()
 
 	cloned := *cfg
-	cloned.Id = id
-	s.items[id] = &cloned
+	s.items[cloned.Id] = &cloned
 	return nil
 }
 
-func (s *testManagedProviderStore) Delete(_ context.Context, id string) error {
+func (s *testManagedProviderStore) Delete(_ context.Context, keyParts ...any) error {
+	id, _ := keyParts[0].(string)
 	if _, ok := s.items[id]; !ok {
-		return configstoreintf.ErrNotFound
+		return configstore.ErrNotFound
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -77,22 +81,23 @@ func (s *testManagedProviderStore) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-func (s *testManagedProviderStore) Get(_ context.Context, id string) (string, any, error) {
+func (s *testManagedProviderStore) Get(_ context.Context, keyParts ...any) (any, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.getCalls++
+	id, _ := keyParts[0].(string)
 	item := s.items[id]
 	if item == nil {
-		return "", nil, configstoreintf.ErrNotFound
+		return nil, configstore.ErrNotFound
 	}
 	cloned := *item
-	tag := cloned.ProviderType
-	cloned.ProviderType = ""
-	return tag, &cloned, nil
+	return &cloned, nil
 }
 
-var _ configstoreintf.ProviderConfigStorer = (*testManagedProviderStore)(nil)
+func (s *testManagedProviderStore) GetByIndex(context.Context, string, any) (any, error) {
+	return nil, configstore.ErrNotFound
+}
 
 type countingProvider struct {
 	instance int

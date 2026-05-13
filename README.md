@@ -56,9 +56,10 @@ The request path today is centered on LLM routing. MCP, memory, metrics, and age
 - `caddy/provider/` - Caddy provider module adapters
 - `pkg/cliauth/` - CLI login authenticators and manager
 - `pkg/llm/credentialmgr/` - upstream credential registration and scheduling state
-- `pkg/configstore/intf/` - storage interfaces
-- `pkg/configstore/sqlite/` - SQLite-backed persisted configuration runtime
-- `caddy/configstore/sqlite/` - SQLite config store Caddy adapter
+- `pkg/configstore/` - generic config store interfaces, schema primitives, backend factory, and registration
+- `pkg/configstore/schema/` - store names and built-in schemas for persisted config object families
+- `pkg/configstore/sqlite/` - SQLite JSON persisted configuration backend
+- `caddy/configstore/sqlite/` - SQLite config store backend Caddy adapter
 - `standalone/server/` - standalone HTTP server assembly used by `agwd`
 - `pkg/mcp/` - early MCP transport and client scaffolding
 - `pkg/llm/memory/`, `pkg/llm/agent/` - early memory and agent runtime scaffolding

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
@@ -29,6 +29,10 @@ func (r testRouteProviderResolver) ResolveProvider(_ context.Context, providerID
 	return nil, "", fmt.Errorf("provider %q is not configured", providerID)
 }
 
+func (s *testManagedRouteStore) List(ctx context.Context) ([]any, error) {
+	return s.ListByTag(ctx, "")
+}
+
 func (s *testManagedRouteStore) ListByTag(_ context.Context, _ string) ([]any, error) {
 	out := make([]any, 0, len(s.items))
 	for _, item := range s.items {
@@ -42,7 +46,10 @@ func (s *testManagedRouteStore) ListByTagPrefix(_ context.Context, _ string) ([]
 	return s.ListByTag(context.Background(), "")
 }
 
-func (s *testManagedRouteStore) Create(_ context.Context, id string, _ string, obj any) error {
+func (s *testManagedRouteStore) Create(_ context.Context, obj any) error {
+	if unwrapper, ok := obj.(interface{ ConfigStoreObject() any }); ok {
+		obj = unwrapper.ConfigStoreObject()
+	}
 	route, ok := obj.(*AgentRoute)
 	if !ok {
 		return errors.New("unexpected type")
@@ -51,30 +58,40 @@ func (s *testManagedRouteStore) Create(_ context.Context, id string, _ string, o
 		s.items = map[string]*AgentRoute{}
 	}
 	cloned := *route
-	s.items[id] = &cloned
+	s.items[cloned.ID] = &cloned
 	return nil
 }
 
-func (s *testManagedRouteStore) Update(_ context.Context, id string, obj any) error {
-	if _, ok := s.items[id]; !ok {
-		return configstoreintf.ErrNotFound
+func (s *testManagedRouteStore) Update(_ context.Context, obj any) error {
+	route, ok := obj.(*AgentRoute)
+	if !ok {
+		return errors.New("unexpected type")
 	}
-	return s.Create(context.Background(), id, "", obj)
+	if _, ok := s.items[route.ID]; !ok {
+		return configstore.ErrNotFound
+	}
+	return s.Create(context.Background(), obj)
 }
 
-func (s *testManagedRouteStore) Delete(_ context.Context, id string) error {
+func (s *testManagedRouteStore) Delete(_ context.Context, keyParts ...any) error {
+	id, _ := keyParts[0].(string)
 	delete(s.items, id)
 	return nil
 }
 
-func (s *testManagedRouteStore) Get(_ context.Context, id string) (any, error) {
+func (s *testManagedRouteStore) Get(_ context.Context, keyParts ...any) (any, error) {
 	s.getCalls++
+	id, _ := keyParts[0].(string)
 	item, ok := s.items[id]
 	if !ok {
-		return nil, configstoreintf.ErrNotFound
+		return nil, configstore.ErrNotFound
 	}
 	cloned := *item
 	return &cloned, nil
+}
+
+func (s *testManagedRouteStore) GetByIndex(context.Context, string, any) (any, error) {
+	return nil, configstore.ErrNotFound
 }
 
 func TestAgentRouteManagerGetCachesDynamicRoute(t *testing.T) {

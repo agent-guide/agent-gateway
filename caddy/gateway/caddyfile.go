@@ -127,7 +127,7 @@ func parseConfigStore(d *caddyfile.Dispenser, app *App) error {
 		return d.ArgErr()
 	}
 	name := d.Val()
-	modID := "agent_gateway.config_stores." + name
+	modID := "agent_gateway.config_store_backends." + name
 	unm, err := caddyfile.UnmarshalModule(d, modID)
 	if err != nil {
 		return err

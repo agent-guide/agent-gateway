@@ -9,7 +9,8 @@ import (
 	"strings"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
-	"github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	dispatcherpkg "github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
 	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
@@ -918,11 +919,11 @@ func (h *Handler) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 
-func (h *Handler) providerStore() intf.ProviderConfigStorer {
-	if h.configStore == nil {
+func (h *Handler) providerStore() configstore.ConfigStore {
+	if h.configStoreBackend == nil {
 		return nil
 	}
-	providerConfigStore, err := h.configStore.GetProviderConfigStore(context.Background(), provider.DecodeStoredProviderConfig)
+	providerConfigStore, err := h.configStoreBackend.Get(schema.StoreProviders)
 	if err != nil {
 		return nil
 	}
@@ -944,11 +945,11 @@ func (h *Handler) providerManagerForRoutes() *gateway.ProviderManager {
 	return gateway.NewProviderManager(store)
 }
 
-func (h *Handler) routeStore() intf.RouteStorer {
-	if h.configStore == nil {
+func (h *Handler) routeStore() configstore.ConfigStore {
+	if h.configStoreBackend == nil {
 		return nil
 	}
-	store, err := h.configStore.GetRouteStore(context.Background(), routepkg.DecodeStoredRoute)
+	store, err := h.configStoreBackend.Get(schema.StoreRoutes)
 	if err != nil {
 		return nil
 	}
@@ -967,11 +968,11 @@ func (h *Handler) routeManagerForRoutes() *routepkg.AgentRouteManager {
 	return routepkg.NewAgentRouteManager(store)
 }
 
-func (h *Handler) virtualKeyStore() intf.VirtualKeyStorer {
-	if h.configStore == nil {
+func (h *Handler) virtualKeyStore() configstore.ConfigStore {
+	if h.configStoreBackend == nil {
 		return nil
 	}
-	store, err := h.configStore.GetVirtualKeyStore(context.Background(), virtualkeypkg.DecodeStoredVirtualKey)
+	store, err := h.configStoreBackend.Get(schema.StoreVirtualKeys)
 	if err != nil {
 		return nil
 	}

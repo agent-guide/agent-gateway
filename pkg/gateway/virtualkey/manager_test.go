@@ -6,12 +6,16 @@ import (
 	"testing"
 	"time"
 
-	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
 )
 
 type testManagedVirtualKeyStore struct {
 	items    map[string]*VirtualKey
 	getCalls int
+}
+
+func (s *testManagedVirtualKeyStore) List(ctx context.Context) ([]any, error) {
+	return s.ListByTag(ctx, "")
 }
 
 func (s *testManagedVirtualKeyStore) ListByTag(_ context.Context, tag string) ([]any, error) {
@@ -26,7 +30,14 @@ func (s *testManagedVirtualKeyStore) ListByTag(_ context.Context, tag string) ([
 	return out, nil
 }
 
-func (s *testManagedVirtualKeyStore) Create(_ context.Context, id string, _ string, obj any) error {
+func (s *testManagedVirtualKeyStore) ListByTagPrefix(ctx context.Context, tagPrefix string) ([]any, error) {
+	return s.ListByTag(ctx, tagPrefix)
+}
+
+func (s *testManagedVirtualKeyStore) Create(_ context.Context, obj any) error {
+	if unwrapper, ok := obj.(interface{ ConfigStoreObject() any }); ok {
+		obj = unwrapper.ConfigStoreObject()
+	}
 	item, ok := obj.(*VirtualKey)
 	if !ok {
 		return errors.New("unexpected type")
@@ -35,41 +46,48 @@ func (s *testManagedVirtualKeyStore) Create(_ context.Context, id string, _ stri
 		s.items = map[string]*VirtualKey{}
 	}
 	cloned := *item
-	s.items[id] = &cloned
+	s.items[cloned.ID] = &cloned
 	return nil
 }
 
-func (s *testManagedVirtualKeyStore) Update(_ context.Context, id string, obj any) error {
-	if _, ok := s.items[id]; !ok {
-		return configstoreintf.ErrNotFound
+func (s *testManagedVirtualKeyStore) Update(_ context.Context, obj any) error {
+	item, ok := obj.(*VirtualKey)
+	if !ok {
+		return errors.New("unexpected type")
 	}
-	return s.Create(context.Background(), id, "", obj)
+	if _, ok := s.items[item.ID]; !ok {
+		return configstore.ErrNotFound
+	}
+	return s.Create(context.Background(), obj)
 }
 
-func (s *testManagedVirtualKeyStore) Delete(_ context.Context, id string) error {
+func (s *testManagedVirtualKeyStore) Delete(_ context.Context, keyParts ...any) error {
+	id, _ := keyParts[0].(string)
 	delete(s.items, id)
 	return nil
 }
 
-func (s *testManagedVirtualKeyStore) Get(_ context.Context, id string) (any, error) {
+func (s *testManagedVirtualKeyStore) Get(_ context.Context, keyParts ...any) (any, error) {
 	s.getCalls++
+	id, _ := keyParts[0].(string)
 	item, ok := s.items[id]
 	if !ok {
-		return nil, configstoreintf.ErrNotFound
+		return nil, configstore.ErrNotFound
 	}
 	cloned := *item
 	return &cloned, nil
 }
 
-func (s *testManagedVirtualKeyStore) GetByKey(_ context.Context, key string) (any, error) {
+func (s *testManagedVirtualKeyStore) GetByIndex(_ context.Context, indexName string, value any) (any, error) {
 	s.getCalls++
+	key, _ := value.(string)
 	for _, item := range s.items {
 		if item.Key == key {
 			cloned := *item
 			return &cloned, nil
 		}
 	}
-	return nil, configstoreintf.ErrNotFound
+	return nil, configstore.ErrNotFound
 }
 
 func TestVirtualKeyManagerGetCachesDynamicKey(t *testing.T) {

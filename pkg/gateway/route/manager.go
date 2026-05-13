@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
@@ -31,10 +31,10 @@ type AgentRouteManager struct {
 	staticRoutes map[string]AgentRoute
 	dynamicCache map[string]AgentRoute
 
-	routeStore configstoreintf.RouteStorer
+	routeStore configstore.ConfigStore
 }
 
-func NewAgentRouteManager(store configstoreintf.RouteStorer) *AgentRouteManager {
+func NewAgentRouteManager(store configstore.ConfigStore) *AgentRouteManager {
 	return &AgentRouteManager{
 		staticRoutes: map[string]AgentRoute{},
 		dynamicCache: map[string]AgentRoute{},
@@ -98,7 +98,7 @@ func (m *AgentRouteManager) Get(ctx context.Context, routeID string) (AgentRoute
 
 	item, err := store.Get(ctx, routeID)
 	if err != nil {
-		if errors.Is(err, configstoreintf.ErrNotFound) {
+		if errors.Is(err, configstore.ErrNotFound) {
 			return AgentRoute{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
 		}
 		return AgentRoute{}, fmt.Errorf("load route %q: %w", routeID, err)
@@ -177,7 +177,7 @@ func (m *AgentRouteManager) Create(ctx context.Context, route AgentRoute, tag st
 	if store == nil {
 		return fmt.Errorf("route store is not configured")
 	}
-	if err := store.Create(ctx, route.ID, tag, &route); err != nil {
+	if err := store.Create(ctx, storedRoute{route: &route, tag: tag}); err != nil {
 		return err
 	}
 
@@ -208,7 +208,7 @@ func (m *AgentRouteManager) Update(ctx context.Context, routeID string, route Ag
 	if store == nil {
 		return fmt.Errorf("route store is not configured")
 	}
-	if err := store.Update(ctx, routeID, &route); err != nil {
+	if err := store.Update(ctx, &route); err != nil {
 		return err
 	}
 
@@ -238,6 +238,19 @@ func (m *AgentRouteManager) Delete(ctx context.Context, routeID string) error {
 	defer m.mu.Unlock()
 	delete(m.dynamicCache, routeID)
 	return nil
+}
+
+type storedRoute struct {
+	route any
+	tag   string
+}
+
+func (r storedRoute) ConfigStoreObject() any {
+	return r.route
+}
+
+func (r storedRoute) ConfigStoreTag() string {
+	return r.tag
 }
 
 func (m *AgentRouteManager) Validate(ctx context.Context, routeID string, resolver ProviderResolver) error {

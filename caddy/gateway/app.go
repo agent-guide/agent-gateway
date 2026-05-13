@@ -10,7 +10,8 @@ import (
 
 	configstoresqlite "github.com/agent-guide/agent-gateway/caddy/configstore/sqlite"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
-	configstoreIntf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	runtimegateway "github.com/agent-guide/agent-gateway/pkg/gateway"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
@@ -29,7 +30,7 @@ type App struct {
 	// Providers lists the configured LLM providers.
 	ProvidersRaw caddy.ModuleMap `json:"providers,omitempty" caddy:"namespace=llm.providers inline_key=provider_type"`
 	// ConfigStore configures persistent admin/auth state storage.
-	ConfigStoreRaw caddy.ModuleMap `json:"config_store,omitempty" caddy:"namespace=agent_gateway.config_stores"`
+	ConfigStoreRaw caddy.ModuleMap `json:"config_store,omitempty" caddy:"namespace=agent_gateway.config_store_backends"`
 	// Routes lists statically configured gateway routes from the Caddyfile app block.
 	Routes []routepkg.AgentRoute `json:"routes,omitempty"`
 	// Models lists statically configured managed concrete models derived from the Caddyfile app block.
@@ -40,7 +41,7 @@ type App struct {
 	cliauthRefresher *cliauth.AutoRefresher
 	credentialMgr    *credentialmgr.Manager
 	credentialSched  credentialmgrscheduler.CredentialScheduler
-	configStorer     configstoreIntf.ConfigStorer
+	configBackend    configstore.ConfigStoreBackend
 	providers        map[string]provider.Provider
 	agentGateway     *runtimegateway.AgentGateway
 }
@@ -61,7 +62,7 @@ func (a *App) Provision(ctx caddy.Context) error {
 	if err := a.provisionConfigStore(ctx); err != nil {
 		return fmt.Errorf("init config store: %w", err)
 	}
-	credentialStore, err := a.configStorer.GetCredentialStore(ctx, credentialmgr.DecodeCredential)
+	credentialStore, err := a.configBackend.Get(schema.StoreCredentials)
 	if err != nil {
 		return fmt.Errorf("get credential store: %w", err)
 	}
@@ -89,7 +90,7 @@ func (a *App) Provision(ctx caddy.Context) error {
 		StaticRoutes:        a.Routes,
 		StaticProviders:     a.providers,
 		StaticModels:        a.Models,
-		ConfigStore:         a.configStorer,
+		ConfigStoreBackend:  a.configBackend,
 		CLIAuthManager:      a.cliauthManager,
 		CLIAuthRefresher:    a.cliauthRefresher,
 		CredentialManager:   a.credentialMgr,
@@ -124,8 +125,8 @@ func (a *App) AgentGateway() *runtimegateway.AgentGateway {
 	return a.agentGateway
 }
 
-func (a *App) ConfigStore() configstoreIntf.ConfigStorer {
-	return a.configStorer
+func (a *App) ConfigStore() configstore.ConfigStoreBackend {
+	return a.configBackend
 }
 
 // Provider returns a configured provider by name.
@@ -175,7 +176,7 @@ func GetApp(ctx caddy.Context) (*App, error) {
 func (a *App) provisionConfigStore(ctx caddy.Context) error {
 	if len(a.ConfigStoreRaw) == 0 {
 		a.ConfigStoreRaw = caddy.ModuleMap{
-			"sqlite": caddyconfig.JSON(&configstoresqlite.SQLiteConfigStore{}, nil),
+			"sqlite": caddyconfig.JSON(&configstoresqlite.SQLiteConfigStoreBackend{}, nil),
 		}
 	}
 
@@ -186,22 +187,25 @@ func (a *App) provisionConfigStore(ctx caddy.Context) error {
 
 	loaded, ok := modules.(map[string]any)
 	if !ok {
-		return fmt.Errorf("unexpected config store module type %T", modules)
+		return fmt.Errorf("unexpected config store backend module type %T", modules)
 	}
 	if len(loaded) != 1 {
-		return fmt.Errorf("expected exactly one config store module, got %d", len(loaded))
+		return fmt.Errorf("expected exactly one config store backend module, got %d", len(loaded))
 	}
 
 	for name, mod := range loaded {
-		storer, ok := mod.(configstoreIntf.ConfigStorer)
+		backend, ok := mod.(configstore.ConfigStoreBackend)
 		if !ok {
-			return fmt.Errorf("config store module %q does not implement configstore.ConfigStorer", name)
+			return fmt.Errorf("config store backend module %q does not implement configstore.ConfigStoreBackend", name)
 		}
-		a.configStorer = storer
+		if err := schema.RegisterDefaultStores(backend); err != nil {
+			return err
+		}
+		a.configBackend = backend
 		return nil
 	}
 
-	return fmt.Errorf("no config store module loaded")
+	return fmt.Errorf("no config store backend module loaded")
 }
 
 func (a *App) provisionProviders(ctx caddy.Context) error {

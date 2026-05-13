@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/model"
 	"github.com/google/uuid"
 )
@@ -51,7 +51,7 @@ type CredentialLifecycleListener interface {
 }
 
 type Manager struct {
-	store intf.CredentialStorer
+	store configstore.ConfigStore
 
 	mu               sync.RWMutex
 	creds            map[string]*ManagedCredential
@@ -59,7 +59,7 @@ type Manager struct {
 	manualRefreshers map[string]ManualRefresher
 }
 
-func NewManager(store intf.CredentialStorer) *Manager {
+func NewManager(store configstore.ConfigStore) *Manager {
 	m := &Manager{
 		store:            store,
 		creds:            make(map[string]*ManagedCredential),
@@ -132,7 +132,7 @@ func (m *Manager) Load(ctx context.Context) error {
 	if m == nil || m.store == nil {
 		return nil
 	}
-	items, err := m.store.ListByProviderType(ctx, "")
+	items, err := m.store.ListByTagPrefix(ctx, "")
 	if err != nil {
 		return fmt.Errorf("credential manager: load from store: %w", err)
 	}
@@ -152,7 +152,7 @@ func (m *Manager) ReloadFromStore(ctx context.Context) error {
 	if m == nil || m.store == nil {
 		return nil
 	}
-	items, err := m.store.ListByProviderType(ctx, "")
+	items, err := m.store.ListByTagPrefix(ctx, "")
 	if err != nil {
 		return fmt.Errorf("credential manager: reload from store: %w", err)
 	}
@@ -383,7 +383,7 @@ func (m *Manager) create(ctx context.Context, cred *Credential) error {
 	if m.store == nil {
 		return nil
 	}
-	if _, err := m.store.Create(ctx, cred.ID, cred.ProviderType, cred); err != nil {
+	if err := m.store.Create(ctx, cred); err != nil {
 		return fmt.Errorf("credential manager: create credential %s: %w", cred.ID, err)
 	}
 	return nil
@@ -403,7 +403,7 @@ func (m *Manager) update(ctx context.Context, cred *Credential) error {
 	if m.store == nil {
 		return nil
 	}
-	if err := m.store.Update(ctx, cred.ID, cred); err != nil {
+	if err := m.store.Update(ctx, cred); err != nil {
 		return fmt.Errorf("credential manager: update credential %s: %w", cred.ID, err)
 	}
 	return nil

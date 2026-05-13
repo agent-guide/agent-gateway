@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
-	configstoreintf "github.com/agent-guide/agent-gateway/pkg/configstore/intf"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 )
 
@@ -260,7 +260,7 @@ func mapAdminClientError(err error) error {
 		return err
 	}
 	if adminErr.StatusCode == 404 {
-		return configstoreintf.ErrNotFound
+		return configstore.ErrNotFound
 	}
 	return err
 }

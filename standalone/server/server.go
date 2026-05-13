@@ -9,6 +9,8 @@ import (
 
 	"github.com/agent-guide/agent-gateway/pkg/admin"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
+	configstore "github.com/agent-guide/agent-gateway/pkg/configstore"
+	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	configstoresqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
 	"github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	anthropicapi "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/anthropic"
@@ -112,12 +114,15 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 		return nil, nil, err
 	}
 
-	configStore, err := configstoresqlite.Open(ctx, configstoresqlite.Config{SQLitePath: opts.ConfigStorePath}, logger.Named("sqlite"))
+	configstoreBackend, err := configstore.OpenBackend(ctx, "sqlite", configstoresqlite.Config{SQLitePath: opts.ConfigStorePath}, logger.Named("sqlite"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("open config store: %w", err)
 	}
+	if err := schema.RegisterDefaultStores(configstoreBackend); err != nil {
+		return nil, nil, err
+	}
 
-	credentialStore, err := configStore.GetCredentialStore(ctx, credentialmgr.DecodeCredential)
+	credentialStore, err := configstoreBackend.Get(schema.StoreCredentials)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get credential store: %w", err)
 	}
@@ -147,7 +152,7 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 		StaticRoutes:        staticConfig.Routes,
 		StaticProviders:     staticConfig.Providers,
 		StaticModels:        staticConfig.ManagedModels,
-		ConfigStore:         configStore,
+		ConfigStoreBackend:  configstoreBackend,
 		CLIAuthManager:      cliauthManager,
 		CLIAuthRefresher:    cliauthRefresher,
 		CredentialManager:   credentialManager,

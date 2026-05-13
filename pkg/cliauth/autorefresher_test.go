@@ -95,33 +95,45 @@ type stubCredentialStore struct {
 	lastUpdated *credentialmgr.Credential
 }
 
-func (s *stubCredentialStore) ListByProviderType(context.Context, string) ([]any, error) {
+func (s *stubCredentialStore) List(context.Context) ([]any, error) {
 	return nil, nil
 }
 
-func (s *stubCredentialStore) Create(_ context.Context, _ string, _ string, obj any) (string, error) {
+func (s *stubCredentialStore) ListByTag(context.Context, string) ([]any, error) {
+	return nil, nil
+}
+
+func (s *stubCredentialStore) ListByTagPrefix(context.Context, string) ([]any, error) {
+	return nil, nil
+}
+
+func (s *stubCredentialStore) Create(_ context.Context, obj any) error {
 	s.createCalls++
 	cred, _ := obj.(*credentialmgr.Credential)
 	s.lastCreated = cred
 	if cred == nil {
-		return "", nil
+		return nil
 	}
-	return cred.ID, nil
+	return nil
 }
 
-func (s *stubCredentialStore) Update(_ context.Context, _ string, obj any) error {
+func (s *stubCredentialStore) Update(_ context.Context, obj any) error {
 	s.updateCalls++
 	cred, _ := obj.(*credentialmgr.Credential)
 	s.lastUpdated = cred
 	return nil
 }
 
-func (s *stubCredentialStore) Delete(context.Context, string) error {
+func (s *stubCredentialStore) Delete(context.Context, ...any) error {
 	return nil
 }
 
-func (s *stubCredentialStore) Get(context.Context, string) (string, any, error) {
-	return "", nil, nil
+func (s *stubCredentialStore) Get(context.Context, ...any) (any, error) {
+	return nil, nil
+}
+
+func (s *stubCredentialStore) GetByIndex(context.Context, string, any) (any, error) {
+	return nil, nil
 }
 
 func TestRegisterCredentialPersistsWithCreate(t *testing.T) {

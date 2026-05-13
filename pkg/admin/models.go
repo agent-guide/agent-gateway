@@ -1,15 +1,16 @@
 package admin
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
-	"gorm.io/gorm"
 )
 
 type ManagedConcreteModelView struct {
@@ -146,7 +147,7 @@ func (h *Handler) handleUpdateManagedModel(w http.ResponseWriter, r *http.Reques
 	item.UpstreamModel = r.PathValue("upstream_model")
 	item.Normalize()
 	if err := h.modelCatalog.UpdateManagedModel(r.Context(), item); err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, configstore.ErrNotFound) {
 			_ = httpjson.Error(w, http.StatusNotFound, "managed model not found")
 			return
 		}
