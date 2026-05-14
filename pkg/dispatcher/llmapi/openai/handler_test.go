@@ -16,6 +16,8 @@ import (
 	sched "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"github.com/cloudwego/eino/schema"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 type testProvider struct {
@@ -48,6 +50,9 @@ func (p *testProvider) Capabilities() provider.ProviderCapabilities {
 }
 
 func (p *testProvider) Config() provider.ProviderConfig {
+	if p.cfg.ProviderType == "" {
+		p.cfg.ProviderType = "openai"
+	}
 	return p.cfg
 }
 
@@ -230,6 +235,107 @@ func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 	var sc statusCoder
 	if !errors.As(err, &sc) || sc.StatusCode() != http.StatusTooManyRequests {
 		t.Fatalf("expected 429 scheduler error, got %v", err)
+	}
+}
+
+func TestServeLLMApiLogsUpstreamStatusAndBody(t *testing.T) {
+	core, logs := observer.New(zap.ErrorLevel)
+	handler := newHandler()
+	handler.SetLogger(zap.New(core))
+	prov := &testProvider{
+		generateErr: &provider.UpstreamError{
+			Status:     http.StatusUnauthorized,
+			StatusText: "401 Unauthorized",
+			Body:       `{"error":"bad token"}`,
+		},
+	}
+
+	body, err := json.Marshal(ChatCompletionRequest{
+		Model: "gpt-4o-mini",
+		Messages: []ChatMessage{{
+			Role:    "user",
+			Content: "hello",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusUnauthorized)
+	}
+	if logs.Len() != 1 {
+		t.Fatalf("log entries = %d, want 1", logs.Len())
+	}
+
+	fields := logs.All()[0].ContextMap()
+	if got := fields["upstream_status"]; got != int64(http.StatusUnauthorized) {
+		t.Fatalf("upstream_status = %#v, want %d", got, http.StatusUnauthorized)
+	}
+	if got := fields["upstream_error_body"]; got != `{"error":"bad token"}` {
+		t.Fatalf("upstream_error_body = %#v, want %q", got, `{"error":"bad token"}`)
+	}
+}
+
+func TestServeLLMApiLogsOpenAIClientStatusAndMessage(t *testing.T) {
+	core, logs := observer.New(zap.ErrorLevel)
+	handler := newHandler()
+	handler.SetLogger(zap.New(core))
+	prov := &testProvider{
+		generateErr: &provider.UpstreamError{
+			Status:     http.StatusInternalServerError,
+			StatusText: "500 Internal Server Error",
+			Body:       "Internal server error",
+		},
+	}
+
+	body, err := json.Marshal(ChatCompletionRequest{
+		Model: "gpt-5.4",
+		Messages: []ChatMessage{{
+			Role:    "user",
+			Content: "hello",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusInternalServerError)
+	}
+	if logs.Len() != 1 {
+		t.Fatalf("log entries = %d, want 1", logs.Len())
+	}
+
+	fields := logs.All()[0].ContextMap()
+	if got := fields["upstream_status"]; got != int64(http.StatusInternalServerError) {
+		t.Fatalf("upstream_status = %#v, want %d", got, http.StatusInternalServerError)
+	}
+	if got := fields["upstream_status_text"]; got != "500 Internal Server Error" {
+		t.Fatalf("upstream_status_text = %#v, want %q", got, "500 Internal Server Error")
+	}
+	if got := fields["upstream_error_body"]; got != "Internal server error" {
+		t.Fatalf("upstream_error_body = %#v, want %q", got, "Internal server error")
 	}
 }
 

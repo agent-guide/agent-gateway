@@ -118,7 +118,8 @@ func WriteProviderError(logger *zap.Logger, ctx ErrorContext, w http.ResponseWri
 		status = StatusClientClosedRequest
 		clientMessage = "client canceled request"
 	}
-	return WriteLoggedError(logger, ctx, w, r, status, clientMessage, fmt.Errorf("%s: %w", phase, err))
+	fields := upstreamErrorFields(err)
+	return WriteLoggedError(logger, ctx, w, r, status, clientMessage, fmt.Errorf("%s: %w", phase, err), fields...)
 }
 
 func IsClientCanceled(err error) bool {
@@ -139,4 +140,11 @@ func WriteLoggedError(logger *zap.Logger, ctx ErrorContext, w http.ResponseWrite
 	}
 	logFields = append(logFields, fields...)
 	return httplog.WriteError(logger, w, r, status, clientMessage, cause, logFields...)
+}
+
+func upstreamErrorFields(err error) []zap.Field {
+	if err == nil {
+		return nil
+	}
+	return provider.UpstreamErrorFields(err)
 }

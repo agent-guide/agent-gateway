@@ -44,7 +44,7 @@ func (p *Provider) Chat(ctx context.Context, req *provider.ChatRequest) (*provid
 		}
 		msg, err := chatModel.Generate(ctx, messages, opts...)
 		if err != nil {
-			return nil, statuserr.Wrap(err, 502)
+			return nil, statuserr.Wrap(openaibase.NormalizeError(err), 502)
 		}
 		return provider.ChatResponseFromEinoMessage(msg), nil
 	})
@@ -58,7 +58,7 @@ func (p *Provider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*
 	}
 	stream, err := chatModel.Stream(ctx, messages, opts...)
 	if err != nil {
-		return nil, statuserr.Wrap(err, 502)
+		return nil, statuserr.Wrap(openaibase.NormalizeError(err), 502)
 	}
 	return stream, nil
 }

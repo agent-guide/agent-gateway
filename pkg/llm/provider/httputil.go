@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -34,8 +33,11 @@ func CheckResponse(resp *http.Response) error {
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	return statuserr.New(resp.StatusCode,
-		fmt.Sprintf("upstream %d: %s", resp.StatusCode, string(body)))
+	return &UpstreamError{
+		Status:     resp.StatusCode,
+		StatusText: resp.Status,
+		Body:       string(body),
+	}
 }
 
 // RetryProviderCall retries fn up to NetworkConfig.MaxRetries times on retryable
