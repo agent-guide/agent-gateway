@@ -96,7 +96,7 @@ The `agw` binary includes Caddy standard modules, the gateway app adapter, the a
 
 Important distinction:
 
-- `agwctl gateway credential ...` manages remote gateway credentials through the Admin API, including `api_key` and `cliauth_token` sources
+- `agwctl gateway credential ...` manages remote gateway credentials through the Admin API, including `api_key` and `cliauth_token` credential types
 - `agwctl cliauth ...` runs local login flows; the login usage itself shows supported authenticator names
 - `agwctl gateway cliauth ...` inspects remote gateway CLI auth authenticators and manages refresher state through the Admin API
 - `agwctl gateway apply/export ...` manages remote CLI auth authenticator config as part of the gateway bundle
@@ -130,7 +130,7 @@ Start a local CLI auth login flow and list gateway-stored CLI auth credentials:
   --admin-user admin \
   --admin-password your-password \
   credential list \
-  --source cliauth_token
+  --type cliauth_token
 ```
 
 List remote gateway CLI auth authenticators and refresher status:

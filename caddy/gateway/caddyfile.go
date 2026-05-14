@@ -289,13 +289,13 @@ func parseRouteTargetPolicy(seg *caddyfile.Dispenser, route *routepkg.AgentRoute
 			for _, arg := range args {
 				directPolicy.CredentialScopeOrderValue = append(directPolicy.CredentialScopeOrderValue, routepkg.RouteCredentialScope(strings.Trim(arg, "\"`")))
 			}
-		case "credential_source_order":
+		case "credential_type_order":
 			if len(args) == 0 {
 				return seg.ArgErr()
 			}
-			directPolicy.CredentialSourceOrderValue = nil
+			directPolicy.CredentialTypeOrderValue = nil
 			for _, arg := range args {
-				directPolicy.CredentialSourceOrderValue = append(directPolicy.CredentialSourceOrderValue, routepkg.RouteCredentialSource(strings.Trim(arg, "\"`")))
+				directPolicy.CredentialTypeOrderValue = append(directPolicy.CredentialTypeOrderValue, routepkg.RouteCredentialType(strings.Trim(arg, "\"`")))
 			}
 		case "fallback":
 			return seg.Err("fallback may only be used in target_policy logical-model")

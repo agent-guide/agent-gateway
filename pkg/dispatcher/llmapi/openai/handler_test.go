@@ -176,10 +176,8 @@ func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 		ID:           "cred-openai-1",
 		ProviderType: "openai",
 		ProviderID:   "openai",
-		Source:       credentialmgr.SourceAPIKey,
-		Attributes: map[string]string{
-			"scope": "id:openai",
-		},
+		Scope:        "id:openai",
+		Type:         credentialmgr.TypeAPIKey,
 	}); err != nil {
 		t.Fatalf("register credential: %v", err)
 	}
@@ -222,7 +220,7 @@ func TestServeLLMApiMarksOpenAIStreamFailures(t *testing.T) {
 	}
 
 	_, err = scheduler.Pick(context.Background(), sched.Filter{
-		Source:          credentialmgr.SourceAPIKey,
+		Type:            credentialmgr.TypeAPIKey,
 		CredentialScope: "id:openai",
 		Model:           "gpt-4o-mini",
 	}, nil)

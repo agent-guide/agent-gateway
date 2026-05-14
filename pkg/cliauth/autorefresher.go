@@ -57,7 +57,7 @@ func (r *AutoRefresher) Load(ctx context.Context) error {
 	if r.credentialMgr == nil {
 		return nil
 	}
-	for _, common := range r.credentialMgr.ListCredentials(credentialmgr.Filter{Source: credentialmgr.SourceCLIAuthToken}) {
+	for _, common := range r.credentialMgr.ListCredentials(credentialmgr.Filter{Type: credentialmgr.TypeCLIAuthToken}) {
 		cred := fromCommonCred(common)
 		// StatusRefreshing is transient; reset to Active so the refresh loop
 		// re-evaluates it on the next cycle after a restart.
@@ -94,7 +94,7 @@ func (r *AutoRefresher) RegisterLoginCredential(ctx context.Context, cred *CLIAu
 		cred.Status = StatusActive
 	}
 	if r.credentialMgr != nil {
-		if err := r.credentialMgr.RegisterCredential(ctx, toCommonCred(cred, credentialmgr.SourceCLIAuthToken)); err != nil {
+		if err := r.credentialMgr.RegisterCredential(ctx, toCommonCred(cred, credentialmgr.TypeCLIAuthToken)); err != nil {
 			return err
 		}
 	}
@@ -116,7 +116,7 @@ func (r *AutoRefresher) updateCredential(ctx context.Context, cred *CLIAuthCrede
 	cred.UpdatedAt = time.Now().UTC()
 
 	if r.credentialMgr != nil {
-		if err := r.credentialMgr.UpdateCredential(ctx, toCommonCred(cred, credentialmgr.SourceCLIAuthToken)); err != nil {
+		if err := r.credentialMgr.UpdateCredential(ctx, toCommonCred(cred, credentialmgr.TypeCLIAuthToken)); err != nil {
 			return err
 		}
 	}
@@ -302,17 +302,29 @@ func nextScheduleAt(cred *CLIAuthCredential, now time.Time, leadTime *time.Durat
 	return time.Time{}, false
 }
 
-func toCommonCred(c *CLIAuthCredential, source string) *credentialmgr.Credential {
+func toCommonCred(c *CLIAuthCredential, credentialType string) *credentialmgr.Credential {
 	if c == nil {
 		return nil
 	}
-	if source == "" {
-		source = credentialmgr.SourceCLIAuthToken
+	if credentialType == "" {
+		credentialType = credentialmgr.TypeCLIAuthToken
 	}
 	sc := c.Credential.Clone()
-	sc.Source = source
+	sc.Type = credentialType
 	sc.Disabled = c.IsDisabled()
+	ensureDefaultCredentialScope(sc)
 	return sc
+}
+
+func ensureDefaultCredentialScope(cred *credentialmgr.Credential) {
+	if cred == nil || cred.ScopeValue() != "" {
+		return
+	}
+	scope := credentialmgr.ProviderIDCredentialScope(cred.ProviderID)
+	if scope == "" {
+		return
+	}
+	cred.Scope = scope
 }
 
 func fromCommonCred(c *credentialmgr.Credential) *CLIAuthCredential {

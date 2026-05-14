@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	SourceAPIKey       = "api_key"
-	SourceCLIAuthToken = "cliauth_token"
+	TypeAPIKey       = "api_key"
+	TypeCLIAuthToken = "cliauth_token"
 
 	CredentialScopeProviderTypePrefix = "type:"
 	CredentialScopeProviderIDPrefix   = "id:"
@@ -185,8 +185,9 @@ func (m *Manager) RegisterCredential(ctx context.Context, cred *Credential) erro
 		return fmt.Errorf("credential manager: credential is nil")
 	}
 	cred = cred.Normalize()
-	if cred.ProviderType == "" || cred.ProviderID == "" {
-		return fmt.Errorf("credential manager: credential has no provider type/id")
+	applyDefaultCredentialScope(cred)
+	if err := cred.Validate(); err != nil {
+		return fmt.Errorf("credential manager: %w", err)
 	}
 
 	original := cred
@@ -227,6 +228,10 @@ func (m *Manager) UpdateCredential(ctx context.Context, cred *Credential) error 
 	}
 
 	cred = cred.Clone().Normalize()
+	applyDefaultCredentialScope(cred)
+	if err := cred.Validate(); err != nil {
+		return fmt.Errorf("credential manager: %w", err)
+	}
 	cred.UpdatedAt = time.Now().UTC()
 	if !shouldSkipPersist(ctx) {
 		if err := m.update(ctx, cred); err != nil {
@@ -272,6 +277,13 @@ func (m *Manager) DeregisterCredential(ctx context.Context, id string) error {
 	return nil
 }
 
+func applyDefaultCredentialScope(cred *Credential) {
+	if cred == nil || cred.ScopeValue() != "" {
+		return
+	}
+	cred.Scope = ProviderIDCredentialScope(cred.ProviderID)
+}
+
 func (m *Manager) GetCredential(id string) *ManagedCredential {
 	if m == nil {
 		return nil
@@ -290,7 +302,7 @@ func (m *Manager) ListCredentials(filter Filter) []*ManagedCredential {
 	}
 	providerType := strings.ToLower(strings.TrimSpace(filter.ProviderType))
 	providerID := strings.ToLower(strings.TrimSpace(filter.ProviderID))
-	source := strings.ToLower(strings.TrimSpace(filter.Source))
+	credentialType := strings.ToLower(strings.TrimSpace(filter.Type))
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -305,7 +317,7 @@ func (m *Manager) ListCredentials(filter Filter) []*ManagedCredential {
 		if providerID != "" && strings.ToLower(cred.ProviderID) != providerID {
 			continue
 		}
-		if source != "" && strings.ToLower(cred.Source) != source {
+		if credentialType != "" && strings.ToLower(cred.Type) != credentialType {
 			continue
 		}
 		out = append(out, cred.Clone())
@@ -330,7 +342,7 @@ func (m *Manager) RefreshCredentialIfNeeded(ctx context.Context, credID string) 
 	}
 
 	current := stored.Clone()
-	if current.Source != SourceCLIAuthToken {
+	if current.Type != TypeCLIAuthToken {
 		return current, nil
 	}
 
@@ -361,8 +373,8 @@ func (m *Manager) RefreshCredentialIfNeeded(ctx context.Context, credID string) 
 	if updated.ProviderID == "" {
 		updated.ProviderID = current.ProviderID
 	}
-	if updated.Source == "" {
-		updated.Source = current.Source
+	if updated.Type == "" {
+		updated.Type = current.Type
 	}
 	if updated.Label == "" {
 		updated.Label = current.Label

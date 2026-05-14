@@ -126,10 +126,8 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 		ID:           "cred-anthropic-1",
 		ProviderType: "anthropic",
 		ProviderID:   "anthropic",
-		Source:       credentialmgr.SourceAPIKey,
-		Attributes: map[string]string{
-			"scope": "id:anthropic",
-		},
+		Scope:        "id:anthropic",
+		Type:         credentialmgr.TypeAPIKey,
 	}); err != nil {
 		t.Fatalf("register credential: %v", err)
 	}
@@ -176,7 +174,7 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 	}
 
 	_, err = scheduler.Pick(context.Background(), sched.Filter{
-		Source:          credentialmgr.SourceAPIKey,
+		Type:            credentialmgr.TypeAPIKey,
 		CredentialScope: "id:anthropic",
 		Model:           "claude-sonnet-4-5",
 	}, nil)

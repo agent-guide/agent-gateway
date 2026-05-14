@@ -66,7 +66,7 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) 
 		return nil, nil, nil, err
 	}
 
-	baseURL := strings.TrimSuffix(state.BaseURL, "/v1")
+	baseURL := strings.TrimSuffix(p.ProviderConfig.BaseURL, "/v1")
 	cfg := &einoollama.ChatModelConfig{
 		BaseURL:    baseURL,
 		Model:      state.ModelName,

@@ -50,12 +50,12 @@ type VirtualKeyListOptions struct {
 type CredentialListOptions struct {
 	ProviderType string
 	ProviderID   string
-	Source       string
+	Type         string
 }
 
 type CreateCredentialRequest struct {
 	ID           string            `json:"id,omitempty"`
-	Source       string            `json:"source,omitempty"`
+	Type         string            `json:"type"`
 	ProviderType string            `json:"provider_type,omitempty"`
 	ProviderID   string            `json:"provider_id"`
 	Label        string            `json:"label,omitempty"`
@@ -65,7 +65,7 @@ type CreateCredentialRequest struct {
 }
 
 type UpdateCredentialRequest struct {
-	Source       string            `json:"source,omitempty"`
+	Type         string            `json:"type,omitempty"`
 	ProviderType string            `json:"provider_type,omitempty"`
 	ProviderID   string            `json:"provider_id,omitempty"`
 	Label        string            `json:"label,omitempty"`

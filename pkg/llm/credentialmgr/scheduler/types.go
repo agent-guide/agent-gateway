@@ -21,7 +21,7 @@ type Result struct {
 }
 
 type Filter struct {
-	Source          string
+	Type            string
 	CredentialScope string
 	Model           string
 	Selector        string

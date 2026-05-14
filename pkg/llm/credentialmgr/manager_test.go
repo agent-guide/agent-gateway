@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/model"
 	sched "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/scheduler"
 )
 
@@ -144,11 +143,8 @@ func withTestScope(cred *ManagedCredential) *ManagedCredential {
 	if cred == nil {
 		return nil
 	}
-	if cred.Attributes == nil {
-		cred.Attributes = map[string]string{}
-	}
-	if cred.Scope() == "" {
-		cred.Attributes[model.CredentialAttributeScopeKey] = ProviderIDCredentialScope(cred.ProviderID)
+	if cred.ScopeValue() == "" {
+		cred.Scope = ProviderIDCredentialScope(cred.ProviderID)
 	}
 	return cred
 }
@@ -157,8 +153,8 @@ func TestPickSelectsRequestedSource(t *testing.T) {
 	mgr := NewManager(nil)
 	scheduler := newTestScheduler(t, mgr)
 	for _, cred := range []*Credential{
-		{ID: "api-key", ProviderType: "openai", ProviderID: "openai", Source: SourceAPIKey},
-		{ID: "cliauth", ProviderType: "openai", ProviderID: "openai", Source: SourceCLIAuthToken},
+		{ID: "api-key", ProviderType: "openai", ProviderID: "openai", Type: TypeAPIKey},
+		{ID: "cliauth", ProviderType: "openai", ProviderID: "openai", Type: TypeCLIAuthToken},
 	} {
 		if err := mgr.RegisterCredential(context.Background(), cred); err != nil {
 			t.Fatalf("register %s: %v", cred.ID, err)
@@ -166,7 +162,7 @@ func TestPickSelectsRequestedSource(t *testing.T) {
 	}
 
 	picked, err := scheduler.Pick(context.Background(), sched.Filter{
-		Source:          SourceCLIAuthToken,
+		Type:            TypeCLIAuthToken,
 		CredentialScope: "id:openai",
 		Model:           "gpt-test",
 	}, nil)
@@ -182,8 +178,8 @@ func TestPickSelectsRequestedProviderID(t *testing.T) {
 	mgr := NewManager(nil)
 	scheduler := newTestScheduler(t, mgr)
 	for _, cred := range []*Credential{
-		{ID: "openai-main", ProviderType: "openai", ProviderID: "openai-main", Source: SourceAPIKey},
-		{ID: "openai-backup", ProviderType: "openai", ProviderID: "openai-backup", Source: SourceAPIKey},
+		{ID: "openai-main", ProviderType: "openai", ProviderID: "openai-main", Type: TypeAPIKey},
+		{ID: "openai-backup", ProviderType: "openai", ProviderID: "openai-backup", Type: TypeAPIKey},
 	} {
 		if err := mgr.RegisterCredential(context.Background(), cred); err != nil {
 			t.Fatalf("register %s: %v", cred.ID, err)
@@ -191,7 +187,7 @@ func TestPickSelectsRequestedProviderID(t *testing.T) {
 	}
 
 	picked, err := scheduler.Pick(context.Background(), sched.Filter{
-		Source:          SourceAPIKey,
+		Type:            TypeAPIKey,
 		CredentialScope: "id:openai-main",
 		Model:           "gpt-test",
 	}, nil)
@@ -219,8 +215,8 @@ func TestPickReturnsNotFoundWhenFilteredCandidatesAbsent(t *testing.T) {
 	mgr := NewManager(nil)
 	scheduler := newTestScheduler(t, mgr)
 	for _, cred := range []*Credential{
-		{ID: "api-key", ProviderType: "openai", ProviderID: "openai", Source: SourceAPIKey},
-		{ID: "api-key-2", ProviderType: "openai", ProviderID: "openai", Source: SourceAPIKey},
+		{ID: "api-key", ProviderType: "openai", ProviderID: "openai", Type: TypeAPIKey},
+		{ID: "api-key-2", ProviderType: "openai", ProviderID: "openai", Type: TypeAPIKey},
 	} {
 		if err := mgr.RegisterCredential(context.Background(), cred); err != nil {
 			t.Fatalf("register %s: %v", cred.ID, err)
@@ -228,7 +224,7 @@ func TestPickReturnsNotFoundWhenFilteredCandidatesAbsent(t *testing.T) {
 	}
 
 	_, err := scheduler.Pick(context.Background(), sched.Filter{
-		Source:          SourceCLIAuthToken,
+		Type:            TypeCLIAuthToken,
 		CredentialScope: "id:openai",
 		Model:           "gpt-test",
 	}, nil)
@@ -249,9 +245,9 @@ func TestPickReturnsCooldownWhenFilteredCandidatesAllCoolingDown(t *testing.T) {
 	mgr := NewManager(nil)
 	scheduler := newTestScheduler(t, mgr)
 	for _, cred := range []*Credential{
-		{ID: "cli-1", ProviderType: "openai", ProviderID: "openai", Source: SourceCLIAuthToken},
-		{ID: "cli-2", ProviderType: "openai", ProviderID: "openai", Source: SourceCLIAuthToken},
-		{ID: "api-key", ProviderType: "openai", ProviderID: "openai", Source: SourceAPIKey},
+		{ID: "cli-1", ProviderType: "openai", ProviderID: "openai", Type: TypeCLIAuthToken},
+		{ID: "cli-2", ProviderType: "openai", ProviderID: "openai", Type: TypeCLIAuthToken},
+		{ID: "api-key", ProviderType: "openai", ProviderID: "openai", Type: TypeAPIKey},
 	} {
 		if err := mgr.RegisterCredential(context.Background(), cred); err != nil {
 			t.Fatalf("register %s: %v", cred.ID, err)
@@ -271,7 +267,7 @@ func TestPickReturnsCooldownWhenFilteredCandidatesAllCoolingDown(t *testing.T) {
 	}
 
 	_, err := scheduler.Pick(context.Background(), sched.Filter{
-		Source:          SourceCLIAuthToken,
+		Type:            TypeCLIAuthToken,
 		CredentialScope: "id:openai",
 		Model:           "gpt-test",
 	}, nil)
@@ -298,8 +294,8 @@ func TestPickReturnsUnavailableWhenFilteredCandidateBlockedButNotCoolingDown(t *
 	mgr := NewManager(nil)
 	scheduler := newTestScheduler(t, mgr)
 	for _, cred := range []*Credential{
-		{ID: "cli-1", ProviderType: "openai", ProviderID: "openai", Source: SourceCLIAuthToken},
-		{ID: "api-key", ProviderType: "openai", ProviderID: "openai", Source: SourceAPIKey},
+		{ID: "cli-1", ProviderType: "openai", ProviderID: "openai", Type: TypeCLIAuthToken},
+		{ID: "api-key", ProviderType: "openai", ProviderID: "openai", Type: TypeAPIKey},
 	} {
 		if err := mgr.RegisterCredential(context.Background(), cred); err != nil {
 			t.Fatalf("register %s: %v", cred.ID, err)
@@ -319,7 +315,7 @@ func TestPickReturnsUnavailableWhenFilteredCandidateBlockedButNotCoolingDown(t *
 	})
 
 	_, err := scheduler.Pick(context.Background(), sched.Filter{
-		Source:          SourceCLIAuthToken,
+		Type:            TypeCLIAuthToken,
 		CredentialScope: "id:openai",
 		Model:           "gpt-test",
 	}, nil)
@@ -343,7 +339,7 @@ func TestMarkResultAppliesQuotaCooldown(t *testing.T) {
 		ID:           "cred-1",
 		ProviderType: "openai",
 		ProviderID:   "openai",
-		Source:       SourceAPIKey,
+		Type:         TypeAPIKey,
 	}); err != nil {
 		t.Fatalf("register credential: %v", err)
 	}
@@ -384,7 +380,7 @@ func TestManagerNotifiesSchedulerAndExternalLifecycleListener(t *testing.T) {
 		ID:           "cred-1",
 		ProviderType: "openai",
 		ProviderID:   "openai-main",
-		Source:       SourceAPIKey,
+		Type:         TypeAPIKey,
 	}
 	if err := mgr.RegisterCredential(context.Background(), cred); err != nil {
 		t.Fatalf("register credential: %v", err)
@@ -439,7 +435,7 @@ func TestReloadFromStoreReplacesManagerStateAndRebuildsScheduler(t *testing.T) {
 				ID:           "cred-new",
 				ProviderType: "openai",
 				ProviderID:   "openai-main",
-				Source:       SourceAPIKey,
+				Type:         TypeAPIKey,
 			},
 		},
 	}
@@ -455,7 +451,7 @@ func TestReloadFromStoreReplacesManagerStateAndRebuildsScheduler(t *testing.T) {
 		ID:           "cred-old",
 		ProviderType: "openai",
 		ProviderID:   "openai-main",
-		Source:       SourceAPIKey,
+		Type:         TypeAPIKey,
 	}); err != nil {
 		t.Fatalf("register old credential: %v", err)
 	}
@@ -506,7 +502,7 @@ func TestRefreshCredentialIfNeededRefreshesExpiredCLIAuthCredential(t *testing.T
 		ID:           "cli-1",
 		ProviderType: "openai",
 		ProviderID:   "openai",
-		Source:       SourceCLIAuthToken,
+		Type:         TypeCLIAuthToken,
 		Attributes: map[string]string{
 			"api_key": "stale-key",
 		},
@@ -538,7 +534,7 @@ func TestRefreshCredentialIfNeededSkipsWhenNoMatchingManualRefresher(t *testing.
 		ID:           "cli-1",
 		ProviderType: "openai",
 		ProviderID:   "openai",
-		Source:       SourceCLIAuthToken,
+		Type:         TypeCLIAuthToken,
 		Attributes: map[string]string{
 			"api_key": "stale-key",
 		},
@@ -579,7 +575,7 @@ func TestRefreshCredentialIfNeededHonorsCredentialSpecificExpiryDelta(t *testing
 		ID:           "cli-1",
 		ProviderType: "gemini",
 		ProviderID:   "gemini",
-		Source:       SourceCLIAuthToken,
+		Type:         TypeCLIAuthToken,
 		Attributes: map[string]string{
 			"api_key": "stale-key",
 		},
@@ -630,5 +626,37 @@ func TestCredentialMarshalsProviderTypeAndProviderID(t *testing.T) {
 	}
 	if _, exists := got["provider"]; exists {
 		t.Fatalf("legacy provider field should not be emitted: %#v", got)
+	}
+}
+
+func TestRegisterCredentialRejectsEmptyProviderID(t *testing.T) {
+	mgr := NewManager(nil)
+
+	err := mgr.RegisterCredential(context.Background(), &Credential{
+		ID:           "cred-1",
+		ProviderType: "openai",
+		Type:         TypeAPIKey,
+	})
+	if err == nil {
+		t.Fatal("RegisterCredential returned nil error, want provider_id validation failure")
+	}
+	if !strings.Contains(err.Error(), "provider_id is required") {
+		t.Fatalf("error = %q, want provider_id validation failure", err)
+	}
+}
+
+func TestUpdateCredentialRejectsEmptyProviderID(t *testing.T) {
+	mgr := NewManager(nil)
+
+	err := mgr.UpdateCredential(context.Background(), &Credential{
+		ID:           "cred-1",
+		ProviderType: "openai",
+		Type:         TypeAPIKey,
+	})
+	if err == nil {
+		t.Fatal("UpdateCredential returned nil error, want provider_id validation failure")
+	}
+	if !strings.Contains(err.Error(), "provider_id is required") {
+		t.Fatalf("error = %q, want provider_id validation failure", err)
 	}
 }

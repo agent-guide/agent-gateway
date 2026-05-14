@@ -377,7 +377,7 @@ func (s *authScheduler) upsertLocked(cred *ManagedCredential, now time.Time) {
 	if cred == nil {
 		return
 	}
-	scopeKey := cred.Scope()
+	scopeKey := cred.ScopeValue()
 	if scopeKey == "" {
 		return
 	}
@@ -625,7 +625,7 @@ func matchFilter(cred *ManagedCredential, filter Filter) bool {
 	if cred == nil {
 		return false
 	}
-	if source := strings.ToLower(strings.TrimSpace(filter.Source)); source != "" && strings.ToLower(cred.Source) != source {
+	if credentialType := strings.ToLower(strings.TrimSpace(filter.Type)); credentialType != "" && strings.ToLower(cred.Type) != credentialType {
 		return false
 	}
 	return true

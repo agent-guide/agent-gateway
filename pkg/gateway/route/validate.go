@@ -48,20 +48,20 @@ func (c RouteTargetPolicyCommon) validateCredentialPolicy(routeID string) error 
 		}
 		seenScopes[scope] = struct{}{}
 	}
-	if len(c.CredentialSourceOrder()) == 0 {
-		return fmt.Errorf("route %q credential_source_order must not be empty", routeID)
+	if len(c.CredentialTypeOrder()) == 0 {
+		return fmt.Errorf("route %q credential_type_order must not be empty", routeID)
 	}
-	seenSources := map[RouteCredentialSource]struct{}{}
-	for _, source := range c.CredentialSourceOrder() {
-		switch source {
-		case RouteCredentialSourceAPIKey, RouteCredentialSourceCLIAuthToken:
+	seenTypes := map[RouteCredentialType]struct{}{}
+	for _, credentialType := range c.CredentialTypeOrder() {
+		switch credentialType {
+		case RouteCredentialTypeAPIKey, RouteCredentialTypeCLIAuthToken:
 		default:
-			return fmt.Errorf("route %q invalid credential_source_order %q", routeID, source)
+			return fmt.Errorf("route %q invalid credential_type_order %q", routeID, credentialType)
 		}
-		if _, ok := seenSources[source]; ok {
-			return fmt.Errorf("route %q duplicate credential_source_order %q", routeID, source)
+		if _, ok := seenTypes[credentialType]; ok {
+			return fmt.Errorf("route %q duplicate credential_type_order %q", routeID, credentialType)
 		}
-		seenSources[source] = struct{}{}
+		seenTypes[credentialType] = struct{}{}
 	}
 	return nil
 }

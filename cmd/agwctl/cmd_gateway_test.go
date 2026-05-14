@@ -37,7 +37,7 @@ func TestLocalAndGatewayCLIAuthHelpAreDistinct(t *testing.T) {
 	}
 }
 
-func TestGatewayCredentialListCommandUsesSourceFilterAndDisplaysSource(t *testing.T) {
+func TestGatewayCredentialListCommandUsesTypeFilterAndDisplaysType(t *testing.T) {
 	var gotAuthHeader string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -48,8 +48,8 @@ func TestGatewayCredentialListCommandUsesSourceFilterAndDisplaysSource(t *testin
 			})
 		case "/admin/credentials":
 			gotAuthHeader = r.Header.Get("Authorization")
-			if r.URL.Query().Get("source") != "cliauth_token" {
-				t.Fatalf("source query = %q, want cliauth_token", r.URL.Query().Get("source"))
+			if r.URL.Query().Get("type") != "cliauth_token" {
+				t.Fatalf("type query = %q, want cliauth_token", r.URL.Query().Get("type"))
 			}
 			if r.URL.Query().Get("provider_type") != "openai" {
 				t.Fatalf("provider_type query = %q, want openai", r.URL.Query().Get("provider_type"))
@@ -63,7 +63,7 @@ func TestGatewayCredentialListCommandUsesSourceFilterAndDisplaysSource(t *testin
 						"id":            "cred-1",
 						"provider_type": "openai",
 						"provider_id":   "openai-main",
-						"source":        "cliauth_token",
+						"type":          "cliauth_token",
 					},
 				},
 			})
@@ -80,7 +80,7 @@ func TestGatewayCredentialListCommandUsesSourceFilterAndDisplaysSource(t *testin
 		"--admin-user", "admin",
 		"--admin-password", "secret",
 		"credential", "list",
-		"--source", "cliauth_token",
+		"--type", "cliauth_token",
 		"--provider-type", "openai",
 		"--provider-id", "openai-main",
 	)
@@ -90,8 +90,8 @@ func TestGatewayCredentialListCommandUsesSourceFilterAndDisplaysSource(t *testin
 	if gotAuthHeader != "Bearer test-token" {
 		t.Fatalf("Authorization = %q, want Bearer test-token", gotAuthHeader)
 	}
-	if !strings.Contains(stdout, "SOURCE") || !strings.Contains(stdout, "cliauth_token") {
-		t.Fatalf("stdout missing source column or value:\n%s", stdout)
+	if !strings.Contains(stdout, "TYPE") || !strings.Contains(stdout, "cliauth_token") {
+		t.Fatalf("stdout missing type column or value:\n%s", stdout)
 	}
 }
 
@@ -116,7 +116,7 @@ func TestGatewayCredentialListCommandSurfacesAdminAuthErrors(t *testing.T) {
 		"--admin-user", "admin",
 		"--admin-password", "wrong-secret",
 		"credential", "list",
-		"--source", "cliauth_token",
+		"--type", "cliauth_token",
 	)
 	if err == nil {
 		t.Fatalf("expected admin auth error, got nil\nstdout=%s\nstderr=%s", stdout, stderr)

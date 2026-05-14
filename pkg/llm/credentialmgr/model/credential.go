@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -8,20 +9,20 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/utils"
 )
 
-const CredentialAttributeScopeKey = "scope"
-
 // Credential holds the persisted definition for a single upstream credential.
 type Credential struct {
 	// ID uniquely identifies the credential.
 	ID string `json:"id"`
 	// ProviderType is the upstream provider type/key (e.g. "openai", "anthropic").
 	ProviderType string `json:"provider_type"`
-	// ProviderID optionally scopes the credential to a specific provider instance.
-	ProviderID string `json:"provider_id,omitempty"`
-	// Source identifies where the credential came from (e.g. api_key, cliauth).
-	Source string `json:"source,omitempty"`
+	// ProviderID identifies the concrete provider instance this credential belongs to.
+	ProviderID string `json:"provider_id"`
+	// Type identifies the credential kind (e.g. api_key, cliauth_token).
+	Type string `json:"type"`
 	// Label is a human-readable label for logging and display.
 	Label string `json:"label,omitempty"`
+	// Scope controls scheduler matching for this credential.
+	Scope string `json:"scope,omitempty"`
 	// Attributes stores provider-specific configuration (e.g. api_key, base_url, priority).
 	Attributes map[string]string `json:"attributes,omitempty"`
 	// Metadata stores runtime mutable provider state (e.g. tokens, cookies).
@@ -61,14 +62,30 @@ func (c *Credential) Normalize() *Credential {
 	c.ID = strings.TrimSpace(c.ID)
 	c.ProviderType = strings.ToLower(strings.TrimSpace(c.ProviderType))
 	c.ProviderID = strings.ToLower(strings.TrimSpace(c.ProviderID))
-	c.Source = strings.ToLower(strings.TrimSpace(c.Source))
+	c.Type = strings.ToLower(strings.TrimSpace(c.Type))
 	c.Label = strings.TrimSpace(c.Label)
-	if c.Attributes != nil {
-		if scope := NormalizeCredentialScope(c.Attributes[CredentialAttributeScopeKey]); scope != "" {
-			c.Attributes[CredentialAttributeScopeKey] = scope
-		}
-	}
+	c.Scope = NormalizeCredentialScope(c.Scope)
 	return c
+}
+
+// Validate checks the required stable identity fields for persisted credentials.
+func (c *Credential) Validate() error {
+	if c == nil {
+		return fmt.Errorf("credential is nil")
+	}
+	if c.ProviderType == "" {
+		return fmt.Errorf("credential provider_type is required")
+	}
+	if c.ProviderID == "" {
+		return fmt.Errorf("credential provider_id is required")
+	}
+	if c.Type == "" {
+		return fmt.Errorf("credential type is required")
+	}
+	if c.ScopeValue() == "" {
+		return fmt.Errorf("credential scope is required")
+	}
+	return nil
 }
 
 func NormalizeCredentialScope(scope string) string {
@@ -76,16 +93,11 @@ func NormalizeCredentialScope(scope string) string {
 	return scope
 }
 
-func (c *Credential) Scope() string {
+func (c *Credential) ScopeValue() string {
 	if c == nil {
 		return ""
 	}
-	if c.Attributes != nil {
-		if scope := NormalizeCredentialScope(c.Attributes[CredentialAttributeScopeKey]); scope != "" {
-			return scope
-		}
-	}
-	return ""
+	return NormalizeCredentialScope(c.Scope)
 }
 
 // QuotaState captures quota limiter tracking data for a credential.

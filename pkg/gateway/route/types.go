@@ -38,11 +38,11 @@ const (
 	RouteCredentialScopeProviderID  RouteCredentialScope = "provider_id"
 )
 
-type RouteCredentialSource string
+type RouteCredentialType string
 
 const (
-	RouteCredentialSourceAPIKey       RouteCredentialSource = "api_key"
-	RouteCredentialSourceCLIAuthToken RouteCredentialSource = "cliauth_token"
+	RouteCredentialTypeAPIKey       RouteCredentialType = "api_key"
+	RouteCredentialTypeCLIAuthToken RouteCredentialType = "cliauth_token"
 )
 
 type RouteTargetPolicy interface {
@@ -53,14 +53,14 @@ type RouteTargetPolicy interface {
 	ProviderIDs() []string
 	CredentialSelector() RouteCredentialSelectStrategy
 	CredentialScopeOrder() []RouteCredentialScope
-	CredentialSourceOrder() []RouteCredentialSource
+	CredentialTypeOrder() []RouteCredentialType
 	FallbackPolicy() RouteFallbackPolicy
 }
 
 type RouteTargetPolicyCommon struct {
-	CredentialSelectorValue    RouteCredentialSelectStrategy `json:"credential_selector,omitempty"`
-	CredentialScopeOrderValue  []RouteCredentialScope        `json:"credential_scope_order,omitempty"`
-	CredentialSourceOrderValue []RouteCredentialSource       `json:"credential_source_order,omitempty"`
+	CredentialSelectorValue   RouteCredentialSelectStrategy `json:"credential_selector,omitempty"`
+	CredentialScopeOrderValue []RouteCredentialScope        `json:"credential_scope_order,omitempty"`
+	CredentialTypeOrderValue  []RouteCredentialType         `json:"credential_type_order,omitempty"`
 }
 
 type RouteLogicalModelTargetPolicy struct {
@@ -188,7 +188,7 @@ func (p RouteLogicalModelTargetPolicy) MarshalJSON() ([]byte, error) {
 		ModelSelectorStrategy RouteSelectionStrategy        `json:"model_selector_strategy,omitempty"`
 		CredentialSelector    RouteCredentialSelectStrategy `json:"credential_selector,omitempty"`
 		CredentialScopeOrder  []RouteCredentialScope        `json:"credential_scope_order,omitempty"`
-		CredentialSourceOrder []RouteCredentialSource       `json:"credential_source_order,omitempty"`
+		CredentialTypeOrder   []RouteCredentialType         `json:"credential_type_order,omitempty"`
 		Fallback              RouteFallbackPolicy           `json:"fallback,omitempty"`
 		ModelTargets          []RouteModelTarget            `json:"model_targets,omitempty"`
 	}
@@ -198,7 +198,7 @@ func (p RouteLogicalModelTargetPolicy) MarshalJSON() ([]byte, error) {
 		ModelSelectorStrategy: p.ModelSelectorStrategy,
 		CredentialSelector:    p.CredentialSelector(),
 		CredentialScopeOrder:  p.CredentialScopeOrder(),
-		CredentialSourceOrder: p.CredentialSourceOrder(),
+		CredentialTypeOrder:   p.CredentialTypeOrder(),
 		Fallback:              p.Fallback,
 		ModelTargets:          p.ModelTargets,
 	})
@@ -207,20 +207,20 @@ func (p RouteLogicalModelTargetPolicy) MarshalJSON() ([]byte, error) {
 func (p RouteDirectProviderPolicy) MarshalJSON() ([]byte, error) {
 	p.Normalize()
 	type directJSON struct {
-		Type                  RouteTargetPolicyKind         `json:"type,omitempty"`
-		ProviderID            string                        `json:"provider_id,omitempty"`
-		CredentialSelector    RouteCredentialSelectStrategy `json:"credential_selector,omitempty"`
-		CredentialScopeOrder  []RouteCredentialScope        `json:"credential_scope_order,omitempty"`
-		CredentialSourceOrder []RouteCredentialSource       `json:"credential_source_order,omitempty"`
-		ProviderTarget        DirectProviderTarget          `json:"provider_target,omitempty"`
+		Type                 RouteTargetPolicyKind         `json:"type,omitempty"`
+		ProviderID           string                        `json:"provider_id,omitempty"`
+		CredentialSelector   RouteCredentialSelectStrategy `json:"credential_selector,omitempty"`
+		CredentialScopeOrder []RouteCredentialScope        `json:"credential_scope_order,omitempty"`
+		CredentialTypeOrder  []RouteCredentialType         `json:"credential_type_order,omitempty"`
+		ProviderTarget       DirectProviderTarget          `json:"provider_target,omitempty"`
 	}
 	return json.Marshal(directJSON{
-		Type:                  p.PolicyKind(),
-		ProviderID:            p.ProviderID,
-		CredentialSelector:    p.CredentialSelector(),
-		CredentialScopeOrder:  p.CredentialScopeOrder(),
-		CredentialSourceOrder: p.CredentialSourceOrder(),
-		ProviderTarget:        p.ProviderTarget,
+		Type:                 p.PolicyKind(),
+		ProviderID:           p.ProviderID,
+		CredentialSelector:   p.CredentialSelector(),
+		CredentialScopeOrder: p.CredentialScopeOrder(),
+		CredentialTypeOrder:  p.CredentialTypeOrder(),
+		ProviderTarget:       p.ProviderTarget,
 	})
 }
 
@@ -289,8 +289,8 @@ func (c *RouteTargetPolicyCommon) Normalize(defaultScopes []RouteCredentialScope
 	if c.CredentialSelectorValue == "" {
 		c.CredentialSelectorValue = RouteCredentialSelectRoundRobin
 	}
-	if len(c.CredentialSourceOrderValue) == 0 {
-		c.CredentialSourceOrderValue = []RouteCredentialSource{RouteCredentialSourceAPIKey, RouteCredentialSourceCLIAuthToken}
+	if len(c.CredentialTypeOrderValue) == 0 {
+		c.CredentialTypeOrderValue = []RouteCredentialType{RouteCredentialTypeAPIKey, RouteCredentialTypeCLIAuthToken}
 	}
 }
 
@@ -302,8 +302,8 @@ func (c RouteTargetPolicyCommon) CredentialScopeOrder() []RouteCredentialScope {
 	return c.CredentialScopeOrderValue
 }
 
-func (c RouteTargetPolicyCommon) CredentialSourceOrder() []RouteCredentialSource {
-	return c.CredentialSourceOrderValue
+func (c RouteTargetPolicyCommon) CredentialTypeOrder() []RouteCredentialType {
+	return c.CredentialTypeOrderValue
 }
 
 func (p *RouteDirectProviderPolicy) Normalize() {

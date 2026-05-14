@@ -57,8 +57,6 @@ func TestDefaultEnvValues(t *testing.T) {
 }
 
 func TestRunResponsesUsesResponsesEndpoint(t *testing.T) {
-	t.Parallel()
-
 	var (
 		gotPath          string
 		gotAuth          string
@@ -125,8 +123,6 @@ func TestRunResponsesUsesResponsesEndpoint(t *testing.T) {
 }
 
 func TestRunResponsesOmitsModelWhenEmpty(t *testing.T) {
-	t.Parallel()
-
 	var gotModel any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()

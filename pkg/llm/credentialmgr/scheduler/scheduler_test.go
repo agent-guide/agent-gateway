@@ -3,8 +3,6 @@ package scheduler
 import (
 	"context"
 	"testing"
-
-	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/model"
 )
 
 func TestPickUsesCredentialScope(t *testing.T) {
@@ -14,10 +12,8 @@ func TestPickUsesCredentialScope(t *testing.T) {
 			ID:           "openai-main",
 			ProviderType: "openai",
 			ProviderID:   "openai-main",
-			Source:       "api_key",
-			Attributes: map[string]string{
-				model.CredentialAttributeScopeKey: "id:openai-main",
-			},
+			Scope:        "id:openai-main",
+			Type:         "api_key",
 		},
 	})
 
@@ -40,10 +36,8 @@ func TestPickUsesExplicitCredentialScope(t *testing.T) {
 			ID:           "openai-shared",
 			ProviderType: "openai",
 			ProviderID:   "openai-main",
-			Source:       "api_key",
-			Attributes: map[string]string{
-				model.CredentialAttributeScopeKey: "type:openai",
-			},
+			Scope:        "type:openai",
+			Type:         "api_key",
 		},
 	})
 

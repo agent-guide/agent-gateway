@@ -28,7 +28,7 @@ var (
 	gatewayExportFile string
 
 	gatewayManagedModelProviderID string
-	gatewayCredentialSource       string
+	gatewayCredentialType         string
 	gatewayCredentialProviderType string
 	gatewayCredentialProviderID   string
 )
@@ -575,7 +575,7 @@ var gatewayCredentialListCmd = &cobra.Command{
 	Short: "List all credentials",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		items, err := newGatewayClient().ListCredentials(context.Background(), adminclient.CredentialListOptions{
-			Source:       gatewayCredentialSource,
+			Type:         gatewayCredentialType,
 			ProviderType: gatewayCredentialProviderType,
 			ProviderID:   gatewayCredentialProviderID,
 		})
@@ -630,7 +630,7 @@ func init() {
 	gatewayCmd.PersistentFlags().StringVar(&gwPassword, "admin-password", envOr("AGW_ADMIN_PASSWORD", ""), "gateway admin password")
 
 	gatewayModelsManagedListCmd.Flags().StringVar(&gatewayManagedModelProviderID, "provider-id", "", "filter managed models by provider ID")
-	gatewayCredentialListCmd.Flags().StringVar(&gatewayCredentialSource, "source", "", "filter credentials by source (api_key or cliauth_token)")
+	gatewayCredentialListCmd.Flags().StringVar(&gatewayCredentialType, "type", "", "filter credentials by type (api_key or cliauth_token)")
 	gatewayCredentialListCmd.Flags().StringVar(&gatewayCredentialProviderType, "provider-type", "", "filter credentials by provider type")
 	gatewayCredentialListCmd.Flags().StringVar(&gatewayCredentialProviderID, "provider-id", "", "filter credentials by provider ID")
 	gatewayValidateCmd.Flags().StringVarP(&gatewayBundleFile, "file", "f", "", "path to gateway bundle YAML file")

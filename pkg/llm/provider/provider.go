@@ -40,16 +40,6 @@ const (
 
 // Configuration and capability types.
 
-// AuthStrategy controls the preferred order between managed API keys and
-// managed CLI auth tokens. ProviderConfig.APIKey remains a fallback when no
-// managed credential is selected.
-type AuthStrategy string
-
-const (
-	AuthStrategyManagedAPIKeyFirst       AuthStrategy = "managed_api_key_first"
-	AuthStrategyManagedCLIAuthTokenFirst AuthStrategy = "managed_cliauth_token_first"
-)
-
 // ProviderCapabilities describes what a provider instance supports.
 type ProviderCapabilities struct {
 	Streaming       bool
@@ -102,8 +92,6 @@ type ProviderConfig struct {
 	Network NetworkConfig `json:"network"`
 	// Options holds provider-specific extra configuration.
 	Options map[string]any `json:"options,omitempty"`
-	// AuthStrategy controls how static API keys and managed credentials are combined.
-	AuthStrategy AuthStrategy `json:"auth_strategy,omitempty"`
 }
 
 // NetworkConfig re-exports the shared HTTP network config type for provider configs.
@@ -114,9 +102,6 @@ type NetworkConfig = httpclient.NetworkConfig
 // Defaults fills in zero values with sensible defaults.
 func (c *ProviderConfig) Defaults() {
 	c.Network.Defaults()
-	if c.AuthStrategy == "" {
-		c.AuthStrategy = AuthStrategyManagedAPIKeyFirst
-	}
 }
 
 // NormalizeConfig returns a runtime-ready provider config without mutating the

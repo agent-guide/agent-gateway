@@ -25,10 +25,9 @@ func TestBaseUsesEmbeddedProviderConfig(t *testing.T) {
 	defer server.Close()
 
 	cfg := provider.ProviderConfig{
-		APIKey:       "test-key",
-		BaseURL:      "http://127.0.0.1:1",
-		Network:      httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
-		AuthStrategy: provider.AuthStrategyManagedAPIKeyFirst,
+		APIKey:  "test-key",
+		BaseURL: "http://127.0.0.1:1",
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
 	}
 	base := NewBase(cfg)
 
@@ -45,7 +44,7 @@ func TestBaseUsesEmbeddedProviderConfig(t *testing.T) {
 	}
 }
 
-func TestBaseEmbeddingUsesCredentialOverrideForAPIKeyAndBaseURL(t *testing.T) {
+func TestBaseEmbeddingUsesCredentialOverrideForAPIKey(t *testing.T) {
 	var authHeader string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/embeddings" {
@@ -58,15 +57,13 @@ func TestBaseEmbeddingUsesCredentialOverrideForAPIKeyAndBaseURL(t *testing.T) {
 	defer server.Close()
 
 	base := NewBase(provider.ProviderConfig{
-		APIKey:       "static-key",
-		BaseURL:      "https://static.example/v1",
-		Network:      httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
-		AuthStrategy: provider.AuthStrategyManagedAPIKeyFirst,
+		APIKey:  "static-key",
+		BaseURL: server.URL,
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
 	})
 
 	ctx := provider.WithCredential(context.Background(), providerCredential{
-		apiKey:  "managed-key",
-		baseURL: server.URL,
+		apiKey: "managed-key",
 	}.toCredential())
 	resp, err := base.Embedding(ctx, &provider.EmbeddingRequest{
 		Model: "text-embedding-3-large",
@@ -105,15 +102,13 @@ func TestBaseCreateResponseCallsResponsesEndpoint(t *testing.T) {
 	defer server.Close()
 
 	base := NewBase(provider.ProviderConfig{
-		APIKey:       "test-key",
-		BaseURL:      server.URL,
-		Network:      httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
-		AuthStrategy: provider.AuthStrategyManagedAPIKeyFirst,
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
 	})
 
 	ctx := provider.WithCredential(context.Background(), providerCredential{
-		apiKey:  "managed-key",
-		baseURL: server.URL,
+		apiKey: "managed-key",
 	}.toCredential())
 	resp, err := base.DoCreateResponses(ctx, &provider.ResponsesRequest{
 		Model: "gpt-4.1",
@@ -151,15 +146,13 @@ func TestBaseStreamResponseParsesSSEEvents(t *testing.T) {
 	defer server.Close()
 
 	base := NewBase(provider.ProviderConfig{
-		APIKey:       "test-key",
-		BaseURL:      server.URL,
-		Network:      httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
-		AuthStrategy: provider.AuthStrategyManagedAPIKeyFirst,
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
 	})
 
 	ctx := provider.WithCredential(context.Background(), providerCredential{
-		apiKey:  "managed-key",
-		baseURL: server.URL,
+		apiKey: "managed-key",
 	}.toCredential())
 	stream, err := base.DoStreamResponses(ctx, &provider.ResponsesRequest{
 		Model:  "gpt-4.1",
@@ -198,15 +191,13 @@ func TestBaseStreamResponseParsesSSEEvents(t *testing.T) {
 }
 
 type providerCredential struct {
-	apiKey  string
-	baseURL string
+	apiKey string
 }
 
 func (c providerCredential) toCredential() *credentialmgr.Credential {
 	return &credentialmgr.Credential{
 		Attributes: map[string]string{
-			"api_key":  c.apiKey,
-			"base_url": c.baseURL,
+			"api_key": c.apiKey,
 		},
 	}
 }

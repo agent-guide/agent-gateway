@@ -198,12 +198,9 @@ Important files:
 
 - `provider.go`: provider request and response types
 - `registry.go`: provider factory registration
-- `providerconfigcredential.go`: provider-config API key credential helpers
 
-Naming rules for provider-config API key credentials:
-
-- use the ID prefix `provider-config-api-key:`
-- do not generate, parse, or document the old prefix `provider-static-api-key:`
+Provider config `api_key` values are provider-local fallback configuration.
+They do not register as managed credentials and do not participate in credential scheduling.
 
 Built-in provider runtime packages:
 

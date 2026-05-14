@@ -20,16 +20,13 @@ type ChatResponse struct {
 }
 
 type ChatRequestState struct {
-	APIKey        string
-	BaseURL       string
 	ModelName     string
 	Messages      []*schema.Message
 	Options       []einomodel.Option
 	CommonOptions *einomodel.Options
 }
 
-func ResolveChatRequest(ctx context.Context, config ProviderConfig, req *ChatRequest) (*ChatRequestState, error) {
-	apiKey, baseURL := ResolveCredential(ctx, config)
+func ResolveChatRequest(_ context.Context, config ProviderConfig, req *ChatRequest) (*ChatRequestState, error) {
 	modelName := req.Model
 	if modelName == "" {
 		modelName = config.DefaultModel
@@ -38,8 +35,6 @@ func ResolveChatRequest(ctx context.Context, config ProviderConfig, req *ChatReq
 	opts := append([]einomodel.Option(nil), req.Options...)
 
 	return &ChatRequestState{
-		APIKey:        apiKey,
-		BaseURL:       baseURL,
 		ModelName:     modelName,
 		Messages:      req.Messages,
 		Options:       opts,

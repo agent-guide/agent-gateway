@@ -136,10 +136,6 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 	cliauthManager.SetCredentialManager(credentialManager)
 	cliauthRefresher := cliauth.NewAutoRefresher(cliauth.WrapSharedCredentialManager(credentialManager), cliauthManager)
 
-	if err := registerStaticProviderCredentials(ctx, credentialManager, staticConfig.Providers); err != nil {
-		return nil, nil, err
-	}
-
 	if err := credentialManager.Load(ctx); err != nil {
 		return nil, nil, fmt.Errorf("load credentials: %w", err)
 	}
@@ -206,25 +202,6 @@ func instantiateStaticProviders(bundle *gatewaybundle.GatewayBundle) (map[string
 		out[cfg.Id] = prov
 	}
 	return out, nil
-}
-
-func registerStaticProviderCredentials(ctx context.Context, credentialManager *credentialmgr.Manager, providers map[string]provider.Provider) error {
-	if credentialManager == nil {
-		return nil
-	}
-	for providerID, prov := range providers {
-		if prov == nil {
-			continue
-		}
-		cred := provider.ProviderConfigAPIKeyCredential(prov.Config(), providerID)
-		if cred == nil {
-			continue
-		}
-		if err := credentialManager.RegisterCredential(credentialmgr.WithSkipPersist(ctx), cred); err != nil {
-			return fmt.Errorf("register static credential for provider %q: %w", providerID, err)
-		}
-	}
-	return nil
 }
 
 func newLLMAPIHandlers(logger *zap.Logger) map[string]dispatcher.LLMApiHandler {

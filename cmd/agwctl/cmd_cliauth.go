@@ -115,14 +115,14 @@ var cliauthLoginCmd = &cobra.Command{
 // ── table formatter ───────────────────────────────────────────────────────────
 
 func printCliauthCredentialTable(items []*credentialmgr.Credential) {
-	headers := []string{"ID", "TYPE", "PROVIDER-ID", "SOURCE", "LABEL", "DISABLED"}
+	headers := []string{"ID", "PROVIDER-TYPE", "PROVIDER-ID", "TYPE", "LABEL", "DISABLED"}
 	rows := make([][]string, 0, len(items))
 	for _, c := range items {
 		rows = append(rows, []string{
 			dash(c.ID),
 			dash(c.ProviderType),
 			dash(c.ProviderID),
-			dash(c.Source),
+			dash(c.Type),
 			dash(c.Label),
 			boolStr(c.Disabled),
 		})

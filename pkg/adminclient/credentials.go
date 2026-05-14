@@ -14,8 +14,8 @@ func (c *Client) ListCredentials(ctx context.Context, opts CredentialListOptions
 	if opts.ProviderID != "" {
 		query.Set("provider_id", opts.ProviderID)
 	}
-	if opts.Source != "" {
-		query.Set("source", opts.Source)
+	if opts.Type != "" {
+		query.Set("type", opts.Type)
 	}
 	var resp itemsResponse[Credential]
 	if err := c.do(ctx, http.MethodGet, withQuery("/admin/credentials", query), nil, &resp, true, http.StatusOK); err != nil {

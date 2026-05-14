@@ -221,17 +221,64 @@ func TestCredentialManagerReturnsUpdatedCredentialSnapshot(t *testing.T) {
 	}
 }
 
+func TestRegisterLoginCredentialDefaultsCredentialScope(t *testing.T) {
+	commonMgr := credentialmgr.NewManager(nil)
+	refresher := NewAutoRefresher(WrapSharedCredentialManager(commonMgr), nil)
+
+	if err := refresher.RegisterLoginCredential(context.Background(), &CLIAuthCredential{
+		Credential: credentialmgr.Credential{
+			ID:           "cred-1",
+			ProviderType: "openai",
+			ProviderID:   "openai-main",
+		},
+	}); err != nil {
+		t.Fatalf("RegisterLoginCredential returned error: %v", err)
+	}
+
+	picked := commonMgr.GetCredential("cred-1")
+	if picked == nil {
+		t.Fatal("GetCredential returned nil")
+	}
+	if got, want := picked.ScopeValue(), "id:openai-main"; got != want {
+		t.Fatalf("credential scope = %q, want %q", got, want)
+	}
+}
+
+func TestRegisterLoginCredentialPreservesCredentialScope(t *testing.T) {
+	commonMgr := credentialmgr.NewManager(nil)
+	refresher := NewAutoRefresher(WrapSharedCredentialManager(commonMgr), nil)
+
+	if err := refresher.RegisterLoginCredential(context.Background(), &CLIAuthCredential{
+		Credential: credentialmgr.Credential{
+			ID:           "cred-1",
+			ProviderType: "openai",
+			ProviderID:   "openai-main",
+			Scope:        "type:openai",
+		},
+	}); err != nil {
+		t.Fatalf("RegisterLoginCredential returned error: %v", err)
+	}
+
+	picked := commonMgr.GetCredential("cred-1")
+	if picked == nil {
+		t.Fatal("GetCredential returned nil")
+	}
+	if got, want := picked.ScopeValue(), "type:openai"; got != want {
+		t.Fatalf("credential scope = %q, want %q", got, want)
+	}
+}
+
 func TestAutoRefresherAcceptsCredentialManagerInterface(t *testing.T) {
 	refresher := NewAutoRefresher(&stubCredentialManager{
 		listFn: func(filter credentialmgr.Filter) []*credentialmgr.Credential {
-			if filter.Source != credentialmgr.SourceCLIAuthToken {
-				t.Fatalf("Load filter source = %q, want %q", filter.Source, credentialmgr.SourceCLIAuthToken)
+			if filter.Type != credentialmgr.TypeCLIAuthToken {
+				t.Fatalf("Load filter type = %q, want %q", filter.Type, credentialmgr.TypeCLIAuthToken)
 			}
 			return []*credentialmgr.Credential{{
 				ID:           "cred-1",
 				ProviderType: "openai",
 				ProviderID:   "openai-main",
-				Source:       credentialmgr.SourceCLIAuthToken,
+				Type:         credentialmgr.TypeCLIAuthToken,
 			}}
 		},
 	}, nil)

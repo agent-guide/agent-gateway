@@ -195,9 +195,14 @@ func validateProviderConfigObject(obj any) error {
 }
 
 func validateCredentialObject(obj any) error {
-	switch unwrapConfigObject(obj).(type) {
-	case credmodel.Credential, *credmodel.Credential:
-		return nil
+	switch value := unwrapConfigObject(obj).(type) {
+	case credmodel.Credential:
+		return value.Validate()
+	case *credmodel.Credential:
+		if value == nil {
+			return fmt.Errorf("credential object is nil")
+		}
+		return value.Validate()
 	default:
 		return fmt.Errorf("credential object has unexpected type %T", obj)
 	}

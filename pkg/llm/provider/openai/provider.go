@@ -98,11 +98,11 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) 
 	}
 
 	cfg := &einoopenai.ChatModelConfig{
-		APIKey:     state.APIKey,
-		BaseURL:    state.BaseURL,
+		BaseURL:    p.ProviderConfig.BaseURL,
 		Model:      state.ModelName,
 		HTTPClient: httpclient.BuildHTTPClient(p.ProviderConfig.Network),
 	}
+	cfg.APIKey = provider.APIKeyFromContextOrConfig(ctx, p.ProviderConfig.APIKey)
 
 	chatModel, err := einoopenai.NewChatModel(ctx, cfg)
 	if err != nil {

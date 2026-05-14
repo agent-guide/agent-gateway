@@ -1186,7 +1186,7 @@ func TestProviderListMarksStaticProvidersAsReadOnly(t *testing.T) {
 	}
 }
 
-func TestCredentialListIncludesProviderStaticAPIKeysAsReadOnly(t *testing.T) {
+func TestCredentialListShowsOnlyManagedCredentials(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
@@ -1214,22 +1214,10 @@ func TestCredentialListIncludesProviderStaticAPIKeysAsReadOnly(t *testing.T) {
 		ID:           "cred-1",
 		ProviderType: "openai",
 		ProviderID:   "openai-static",
-		Source:       credentialmgr.SourceAPIKey,
+		Type:         credentialmgr.TypeAPIKey,
 		Attributes:   map[string]string{"api_key": "managed-key"},
 	}); err != nil {
 		t.Fatalf("register managed credential: %v", err)
-	}
-	staticCred := provider.ProviderConfigAPIKeyCredential(provider.ProviderConfig{
-		Id:           "openai-static",
-		ProviderType: "openai",
-		APIKey:       "static-key",
-		BaseURL:      "https://static.example",
-	}, "openai-static")
-	if staticCred == nil {
-		t.Fatal("expected static credential")
-	}
-	if err := credMgr.RegisterCredential(context.Background(), staticCred); err != nil {
-		t.Fatalf("register static credential in manager: %v", err)
 	}
 
 	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
@@ -1250,20 +1238,11 @@ func TestCredentialListIncludesProviderStaticAPIKeysAsReadOnly(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode credentials: %v", err)
 	}
-	if len(got.Items) != 2 {
-		t.Fatalf("item count = %d, want 2", len(got.Items))
+	if len(got.Items) != 1 {
+		t.Fatalf("item count = %d, want 1", len(got.Items))
 	}
-
-	byID := map[string]CredentialView{}
-	for _, item := range got.Items {
-		byID[item.ID] = item
-	}
-	staticID := provider.ProviderConfigAPIKeyCredentialID(provider.ProviderConfig{Id: "openai-static"})
-	if byID[staticID].Attributes["api_key"] != "static-key" || !byID[staticID].ReadOnly {
-		t.Fatalf("unexpected static credential view: %#v", byID[staticID])
-	}
-	if byID["cred-1"].Attributes["api_key"] != "managed-key" || byID["cred-1"].ReadOnly {
-		t.Fatalf("unexpected managed credential view: %#v", byID["cred-1"])
+	if got.Items[0].ID != "cred-1" || got.Items[0].Attributes["api_key"] != "managed-key" || got.Items[0].ReadOnly {
+		t.Fatalf("unexpected managed credential view: %#v", got.Items[0])
 	}
 }
 
@@ -1283,6 +1262,7 @@ func TestCredentialCreateUsesProviderID(t *testing.T) {
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body, err := json.Marshal(map[string]any{
+		"type":        credentialmgr.TypeAPIKey,
 		"provider_id": "openai-main",
 		"label":       "primary",
 		"attributes": map[string]string{
@@ -1334,6 +1314,7 @@ func TestCredentialCreateRejectsUnknownProviderID(t *testing.T) {
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body, err := json.Marshal(map[string]any{
+		"type":        credentialmgr.TypeAPIKey,
 		"provider_id": "missing-provider",
 		"attributes": map[string]string{
 			"api_key": "sk-test",
@@ -1353,186 +1334,7 @@ func TestCredentialCreateRejectsUnknownProviderID(t *testing.T) {
 	}
 }
 
-func TestCredentialUpdateRejectsProviderStaticAPIKeys(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
-	credMgr := credentialmgr.NewManager(nil)
-	agentGateway := gateway.NewAgentGateway()
-	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
-		ConfigStoreBackend: &testConfigStore{
-			providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
-		},
-		CredentialManager: credMgr,
-		StaticProviders: map[string]provider.Provider{
-			"openai-static": &stubAdminProvider{cfg: provider.ProviderConfig{
-				Id:           "openai-static",
-				ProviderType: "openai",
-				APIKey:       "static-key",
-			}},
-		},
-	}); err != nil {
-		t.Fatalf("bootstrap gateway: %v", err)
-	}
-	staticCred := provider.ProviderConfigAPIKeyCredential(provider.ProviderConfig{
-		Id:           "openai-static",
-		ProviderType: "openai",
-		APIKey:       "static-key",
-	}, "openai-static")
-	if staticCred == nil {
-		t.Fatal("expected static credential")
-	}
-	if err := credMgr.RegisterCredential(context.Background(), staticCred); err != nil {
-		t.Fatalf("register static credential in manager: %v", err)
-	}
-	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
-	token := loginForTest(t, handler, "admin", "secret-pass")
-
-	body, err := json.Marshal(map[string]any{
-		"label": "updated",
-	})
-	if err != nil {
-		t.Fatalf("marshal update request: %v", err)
-	}
-
-	staticID := provider.ProviderConfigAPIKeyCredentialID(provider.ProviderConfig{Id: "openai-static"})
-	req := httptest.NewRequest(http.MethodPut, "/admin/credentials/"+staticID, bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("unexpected update status: got %d want %d", rec.Code, http.StatusForbidden)
-	}
-}
-
-func TestCredentialGetPrefersReadOnlyViewForProviderStaticAPIKeys(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
-	credMgr := credentialmgr.NewManager(nil)
-	agentGateway := gateway.NewAgentGateway()
-	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
-		ConfigStoreBackend: &testConfigStore{
-			providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
-		},
-		CredentialManager: credMgr,
-		StaticProviders: map[string]provider.Provider{
-			"openai-static": &stubAdminProvider{cfg: provider.ProviderConfig{
-				Id:           "openai-static",
-				ProviderType: "openai",
-				APIKey:       "static-key",
-			}},
-		},
-	}); err != nil {
-		t.Fatalf("bootstrap gateway: %v", err)
-	}
-	staticCred := provider.ProviderConfigAPIKeyCredential(provider.ProviderConfig{
-		Id:           "openai-static",
-		ProviderType: "openai",
-		APIKey:       "static-key",
-	}, "openai-static")
-	if staticCred == nil {
-		t.Fatal("expected static credential")
-	}
-	if err := credMgr.RegisterCredential(context.Background(), staticCred); err != nil {
-		t.Fatalf("register static credential in manager: %v", err)
-	}
-
-	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
-	token := loginForTest(t, handler, "admin", "secret-pass")
-
-	staticID := provider.ProviderConfigAPIKeyCredentialID(provider.ProviderConfig{Id: "openai-static"})
-	req := httptest.NewRequest(http.MethodGet, "/admin/credentials/"+staticID, nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("unexpected get status: got %d want %d", rec.Code, http.StatusOK)
-	}
-
-	var got CredentialView
-	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
-		t.Fatalf("decode credential: %v", err)
-	}
-	if !got.ReadOnly {
-		t.Fatalf("static credential should be read-only: %#v", got)
-	}
-}
-
-func TestCredentialGetUsesStableManagerTimestampsForProviderStaticAPIKeys(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
-	credMgr := credentialmgr.NewManager(nil)
-	agentGateway := gateway.NewAgentGateway()
-	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
-		ConfigStoreBackend: &testConfigStore{
-			providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
-		},
-		CredentialManager: credMgr,
-		StaticProviders: map[string]provider.Provider{
-			"openai-static": &stubAdminProvider{cfg: provider.ProviderConfig{
-				Id:           "openai-static",
-				ProviderType: "openai",
-				APIKey:       "static-key",
-			}},
-		},
-	}); err != nil {
-		t.Fatalf("bootstrap gateway: %v", err)
-	}
-	staticCred := provider.ProviderConfigAPIKeyCredential(provider.ProviderConfig{
-		Id:           "openai-static",
-		ProviderType: "openai",
-		APIKey:       "static-key",
-	}, "openai-static")
-	if staticCred == nil {
-		t.Fatal("expected static credential")
-	}
-	if err := credMgr.RegisterCredential(context.Background(), staticCred); err != nil {
-		t.Fatalf("register static credential in manager: %v", err)
-	}
-	managed := credMgr.GetCredential(staticCred.ID)
-	if managed == nil {
-		t.Fatal("expected managed static credential")
-	}
-
-	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
-	handler.credentialManager = credMgr
-	token := loginForTest(t, handler, "admin", "secret-pass")
-
-	req := httptest.NewRequest(http.MethodGet, "/admin/credentials/"+staticCred.ID, nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("unexpected get status: got %d want %d", rec.Code, http.StatusOK)
-	}
-
-	var got CredentialView
-	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
-		t.Fatalf("decode credential: %v", err)
-	}
-	if !got.ReadOnly {
-		t.Fatalf("static credential should be read-only: %#v", got)
-	}
-	if !got.CreatedAt.Equal(managed.CreatedAt) {
-		t.Fatalf("got CreatedAt = %v, want %v", got.CreatedAt, managed.CreatedAt)
-	}
-	if !got.UpdatedAt.Equal(managed.UpdatedAt) {
-		t.Fatalf("got UpdatedAt = %v, want %v", got.UpdatedAt, managed.UpdatedAt)
-	}
-}
-
-func TestProviderCreateSyncsProviderConfigCredential(t *testing.T) {
+func TestProviderCreateDoesNotSyncProviderConfigCredential(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
@@ -1564,115 +1366,8 @@ func TestProviderCreateSyncsProviderConfigCredential(t *testing.T) {
 		t.Fatalf("unexpected create status: got %d want %d", rec.Code, http.StatusCreated)
 	}
 
-	cred := credMgr.GetCredential("provider-config-api-key:deepseek-test")
-	if cred == nil {
-		t.Fatal("expected provider config credential to be synced into credential manager")
-	}
-	if got := cred.APIKey(); got != "deepseek-key" {
-		t.Fatalf("credential api_key = %q, want deepseek-key", got)
-	}
-}
-
-func TestProviderDeleteRemovesProviderConfigCredential(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
-	credMgr := credentialmgr.NewManager(nil)
-	if err := provider.SyncProviderConfigAPIKeyCredential(context.Background(), credMgr, provider.ProviderConfig{
-		Id:           "deepseek-test",
-		ProviderType: "deepseek",
-		APIKey:       "deepseek-key",
-	}, "deepseek-test"); err != nil {
-		t.Fatalf("seed provider config credential: %v", err)
-	}
-
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
-			"deepseek-test": {Id: "deepseek-test", ProviderType: "deepseek", APIKey: "deepseek-key"},
-		}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
-	handler.credentialManager = credMgr
-	token := loginForTest(t, handler, "admin", "secret-pass")
-
-	req := httptest.NewRequest(http.MethodDelete, "/admin/providers/deepseek-test", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("unexpected delete status: got %d want %d", rec.Code, http.StatusOK)
-	}
 	if cred := credMgr.GetCredential("provider-config-api-key:deepseek-test"); cred != nil {
-		t.Fatalf("expected provider config credential to be removed, got %#v", cred)
-	}
-}
-
-func TestProviderUpdatePreservesProviderConfigCredentialCreatedAt(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
-	credMgr := credentialmgr.NewManager(nil)
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
-			"deepseek-test": {
-				Id:           "deepseek-test",
-				ProviderType: "deepseek",
-				APIKey:       "deepseek-key",
-			},
-		}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
-	handler.credentialManager = credMgr
-	token := loginForTest(t, handler, "admin", "secret-pass")
-
-	if err := provider.SyncProviderConfigAPIKeyCredential(context.Background(), credMgr, provider.ProviderConfig{
-		Id:           "deepseek-test",
-		ProviderType: "deepseek",
-		APIKey:       "deepseek-key",
-	}, "deepseek-test"); err != nil {
-		t.Fatalf("seed provider config credential: %v", err)
-	}
-	seeded := credMgr.GetCredential("provider-config-api-key:deepseek-test")
-	if seeded == nil {
-		t.Fatal("expected seeded provider config credential")
-	}
-	createdAt := seeded.CreatedAt
-	updatedAt := seeded.UpdatedAt
-
-	body, err := json.Marshal(map[string]any{
-		"id":            "deepseek-test",
-		"provider_type": "deepseek",
-		"api_key":       "deepseek-key-2",
-		"base_url":      "https://deepseek.example",
-	})
-	if err != nil {
-		t.Fatalf("marshal update request: %v", err)
-	}
-
-	req := httptest.NewRequest(http.MethodPut, "/admin/providers/deepseek-test", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("unexpected update status: got %d want %d", rec.Code, http.StatusOK)
-	}
-
-	updated := credMgr.GetCredential("provider-config-api-key:deepseek-test")
-	if updated == nil {
-		t.Fatal("expected updated provider config credential")
-	}
-	if !updated.CreatedAt.Equal(createdAt) {
-		t.Fatalf("updated CreatedAt = %v, want %v", updated.CreatedAt, createdAt)
-	}
-	if !updated.UpdatedAt.After(updatedAt) {
-		t.Fatalf("updated UpdatedAt = %v, want after %v", updated.UpdatedAt, updatedAt)
-	}
-	if got := updated.APIKey(); got != "deepseek-key-2" {
-		t.Fatalf("updated api_key = %q, want deepseek-key-2", got)
+		t.Fatalf("provider config credential should not be synced, got %#v", cred)
 	}
 }
 

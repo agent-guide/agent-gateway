@@ -131,13 +131,13 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) 
 	}
 
 	cfg := &einoclaude.Config{
-		APIKey:     state.APIKey,
+		APIKey:     provider.APIKeyFromContextOrConfig(ctx, p.ProviderConfig.APIKey),
 		Model:      state.ModelName,
 		MaxTokens:  maxTokens,
 		HTTPClient: httpclient.BuildHTTPClient(p.ProviderConfig.Network),
 	}
-	if state.BaseURL != "" {
-		cfg.BaseURL = &state.BaseURL
+	if p.ProviderConfig.BaseURL != "" {
+		cfg.BaseURL = &p.ProviderConfig.BaseURL
 	}
 
 	chatModel, err := einoclaude.NewChatModel(ctx, cfg)
@@ -149,7 +149,9 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) 
 
 func (p *Provider) setHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", p.ProviderConfig.APIKey)
+	if apiKey := provider.APIKeyFromContextOrConfig(req.Context(), p.ProviderConfig.APIKey); apiKey != "" {
+		req.Header.Set("x-api-key", apiKey)
+	}
 	req.Header.Set("anthropic-version", anthropicVersion)
 	for k, v := range p.ProviderConfig.Network.ExtraHeaders {
 		req.Header.Set(k, v)

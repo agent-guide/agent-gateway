@@ -187,14 +187,14 @@ func printGatewayVirtualKeysTable(items []adminclient.VirtualKey) {
 // printGatewayCredentialsTable renders a list of CredentialView items.
 // Fields: id, provider_id, provider_type, label, disabled, unavailable.
 func printGatewayCredentialsTable(items []adminclient.Credential) {
-	headers := []string{"ID", "PROVIDER-ID", "TYPE", "SOURCE", "LABEL", "DISABLED", "UNAVAILABLE"}
+	headers := []string{"ID", "PROVIDER-ID", "PROVIDER-TYPE", "TYPE", "LABEL", "DISABLED", "UNAVAILABLE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
 		rows = append(rows, []string{
 			dash(item.ID),
 			dash(item.ProviderID),
 			dash(item.ProviderType),
-			dash(item.Source),
+			dash(item.Type),
 			dash(item.Label),
 			boolStr(item.Disabled),
 			boolStr(item.Unavailable),

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
@@ -13,8 +14,6 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"github.com/cloudwego/eino/schema"
 )
-
-var errCandidateRejected = errors.New("candidate rejected")
 
 type RoutedProvider struct {
 	route               routepkg.AgentRoute
@@ -27,9 +26,10 @@ type RoutedProvider struct {
 }
 
 type executionState struct {
-	triedCandidates  map[string]struct{}
-	triedCredentials map[string]struct{}
-	modelFallbacks   int
+	triedCandidates          map[string]struct{}
+	triedCredentials         map[string]struct{}
+	triedProviderConfigAuths map[string]struct{}
+	modelFallbacks           int
 }
 
 type resolvedAttempt struct {
@@ -38,6 +38,8 @@ type resolvedAttempt struct {
 	cred   *credentialmgr.ManagedCredential
 	ctx    context.Context
 }
+
+var errManagedCredentialUnavailable = errors.New("managed credential unavailable")
 
 func (p *RoutedProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
 	var out *provider.ChatResponse
@@ -129,8 +131,9 @@ func (p *RoutedProvider) Config() provider.ProviderConfig {
 
 func (p *RoutedProvider) executeWithFallback(ctx context.Context, reqModel string, call func(context.Context, *resolvedAttempt) error) error {
 	state := &executionState{
-		triedCandidates:  map[string]struct{}{},
-		triedCredentials: map[string]struct{}{},
+		triedCandidates:          map[string]struct{}{},
+		triedCredentials:         map[string]struct{}{},
+		triedProviderConfigAuths: map[string]struct{}{},
 	}
 	maxFallbacks := 0
 	if p.route.UsesLogicalModel() {
@@ -141,19 +144,46 @@ func (p *RoutedProvider) executeWithFallback(ctx context.Context, reqModel strin
 	}
 
 	var lastErr error
+	var target *routepkg.ResolvedTarget
+	var base provider.Provider
 	for {
-		attempt, err := p.prepareAttempt(ctx, reqModel, state)
-		if err != nil {
-			if p.route.UsesLogicalModel() && errors.Is(err, errCandidateRejected) && state.modelFallbacks <= maxFallbacks {
-				lastErr = err
-				continue
+		var err error
+		if target == nil {
+			target, err = p.resolveTarget(ctx, reqModel, state.triedCandidates)
+			if err != nil {
+				if lastErr != nil {
+					return lastErr
+				}
+				return err
 			}
-			if lastErr != nil {
-				return lastErr
+			base, err = p.resolveProvider(ctx, target.ProviderID)
+			if err != nil {
+				if lastErr != nil {
+					return lastErr
+				}
+				return err
 			}
-			return err
 		}
 
+		credCtx, cred, err := p.selectCredential(ctx, target, state)
+		if err != nil {
+			if errors.Is(err, errManagedCredentialUnavailable) && p.markProviderConfigFallbackAttempt(state, target, base) {
+				credCtx = ctx
+				cred = nil
+			} else {
+				if p.advanceCandidate(state, target, maxFallbacks) {
+					target = nil
+					base = nil
+					continue
+				}
+				if lastErr != nil {
+					return lastErr
+				}
+				return err
+			}
+		}
+
+		attempt := &resolvedAttempt{target: target, base: base, cred: cred, ctx: credCtx}
 		err = call(attempt.ctx, attempt)
 		p.markResult(ctx, attempt, err)
 		if err == nil {
@@ -161,32 +191,26 @@ func (p *RoutedProvider) executeWithFallback(ctx context.Context, reqModel strin
 		}
 		lastErr = err
 
-		if p.classifyFailure(err) != failureReselectModel || state.modelFallbacks >= maxFallbacks {
+		if p.classifyFailure(err) != failureReselectModel {
 			return err
 		}
-		state.triedCandidates[routepkg.CandidateKey(attempt.target.ProviderID, attempt.target.UpstreamModel)] = struct{}{}
-		state.modelFallbacks++
+		if p.scheduler == nil || p.credentialMgr == nil {
+			if !p.advanceCandidate(state, target, maxFallbacks) {
+				return err
+			}
+			target = nil
+			base = nil
+		}
 	}
 }
 
-func (p *RoutedProvider) prepareAttempt(ctx context.Context, reqModel string, state *executionState) (*resolvedAttempt, error) {
-	target, err := p.resolveTarget(ctx, reqModel, state.triedCandidates)
-	if err != nil {
-		return nil, err
+func (p *RoutedProvider) advanceCandidate(state *executionState, target *routepkg.ResolvedTarget, maxFallbacks int) bool {
+	if !p.route.UsesLogicalModel() || target == nil || state.modelFallbacks >= maxFallbacks {
+		return false
 	}
-	base, err := p.resolveProvider(ctx, target.ProviderID)
-	if err != nil {
-		return nil, err
-	}
-	credCtx, cred, err := p.selectCredential(ctx, target, state)
-	if err != nil {
-		state.triedCandidates[routepkg.CandidateKey(target.ProviderID, target.UpstreamModel)] = struct{}{}
-		if p.route.UsesLogicalModel() {
-			state.modelFallbacks++
-		}
-		return nil, fmt.Errorf("%w: %w", errCandidateRejected, err)
-	}
-	return &resolvedAttempt{target: target, base: base, cred: cred, ctx: credCtx}, nil
+	state.triedCandidates[routepkg.CandidateKey(target.ProviderID, target.UpstreamModel)] = struct{}{}
+	state.modelFallbacks++
+	return true
 }
 
 func (p *RoutedProvider) resolveTarget(ctx context.Context, reqModel string, excluded ...map[string]struct{}) (*routepkg.ResolvedTarget, error) {
@@ -218,9 +242,9 @@ func (p *RoutedProvider) selectCredential(ctx context.Context, target *routepkg.
 		if scope == "" {
 			continue
 		}
-		for _, source := range p.route.TargetPolicy.CredentialSourceOrder() {
+		for _, credentialType := range p.route.TargetPolicy.CredentialTypeOrder() {
 			cred, err := p.scheduler.Pick(ctx, credentialmgrscheduler.Filter{
-				Source:          string(source),
+				Type:            string(credentialType),
 				CredentialScope: scope,
 				Model:           target.UpstreamModel,
 				Selector:        string(p.route.TargetPolicy.CredentialSelector()),
@@ -228,7 +252,7 @@ func (p *RoutedProvider) selectCredential(ctx context.Context, target *routepkg.
 			if err != nil || cred == nil {
 				continue
 			}
-			if cred.Source == credentialmgr.SourceCLIAuthToken {
+			if cred.Type == credentialmgr.TypeCLIAuthToken {
 				refreshed, err := p.credentialMgr.RefreshCredentialIfNeeded(ctx, cred.ID)
 				if err != nil {
 					state.triedCredentials[cred.ID] = struct{}{}
@@ -240,7 +264,23 @@ func (p *RoutedProvider) selectCredential(ctx context.Context, target *routepkg.
 			return provider.WithCredential(ctx, cred.Credential.Clone()), cred, nil
 		}
 	}
-	return ctx, nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("no credential available for provider %q model %q", target.ProviderID, target.UpstreamModel))
+	return ctx, nil, fmt.Errorf("%w: %s", errManagedCredentialUnavailable, fmt.Sprintf("no managed credential available for provider %q model %q", target.ProviderID, target.UpstreamModel))
+}
+
+func (p *RoutedProvider) markProviderConfigFallbackAttempt(state *executionState, target *routepkg.ResolvedTarget, base provider.Provider) bool {
+	if target == nil || base == nil {
+		return false
+	}
+	apiKey := strings.TrimSpace(base.Config().APIKey)
+	if apiKey == "" {
+		return false
+	}
+	key := routepkg.CandidateKey(target.ProviderID, target.UpstreamModel)
+	if _, ok := state.triedProviderConfigAuths[key]; ok {
+		return false
+	}
+	state.triedProviderConfigAuths[key] = struct{}{}
+	return true
 }
 
 func (p *RoutedProvider) expandCredentialScopes(target *routepkg.ResolvedTarget) []string {

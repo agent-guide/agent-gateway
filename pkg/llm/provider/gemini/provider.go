@@ -15,7 +15,6 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	"github.com/agent-guide/agent-gateway/pkg/httpclient"
-	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
@@ -35,7 +34,7 @@ func New(config provider.ProviderConfig) (provider.Provider, error) {
 	}
 	config.Network.Defaults()
 
-	defaultClient, err := buildGenaiClient(context.Background(), config.APIKey, config.BaseURL, config.Network, nil)
+	defaultClient, err := buildGenaiClient(context.Background(), config.APIKey, config.BaseURL, config.Network)
 	if err != nil {
 		return nil, fmt.Errorf("gemini: init client: %w", err)
 	}
@@ -47,7 +46,7 @@ func New(config provider.ProviderConfig) (provider.Provider, error) {
 
 // buildGenaiClient constructs a genai.Client with the given credentials and network config.
 // This is the single path for creating Gemini API clients in this package.
-func buildGenaiClient(ctx context.Context, apiKey, baseURL string, network httpclient.NetworkConfig, cred *credentialmgr.Credential) (*genai.Client, error) {
+func buildGenaiClient(ctx context.Context, apiKey, baseURL string, network httpclient.NetworkConfig) (*genai.Client, error) {
 	httpClient := httpclient.BuildHTTPClient(network)
 	timeout := network.RequestTimeout()
 	return genai.NewClient(ctx, &genai.ClientConfig{
@@ -89,7 +88,8 @@ func (p *Provider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*
 
 // ListModels fetches available Gemini models from GET /v1beta/models.
 func (p *Provider) ListModels(ctx context.Context) ([]provider.ModelInfo, error) {
-	url := fmt.Sprintf("%s/v1beta/models?key=%s", p.ProviderConfig.BaseURL, p.ProviderConfig.APIKey)
+	apiKey := provider.APIKeyFromContextOrConfig(ctx, p.ProviderConfig.APIKey)
+	url := fmt.Sprintf("%s/v1beta/models?key=%s", p.ProviderConfig.BaseURL, apiKey)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("gemini: build request: %w", err)
@@ -152,10 +152,11 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) 
 	}
 
 	// Reuse the cached client for the common path (no credential override).
-	// Build a new one only when a per-request credential changes the API key or base URL.
+	// Build a new one only when a per-request credential changes the auth value.
+	apiKey := provider.APIKeyFromContextOrConfig(ctx, p.ProviderConfig.APIKey)
 	client := p.genaiClient
-	if cred, ok := provider.CredentialFromContext(ctx); ok {
-		client, err = buildGenaiClient(ctx, state.APIKey, state.BaseURL, p.ProviderConfig.Network, cred)
+	if apiKey != strings.TrimSpace(p.ProviderConfig.APIKey) {
+		client, err = buildGenaiClient(ctx, apiKey, p.ProviderConfig.BaseURL, p.ProviderConfig.Network)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("gemini: build credential client: %w", err)
 		}

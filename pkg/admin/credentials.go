@@ -10,7 +10,6 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
-	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"gorm.io/gorm"
 )
 
@@ -28,27 +27,15 @@ func (h *Handler) handleListCredentials(w http.ResponseWriter, r *http.Request) 
 	filter := credentialmgr.Filter{
 		ProviderType: r.URL.Query().Get("provider_type"),
 		ProviderID:   r.URL.Query().Get("provider_id"),
-		Source:       r.URL.Query().Get("source"),
+		Type:         r.URL.Query().Get("type"),
 	}
 	items := h.credentialManager.ListCredentials(filter)
 	views := make([]CredentialView, 0, len(items))
-	seen := make(map[string]struct{}, len(items))
 	for _, item := range items {
 		if item == nil {
 			continue
 		}
-		readOnly := h.getProviderStaticCredential(r.Context(), item.ID) != nil
-		views = append(views, credentialView(item, readOnly))
-		seen[item.ID] = struct{}{}
-	}
-	for _, item := range h.listProviderStaticCredentials(r.Context(), filter) {
-		if item == nil {
-			continue
-		}
-		if _, ok := seen[item.ID]; ok {
-			continue
-		}
-		views = append(views, credentialViewFromSpec(item, true))
+		views = append(views, credentialView(item, false))
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": views})
 }
@@ -65,15 +52,6 @@ func (h *Handler) handleGetCredential(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if spec := h.getProviderStaticCredential(r.Context(), id); spec != nil {
-		if item := h.credentialManager.GetCredential(id); item != nil {
-			_ = httpjson.Write(w, http.StatusOK, credentialView(item, true))
-			return
-		}
-		_ = httpjson.Write(w, http.StatusOK, credentialViewFromSpec(spec, true))
-		return
-	}
-
 	item := h.credentialManager.GetCredential(id)
 	if item != nil {
 		_ = httpjson.Write(w, http.StatusOK, credentialView(item, false))
@@ -85,9 +63,10 @@ func (h *Handler) handleGetCredential(w http.ResponseWriter, r *http.Request) {
 // credentialCreateRequest is the request body for POST /admin/credentials.
 type credentialCreateRequest struct {
 	ID           string            `json:"id,omitempty"`
-	Source       string            `json:"source,omitempty"`
+	Type         string            `json:"type"`
 	ProviderType string            `json:"provider_type,omitempty"`
 	ProviderID   string            `json:"provider_id"`
+	Scope        string            `json:"scope,omitempty"`
 	Label        string            `json:"label,omitempty"`
 	Attributes   map[string]string `json:"attributes,omitempty"`
 	Metadata     map[string]any    `json:"metadata,omitempty"`
@@ -96,9 +75,10 @@ type credentialCreateRequest struct {
 
 // credentialUpdateRequest is the request body for PUT /admin/credentials/{credential_id}.
 type credentialUpdateRequest struct {
-	Source       string            `json:"source,omitempty"`
+	Type         string            `json:"type,omitempty"`
 	ProviderType string            `json:"provider_type,omitempty"`
 	ProviderID   string            `json:"provider_id,omitempty"`
+	Scope        string            `json:"scope,omitempty"`
 	Label        string            `json:"label,omitempty"`
 	Attributes   map[string]string `json:"attributes,omitempty"`
 	Metadata     map[string]any    `json:"metadata,omitempty"`
@@ -139,11 +119,6 @@ func (h *Handler) handleUpdateCredential(w http.ResponseWriter, r *http.Request)
 		_ = httpjson.Error(w, http.StatusBadRequest, "credential_id is required")
 		return
 	}
-	if h.getProviderStaticCredential(r.Context(), id) != nil {
-		_ = httpjson.Error(w, http.StatusForbidden, "provider config api_key credentials are read-only")
-		return
-	}
-
 	existing := h.credentialManager.GetCredential(id)
 	if existing == nil {
 		_ = httpjson.Error(w, http.StatusNotFound, "credential not found")
@@ -180,10 +155,6 @@ func (h *Handler) handleDeleteCredential(w http.ResponseWriter, r *http.Request)
 		_ = httpjson.Error(w, http.StatusBadRequest, "credential_id is required")
 		return
 	}
-	if h.getProviderStaticCredential(r.Context(), id) != nil {
-		_ = httpjson.Error(w, http.StatusForbidden, "provider config api_key credentials are read-only")
-		return
-	}
 	if err := h.credentialManager.DeregisterCredential(r.Context(), id); err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -201,62 +172,14 @@ func credentialView(cred *credentialmgr.ManagedCredential, readOnly bool) Creden
 	}
 }
 
-func credentialViewFromSpec(cred *credentialmgr.Credential, readOnly bool) CredentialView {
-	if cred == nil {
-		return CredentialView{ReadOnly: readOnly}
-	}
-	return CredentialView{
-		ManagedCredential: credentialmgr.ManagedCredential{Credential: *cred.Clone()},
-		ReadOnly:          readOnly,
-	}
-}
-
-func (h *Handler) listProviderStaticCredentials(ctx context.Context, filter credentialmgr.Filter) []*credentialmgr.Credential {
-	manager := h.providerManagerForRoutes()
-	if manager == nil {
-		return nil
-	}
-	items, err := manager.ListConfigs(ctx, gateway.ProviderListOptions{
-		ProviderType: filter.ProviderType,
-	})
-	if err != nil {
-		return nil
-	}
-	out := make([]*credentialmgr.Credential, 0, len(items))
-	for _, cfg := range items {
-		cred := provider.ProviderConfigAPIKeyCredential(cfg, cfg.Id)
-		if cred == nil || !matchesCredentialFilter(cred, filter) {
-			continue
-		}
-		out = append(out, cred)
-	}
-	return out
-}
-
-func (h *Handler) getProviderStaticCredential(ctx context.Context, id string) *credentialmgr.Credential {
-	providerID, ok := provider.ProviderConfigAPIKeyCredentialProviderID(id)
-	if !ok {
-		return nil
-	}
-	manager := h.providerManagerForRoutes()
-	if manager == nil {
-		return nil
-	}
-	cfg, err := manager.GetConfig(ctx, providerID)
-	if err != nil {
-		return nil
-	}
-	return provider.ProviderConfigAPIKeyCredential(cfg, cfg.Id)
-}
-
 func (h *Handler) buildCredentialForCreate(ctx context.Context, req credentialCreateRequest) (*credentialmgr.Credential, error) {
-	source := strings.ToLower(strings.TrimSpace(req.Source))
-	if source == "" {
-		source = credentialmgr.SourceAPIKey
+	credentialType := strings.ToLower(strings.TrimSpace(req.Type))
+	if credentialType == "" {
+		return nil, fmt.Errorf("type is required")
 	}
 
-	switch source {
-	case credentialmgr.SourceAPIKey:
+	switch credentialType {
+	case credentialmgr.TypeAPIKey:
 		manager := h.providerManagerForRoutes()
 		if manager == nil {
 			return nil, fmt.Errorf("provider manager is not configured")
@@ -276,17 +199,19 @@ func (h *Handler) buildCredentialForCreate(ctx context.Context, req credentialCr
 			ID:           strings.TrimSpace(req.ID),
 			ProviderType: cfg.ProviderType,
 			ProviderID:   cfg.Id,
-			Source:       credentialmgr.SourceAPIKey,
+			Scope:        strings.TrimSpace(req.Scope),
+			Type:         credentialmgr.TypeAPIKey,
 			Label:        req.Label,
 			Attributes:   req.Attributes,
 			Disabled:     req.Disabled,
 		}, nil
-	case credentialmgr.SourceCLIAuthToken:
+	case credentialmgr.TypeCLIAuthToken:
 		cred := &credentialmgr.Credential{
 			ID:           strings.TrimSpace(req.ID),
 			ProviderType: strings.TrimSpace(req.ProviderType),
 			ProviderID:   strings.TrimSpace(req.ProviderID),
-			Source:       credentialmgr.SourceCLIAuthToken,
+			Scope:        strings.TrimSpace(req.Scope),
+			Type:         credentialmgr.TypeCLIAuthToken,
 			Label:        req.Label,
 			Attributes:   req.Attributes,
 			Metadata:     req.Metadata,
@@ -300,7 +225,7 @@ func (h *Handler) buildCredentialForCreate(ctx context.Context, req credentialCr
 		}
 		return cred, nil
 	default:
-		return nil, fmt.Errorf("unsupported credential source %q", source)
+		return nil, fmt.Errorf("unsupported credential type %q", credentialType)
 	}
 }
 
@@ -308,19 +233,25 @@ func (h *Handler) buildCredentialForUpdate(existing *credentialmgr.ManagedCreden
 	if existing == nil {
 		return nil, fmt.Errorf("credential not found")
 	}
-	switch existing.Source {
-	case credentialmgr.SourceAPIKey:
+	switch existing.Type {
+	case credentialmgr.TypeAPIKey:
 		updated := existing.Credential.Clone()
 		updated.Label = req.Label
 		updated.Disabled = req.Disabled
+		if scope := strings.TrimSpace(req.Scope); scope != "" {
+			updated.Scope = scope
+		}
 		if req.Attributes != nil {
 			updated.Attributes = req.Attributes
 		}
 		return updated, nil
-	case credentialmgr.SourceCLIAuthToken:
+	case credentialmgr.TypeCLIAuthToken:
 		updated := existing.Credential.Clone()
 		updated.Label = req.Label
 		updated.Disabled = req.Disabled
+		if scope := strings.TrimSpace(req.Scope); scope != "" {
+			updated.Scope = scope
+		}
 		if req.Attributes != nil {
 			updated.Attributes = req.Attributes
 		}
@@ -337,7 +268,7 @@ func (h *Handler) buildCredentialForUpdate(existing *credentialmgr.ManagedCreden
 		}
 		return updated, nil
 	default:
-		return nil, fmt.Errorf("credential source %q cannot be updated via the admin API", existing.Source)
+		return nil, fmt.Errorf("credential type %q cannot be updated via the admin API", existing.Type)
 	}
 }
 
@@ -369,7 +300,7 @@ func matchesCredentialFilter(cred *credentialmgr.Credential, filter credentialmg
 	if providerID := strings.ToLower(strings.TrimSpace(filter.ProviderID)); providerID != "" && strings.ToLower(cred.ProviderID) != providerID {
 		return false
 	}
-	if source := strings.ToLower(strings.TrimSpace(filter.Source)); source != "" && strings.ToLower(cred.Source) != source {
+	if credentialType := strings.ToLower(strings.TrimSpace(filter.Type)); credentialType != "" && strings.ToLower(cred.Type) != credentialType {
 		return false
 	}
 	return true

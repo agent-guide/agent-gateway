@@ -47,7 +47,7 @@ func (m *Manager) GetCredentialWithError(id string) (*credentialmgr.Credential, 
 		return nil, err
 	}
 	cred := credentialFromAdminView(item)
-	if cred == nil || cred.Source != credentialmgr.SourceCLIAuthToken {
+	if cred == nil || cred.Type != credentialmgr.TypeCLIAuthToken {
 		return nil, nil
 	}
 	return cred, nil
@@ -64,14 +64,14 @@ func (m *Manager) ListCredentialsWithError(filter credentialmgr.Filter) ([]*cred
 	}
 
 	filter = normalizeFilter(filter)
-	if filter.Source != "" && filter.Source != credentialmgr.SourceCLIAuthToken {
+	if filter.Type != "" && filter.Type != credentialmgr.TypeCLIAuthToken {
 		return nil, nil
 	}
 
 	items, err := m.client.ListCredentials(context.Background(), adminclient.CredentialListOptions{
 		ProviderType: filter.ProviderType,
 		ProviderID:   filter.ProviderID,
-		Source:       credentialmgr.SourceCLIAuthToken,
+		Type:         credentialmgr.TypeCLIAuthToken,
 	})
 	if err != nil {
 		return nil, err
@@ -112,7 +112,7 @@ func (m *Manager) RegisterCredential(ctx context.Context, cred *credentialmgr.Cr
 		cred.ID = managed.ID
 		cred.ProviderType = managed.ProviderType
 		cred.ProviderID = managed.ProviderID
-		cred.Source = managed.Source
+		cred.Type = managed.Type
 		cred.Label = managed.Label
 		cred.Attributes = cloneStringMap(managed.Attributes)
 		cred.Metadata = cloneAnyMap(managed.Metadata)
@@ -143,7 +143,7 @@ func (m *Manager) UpdateCredential(ctx context.Context, cred *credentialmgr.Cred
 	if managed != nil {
 		cred.ProviderType = managed.ProviderType
 		cred.ProviderID = managed.ProviderID
-		cred.Source = managed.Source
+		cred.Type = managed.Type
 		cred.Label = managed.Label
 		cred.Attributes = cloneStringMap(managed.Attributes)
 		cred.Metadata = cloneAnyMap(managed.Metadata)
@@ -173,7 +173,7 @@ func DefaultGatewayAddr() string {
 }
 
 func normalizeFilter(filter credentialmgr.Filter) credentialmgr.Filter {
-	filter.Source = strings.ToLower(strings.TrimSpace(filter.Source))
+	filter.Type = strings.ToLower(strings.TrimSpace(filter.Type))
 	filter.ProviderType = strings.ToLower(strings.TrimSpace(filter.ProviderType))
 	filter.ProviderID = strings.ToLower(strings.TrimSpace(filter.ProviderID))
 	filter.Model = strings.TrimSpace(filter.Model)
@@ -184,7 +184,7 @@ func matchesFilter(cred *credentialmgr.Credential, filter credentialmgr.Filter) 
 	if cred == nil {
 		return false
 	}
-	if filter.Source != "" && strings.ToLower(cred.Source) != filter.Source {
+	if filter.Type != "" && strings.ToLower(cred.Type) != filter.Type {
 		return false
 	}
 	if filter.ProviderType != "" && strings.ToLower(cred.ProviderType) != filter.ProviderType {
@@ -213,7 +213,7 @@ func credentialFromAdminView(item *adminclient.Credential) *credentialmgr.Creden
 		ID:           item.ID,
 		ProviderType: item.ProviderType,
 		ProviderID:   item.ProviderID,
-		Source:       item.Source,
+		Type:         item.Type,
 		Label:        item.Label,
 		Attributes:   cloneStringMap(item.Attributes),
 		Metadata:     cloneAnyMap(item.Metadata),
@@ -229,7 +229,7 @@ func createRequestFromCredential(cred *credentialmgr.Credential) adminclient.Cre
 	}
 	return adminclient.CreateCredentialRequest{
 		ID:           cred.ID,
-		Source:       cred.Source,
+		Type:         cred.Type,
 		ProviderType: cred.ProviderType,
 		ProviderID:   cred.ProviderID,
 		Label:        cred.Label,
@@ -244,7 +244,7 @@ func updateRequestFromCredential(cred *credentialmgr.Credential) adminclient.Upd
 		return adminclient.UpdateCredentialRequest{}
 	}
 	return adminclient.UpdateCredentialRequest{
-		Source:       cred.Source,
+		Type:         cred.Type,
 		ProviderType: cred.ProviderType,
 		ProviderID:   cred.ProviderID,
 		Label:        cred.Label,

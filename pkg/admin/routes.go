@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -278,10 +277,6 @@ func (h *Handler) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := h.syncProviderConfigCredential(r.Context(), created); err != nil {
-		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
 	_ = httpjson.Write(w, http.StatusCreated, providerViewFromConfig(manager, created))
 }
 
@@ -346,10 +341,6 @@ func (h *Handler) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := h.syncProviderConfigCredential(r.Context(), updatedCfg); err != nil {
-		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
 	_ = httpjson.Write(w, http.StatusOK, providerViewFromConfig(manager, updatedCfg))
 }
 
@@ -370,10 +361,6 @@ func (h *Handler) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 			_ = httpjson.Error(w, http.StatusNotFound, "provider not found")
 			return
 		}
-		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if err := h.removeProviderConfigCredential(r.Context(), id); err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -427,35 +414,13 @@ func (h *Handler) handleSetProviderDisabled(w http.ResponseWriter, r *http.Reque
 	updatedCfg, err := manager.GetConfig(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, gateway.ErrProviderDisabled) && disabled {
-			if err := h.syncProviderConfigCredential(r.Context(), cfg); err != nil {
-				_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
-				return
-			}
 			_ = httpjson.Write(w, http.StatusOK, providerViewFromConfig(manager, cfg))
 			return
 		}
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := h.syncProviderConfigCredential(r.Context(), updatedCfg); err != nil {
-		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
 	_ = httpjson.Write(w, http.StatusOK, providerViewFromConfig(manager, updatedCfg))
-}
-
-func (h *Handler) syncProviderConfigCredential(ctx context.Context, cfg provider.ProviderConfig) error {
-	if h.credentialManager == nil {
-		return nil
-	}
-	return provider.SyncProviderConfigAPIKeyCredential(ctx, h.credentialManager, cfg, cfg.Id)
-}
-
-func (h *Handler) removeProviderConfigCredential(ctx context.Context, providerID string) error {
-	if h.credentialManager == nil {
-		return nil
-	}
-	return provider.RemoveProviderConfigAPIKeyCredential(ctx, h.credentialManager, providerID)
 }
 
 func (h *Handler) handleListRoutes(w http.ResponseWriter, r *http.Request) {

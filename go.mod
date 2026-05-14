@@ -3,6 +3,7 @@ module github.com/agent-guide/agent-gateway
 go 1.25.5
 
 require (
+	github.com/anthropics/anthropic-sdk-go v1.4.0
 	github.com/caddyserver/caddy/v2 v2.10.2
 	github.com/cloudwego/eino v0.8.4
 	github.com/cloudwego/eino-ext/components/model/claude v0.1.15
@@ -40,7 +41,6 @@ require (
 	github.com/Masterminds/sprig/v3 v3.3.0 // indirect
 	github.com/Microsoft/go-winio v0.6.0 // indirect
 	github.com/alecthomas/chroma/v2 v2.20.0 // indirect
-	github.com/anthropics/anthropic-sdk-go v1.4.0 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
 	github.com/aryann/difflib v0.0.0-20210328193216-ff5ff6dc229b // indirect
 	github.com/aws/aws-sdk-go-v2 v1.36.4 // indirect

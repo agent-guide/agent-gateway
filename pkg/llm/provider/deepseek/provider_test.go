@@ -11,6 +11,7 @@ import (
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
+	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
@@ -53,7 +54,10 @@ func TestGenerateUsesDeepSeekAPI(t *testing.T) {
 	}
 	p := prov.(*Provider)
 
-	resp, err := p.Chat(context.Background(), &provider.ChatRequest{
+	ctx := provider.WithCredential(context.Background(), &credentialmgr.Credential{
+		Attributes: map[string]string{"api_key": "test-key"},
+	})
+	resp, err := p.Chat(ctx, &provider.ChatRequest{
 		Model: "deepseek-chat",
 		Messages: []*schema.Message{
 			{Role: schema.System, Content: "用中文回答"},

@@ -12,18 +12,28 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 )
 
-type credentialKey struct{}
+type credentialContextKey struct{}
 
-// WithCredential attaches a credential to the context for per-request auth override.
-// The openaibase Base reads this in setHeaders to replace the static APIKey.
 func WithCredential(ctx context.Context, cred *credentialmgr.Credential) context.Context {
-	return context.WithValue(ctx, credentialKey{}, cred)
+	if cred == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, credentialContextKey{}, cred)
 }
 
-// CredentialFromContext retrieves the per-request credential from the context.
 func CredentialFromContext(ctx context.Context) (*credentialmgr.Credential, bool) {
-	cred, ok := ctx.Value(credentialKey{}).(*credentialmgr.Credential)
-	return cred, ok && cred != nil
+	cred, ok := ctx.Value(credentialContextKey{}).(*credentialmgr.Credential)
+	if !ok || cred == nil {
+		return nil, false
+	}
+	return cred, true
+}
+
+func APIKeyFromContextOrConfig(ctx context.Context, configAPIKey string) string {
+	if cred, ok := CredentialFromContext(ctx); ok && strings.TrimSpace(cred.APIKey()) != "" {
+		return strings.TrimSpace(cred.APIKey())
+	}
+	return strings.TrimSpace(configAPIKey)
 }
 
 // CheckResponse returns a StatusError if the HTTP response status is not 2xx.
@@ -77,23 +87,4 @@ func isRetryable(err error) bool {
 		return code == http.StatusTooManyRequests || (code >= 500 && code < 600)
 	}
 	return true // network errors without status code are retryable
-}
-
-func ResolveCredential(ctx context.Context, config ProviderConfig) (apiKey string, baseURL string) {
-	config.Defaults()
-	apiKey = config.APIKey
-	baseURL = config.BaseURL
-
-	if c, ok := CredentialFromContext(ctx); ok {
-		if token, _ := c.Metadata["access_token"].(string); token != "" {
-			apiKey = token
-		} else if key := strings.TrimSpace(c.APIKey()); key != "" {
-			apiKey = key
-		}
-		if u := strings.TrimSpace(c.BaseURL()); u != "" {
-			baseURL = u
-		}
-	}
-
-	return apiKey, baseURL
 }
