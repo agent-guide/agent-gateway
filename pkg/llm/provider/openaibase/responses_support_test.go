@@ -29,12 +29,12 @@ func TestResponsesProviderSupportMatchesUpstream(t *testing.T) {
 		{
 			name: "deepseek",
 			got:  mustNewProvider(t, deepseek.New, "deepseek"),
-			want: false,
+			want: true,
 		},
 		{
 			name: "zhipu",
 			got:  mustNewProvider(t, zhipu.New, "zhipu"),
-			want: false,
+			want: true,
 		},
 	}
 

@@ -3,22 +3,23 @@ package openai
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/internal/httplog"
-	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	dispatcher "github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
 )
+
+// ResponsesRequest reuses the provider-level request model directly because
+// OpenAI Responses API payloads are forwarded to the selected provider.
+type ResponsesRequest = provider.ResponsesRequest
 
 // Handler handles OpenAI-format API requests (/v1/chat/completions, etc.).
 type Handler struct {
@@ -157,49 +158,31 @@ func (h *Handler) serveResponses(w http.ResponseWriter, r *http.Request, prov pr
 	}
 
 	if prepared.Stream() {
-		if responsesProv, ok := prov.(provider.ResponsesProvider); ok {
-			stream, err := responsesProv.StreamResponses(r.Context(), respReq)
-			if err == nil {
-				h.writeProviderResponsesStream(w, r, stream, respReq.Model)
-				return nil
-			}
-			if !isResponsesUnsupported(err) {
-				_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: respReq.Model}, w, r, err, "start response stream")
-				return nil
-			}
+		responsesProv, ok := prov.(provider.ResponsesProvider)
+		if !ok {
+			_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: respReq.Model}, w, r, http.StatusNotImplemented, "responses api is not supported", fmt.Errorf("provider %q does not implement responses api", prov.Config().ProviderType))
+			return nil
 		}
-		chatReq, err := responsesToInternal(req)
+		stream, err := responsesProv.StreamResponses(r.Context(), respReq)
 		if err != nil {
-			_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: respReq.Model}, w, r, http.StatusBadRequest, err.Error(), fmt.Errorf("convert responses fallback request: %w", err))
+			_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: respReq.Model}, w, r, err, "start response stream")
 			return nil
 		}
-		h.serveResponsesStream(w, r, prov, chatReq)
+		h.writeProviderResponsesStream(w, r, stream, respReq.Model)
 		return nil
 	}
 
-	if responsesProv, ok := prov.(provider.ResponsesProvider); ok {
-		resp, err := responsesProv.CreateResponses(r.Context(), respReq)
-		if err == nil {
-			_ = httpjson.Write(w, http.StatusOK, resp)
-			return nil
-		}
-		if !isResponsesUnsupported(err) {
-			_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: respReq.Model}, w, r, err, "create response")
-			return nil
-		}
-	}
-	chatReq, err := responsesToInternal(req)
-	if err != nil {
-		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: respReq.Model}, w, r, http.StatusBadRequest, err.Error(), fmt.Errorf("convert responses fallback request: %w", err))
+	responsesProv, ok := prov.(provider.ResponsesProvider)
+	if !ok {
+		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: respReq.Model}, w, r, http.StatusNotImplemented, "responses api is not supported", fmt.Errorf("provider %q does not implement responses api", prov.Config().ProviderType))
 		return nil
 	}
-
-	resp, err := prov.Chat(r.Context(), chatReq)
+	resp, err := responsesProv.CreateResponses(r.Context(), respReq)
 	if err != nil {
-		_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: chatReq.Model}, w, r, err, "generate response")
+		_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: respReq.Model}, w, r, err, "create response")
 		return nil
 	}
-	_ = httpjson.Write(w, http.StatusOK, responsesFromInternal(resp, chatReq.Model))
+	_ = httpjson.Write(w, http.StatusOK, resp)
 	return nil
 }
 
@@ -250,68 +233,6 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 	}
 }
 
-func (h *Handler) serveResponsesStream(w http.ResponseWriter, r *http.Request, prov provider.Provider, chatReq *provider.ChatRequest) {
-	ctx := r.Context()
-	stream, err := prov.StreamChat(ctx, chatReq)
-	if err != nil {
-		_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: chatReq.Model}, w, r, err, "start stream")
-		return
-	}
-	defer stream.Close()
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.WriteHeader(http.StatusOK)
-
-	flusher, canFlush := w.(http.Flusher)
-	resp := responsesFromInternal(&provider.ChatResponse{}, chatReq.Model)
-	if err := writeResponsesEvent(w, responsesCreatedEvent(resp)); err == nil && canFlush {
-		flusher.Flush()
-	}
-
-	for {
-		chunk, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			httplog.Error(h.logger, "http request failed", r, http.StatusOK, fmt.Errorf("receive responses stream chunk: %w", err),
-				zap.String("protocol", "openai"),
-				zap.String("model", chatReq.Model),
-			)
-			break
-		}
-
-		if chunk != nil && chunk.Content != "" {
-			resp.Output[0].Content[0].Text += chunk.Content
-			if err := writeResponsesEvent(w, responsesDeltaEvent(resp.Output[0].ID, chunk.Content)); err != nil {
-				httplog.Error(h.logger, "http request failed", r, http.StatusOK, fmt.Errorf("marshal responses stream chunk: %w", err),
-					zap.String("protocol", "openai"),
-					zap.String("model", chatReq.Model),
-				)
-				break
-			}
-			if canFlush {
-				flusher.Flush()
-			}
-		}
-	}
-
-	if err := writeResponsesEvent(w, responsesCompletedEvent(resp)); err == nil && canFlush {
-		flusher.Flush()
-	}
-}
-
-func (h *Handler) serveProviderResponsesStream(w http.ResponseWriter, r *http.Request, prov provider.ResponsesProvider, req *provider.ResponsesRequest, model string) {
-	stream, err := prov.StreamResponses(r.Context(), req)
-	if err != nil {
-		_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: model}, w, r, err, "start response stream")
-		return
-	}
-	h.writeProviderResponsesStream(w, r, stream, model)
-}
-
 func (h *Handler) writeProviderResponsesStream(w http.ResponseWriter, r *http.Request, stream *schema.StreamReader[*provider.ResponsesStreamEvent], model string) {
 	defer stream.Close()
 
@@ -347,14 +268,6 @@ func (h *Handler) writeProviderResponsesStream(w http.ResponseWriter, r *http.Re
 			flusher.Flush()
 		}
 	}
-}
-
-func isResponsesUnsupported(err error) bool {
-	var se statuserr.StatusError
-	if !errors.As(err, &se) || se.StatusCode() != http.StatusNotImplemented {
-		return false
-	}
-	return strings.Contains(strings.ToLower(err.Error()), "responses api is not supported")
 }
 
 func writeResponsesEvent(w http.ResponseWriter, event *provider.ResponsesStreamEvent) error {

@@ -66,6 +66,14 @@ func (p *Provider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*
 	return stream, nil
 }
 
+func (p *Provider) CreateResponses(ctx context.Context, req *provider.ResponsesRequest) (*provider.ResponsesResponse, error) {
+	return provider.CreateResponsesViaChat(ctx, p, req)
+}
+
+func (p *Provider) StreamResponses(ctx context.Context, req *provider.ResponsesRequest) (*schema.StreamReader[*provider.ResponsesStreamEvent], error) {
+	return provider.StreamResponsesViaChat(ctx, p, req)
+}
+
 // ListModels fetches available Claude models from GET /v1/models.
 func (p *Provider) ListModels(ctx context.Context) ([]provider.ModelInfo, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet,
@@ -159,5 +167,6 @@ func (p *Provider) setHeaders(req *http.Request) {
 }
 
 var (
-	_ provider.Provider = (*Provider)(nil)
+	_ provider.Provider          = (*Provider)(nil)
+	_ provider.ResponsesProvider = (*Provider)(nil)
 )

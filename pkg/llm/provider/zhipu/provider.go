@@ -62,6 +62,14 @@ func (p *Provider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*
 	return stream, nil
 }
 
+func (p *Provider) CreateResponses(ctx context.Context, req *provider.ResponsesRequest) (*provider.ResponsesResponse, error) {
+	return provider.CreateResponsesViaChat(ctx, p, req)
+}
+
+func (p *Provider) StreamResponses(ctx context.Context, req *provider.ResponsesRequest) (*schema.StreamReader[*provider.ResponsesStreamEvent], error) {
+	return provider.StreamResponsesViaChat(ctx, p, req)
+}
+
 func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) (einomodel.ToolCallingChatModel, []*schema.Message, []einomodel.Option, error) {
 	state, err := provider.ResolveChatRequest(ctx, p.ProviderConfig, req)
 	if err != nil {
@@ -135,4 +143,5 @@ func (p *Provider) thinkingType() string {
 var (
 	_ provider.Provider          = (*Provider)(nil)
 	_ provider.EmbeddingProvider = (*Provider)(nil)
+	_ provider.ResponsesProvider = (*Provider)(nil)
 )
