@@ -12,6 +12,7 @@ import (
 	_ "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/anthropic"
 	_ "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/openai"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/anthropic"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/codex"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/deepseek"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/gemini"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/ollama"

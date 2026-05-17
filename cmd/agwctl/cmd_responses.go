@@ -32,11 +32,9 @@ Examples:
 }
 
 func runResponses(prompt string) error {
-	input := []map[string]any{}
-	if chatSystem != "" {
-		input = append(input, map[string]any{"role": "system", "content": chatSystem})
+	input := []map[string]any{
+		{"role": "user", "content": prompt},
 	}
-	input = append(input, map[string]any{"role": "user", "content": prompt})
 
 	body := map[string]any{
 		"input":             input,
@@ -45,6 +43,9 @@ func runResponses(prompt string) error {
 	}
 	if strings.TrimSpace(chatModel) != "" {
 		body["model"] = chatModel
+	}
+	if strings.TrimSpace(chatSystem) != "" {
+		body["instructions"] = chatSystem
 	}
 
 	url := openAIEndpointURL(chatBaseURL, "/responses")

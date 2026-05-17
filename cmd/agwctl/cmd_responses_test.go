@@ -63,6 +63,7 @@ func TestRunResponsesUsesResponsesEndpoint(t *testing.T) {
 		gotAPIKey        string
 		gotContentType   string
 		gotMaxOutput     int
+		gotInstructions  string
 		gotInputMessages []map[string]any
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +82,9 @@ func TestRunResponsesUsesResponsesEndpoint(t *testing.T) {
 			t.Fatalf("unmarshal request body: %v", err)
 		}
 		gotMaxOutput = int(payload["max_output_tokens"].(float64))
+		if v, ok := payload["instructions"].(string); ok {
+			gotInstructions = v
+		}
 		for _, raw := range payload["input"].([]any) {
 			gotInputMessages = append(gotInputMessages, raw.(map[string]any))
 		}
@@ -117,13 +121,19 @@ func TestRunResponsesUsesResponsesEndpoint(t *testing.T) {
 	if gotMaxOutput != 77 {
 		t.Fatalf("max_output_tokens = %d, want 77", gotMaxOutput)
 	}
-	if len(gotInputMessages) != 2 {
-		t.Fatalf("input message count = %d, want 2", len(gotInputMessages))
+	if gotInstructions != "system prompt" {
+		t.Fatalf("instructions = %q, want %q", gotInstructions, "system prompt")
+	}
+	if len(gotInputMessages) != 1 {
+		t.Fatalf("input message count = %d, want 1", len(gotInputMessages))
 	}
 }
 
 func TestRunResponsesOmitsModelWhenEmpty(t *testing.T) {
-	var gotModel any
+	var (
+		gotModel        any
+		gotInstructions any
+	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 		var payload map[string]any
@@ -131,6 +141,7 @@ func TestRunResponsesOmitsModelWhenEmpty(t *testing.T) {
 			t.Fatalf("decode request body: %v", err)
 		}
 		gotModel = payload["model"]
+		gotInstructions = payload["instructions"]
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"output_text":"done"}`))
@@ -150,6 +161,9 @@ func TestRunResponsesOmitsModelWhenEmpty(t *testing.T) {
 	}
 	if gotModel != nil {
 		t.Fatalf("model = %#v, want omitted field", gotModel)
+	}
+	if gotInstructions != nil {
+		t.Fatalf("instructions = %#v, want omitted field", gotInstructions)
 	}
 }
 

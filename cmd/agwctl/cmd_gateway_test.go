@@ -292,6 +292,47 @@ virtualKeys:
 	}
 }
 
+func TestGatewayValidateCommandAcceptsCodexProvider(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gateway-codex.yaml")
+	if err := os.WriteFile(path, []byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+providerTypes:
+  - provider_type: codex
+    enabled: true
+providers:
+  - id: codex-test
+    provider_type: codex
+routes:
+  - id: code-codex
+    llm_api: openai
+    match:
+      path_prefix: /codecodex
+      methods:
+        - POST
+    auth_policy:
+      require_virtual_key: true
+    target_policy:
+      provider_target:
+        provider_id: codex-test
+virtualKeys:
+  - id: vk-local-code-codex
+    allowed_route_ids:
+      - code-codex
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	stdout, stderr, err := executeAGWCTL(t, "gateway", "validate", "-f", path)
+	if err != nil {
+		t.Fatalf("gateway validate: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "gateway bundle is valid:") {
+		t.Fatalf("stdout missing success message:\n%s", stdout)
+	}
+}
+
 func TestGatewayValidateCommandReturnsLocalValidationError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "gateway.yaml")

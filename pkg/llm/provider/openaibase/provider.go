@@ -23,7 +23,8 @@ import (
 //   - Extra request headers via config.Network.ExtraHeaders
 type Base struct {
 	provider.ProviderConfig
-	client *http.Client
+	client         *http.Client
+	SetAuthHeaders func(ctx context.Context, req *http.Request)
 }
 
 // NewBase creates a Base using the supplied config.
@@ -173,6 +174,9 @@ func (b *Base) DoStreamResponses(ctx context.Context, req *provider.ResponsesReq
 }
 
 func (b *Base) newResponsesRequest(ctx context.Context, req *provider.ResponsesRequest) (*http.Request, error) {
+	if req.Model == "" {
+		req.Model = b.DefaultModel
+	}
 	baseURL := strings.TrimRight(b.ProviderConfig.BaseURL, "/")
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -262,7 +266,9 @@ func decodeResponsesStreamEvent(eventName string, payload string) (*provider.Res
 func (b *Base) setHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/json")
 
-	if apiKey := provider.APIKeyFromContextOrConfig(req.Context(), b.ProviderConfig.APIKey); apiKey != "" {
+	if b.SetAuthHeaders != nil {
+		b.SetAuthHeaders(req.Context(), req)
+	} else if apiKey := provider.APIKeyFromContextOrConfig(req.Context(), b.ProviderConfig.APIKey); apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 	for k, v := range b.Network.ExtraHeaders {
