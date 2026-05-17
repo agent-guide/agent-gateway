@@ -66,7 +66,7 @@ Current route target policy fields of record are:
 - `model_selector_strategy`
 - `credential_selector`
 - `credential_scope_order`
-- `credential_source_order`
+- `credential_type_order`
 - `fallback`
 
 Important normalization rules in `pkg/gateway/route`:

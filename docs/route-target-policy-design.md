@@ -60,7 +60,7 @@ The fields that define target behavior are:
 - `model_selector_strategy`
 - `credential_selector`
 - `credential_scope_order`
-- `credential_source_order`
+- `credential_type_order`
 - `fallback`
 - `model_targets`
 - `provider_target`
@@ -152,7 +152,7 @@ Current credential scope values:
 - `model_custom`
 - `provider_id`
 
-Current credential source values:
+Current credential type values:
 
 - `api_key`
 - `cliauth_token`
@@ -161,7 +161,7 @@ These values are stored on `RouteTargetPolicy` as:
 
 - `credential_selector`
 - `credential_scope_order`
-- `credential_source_order`
+- `credential_type_order`
 
 ## 9. Validation Rules
 
@@ -176,9 +176,9 @@ Every route must satisfy these common rules:
 - `credential_selector`, when set, must be valid
 - `credential_scope_order` must contain only supported scope values
 - `credential_scope_order` must not contain duplicates
-- `credential_source_order` must not be empty
-- `credential_source_order` must contain only supported source values
-- `credential_source_order` must not contain duplicates
+- `credential_type_order` must not be empty
+- `credential_type_order` must contain only supported credential type values
+- `credential_type_order` must not contain duplicates
 
 ### 9.2 Direct-Provider Rules
 
@@ -324,11 +324,11 @@ Current scope expansion rules:
 
 Scope expansion preserves the route-configured order. Empty scopes are skipped.
 
-## 16. Credential Source Ordering
+## 16. Credential Type Ordering
 
-Within each expanded scope, `RoutedProvider` checks credential sources in the configured `credential_source_order`.
+Within each expanded scope, `RoutedProvider` checks credential types in the configured `credential_type_order`.
 
-Current source handling:
+Current credential type handling:
 
 - `api_key`
 - `cliauth_token`
@@ -461,7 +461,7 @@ Current stored route payloads use fields such as:
 - `target_policy.model_selector_strategy`
 - `target_policy.credential_selector`
 - `target_policy.credential_scope_order`
-- `target_policy.credential_source_order`
+- `target_policy.credential_type_order`
 - `target_policy.fallback`
 
 Compatibility fields may still appear in stored route payloads, but runtime normalization defines the effective policy.
