@@ -114,6 +114,7 @@ Responsibilities:
 - CRUD for providers, routes, virtual keys, and credentials
 - enable or disable provider types and LLM API handler types
 - configure and trigger CLI auth authenticators
+- start CLI auth logins bound to one `provider_id` and optional credential scope
 - expose stubbed MCP, memory, agent, and metrics endpoints
 
 ## Key Packages

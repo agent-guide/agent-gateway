@@ -61,7 +61,7 @@ func TestGeminiCallbackServerHandleCallbackRequiresState(t *testing.T) {
 	}
 }
 
-func TestGeminiBuildCredentialSetsManualRefreshMetadata(t *testing.T) {
+func TestGeminiBuildCredentialSetsRefreshMetadata(t *testing.T) {
 	auth := &GeminiAuthenticator{}
 	token := &oauth2.Token{
 		AccessToken:  "access-token",
@@ -77,10 +77,10 @@ func TestGeminiBuildCredentialSetsManualRefreshMetadata(t *testing.T) {
 	if cred == nil {
 		t.Fatal("buildCredential() returned nil credential")
 	}
-	if got := cred.Metadata[credentialmgr.MetadataManualRefreshNameKey]; got != "gemini" {
-		t.Fatalf("manual_refresh_name = %#v, want gemini", got)
+	if got := cred.Metadata[credentialmgr.MetadataRefreshNameKey]; got != "gemini" {
+		t.Fatalf("refresh_name = %#v, want gemini", got)
 	}
-	if got := cred.Metadata[credentialmgr.MetadataManualRefreshExpiryDelta]; got != 10*time.Second {
-		t.Fatalf("manual_refresh_expiry_delta = %#v, want %v", got, 10*time.Second)
+	if got := cred.Metadata[credentialmgr.MetadataRefreshExpiryDeltaKey]; got != 10*time.Second {
+		t.Fatalf("refresh_expiry_delta = %#v, want %v", got, 10*time.Second)
 	}
 }

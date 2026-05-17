@@ -346,7 +346,7 @@ func (m *Manager) RefreshCredentialIfNeeded(ctx context.Context, credID string) 
 		return current, nil
 	}
 
-	manualRefreshName := current.ManualRefreshName()
+	manualRefreshName := current.RefreshName()
 	if manualRefreshName == "" {
 		return current, nil
 	}
@@ -382,8 +382,8 @@ func (m *Manager) RefreshCredentialIfNeeded(ctx context.Context, credID string) 
 	if updated.Metadata == nil {
 		updated.Metadata = make(map[string]any)
 	}
-	if updated.ManualRefreshName() == "" && manualRefreshName != "" {
-		updated.Metadata[MetadataManualRefreshNameKey] = manualRefreshName
+	if updated.RefreshName() == "" && manualRefreshName != "" {
+		updated.Metadata[MetadataRefreshNameKey] = manualRefreshName
 	}
 	if err := m.UpdateCredential(ctx, updated); err != nil {
 		return nil, err

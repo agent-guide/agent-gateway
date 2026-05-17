@@ -236,12 +236,11 @@ func printGatewayManagedModelsTable(items []adminclient.ManagedModel) {
 }
 
 func printGatewayCLIAuthAuthenticatorsTable(items []adminclient.CLIAuthAuthenticator) {
-	headers := []string{"NAME", "PROVIDER-TYPE", "ENABLED", "CALLBACK-PORT", "NO-BROWSER", "DEVICE-FLOW"}
+	headers := []string{"NAME", "ENABLED", "CALLBACK-PORT", "NO-BROWSER", "DEVICE-FLOW"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
 		rows = append(rows, []string{
 			dash(item.Name),
-			dash(item.ProviderType),
 			boolStr(item.Enabled),
 			fmt.Sprintf("%d", item.Config.CallbackPort),
 			boolStr(item.Config.NoBrowser),

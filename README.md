@@ -125,7 +125,7 @@ List Caddy HTTP servers through the Caddy admin API directly, not through the ga
 Start a local CLI auth login flow and list gateway-stored CLI auth credentials:
 
 ```bash
-./agwctl cliauth login --authenticator codex
+./agwctl cliauth login --authenticator codex --provider-id openai-main
 ./agwctl gateway --admin-addr http://localhost:8019 \
   --admin-user admin \
   --admin-password your-password \
@@ -653,6 +653,7 @@ Credential `created_at` and `updated_at` values are server-managed response fiel
 - `GET /admin/cliauth/logins/{login_id}`
 
 CLI auth login runs asynchronously on the server. The login endpoint returns `202 Accepted`; poll the status endpoint for completion.
+The login request body must include `provider_id`; it may also include an explicit credential `scope`. The gateway resolves `provider_type` from the selected provider config and stores `refresh_name=<authenticator_name>` on the resulting credential.
 Authenticator config set through the admin API is runtime-only. Disabling an authenticator or restarting the server resets it to factory defaults.
 The `PUT` update endpoint accepts `enabled` and `config`. Use `{"enabled":true,"config":{}}` to keep factory defaults while enabling or refreshing the runtime authenticator config. The runtime authenticator is recreated from its factory defaults, then the provided config is applied.
 
@@ -670,6 +671,13 @@ curl -X PUT http://localhost:8019/admin/cliauth/authenticators/codex \
   -H 'Authorization: Bearer <token>' \
   -H 'Content-Type: application/json' \
   --data '{"enabled":true,"config":{"callback_port":9002,"no_browser":true,"device_flow":true}}'
+```
+
+```sh
+curl -X POST http://localhost:8019/admin/cliauth/authenticators/codex/login \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  --data '{"provider_id":"openai-main","scope":"type:openai"}'
 ```
 
 ### Registered but Not Implemented

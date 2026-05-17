@@ -7,13 +7,10 @@ import (
 )
 
 func TestBuiltinAuthenticatorsRegisterFactories(t *testing.T) {
-	tests := []struct {
-		name         string
-		wantProvider string
-	}{
-		{name: "codex", wantProvider: "openai"},
-		{name: "claude", wantProvider: "anthropic"},
-		{name: "gemini", wantProvider: "gemini"},
+	tests := []struct{ name string }{
+		{name: "codex"},
+		{name: "claude"},
+		{name: "gemini"},
 	}
 
 	for _, tt := range tests {
@@ -21,8 +18,8 @@ func TestBuiltinAuthenticatorsRegisterFactories(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewAuthenticator(%q) error = %v", tt.name, err)
 		}
-		if auth.ProviderType() != tt.wantProvider {
-			t.Fatalf("NewAuthenticator(%q) provider = %q, want %q", tt.name, auth.ProviderType(), tt.wantProvider)
+		if auth == nil {
+			t.Fatalf("NewAuthenticator(%q) returned nil authenticator", tt.name)
 		}
 	}
 }

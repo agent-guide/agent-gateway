@@ -191,12 +191,12 @@ func (c *Credential) ExpirationTime() (time.Time, bool) {
 	return utils.ExpirationFromMap(c.Metadata)
 }
 
-// ManualRefreshName returns the manual refresher name associated with this credential.
-func (c *Credential) ManualRefreshName() string {
+// RefreshName returns the refresh handler name associated with this credential.
+func (c *Credential) RefreshName() string {
 	if c == nil || c.Metadata == nil {
 		return ""
 	}
-	if val, ok := c.Metadata["manual_refresh_name"]; ok {
+	if val, ok := c.Metadata["refresh_name"]; ok {
 		if s, ok := val.(string); ok {
 			return strings.ToLower(strings.TrimSpace(s))
 		}
@@ -204,12 +204,12 @@ func (c *Credential) ManualRefreshName() string {
 	return ""
 }
 
-// ManualRefreshExpiryDelta returns the per-credential manual refresh lead time.
-func (c *Credential) ManualRefreshExpiryDelta() (time.Duration, bool) {
+// RefreshExpiryDelta returns the per-credential refresh lead time.
+func (c *Credential) RefreshExpiryDelta() (time.Duration, bool) {
 	if c == nil || c.Metadata == nil {
 		return 0, false
 	}
-	val, ok := c.Metadata["manual_refresh_expiry_delta"]
+	val, ok := c.Metadata["refresh_expiry_delta"]
 	if !ok {
 		return 0, false
 	}

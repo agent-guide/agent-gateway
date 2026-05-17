@@ -14,14 +14,12 @@ import (
 // Authenticator handles the CLI login flow for a specific provider.
 // Each concrete implementation covers one CLI tool (e.g. Codex, Claude CLI).
 type Authenticator interface {
-	// ProviderType returns the unique provider type this authenticator handles (e.g. "openai", "anthropic").
-	ProviderType() string
 	// GetConfig returns the runtime configuration currently applied to this authenticator instance.
 	GetConfig() AuthenticatorConfig
 	// SetConfig applies runtime configuration to this authenticator instance.
 	SetConfig(cfg AuthenticatorConfig) error
 	// Login initiates the interactive CLI login flow and returns a new credential on success.
-	Login(ctx context.Context, reporter LoginStatusReporter) (*credentialmgr.Credential, error)
+	Login(ctx context.Context, req LoginRequest, reporter LoginStatusReporter) (*credentialmgr.Credential, error)
 	// Refresh attempts to refresh the given credential before it expires.
 	// Returns nil to indicate no refresh is needed; returns an updated credential on success.
 	Refresh(ctx context.Context, cred *credentialmgr.Credential) (*credentialmgr.Credential, error)

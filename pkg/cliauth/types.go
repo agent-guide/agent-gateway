@@ -47,12 +47,18 @@ type LoginStatusUpdate struct {
 	UserCode        string `json:"user_code,omitempty"`
 }
 
+// LoginRequest describes the provider binding metadata that the admin layer
+// resolved before invoking a runtime authenticator.
+type LoginRequest struct {
+	ProviderID string
+	Scope      string
+}
+
 // AuthenticatorState describes a supported or enabled Authenticator.
 type AuthenticatorState struct {
-	Name         string              `json:"name"`
-	ProviderType string              `json:"provider_type,omitempty"`
-	Enabled      bool                `json:"enabled"`
-	Config       AuthenticatorConfig `json:"config"`
+	Name    string              `json:"name"`
+	Enabled bool                `json:"enabled"`
+	Config  AuthenticatorConfig `json:"config"`
 }
 
 // AuthenticatorConfig describes the runtime configuration supported by built-in

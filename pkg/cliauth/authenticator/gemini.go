@@ -65,11 +65,6 @@ func NewGeminiAuthenticator() (cliauth.Authenticator, error) {
 	}, nil
 }
 
-// ProviderType returns the provider type this authenticator handles.
-func (a *GeminiAuthenticator) ProviderType() string {
-	return "gemini"
-}
-
 // RefreshLeadTime returns nil to disable provider-level background pre-refresh for Gemini.
 func (a *GeminiAuthenticator) RefreshLeadTime() *time.Duration {
 	return nil
@@ -98,7 +93,7 @@ func (a *GeminiAuthenticator) SetConfig(cfg cliauth.AuthenticatorConfig) error {
 }
 
 // Login initiates the Gemini CLI login flow and returns a new credential on success.
-func (a *GeminiAuthenticator) Login(ctx context.Context, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
+func (a *GeminiAuthenticator) Login(ctx context.Context, _ cliauth.LoginRequest, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -257,13 +252,12 @@ func (a *GeminiAuthenticator) refreshTokensWithRetry(ctx context.Context, refres
 
 func (a *GeminiAuthenticator) buildCredential(ctx context.Context, conf *oauth2.Config, token *oauth2.Token) (*credentialmgr.Credential, error) {
 	cred := &credentialmgr.Credential{
-		ID:           uuid.New().String(),
-		ProviderType: a.ProviderType(),
-		Metadata:     make(map[string]any),
-		Attributes:   make(map[string]string),
+		ID:         uuid.New().String(),
+		Metadata:   make(map[string]any),
+		Attributes: make(map[string]string),
 	}
-	cred.Metadata[credentialmgr.MetadataManualRefreshNameKey] = "gemini"
-	cred.Metadata[credentialmgr.MetadataManualRefreshExpiryDelta] = 10 * time.Second
+	cred.Metadata[credentialmgr.MetadataRefreshNameKey] = "gemini"
+	cred.Metadata[credentialmgr.MetadataRefreshExpiryDeltaKey] = 10 * time.Second
 
 	applyGeminiTokenToMetadata(cred, token)
 

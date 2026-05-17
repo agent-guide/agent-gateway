@@ -7,9 +7,9 @@ import (
 )
 
 const (
-	MetadataManualRefreshNameKey     = "manual_refresh_name"
-	MetadataManualRefreshExpiryDelta = "manual_refresh_expiry_delta"
-	manualRefreshExpiryLeeway        = 30 * time.Second
+	MetadataRefreshNameKey        = "refresh_name"
+	MetadataRefreshExpiryDeltaKey = "refresh_expiry_delta"
+	refreshExpiryLeeway           = 30 * time.Second
 )
 
 type ManualRefresher interface {
@@ -28,8 +28,12 @@ func credentialNeedsManualRefresh(cred *Credential, now time.Time) bool {
 	if !ok || expiresAt.IsZero() {
 		return false
 	}
-	leeway := manualRefreshExpiryLeeway
-	if delta, ok := cred.ManualRefreshExpiryDelta(); ok {
+	delta, ok := cred.RefreshExpiryDelta()
+	if !ok {
+		return false
+	}
+	leeway := refreshExpiryLeeway
+	if delta >= 0 {
 		leeway = delta
 	}
 	return !expiresAt.After(now.Add(leeway))

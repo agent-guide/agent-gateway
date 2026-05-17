@@ -12,6 +12,8 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
+	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"go.uber.org/zap"
 )
 
@@ -35,15 +37,19 @@ type cliAuthRefresherStatus struct {
 }
 
 type cliAuthAuthenticatorView struct {
-	Name         string                      `json:"name"`
-	ProviderType string                      `json:"provider_type,omitempty"`
-	Enabled      bool                        `json:"enabled"`
-	Config       cliauth.AuthenticatorConfig `json:"config"`
+	Name    string                      `json:"name"`
+	Enabled bool                        `json:"enabled"`
+	Config  cliauth.AuthenticatorConfig `json:"config"`
 }
 
 type updateCLIAuthAuthenticatorRequest struct {
 	Enabled *bool                        `json:"enabled,omitempty"`
 	Config  *cliauth.AuthenticatorConfig `json:"config"`
+}
+
+type startCLIAuthLoginRequest struct {
+	ProviderID string `json:"provider_id"`
+	Scope      string `json:"scope,omitempty"`
 }
 
 func (h *Handler) handleListCLIAuthAuthenticators(w http.ResponseWriter, r *http.Request) {
@@ -142,10 +148,9 @@ func (h *Handler) updateCLIAuthAuthenticator(name string, req updateCLIAuthAuthe
 		}
 		if ok {
 			return cliAuthAuthenticatorView{
-				Name:         previous.Name,
-				ProviderType: previous.ProviderType,
-				Enabled:      false,
-				Config:       previous.Config,
+				Name:    previous.Name,
+				Enabled: false,
+				Config:  previous.Config,
 			}, "disabled", false, nil
 		}
 		return cliAuthAuthenticatorView{
@@ -162,10 +167,9 @@ func (h *Handler) updateCLIAuthAuthenticator(name string, req updateCLIAuthAuthe
 		return cliAuthAuthenticatorView{}, "", false, err
 	}
 	view := cliAuthAuthenticatorView{
-		Name:         state.Name,
-		ProviderType: state.ProviderType,
-		Enabled:      state.Enabled,
-		Config:       state.Config,
+		Name:    state.Name,
+		Enabled: state.Enabled,
+		Config:  state.Config,
 	}
 	status := "updated"
 	if created {
@@ -252,6 +256,24 @@ func (h *Handler) handleStartCLIAuthAuthenticatorLogin(w http.ResponseWriter, r 
 		_ = httpjson.Error(w, http.StatusNotFound, requestedName+" authenticator not enabled")
 		return
 	}
+	if h.providerManager == nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "provider manager not configured")
+		return
+	}
+	req, err := decodeStartCLIAuthLoginRequest(r)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	providerCfg, err := h.providerManager.GetConfig(r.Context(), req.ProviderID)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusNotFound, err.Error())
+		return
+	}
+	loginReq := cliauth.LoginRequest{
+		ProviderID: req.ProviderID,
+		Scope:      strings.TrimSpace(req.Scope),
+	}
 
 	loginID, err := generateCLIAuthLoginID()
 	if err != nil {
@@ -277,7 +299,7 @@ func (h *Handler) handleStartCLIAuthAuthenticatorLogin(w http.ResponseWriter, r 
 			loginID: loginID,
 			handler: h,
 		}
-		cred, err := auth.Login(ctx, reporter)
+		cred, err := auth.Login(ctx, loginReq, reporter)
 		finished, ok := h.getCLIAuthStatus(loginID)
 		if !ok {
 			finished = cliAuthStatusSnapshot(status)
@@ -291,6 +313,7 @@ func (h *Handler) handleStartCLIAuthAuthenticatorLogin(w http.ResponseWriter, r 
 			h.logger.Error("cli login failed", zap.String("cliname", requestedName), zap.Error(err))
 			return
 		}
+		prepareCLIAuthCredential(cred, requestedName, providerCfg, loginReq.Scope)
 		if regErr := h.cliauthRefresher.RegisterLoginCredential(ctx, cliauth.NewCLIAuthCredential(cred)); regErr != nil {
 			finished.Status = "failed"
 			finished.Error = regErr.Error()
@@ -425,6 +448,39 @@ func generateCLIAuthLoginID() (string, error) {
 	return "clilogin-" + base64.RawURLEncoding.EncodeToString(b[:]), nil
 }
 
+func decodeStartCLIAuthLoginRequest(r *http.Request) (startCLIAuthLoginRequest, error) {
+	if r == nil || r.Body == nil {
+		return startCLIAuthLoginRequest{}, fmt.Errorf("request body is required")
+	}
+	var req startCLIAuthLoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return startCLIAuthLoginRequest{}, fmt.Errorf("invalid request body")
+	}
+	req.ProviderID = strings.ToLower(strings.TrimSpace(req.ProviderID))
+	req.Scope = strings.TrimSpace(req.Scope)
+	if req.ProviderID == "" {
+		return startCLIAuthLoginRequest{}, fmt.Errorf("provider_id is required")
+	}
+	return req, nil
+}
+
+func prepareCLIAuthCredential(cred *credentialmgr.Credential, authName string, providerCfg provider.ProviderConfig, scope string) {
+	if cred == nil {
+		return
+	}
+	cred.ProviderID = strings.ToLower(strings.TrimSpace(providerCfg.Id))
+	cred.ProviderType = strings.ToLower(strings.TrimSpace(providerCfg.ProviderType))
+	if cred.Metadata == nil {
+		cred.Metadata = make(map[string]any)
+	}
+	cred.Metadata[credentialmgr.MetadataRefreshNameKey] = strings.ToLower(strings.TrimSpace(authName))
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		scope = credentialmgr.ProviderIDCredentialScope(cred.ProviderID)
+	}
+	cred.Scope = scope
+}
+
 func (h *Handler) cliAuthAuthenticatorView(rawName string) (cliAuthAuthenticatorView, error) {
 	if h == nil || h.cliauthManager == nil {
 		return cliAuthAuthenticatorView{}, fmt.Errorf("auth manager not configured")
@@ -438,10 +494,9 @@ func (h *Handler) cliAuthAuthenticatorView(rawName string) (cliAuthAuthenticator
 	state, ok := h.cliauthManager.GetAuthenticatorState(name)
 	if ok {
 		return cliAuthAuthenticatorView{
-			Name:         state.Name,
-			ProviderType: state.ProviderType,
-			Enabled:      state.Enabled,
-			Config:       state.Config,
+			Name:    state.Name,
+			Enabled: state.Enabled,
+			Config:  state.Config,
 		}, nil
 	}
 

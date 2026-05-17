@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/agent-guide/agent-gateway/internal/agwctl/cliauthstore"
+	"github.com/agent-guide/agent-gateway/pkg/adminclient"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
 	_ "github.com/agent-guide/agent-gateway/pkg/cliauth/authenticator"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
@@ -29,6 +30,7 @@ var cliauthCmd = &cobra.Command{
 var (
 	loginAuthenticator string
 	loginProviderID    string
+	loginScope         string
 	loginLabel         string
 	loginCallbackPort  int
 	loginNoBrowser     bool
@@ -56,6 +58,18 @@ var cliauthLoginCmd = &cobra.Command{
 		if err := refresher.Load(context.Background()); err != nil {
 			return err
 		}
+		if strings.TrimSpace(loginProviderID) == "" {
+			return fmt.Errorf("provider-id is required")
+		}
+		adminClient := adminclient.New(adminclient.Config{
+			BaseURL:  globalGatewayAddr,
+			Username: gwUser,
+			Password: gwPassword,
+		})
+		providerCfg, err := adminClient.GetProvider(context.Background(), strings.TrimSpace(loginProviderID))
+		if err != nil {
+			return err
+		}
 
 		auth, err := cliauth.NewAuthenticator(authenticator)
 		if err != nil {
@@ -73,19 +87,27 @@ var cliauthLoginCmd = &cobra.Command{
 		defer stop()
 
 		reporter := &cliauthStatusReporter{}
-		cred, err := auth.Login(ctx, reporter)
+		cred, err := auth.Login(ctx, cliauth.LoginRequest{
+			ProviderID: strings.TrimSpace(loginProviderID),
+			Scope:      strings.TrimSpace(loginScope),
+		}, reporter)
 		if err != nil {
 			return err
 		}
 
-		if strings.TrimSpace(loginProviderID) != "" {
-			cred.ProviderID = strings.TrimSpace(loginProviderID)
-		}
 		if strings.TrimSpace(cred.ID) == "" {
 			cred.ID = uuid.New().String()
 		}
-		if strings.TrimSpace(cred.ProviderID) == "" {
-			cred.ProviderID = strings.TrimSpace(cred.ProviderType)
+		cred.ProviderID = strings.TrimSpace(providerCfg.Id)
+		cred.ProviderType = strings.TrimSpace(providerCfg.ProviderType)
+		if cred.Metadata == nil {
+			cred.Metadata = make(map[string]any)
+		}
+		cred.Metadata[credentialmgr.MetadataRefreshNameKey] = strings.ToLower(strings.TrimSpace(authenticator))
+		if strings.TrimSpace(loginScope) != "" {
+			cred.Scope = strings.TrimSpace(loginScope)
+		} else {
+			cred.Scope = credentialmgr.ProviderIDCredentialScope(cred.ProviderID)
 		}
 		if strings.TrimSpace(loginLabel) != "" {
 			cred.Label = strings.TrimSpace(loginLabel)
@@ -183,7 +205,8 @@ func init() {
 	cliauthCmd.PersistentFlags().StringVar(&gwPassword, "agw-admin-password", envOr("AGW_ADMIN_PASSWORD", ""), "gateway admin password")
 
 	cliauthLoginCmd.Flags().StringVar(&loginAuthenticator, "authenticator", "", "authenticator type: codex, claude, gemini (required)")
-	cliauthLoginCmd.Flags().StringVar(&loginProviderID, "provider-id", "", "provider ID override (defaults to provider type)")
+	cliauthLoginCmd.Flags().StringVar(&loginProviderID, "provider-id", "", "provider ID to bind the credential to")
+	cliauthLoginCmd.Flags().StringVar(&loginScope, "scope", "", "credential scope override (defaults to provider-id scope)")
 	cliauthLoginCmd.Flags().StringVar(&loginLabel, "label", "", "credential label")
 	cliauthLoginCmd.Flags().IntVar(&loginCallbackPort, "callback-port", 0, "local OAuth callback port override")
 	cliauthLoginCmd.Flags().BoolVar(&loginNoBrowser, "no-browser", false, "print the login URL instead of opening a browser")

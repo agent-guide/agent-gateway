@@ -30,9 +30,9 @@ func (c *Client) UpdateCLIAuthAuthenticator(ctx context.Context, name string, re
 	return &resp, nil
 }
 
-func (c *Client) StartCLIAuthLogin(ctx context.Context, name string) (*CLIAuthLogin, error) {
+func (c *Client) StartCLIAuthLogin(ctx context.Context, name string, req StartCLIAuthLoginRequest) (*CLIAuthLogin, error) {
 	var resp CLIAuthLogin
-	if err := c.do(ctx, http.MethodPost, "/admin/cliauth/authenticators/"+url.PathEscape(name)+"/login", nil, &resp, true, http.StatusAccepted); err != nil {
+	if err := c.do(ctx, http.MethodPost, "/admin/cliauth/authenticators/"+url.PathEscape(name)+"/login", req, &resp, true, http.StatusAccepted); err != nil {
 		return nil, err
 	}
 	return &resp, nil

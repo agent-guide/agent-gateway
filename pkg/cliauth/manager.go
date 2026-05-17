@@ -13,7 +13,6 @@ import (
 type Manager struct {
 	mu             sync.RWMutex
 	authenticators map[string]Authenticator // cli key -> Authenticator
-	providerAuths  map[string]string        // providerType key -> cli key
 	credentialMgr  *credentialmgr.Manager
 }
 
@@ -21,7 +20,6 @@ type Manager struct {
 func NewManager() *Manager {
 	return &Manager{
 		authenticators: make(map[string]Authenticator),
-		providerAuths:  make(map[string]string),
 	}
 }
 
@@ -46,8 +44,6 @@ func (m *Manager) SetCredentialManager(credentialMgr *credentialmgr.Manager) {
 }
 
 // RegisterAuthenticator registers an Authenticator for a CLI name.
-// It also indexes the same Authenticator by its provider type so refresh lookups
-// can continue resolving via credential.ProviderType.
 func (m *Manager) RegisterAuthenticator(cliname string, auth Authenticator) {
 	if auth == nil {
 		return
@@ -56,18 +52,8 @@ func (m *Manager) RegisterAuthenticator(cliname string, auth Authenticator) {
 	if cliKey == "" {
 		return
 	}
-	providerTypeKey := strings.ToLower(strings.TrimSpace(auth.ProviderType()))
 	m.mu.Lock()
-	if previous := m.authenticators[cliKey]; previous != nil && previous.ProviderType() != "" {
-		previousProviderKey := strings.ToLower(previous.ProviderType())
-		if m.providerAuths[previousProviderKey] == cliKey {
-			delete(m.providerAuths, previousProviderKey)
-		}
-	}
 	m.authenticators[cliKey] = auth
-	if providerTypeKey != "" {
-		m.providerAuths[providerTypeKey] = cliKey
-	}
 	credentialMgr := m.credentialMgr
 	m.mu.Unlock()
 	if credentialMgr != nil {
@@ -104,12 +90,6 @@ func (m *Manager) DisableAuthenticator(cliname string) error {
 	if entry == nil {
 		return nil
 	}
-	if entry.ProviderType() != "" {
-		providerKey := strings.ToLower(entry.ProviderType())
-		if m.providerAuths[providerKey] == cliKey {
-			delete(m.providerAuths, providerKey)
-		}
-	}
 	delete(m.authenticators, cliKey)
 	credentialMgr := m.credentialMgr
 	if credentialMgr != nil {
@@ -143,10 +123,9 @@ func (m *Manager) GetAuthenticatorState(cliname string) (AuthenticatorState, boo
 	m.mu.RUnlock()
 	if ok && entry != nil {
 		return AuthenticatorState{
-			Name:         key,
-			ProviderType: strings.ToLower(strings.TrimSpace(entry.ProviderType())),
-			Enabled:      true,
-			Config:       entry.GetConfig(),
+			Name:    key,
+			Enabled: true,
+			Config:  entry.GetConfig(),
 		}, true
 	}
 
@@ -155,10 +134,9 @@ func (m *Manager) GetAuthenticatorState(cliname string) (AuthenticatorState, boo
 		return AuthenticatorState{}, false
 	}
 	return AuthenticatorState{
-		Name:         key,
-		ProviderType: strings.ToLower(strings.TrimSpace(auth.ProviderType())),
-		Enabled:      false,
-		Config:       auth.GetConfig(),
+		Name:    key,
+		Enabled: false,
+		Config:  auth.GetConfig(),
 	}, true
 }
 
@@ -180,16 +158,9 @@ func (m *Manager) ListAuthenticatorStates() []AuthenticatorState {
 	return out
 }
 
-func (m *Manager) resolveAuthenticator(providerType string) Authenticator {
-	key := strings.ToLower(strings.TrimSpace(providerType))
-	m.mu.RLock()
-	cliKey, ok := m.providerAuths[key]
-	entry := m.authenticators[cliKey]
-	m.mu.RUnlock()
-	if ok && entry != nil {
-		return entry
-	}
-	return nil
+func (m *Manager) resolveAuthenticator(cliname string) Authenticator {
+	entry, _ := m.GetAuthenticator(cliname)
+	return entry
 }
 
 func (m *Manager) buildAuthenticatorWithConfig(cliname string, cfg AuthenticatorConfig) (Authenticator, error) {

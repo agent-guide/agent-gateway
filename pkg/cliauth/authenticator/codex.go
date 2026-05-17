@@ -145,11 +145,6 @@ func NewCodexAuthenticator() (cliauth.Authenticator, error) {
 	}, nil
 }
 
-// ProviderType returns the provider type this authenticator handles.
-func (a *CodexAuthenticator) ProviderType() string {
-	return "openai"
-}
-
 // RefreshLeadTime returns how far in advance of token expiry to refresh Codex credentials.
 // Five days gives ample runway for CLI tokens whose refresh window is typically 30 days.
 func (a *CodexAuthenticator) RefreshLeadTime() *time.Duration {
@@ -178,7 +173,7 @@ func (a *CodexAuthenticator) SetConfig(cfg cliauth.AuthenticatorConfig) error {
 
 // Login initiates the Codex CLI login flow and returns a new credential on success.
 // It uses browser-based OAuth PKCE by default; set UseDeviceFlow for headless environments.
-func (a *CodexAuthenticator) Login(ctx context.Context, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
+func (a *CodexAuthenticator) Login(ctx context.Context, _ cliauth.LoginRequest, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -439,11 +434,11 @@ func (a *CodexAuthenticator) refreshTokensWithRetry(ctx context.Context, refresh
 
 func (a *CodexAuthenticator) buildCredential(tokenResp *codexTokenResponse) (*credentialmgr.Credential, error) {
 	cred := &credentialmgr.Credential{
-		ID:           uuid.New().String(),
-		ProviderType: a.ProviderType(),
-		Metadata:     make(map[string]any),
-		Attributes:   make(map[string]string),
+		ID:         uuid.New().String(),
+		Metadata:   make(map[string]any),
+		Attributes: make(map[string]string),
 	}
+	cred.Metadata[credentialmgr.MetadataRefreshNameKey] = "codex"
 
 	a.applyTokenToMetadata(cred, tokenResp)
 

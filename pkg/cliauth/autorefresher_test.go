@@ -10,12 +10,9 @@ import (
 )
 
 type testRefreshAuthenticator struct {
-	providerType string
-	refreshFn    func(context.Context, *credentialmgr.Credential) (*credentialmgr.Credential, error)
-	config       AuthenticatorConfig
+	refreshFn func(context.Context, *credentialmgr.Credential) (*credentialmgr.Credential, error)
+	config    AuthenticatorConfig
 }
-
-func (a *testRefreshAuthenticator) ProviderType() string { return a.providerType }
 
 func (a *testRefreshAuthenticator) GetConfig() AuthenticatorConfig {
 	if a == nil {
@@ -32,7 +29,7 @@ func (a *testRefreshAuthenticator) SetConfig(cfg AuthenticatorConfig) error {
 	return nil
 }
 
-func (a *testRefreshAuthenticator) Login(context.Context, LoginStatusReporter) (*credentialmgr.Credential, error) {
+func (a *testRefreshAuthenticator) Login(context.Context, LoginRequest, LoginStatusReporter) (*credentialmgr.Credential, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -390,16 +387,14 @@ func TestAutoRefresherWorkerUsesConsistentCredentialSnapshot(t *testing.T) {
 
 	usedCred := make(chan *credentialmgr.Credential, 1)
 	refresher.manager.RegisterAuthenticator("codex", &testRefreshAuthenticator{
-		providerType: "openai",
 		refreshFn: func(ctx context.Context, cred *credentialmgr.Credential) (*credentialmgr.Credential, error) {
 			usedCred <- cred.Clone()
 			return cred.Clone(), nil
 		},
 	})
 	refresher.manager.RegisterAuthenticator("claude", &testRefreshAuthenticator{
-		providerType: "anthropic",
 		refreshFn: func(context.Context, *credentialmgr.Credential) (*credentialmgr.Credential, error) {
-			t.Fatal("worker resolved authenticator from a newer provider type instead of the credential snapshot")
+			t.Fatal("worker resolved authenticator from a newer refresh name instead of the credential snapshot")
 			return nil, nil
 		},
 	})
@@ -410,7 +405,8 @@ func TestAutoRefresherWorkerUsesConsistentCredentialSnapshot(t *testing.T) {
 			ID:           "cred-1",
 			ProviderType: "openai",
 			Metadata: map[string]any{
-				"expires_at": now.Add(2 * time.Minute).Format(time.RFC3339),
+				credentialmgr.MetadataRefreshNameKey: "codex",
+				"expires_at":                         now.Add(2 * time.Minute).Format(time.RFC3339),
 			},
 		},
 		Status: StatusActive,
@@ -428,7 +424,8 @@ func TestAutoRefresherWorkerUsesConsistentCredentialSnapshot(t *testing.T) {
 			ID:           "cred-1",
 			ProviderType: "anthropic",
 			Metadata: map[string]any{
-				"expires_at": now.Add(2 * time.Minute).Format(time.RFC3339),
+				credentialmgr.MetadataRefreshNameKey: "claude",
+				"expires_at":                         now.Add(2 * time.Minute).Format(time.RFC3339),
 			},
 		},
 		Status: StatusActive,

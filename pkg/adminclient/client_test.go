@@ -195,9 +195,8 @@ func TestUpdateCLIAuthAuthenticatorAllowsCreated(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(CLIAuthUpdateAuthenticatorResponse{
 			Status: "enabled",
 			Authenticator: CLIAuthAuthenticator{
-				Name:         "codex",
-				ProviderType: "openai",
-				Enabled:      true,
+				Name:    "codex",
+				Enabled: true,
 				Config: cliauth.AuthenticatorConfig{
 					NoBrowser: true,
 				},

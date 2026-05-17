@@ -207,7 +207,7 @@ func (r *AutoRefresher) nextScheduleAt(credID string, now time.Time) (time.Time,
 
 	var leadTime *time.Duration
 	if r.manager != nil && cred != nil {
-		if auth := r.manager.resolveAuthenticator(cred.ProviderType); auth != nil {
+		if auth := r.resolveCredentialAuthenticator(cred); auth != nil {
 			leadTime = auth.RefreshLeadTime()
 		}
 	}
@@ -228,7 +228,14 @@ func (r *AutoRefresher) resolveRefreshTarget(credID string) (*CLIAuthCredential,
 	if r.manager == nil {
 		return cred, nil
 	}
-	return cred, r.manager.resolveAuthenticator(cred.ProviderType)
+	return cred, r.resolveCredentialAuthenticator(cred)
+}
+
+func (r *AutoRefresher) resolveCredentialAuthenticator(cred *CLIAuthCredential) Authenticator {
+	if r == nil || r.manager == nil || cred == nil {
+		return nil
+	}
+	return r.manager.resolveAuthenticator(cred.RefreshName())
 }
 
 func (r *AutoRefresher) refreshOne(ctx context.Context, cred *CLIAuthCredential, auth Authenticator, now time.Time) {

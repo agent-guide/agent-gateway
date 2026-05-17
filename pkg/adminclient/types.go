@@ -75,10 +75,9 @@ type UpdateCredentialRequest struct {
 }
 
 type CLIAuthAuthenticator struct {
-	Name         string                      `json:"name"`
-	ProviderType string                      `json:"provider_type,omitempty"`
-	Enabled      bool                        `json:"enabled"`
-	Config       cliauth.AuthenticatorConfig `json:"config"`
+	Name    string                      `json:"name"`
+	Enabled bool                        `json:"enabled"`
+	Config  cliauth.AuthenticatorConfig `json:"config"`
 }
 
 type UpdateCLIAuthAuthenticatorRequest struct {
@@ -100,6 +99,11 @@ type CLIAuthLogin struct {
 	Status            string `json:"status"`
 	AuthenticatorName string `json:"authenticator_name"`
 	Message           string `json:"message,omitempty"`
+}
+
+type StartCLIAuthLoginRequest struct {
+	ProviderID string `json:"provider_id"`
+	Scope      string `json:"scope,omitempty"`
 }
 
 type CLIAuthLoginStatus struct {

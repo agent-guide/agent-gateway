@@ -10,12 +10,7 @@ import (
 )
 
 type stubAuthenticator struct {
-	providerType string
-	config       AuthenticatorConfig
-}
-
-func (a *stubAuthenticator) ProviderType() string {
-	return a.providerType
+	config AuthenticatorConfig
 }
 
 func (a *stubAuthenticator) GetConfig() AuthenticatorConfig {
@@ -33,7 +28,7 @@ func (a *stubAuthenticator) SetConfig(cfg AuthenticatorConfig) error {
 	return nil
 }
 
-func (a *stubAuthenticator) Login(context.Context, LoginStatusReporter) (*credentialmgr.Credential, error) {
+func (a *stubAuthenticator) Login(context.Context, LoginRequest, LoginStatusReporter) (*credentialmgr.Credential, error) {
 	return nil, nil
 }
 
@@ -45,26 +40,18 @@ func (a *stubAuthenticator) RefreshLeadTime() *time.Duration { return nil }
 
 func TestRegisterAuthenticatorIndexesProviderKey(t *testing.T) {
 	mgr := NewManager()
-	auth := &stubAuthenticator{providerType: "openai"}
+	auth := &stubAuthenticator{}
 
 	mgr.RegisterAuthenticator("codex", auth)
 
-	if got, ok := mgr.GetAuthenticator("codex"); !ok || got.ProviderType() != auth.ProviderType() {
+	if got, ok := mgr.GetAuthenticator("codex"); !ok || got != auth {
 		t.Fatalf("GetAuthenticator(codex) = (%v, %v), want registered authenticator", got, ok)
-	}
-
-	resolved := mgr.resolveAuthenticator("openai")
-	if resolved == nil {
-		t.Fatal("resolveAuthenticator(openai) returned nil")
-	}
-	if resolved.ProviderType() != auth.ProviderType() {
-		t.Fatal("resolveAuthenticator(openai) did not return the registered authenticator")
 	}
 }
 
 func TestDisableAuthenticatorRemovesRuntimeAuthenticator(t *testing.T) {
 	mgr := NewManager()
-	auth := &stubAuthenticator{providerType: "openai"}
+	auth := &stubAuthenticator{}
 
 	mgr.RegisterAuthenticator("codex", auth)
 
@@ -74,9 +61,6 @@ func TestDisableAuthenticatorRemovesRuntimeAuthenticator(t *testing.T) {
 	if _, ok := mgr.GetAuthenticator("codex"); ok {
 		t.Fatal("GetAuthenticator(codex) returned disabled authenticator")
 	}
-	if resolved := mgr.resolveAuthenticator("openai"); resolved != nil {
-		t.Fatalf("resolveAuthenticator(openai) = %T, want nil", resolved)
-	}
 }
 
 func TestRegisterAuthenticatorMaintainsManualRefresherMap(t *testing.T) {
@@ -84,7 +68,7 @@ func TestRegisterAuthenticatorMaintainsManualRefresherMap(t *testing.T) {
 	mgr := NewManager()
 	mgr.SetCredentialManager(credMgr)
 
-	auth := &stubAuthenticator{providerType: "openai"}
+	auth := &stubAuthenticator{}
 	mgr.RegisterAuthenticator("codex", auth)
 
 	refresher := credMgr.ManualRefresher("codex")
@@ -101,7 +85,7 @@ func TestDisableAuthenticatorRemovesManualRefresher(t *testing.T) {
 	mgr := NewManager()
 	mgr.SetCredentialManager(credMgr)
 
-	mgr.RegisterAuthenticator("codex", &stubAuthenticator{providerType: "openai"})
+	mgr.RegisterAuthenticator("codex", &stubAuthenticator{})
 	if err := mgr.DisableAuthenticator("codex"); err != nil {
 		t.Fatalf("DisableAuthenticator returned error: %v", err)
 	}
@@ -122,7 +106,7 @@ func TestEnableAuthenticatorAppliesConfig(t *testing.T) {
 	})
 
 	RegisterAuthenticatorFactory("codex", func() (Authenticator, error) {
-		return &stubAuthenticator{providerType: "openai"}, nil
+		return &stubAuthenticator{}, nil
 	})
 
 	mgr := NewManager()
@@ -134,7 +118,7 @@ func TestEnableAuthenticatorAppliesConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnableAuthenticator returned error: %v", err)
 	}
-	if !state.Enabled || state.ProviderType != "openai" {
+	if !state.Enabled {
 		t.Fatalf("unexpected state: %#v", state)
 	}
 
@@ -150,7 +134,6 @@ func TestEnableAuthenticatorAppliesConfig(t *testing.T) {
 
 func TestApplyAuthenticatorConfigOverridesPreservesExistingDefaults(t *testing.T) {
 	auth := &stubAuthenticator{
-		providerType: "openai",
 		config: AuthenticatorConfig{
 			CallbackPort: 1455,
 			Network: NetworkConfig{
@@ -205,7 +188,6 @@ func TestEnableAuthenticatorPreservesFactoryDefaults(t *testing.T) {
 
 	RegisterAuthenticatorFactory("codex", func() (Authenticator, error) {
 		return &stubAuthenticator{
-			providerType: "openai",
 			config: AuthenticatorConfig{
 				CallbackPort: 1455,
 			},
@@ -219,7 +201,7 @@ func TestEnableAuthenticatorPreservesFactoryDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnableAuthenticator returned error: %v", err)
 	}
-	if !state.Enabled || state.ProviderType != "openai" {
+	if !state.Enabled {
 		t.Fatalf("unexpected state: %#v", state)
 	}
 	auth, ok := mgr.GetAuthenticator("codex")
@@ -248,7 +230,6 @@ func TestEnableAuthenticatorReplacesExistingRuntimeConfig(t *testing.T) {
 
 	RegisterAuthenticatorFactory("codex", func() (Authenticator, error) {
 		return &stubAuthenticator{
-			providerType: "openai",
 			config: AuthenticatorConfig{
 				CallbackPort: 1455,
 			},
@@ -298,7 +279,7 @@ func TestRegisterAuthenticatorFactoryListsNames(t *testing.T) {
 	})
 
 	factory := func() (Authenticator, error) {
-		return &stubAuthenticator{providerType: "openai"}, nil
+		return &stubAuthenticator{}, nil
 	}
 
 	RegisterAuthenticatorFactory(" Codex ", factory)
@@ -332,23 +313,23 @@ func TestListAuthenticatorStatesListsSupportedAuthenticators(t *testing.T) {
 	})
 
 	RegisterAuthenticatorFactory("codex", func() (Authenticator, error) {
-		return &stubAuthenticator{providerType: "openai"}, nil
+		return &stubAuthenticator{}, nil
 	})
 	RegisterAuthenticatorFactory("claude", func() (Authenticator, error) {
-		return &stubAuthenticator{providerType: "anthropic"}, nil
+		return &stubAuthenticator{}, nil
 	})
 
 	mgr := NewManager()
-	mgr.RegisterAuthenticator("codex", &stubAuthenticator{providerType: "openai"})
+	mgr.RegisterAuthenticator("codex", &stubAuthenticator{})
 
 	states := mgr.ListAuthenticatorStates()
 	if len(states) != 2 {
 		t.Fatalf("ListAuthenticatorStates() = %#v, want 2 states", states)
 	}
-	if states[0].Name != "claude" || states[0].Enabled || states[0].ProviderType != "anthropic" {
+	if states[0].Name != "claude" || states[0].Enabled {
 		t.Fatalf("first state = %#v, want disabled claude with defaults", states[0])
 	}
-	if states[1].Name != "codex" || !states[1].Enabled || states[1].ProviderType != "openai" {
+	if states[1].Name != "codex" || !states[1].Enabled {
 		t.Fatalf("second state = %#v, want enabled codex", states[1])
 	}
 }
@@ -366,7 +347,6 @@ func TestGetAuthenticatorStateReturnsFactoryDefaultsWhenDisabled(t *testing.T) {
 
 	RegisterAuthenticatorFactory("codex", func() (Authenticator, error) {
 		return &stubAuthenticator{
-			providerType: "openai",
 			config: AuthenticatorConfig{
 				CallbackPort: 1455,
 				NoBrowser:    true,
@@ -380,7 +360,7 @@ func TestGetAuthenticatorStateReturnsFactoryDefaultsWhenDisabled(t *testing.T) {
 	if !ok {
 		t.Fatal("expected supported authenticator state")
 	}
-	if state.Name != "codex" || state.Enabled || state.ProviderType != "openai" {
+	if state.Name != "codex" || state.Enabled {
 		t.Fatalf("unexpected state metadata: %#v", state)
 	}
 	if state.Config.CallbackPort != 1455 || !state.Config.NoBrowser || !state.Config.DeviceFlow {

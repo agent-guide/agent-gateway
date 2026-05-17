@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -11,13 +12,13 @@ import (
 
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type testAuthenticator struct {
-	providerType string
-	loginFn      func(context.Context, cliauth.LoginStatusReporter) (*credentialmgr.Credential, error)
-	config       cliauth.AuthenticatorConfig
+	loginFn func(context.Context, cliauth.LoginRequest, cliauth.LoginStatusReporter) (*credentialmgr.Credential, error)
+	config  cliauth.AuthenticatorConfig
 }
 
 type cliAuthLoginStartResponse struct {
@@ -33,21 +34,16 @@ type cliAuthRefresherResponse struct {
 }
 
 type cliAuthAuthenticatorResponse struct {
-	Name         string                      `json:"name"`
-	ProviderType string                      `json:"provider_type"`
-	Enabled      bool                        `json:"enabled"`
-	Config       cliauth.AuthenticatorConfig `json:"config"`
+	Name    string                      `json:"name"`
+	Enabled bool                        `json:"enabled"`
+	Config  cliauth.AuthenticatorConfig `json:"config"`
 }
 
-func (a *testAuthenticator) ProviderType() string {
-	return a.providerType
-}
-
-func (a *testAuthenticator) Login(ctx context.Context, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
+func (a *testAuthenticator) Login(ctx context.Context, req cliauth.LoginRequest, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
 	if a.loginFn != nil {
-		return a.loginFn(ctx, reporter)
+		return a.loginFn(ctx, req, reporter)
 	}
-	return &credentialmgr.Credential{ProviderType: a.providerType}, nil
+	return &credentialmgr.Credential{}, nil
 }
 
 func (a *testAuthenticator) Refresh(context.Context, *credentialmgr.Credential) (*credentialmgr.Credential, error) {
@@ -80,6 +76,15 @@ func containsAll(s string, subs ...string) bool {
 	return true
 }
 
+func cliAuthLoginBody(providerID, scope string) *bytes.Buffer {
+	payload := map[string]string{"provider_id": providerID}
+	if scope != "" {
+		payload["scope"] = scope
+	}
+	data, _ := json.Marshal(payload)
+	return bytes.NewBuffer(data)
+}
+
 func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
@@ -90,21 +95,27 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 	cliauthMgr := cliauth.NewManager()
 	cliauthRefresher := cliauth.NewAutoRefresher(cliauth.WrapSharedCredentialManager(credMgr), cliauthMgr)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
-		providerType: "openai",
-		loginFn: func(context.Context, cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
+		loginFn: func(_ context.Context, req cliauth.LoginRequest, _ cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
+			if req.ProviderID != "openai-main" {
+				t.Fatalf("unexpected login provider id: got %q want %q", req.ProviderID, "openai-main")
+			}
+			if req.Scope != "type:openai" {
+				t.Fatalf("unexpected login scope: got %q want %q", req.Scope, "type:openai")
+			}
 			return &credentialmgr.Credential{
-				ID:           "cred-openai-1",
-				ProviderType: "openai",
-				ProviderID:   "openai-main",
-				Label:        "test@example.com",
+				ID:    "cred-openai-1",
+				Label: "test@example.com",
 			}, nil
 		},
 	})
 
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil, map[string]provider.Provider{
+		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai"}},
+	}), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
-	req := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", nil)
+	req := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", cliAuthLoginBody("openai-main", "type:openai"))
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -130,6 +141,12 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 			if cred.ProviderID != "openai-main" {
 				t.Fatalf("unexpected provider id: got %q want %q", cred.ProviderID, "openai-main")
 			}
+			if got := cred.Metadata[credentialmgr.MetadataRefreshNameKey]; got != "codex" {
+				t.Fatalf("unexpected refresh name: got %#v want codex", got)
+			}
+			if cred.Scope != "type:openai" {
+				t.Fatalf("unexpected credential scope: got %q want %q", cred.Scope, "type:openai")
+			}
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -146,10 +163,13 @@ func TestCLIAuthReturnsNotFoundForUnknownCliname(t *testing.T) {
 
 	cliauthMgr := cliauth.NewManager()
 	cliauthRefresher := cliauth.NewAutoRefresher(nil, cliauthMgr)
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil, map[string]provider.Provider{
+		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai"}},
+	}), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
-	req := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/unknown/login", nil)
+	req := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/unknown/login", cliAuthLoginBody("openai-main", ""))
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -168,22 +188,22 @@ func TestCLIAuthStatusReportsCompletion(t *testing.T) {
 	cliauthMgr := cliauth.NewManager()
 	cliauthRefresher := cliauth.NewAutoRefresher(nil, cliauthMgr)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
-		providerType: "openai",
-		loginFn: func(context.Context, cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
+		loginFn: func(context.Context, cliauth.LoginRequest, cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
 			time.Sleep(20 * time.Millisecond)
 			return &credentialmgr.Credential{
-				ID:           "cred-openai-2",
-				ProviderType: "openai",
-				ProviderID:   "openai-main",
+				ID: "cred-openai-2",
 			}, nil
 		},
 	})
 
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil, map[string]provider.Provider{
+		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai"}},
+	}), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	startReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", nil)
+	startReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", cliAuthLoginBody("openai-main", ""))
 	startReq.Header.Set("Authorization", "Bearer "+token)
+	startReq.Header.Set("Content-Type", "application/json")
 	startRec := httptest.NewRecorder()
 	handler.ServeHTTP(startRec, startReq)
 	if startRec.Code != http.StatusAccepted {
@@ -241,8 +261,7 @@ func TestCLIAuthStatusIncludesInteractiveInstructions(t *testing.T) {
 	cliauthMgr := cliauth.NewManager()
 	cliauthRefresher := cliauth.NewAutoRefresher(nil, cliauthMgr)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
-		providerType: "openai",
-		loginFn: func(ctx context.Context, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
+		loginFn: func(ctx context.Context, _ cliauth.LoginRequest, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
 			reporter.UpdateLoginStatus(cliauth.LoginStatusUpdate{
 				Phase:           "awaiting_browser_auth",
 				Message:         "Open the verification URL in a browser.",
@@ -250,18 +269,19 @@ func TestCLIAuthStatusIncludesInteractiveInstructions(t *testing.T) {
 			})
 			<-release
 			return &credentialmgr.Credential{
-				ID:           "cred-openai-3",
-				ProviderType: "openai",
-				ProviderID:   "openai-main",
+				ID: "cred-openai-3",
 			}, nil
 		},
 	})
 
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil, map[string]provider.Provider{
+		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai"}},
+	}), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	startReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", nil)
+	startReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", cliAuthLoginBody("openai-main", ""))
 	startReq.Header.Set("Authorization", "Bearer "+token)
+	startReq.Header.Set("Content-Type", "application/json")
 	startRec := httptest.NewRecorder()
 	handler.ServeHTTP(startRec, startReq)
 	if startRec.Code != http.StatusAccepted {
@@ -406,8 +426,7 @@ func TestCLIAuthRejectsConcurrentLoginForSameAuthenticator(t *testing.T) {
 	cliauthMgr := cliauth.NewManager()
 	cliauthRefresher := cliauth.NewAutoRefresher(nil, cliauthMgr)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
-		providerType: "openai",
-		loginFn: func(ctx context.Context, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
+		loginFn: func(ctx context.Context, _ cliauth.LoginRequest, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
 			reporter.UpdateLoginStatus(cliauth.LoginStatusUpdate{
 				Phase:           "awaiting_browser_auth",
 				Message:         "Open the verification URL in a browser.",
@@ -415,17 +434,19 @@ func TestCLIAuthRejectsConcurrentLoginForSameAuthenticator(t *testing.T) {
 			})
 			<-release
 			return &credentialmgr.Credential{
-				ID:           "cred-openai-4",
-				ProviderType: "openai",
+				ID: "cred-openai-4",
 			}, nil
 		},
 	})
 
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil, map[string]provider.Provider{
+		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai"}},
+	}), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	firstReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", nil)
+	firstReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", cliAuthLoginBody("openai-main", ""))
 	firstReq.Header.Set("Authorization", "Bearer "+token)
+	firstReq.Header.Set("Content-Type", "application/json")
 	firstRec := httptest.NewRecorder()
 	handler.ServeHTTP(firstRec, firstReq)
 	if firstRec.Code != http.StatusAccepted {
@@ -440,8 +461,9 @@ func TestCLIAuthRejectsConcurrentLoginForSameAuthenticator(t *testing.T) {
 		t.Fatal("expected login_id in first start response")
 	}
 
-	secondReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", nil)
+	secondReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", cliAuthLoginBody("openai-main", ""))
 	secondReq.Header.Set("Authorization", "Bearer "+token)
+	secondReq.Header.Set("Content-Type", "application/json")
 	secondRec := httptest.NewRecorder()
 	handler.ServeHTTP(secondRec, secondReq)
 	close(release)
@@ -462,7 +484,7 @@ func TestCLIAuthEnableAndListAuthenticators(t *testing.T) {
 
 	const authName = "test-admin-authenticator"
 	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
-		return &testAuthenticator{providerType: "openai"}, nil
+		return &testAuthenticator{}, nil
 	})
 
 	cliauthMgr := cliauth.NewManager()
@@ -516,7 +538,7 @@ func TestCLIAuthUpdateAuthenticatorRequiresRequestBody(t *testing.T) {
 
 	const authName = "test-admin-required-config-authenticator"
 	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
-		return &testAuthenticator{providerType: "openai"}, nil
+		return &testAuthenticator{}, nil
 	})
 
 	cliauthMgr := cliauth.NewManager()
@@ -541,7 +563,7 @@ func TestCLIAuthUpdateAuthenticatorRequiresConfigWhenEnabling(t *testing.T) {
 
 	const authName = "test-admin-required-config-field-authenticator"
 	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
-		return &testAuthenticator{providerType: "openai"}, nil
+		return &testAuthenticator{}, nil
 	})
 
 	cliauthMgr := cliauth.NewManager()
@@ -568,7 +590,6 @@ func TestCLIAuthListAuthenticatorsReturnsDefaultConfigForDisabledItems(t *testin
 	const enabledAuthName = "test-admin-list-enabled-authenticator"
 	cliauth.RegisterAuthenticatorFactory(enabledAuthName, func() (cliauth.Authenticator, error) {
 		return &testAuthenticator{
-			providerType: "openai",
 			config: cliauth.AuthenticatorConfig{
 				CallbackPort: 9002,
 				NoBrowser:    true,
@@ -579,7 +600,6 @@ func TestCLIAuthListAuthenticatorsReturnsDefaultConfigForDisabledItems(t *testin
 	const disabledAuthName = "test-admin-list-disabled-authenticator"
 	cliauth.RegisterAuthenticatorFactory(disabledAuthName, func() (cliauth.Authenticator, error) {
 		return &testAuthenticator{
-			providerType: "openai",
 			config: cliauth.AuthenticatorConfig{
 				CallbackPort: 1455,
 				DeviceFlow:   true,
@@ -652,7 +672,7 @@ func TestCLIAuthEnableAuthenticatorAcceptsConfig(t *testing.T) {
 
 	const authName = "test-admin-configurable-enable-authenticator"
 	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
-		return &testAuthenticator{providerType: "openai"}, nil
+		return &testAuthenticator{}, nil
 	})
 
 	cliauthMgr := cliauth.NewManager()
@@ -688,7 +708,7 @@ func TestCLIAuthUpdateAuthenticatorUsesUpdateSemantics(t *testing.T) {
 
 	const authName = "test-admin-update-authenticator"
 	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
-		return &testAuthenticator{providerType: "openai"}, nil
+		return &testAuthenticator{}, nil
 	})
 
 	cliauthMgr := cliauth.NewManager()
@@ -730,7 +750,6 @@ func TestCLIAuthUpdateAuthenticatorReplacesExistingConfig(t *testing.T) {
 	const authName = "test-admin-replace-config-authenticator"
 	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
 		return &testAuthenticator{
-			providerType: "openai",
 			config: cliauth.AuthenticatorConfig{
 				CallbackPort: 1455,
 			},
@@ -783,7 +802,6 @@ func TestCLIAuthUpdateAuthenticatorCanDisable(t *testing.T) {
 
 	cliauthMgr := cliauth.NewManager()
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
-		providerType: "openai",
 		config: cliauth.AuthenticatorConfig{
 			CallbackPort: 1455,
 		},
@@ -814,7 +832,6 @@ func TestCLIAuthGetAuthenticatorReturnsConfig(t *testing.T) {
 
 	cliauthMgr := cliauth.NewManager()
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
-		providerType: "openai",
 		config: cliauth.AuthenticatorConfig{
 			CallbackPort: 1455,
 			NoBrowser:    true,
@@ -838,7 +855,7 @@ func TestCLIAuthGetAuthenticatorReturnsConfig(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.Name != "codex" || resp.ProviderType != "openai" || !resp.Enabled {
+	if resp.Name != "codex" || !resp.Enabled {
 		t.Fatalf("unexpected authenticator view: %+v", resp)
 	}
 	if resp.Config.CallbackPort != 1455 || !resp.Config.NoBrowser || !resp.Config.DeviceFlow {
@@ -855,7 +872,6 @@ func TestCLIAuthGetDisabledAuthenticatorReturnsDefaultConfig(t *testing.T) {
 	const authName = "test-admin-disabled-authenticator"
 	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
 		return &testAuthenticator{
-			providerType: "openai",
 			config: cliauth.AuthenticatorConfig{
 				CallbackPort: 1455,
 				NoBrowser:    true,
@@ -883,9 +899,6 @@ func TestCLIAuthGetDisabledAuthenticatorReturnsDefaultConfig(t *testing.T) {
 	}
 	if resp.Name != authName || resp.Enabled {
 		t.Fatalf("unexpected authenticator view: %+v", resp)
-	}
-	if resp.ProviderType != "openai" {
-		t.Fatalf("expected provider type to be exposed for disabled authenticator, got %q", resp.ProviderType)
 	}
 	if resp.Config.CallbackPort != 1455 || !resp.Config.NoBrowser || !resp.Config.DeviceFlow {
 		t.Fatalf("expected default config for disabled authenticator, got %+v", resp.Config)

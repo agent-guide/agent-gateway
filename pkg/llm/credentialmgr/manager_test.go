@@ -488,7 +488,7 @@ func TestReloadFromStoreReplacesManagerStateAndRebuildsScheduler(t *testing.T) {
 
 func TestRefreshCredentialIfNeededRefreshesExpiredCLIAuthCredential(t *testing.T) {
 	mgr := NewManager(nil)
-	mgr.SetManualRefresher("codex", &testManualRefresher{
+	mgr.SetManualRefresher("gemini", &testManualRefresher{
 		refreshFn: func(_ context.Context, cred *Credential) (*Credential, error) {
 			updated := cred.Clone()
 			updated.Attributes["api_key"] = "fresh-key"
@@ -507,8 +507,9 @@ func TestRefreshCredentialIfNeededRefreshesExpiredCLIAuthCredential(t *testing.T
 			"api_key": "stale-key",
 		},
 		Metadata: map[string]any{
-			MetadataManualRefreshNameKey: "codex",
-			"expired":                    expired,
+			MetadataRefreshNameKey:        "gemini",
+			MetadataRefreshExpiryDeltaKey: "10s",
+			"expired":                     expired,
 		},
 	}); err != nil {
 		t.Fatalf("register credential: %v", err)
@@ -526,6 +527,48 @@ func TestRefreshCredentialIfNeededRefreshesExpiredCLIAuthCredential(t *testing.T
 	}
 }
 
+func TestRefreshCredentialIfNeededSkipsWithoutRefreshExpiryDelta(t *testing.T) {
+	mgr := NewManager(nil)
+	called := false
+	mgr.SetManualRefresher("codex", &testManualRefresher{
+		refreshFn: func(_ context.Context, cred *Credential) (*Credential, error) {
+			called = true
+			return cred.Clone(), nil
+		},
+	})
+
+	expired := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
+	if err := mgr.RegisterCredential(context.Background(), &Credential{
+		ID:           "cli-1",
+		ProviderType: "openai",
+		ProviderID:   "openai",
+		Type:         TypeCLIAuthToken,
+		Attributes: map[string]string{
+			"api_key": "stale-key",
+		},
+		Metadata: map[string]any{
+			MetadataRefreshNameKey: "codex",
+			"expired":              expired,
+		},
+	}); err != nil {
+		t.Fatalf("register credential: %v", err)
+	}
+
+	updated, err := mgr.RefreshCredentialIfNeeded(context.Background(), "cli-1")
+	if err != nil {
+		t.Fatalf("RefreshCredentialIfNeeded returned error: %v", err)
+	}
+	if updated == nil {
+		t.Fatal("RefreshCredentialIfNeeded returned nil credential")
+	}
+	if called {
+		t.Fatal("expected manual refresh to be skipped when refresh_expiry_delta is absent")
+	}
+	if got := updated.Attributes["api_key"]; got != "stale-key" {
+		t.Fatalf("api_key = %q, want stale-key", got)
+	}
+}
+
 func TestRefreshCredentialIfNeededSkipsWhenNoMatchingManualRefresher(t *testing.T) {
 	mgr := NewManager(nil)
 
@@ -539,8 +582,8 @@ func TestRefreshCredentialIfNeededSkipsWhenNoMatchingManualRefresher(t *testing.
 			"api_key": "stale-key",
 		},
 		Metadata: map[string]any{
-			MetadataManualRefreshNameKey: "codex",
-			"expired":                    expired,
+			MetadataRefreshNameKey: "codex",
+			"expired":              expired,
 		},
 	}); err != nil {
 		t.Fatalf("register credential: %v", err)
@@ -580,9 +623,9 @@ func TestRefreshCredentialIfNeededHonorsCredentialSpecificExpiryDelta(t *testing
 			"api_key": "stale-key",
 		},
 		Metadata: map[string]any{
-			MetadataManualRefreshNameKey:     "gemini",
-			MetadataManualRefreshExpiryDelta: "10s",
-			"expired":                        expiry,
+			MetadataRefreshNameKey:        "gemini",
+			MetadataRefreshExpiryDeltaKey: "10s",
+			"expired":                     expiry,
 		},
 	}); err != nil {
 		t.Fatalf("register credential: %v", err)
