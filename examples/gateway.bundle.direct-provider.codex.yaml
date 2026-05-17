@@ -1,0 +1,34 @@
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+
+providerTypes:
+  - provider_type: codex
+    enabled: true
+
+providers:
+  - id: codex-test
+    provider_type: codex
+    default_model: gpt-5.4
+    network:
+      proxy_url: http://127.0.0.1:7890
+
+routes:
+  - id: chat-codex
+    llm_api: openai
+    match:
+      path_prefix: /chatcodex
+      methods:
+        - POST
+    auth_policy:
+      require_virtual_key: true
+    target_policy:
+      provider_target:
+        provider_id: codex-test
+      credential_type_order:
+        - cliauth_token
+
+virtualKeys:
+  - id: vk-local-chat-codex
+    tag: local-test
+    allowed_route_ids:
+      - chat-codex
