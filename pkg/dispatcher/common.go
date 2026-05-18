@@ -9,7 +9,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/httplog"
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"go.uber.org/zap"
 )

@@ -11,7 +11,7 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/internal/httplog"
 	dispatcher "github.com/agent-guide/agent-gateway/pkg/dispatcher"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"

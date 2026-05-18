@@ -3,8 +3,9 @@ package schema
 import (
 	"testing"
 
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	modelcatalog "github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/model"
@@ -64,6 +65,18 @@ func TestRouteSchemaTagDefaultsEmpty(t *testing.T) {
 	}
 	if !ok || tag != "" {
 		t.Fatalf("tag = %q, ok = %v", tag, ok)
+	}
+}
+
+func TestMCPRouteSchemaPrimaryKey(t *testing.T) {
+	obj := &mcproute.MCPRoute{ID: "mcp-route-1", ServiceID: "svc-1"}
+
+	keys, err := MCPRouteSchema.Metadata.PrimaryKey(obj)
+	if err != nil {
+		t.Fatalf("primary key: %v", err)
+	}
+	if len(keys) != 1 || keys[0] != "mcp-route-1" {
+		t.Fatalf("keys = %#v", keys)
 	}
 }
 

@@ -16,7 +16,7 @@ Model-first routing sits between the route layer and the provider layer.
 
 The gateway runtime uses these responsibilities:
 
-- `pkg/gateway/route`
+- `pkg/gateway/llmroute`
   - owns the route data model and route target policy
 - `pkg/gateway/modelcatalog`
   - owns provider model discovery and managed model overlays
@@ -48,9 +48,9 @@ Direct-provider mode is the escape hatch for simple forwarding. In this mode:
 
 ## 4. Route Data Model
 
-The route runtime type is `pkg/gateway/route.AgentRoute`.
+The route runtime type is `pkg/gateway/llmroute.AgentRoute`.
 
-The target policy is `pkg/gateway/route.RouteTargetPolicy`.
+The target policy is `pkg/gateway/llmroute.RouteTargetPolicy`.
 
 Current route target policy kinds:
 
@@ -69,7 +69,7 @@ Current route target policy fields of record are:
 - `credential_type_order`
 - `fallback`
 
-Important normalization rules in `pkg/gateway/route`:
+Important normalization rules in `pkg/gateway/llmroute`:
 
 - `provider_id` and `provider_target.provider_id` are normalized to the same effective value
 - logical-model routes use `model_targets`

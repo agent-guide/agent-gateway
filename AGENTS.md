@@ -2,8 +2,8 @@
 
 ## Purpose
 
-This repository builds a custom Caddy binary that acts as an AI gateway for LLM traffic.
-The current production path is:
+This repository builds a custom Caddy binary that acts as an AI gateway for LLM and MCP traffic.
+The current primary LLM path is:
 
 1. `agent_gateway` app loads providers, routes, virtual keys, credentials, and CLI auth state
 2. `agent_route_dispatcher` matches an incoming HTTP request to a route
@@ -12,7 +12,7 @@ The current production path is:
 5. in logical-model routes, the model catalog resolves the logical model to one concrete `(provider_id, upstream_model)` binding
 6. the selected provider executes `Generate` or `Stream`
 
-MCP, memory, agent, and metrics areas exist in the repo, but the main implemented runtime today is LLM routing plus Admin APIs.
+MCP is also active now through `agent_mcp_dispatcher`, `pkg/gateway/mcproute`, `pkg/mcp/service`, and MCP Admin APIs. Memory, agent, and metrics areas still exist as earlier-stage subsystems.
 
 ## Change Policy
 
@@ -86,6 +86,20 @@ Responsibilities:
 - rewrite the provider-facing request model when logical-model routing is used
 - invoke the selected protocol handler
 
+### MCP HTTP middleware
+
+- Module ID: `http.handlers.agent_mcp_dispatcher`
+- Package: `caddy/mcpdispatcher/`
+- Main entry: `caddy/mcpdispatcher/module.go`
+
+Responsibilities:
+
+- resolve the matching `MCPRoute`
+- validate the VirtualKey when required
+- parse inbound MCP JSON-RPC requests and notifications
+- invoke `pkg/mcp/service` discovery and execution methods
+- track in-flight MCP requests and progress through the shared runtime registry
+
 ### Protocol handler modules
 
 - Module ID: `agent_route_dispatcher.llm_apis.openai`
@@ -112,10 +126,12 @@ Responsibilities:
 
 - session login with `POST /admin/auth/login`
 - CRUD for providers, routes, virtual keys, and credentials
+- CRUD for `mcp_services` and `mcp_routes`
+- MCP discovery, execution, and dispatcher runtime inspection
 - enable or disable provider types and LLM API handler types
 - configure and trigger CLI auth authenticators
 - start CLI auth logins bound to one `provider_id` and optional credential scope
-- expose stubbed MCP, memory, agent, and metrics endpoints
+- expose stubbed memory, agent, and metrics endpoints
 
 ## Key Packages
 
@@ -135,7 +151,7 @@ Important files:
 - `app.go`: Caddy app wiring and runtime bootstrap
 - `caddyfile.go`: global `agent_gateway` Caddyfile parsing
 
-### `pkg/gateway/route/`
+### `pkg/gateway/llmroute/`
 
 Defines the route model used by static config, the Admin API, and runtime resolution.
 
@@ -169,6 +185,16 @@ Important types:
 
 - `ManagedModel`
 - `ProviderModelSnapshot`
+
+### `pkg/gateway/mcproute/`
+
+Defines the MCP route model used by static config, the Admin API, and runtime resolution.
+
+Important types:
+
+- `MCPRoute`
+- `RouteMatch`
+- `AuthPolicy`
 
 ### `pkg/gateway/virtualkey/`
 
@@ -267,6 +293,8 @@ Current store names:
 - `providers`
 - `credentials`
 - `routes`
+- `mcp_routes`
+- `mcp_services`
 - `virtual_keys`
 - `managed_models`
 
@@ -354,9 +382,14 @@ Implemented families:
 - `/admin/cliauth/refresher/...`
 - `/admin/cliauth/logins/...`
 
+Implemented MCP families:
+
+- `/admin/mcp/services/...`
+- `/admin/mcp/routes/...`
+- `/admin/mcp/dispatcher/...`
+
 Stubbed families currently return `501 Not Implemented`:
 
-- `/admin/mcp/...`
 - `/admin/memory/...`
 - `/admin/agents/...`
 - `/admin/metrics/...`

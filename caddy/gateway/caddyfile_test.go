@@ -7,7 +7,7 @@ import (
 
 	configstoresqlite "github.com/agent-guide/agent-gateway/caddy/configstore/sqlite"
 	_ "github.com/agent-guide/agent-gateway/caddy/provider/ollama"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 )

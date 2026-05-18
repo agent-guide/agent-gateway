@@ -16,7 +16,7 @@ Route target policy is the control layer between route matching and provider exe
 
 The relevant package ownership is:
 
-- `pkg/gateway/route`
+- `pkg/gateway/llmroute`
   - owns route data model, target policy normalization, validation, and target resolution
 - `pkg/gateway`
   - owns `RoutedProvider`, provider resolution, credential scheduling, and fallback execution
@@ -47,9 +47,9 @@ The effective mode is determined by `RouteTargetPolicy.PolicyKind()` after norma
 
 ## 4. Route Data Model
 
-The route runtime type is `pkg/gateway/route.AgentRoute`.
+The route runtime type is `pkg/gateway/llmroute.AgentRoute`.
 
-Target selection is represented by `pkg/gateway/route.RouteTargetPolicy`.
+Target selection is represented by `pkg/gateway/llmroute.RouteTargetPolicy`.
 
 The fields that define target behavior are:
 
@@ -266,7 +266,7 @@ If no eligible candidate remains, the resolver returns a gateway error indicatin
 
 ## 13. Candidate Selection Semantics
 
-The current candidate selector is implemented in `pkg/gateway/route/resolve.go`.
+The current candidate selector is implemented in `pkg/gateway/llmroute/resolve.go`.
 
 Supported selector strategies:
 
@@ -495,7 +495,7 @@ The current route target policy architecture in `agent-gateway` is a concrete, n
 
 Its stable design rules are:
 
-- route target policy is owned by `pkg/gateway/route`
+- route target policy is owned by `pkg/gateway/llmroute`
 - execution and fallback are owned by `pkg/gateway.RoutedProvider`
 - direct-provider mode forwards explicitly to one provider
 - logical-model mode resolves one route-visible model name to one concrete provider/model binding

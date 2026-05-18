@@ -8,11 +8,15 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/httplog"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
+	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
+	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 	"go.uber.org/zap"
 )
 
@@ -26,6 +30,7 @@ type Handler struct {
 	virtualKeyManager  *virtualkeypkg.VirtualKeyManager
 	providerManager    *gateway.ProviderManager
 	modelCatalog       modelcatalog.Service
+	mcpRuntimeRegistry *mcpruntime.Registry
 	mux                *http.ServeMux
 	logger             *zap.Logger
 	cliAuthMu          sync.RWMutex
@@ -51,6 +56,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 	var virtualKeyManager *virtualkeypkg.VirtualKeyManager
 	var providerManager *gateway.ProviderManager
 	var modelCatalogSvc modelcatalog.Service
+	var mcpRuntimeRegistry *mcpruntime.Registry
 	if agentGateway != nil {
 		cliauthMgr = agentGateway.CLIAuthManager()
 		cliauthRefresher = agentGateway.CLIAuthRefresher()
@@ -60,6 +66,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 		virtualKeyManager = agentGateway.VirtualKeyManager()
 		providerManager = agentGateway.ProviderManager()
 		modelCatalogSvc = agentGateway.ModelCatalog()
+		mcpRuntimeRegistry = agentGateway.MCPRuntimeRegistry()
 	}
 
 	h := &Handler{
@@ -71,6 +78,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 		virtualKeyManager:  virtualKeyManager,
 		providerManager:    providerManager,
 		modelCatalog:       modelCatalogSvc,
+		mcpRuntimeRegistry: mcpRuntimeRegistry,
 		logger:             logger,
 		cliAuthSessions:    map[string]cliAuthStatus{},
 		cliAuthActive:      map[string]string{},
@@ -111,4 +119,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.mux.ServeHTTP(rr, r)
+}
+
+func (h *Handler) mcpServiceManager() (*mcpservice.Manager, error) {
+	if h.configStoreBackend == nil {
+		return nil, configstore.ErrUnknownStoreName
+	}
+	store, err := h.configStoreBackend.Get(schema.StoreMCPServices)
+	if err != nil {
+		return nil, err
+	}
+	return mcpservice.NewManager(store), nil
+}
+
+func (h *Handler) mcpRouteManager() (*mcproute.Manager, error) {
+	if h.configStoreBackend == nil {
+		return nil, configstore.ErrUnknownStoreName
+	}
+	store, err := h.configStoreBackend.Get(schema.StoreMCPRoutes)
+	if err != nil {
+		return nil, err
+	}
+	return mcproute.NewManager(store), nil
 }

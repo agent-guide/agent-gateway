@@ -28,26 +28,29 @@ Client
   |
   v
 HTTP handlers
-  - Caddy adapters: http.handlers.agent_route_dispatcher, http.handlers.agent_gateway_admin
+  - Caddy adapters: http.handlers.agent_route_dispatcher, http.handlers.agent_mcp_dispatcher, http.handlers.agent_gateway_admin
   - Standalone server: net/http handlers assembled by standalone/server
-Dispatcher LLM API modules
+Dispatcher / protocol modules
   - agent_route_dispatcher.llm_apis.openai
   - agent_route_dispatcher.llm_apis.anthropic
+  - agent_mcp_dispatcher
   |
   v
 Shared gateway runtime
   - provider loading and resolution
   - authenticator loading
   - config store loading
-  - route registry / route loader
+  - llmroute and mcproute registries
   - virtual key lookup
   - credential and auth managers
+  - MCP runtime registry
   |
   v
 External systems
   - OpenAI / Anthropic / Gemini / Ollama / OpenRouter
+  - upstream MCP services
   - SQLite config database
-  - future MCP / memory backends
+  - future memory backends
 ```
 
 ## 4. Main Components
@@ -110,14 +113,18 @@ Today it exposes working endpoints for:
 
 - health
 - provider CRUD
-- route CRUD
+- LLM route CRUD
+- MCP service CRUD
+- MCP route CRUD
 - virtual key CRUD
 - credential list/get/delete
 - async CLI login and login status
+- MCP service discovery and execution endpoints
+- MCP dispatcher runtime inspection endpoints
 
-The same route table also defines MCP, memory, agent, and metrics endpoints, but those handlers currently return `501 not implemented`.
+The same route table still defines memory, agent, and metrics endpoints that are not yet implemented.
 
-This means the admin package is already the control-plane entrypoint, but only part of the intended control plane is finished.
+This means the admin package is now the active control-plane entrypoint for both LLM and MCP, while memory, agent, and metrics remain future work.
 
 ### 4.4 `pkg/llm/provider/`: Provider Abstraction
 
@@ -180,6 +187,8 @@ It persists:
 - virtual keys
 - upstream provider credentials
 - managed model overlays
+- MCP service definitions
+- MCP route definitions
 
 SQLite is the only storage backend that is provisioned end-to-end today.
 
@@ -194,9 +203,11 @@ These packages are present because the gateway is intended to grow beyond plain 
 Current status:
 
 - `pkg/mcp/`
-  - transport code exists for stdio, SSE, and WebSocket
-  - manager/client abstractions exist
-  - not yet integrated into the admin surface or request path
+  - protocol types, transport clients, service runtime, and runtime registry are active
+  - `pkg/mcp/service` manages `mcp_services`, discovery, execution, and session reuse
+  - `pkg/mcp/runtime` tracks in-flight requests and progress for the MCP dispatcher
+  - `streamable_http` is the active upstream transport path today
+  - `stdio` and `sse` code exist but are not yet equally integrated
 - `pkg/llm/memory/`
   - interfaces exist
   - SQLite and Mem0-related code exists
@@ -205,7 +216,7 @@ Current status:
   - an early orchestrator loop exists
   - memory retrieval and tool execution are still TODOs
 
-Architecturally, these are extension subsystems, not the current center of gravity of the product.
+Architecturally, MCP is now an active subsystem; memory and agent are still extension subsystems rather than center-of-gravity runtimes.
 
 ## 5. Configuration Model
 
@@ -246,7 +257,9 @@ The Go route model is richer than the current static config grammar. That mismat
 The config store also holds:
 
 - provider records keyed by ID and tag
-- route objects keyed by ID
+- LLM route objects keyed by ID
+- MCP route objects keyed by ID
+- MCP service objects keyed by ID
 - virtual key objects keyed by key string
 
 When an API handler receives a request for a given `route_id`, the runtime can reload the latest stored route definition for that ID. Provider references can also resolve through persisted provider config.
@@ -262,7 +275,7 @@ That is one of the core architectural decisions in the project.
 
 ### 6.1 Route Object
 
-The primary routing configuration is `pkg/gateway/route.AgentRoute`.
+The primary routing configuration is `pkg/gateway/llmroute.AgentRoute`.
 
 Important fields include:
 
@@ -321,7 +334,25 @@ HTTP request
 
 The important design property here is that compatible ingress is separated from route policy and from provider implementation.
 
-### 7.2 Admin Mutation
+### 7.2 MCP Request
+
+The MCP request path is now:
+
+```text
+HTTP request
+  -> agent_mcp_dispatcher
+  -> match MCPRoute by host/path prefix/method
+  -> validate virtual key if required
+  -> decode JSON-RPC request
+  -> register in-flight request in pkg/mcp/runtime
+  -> resolve target MCP service
+  -> initialize or reuse upstream Streamable HTTP session
+  -> invoke discovery or execution method on upstream MCP service
+  -> map notifications/cancelled and notifications/progress into runtime state
+  -> translate upstream result into JSON-RPC response
+```
+
+### 7.3 Admin Mutation
 
 For a route or provider change:
 
@@ -334,7 +365,7 @@ HTTP admin request
 
 This is why the project can support operational changes without treating the Caddyfile as the only mutable state.
 
-### 7.3 CLI Login
+### 7.4 CLI Login
 
 CLI login flow:
 
@@ -367,18 +398,21 @@ The following are implemented enough to be production-shape code, even if still 
 - SQLite config persistence
 - provider CRUD
 - route CRUD
+- MCP service CRUD
+- MCP route CRUD
 - virtual key CRUD
 - credential inspection and deletion
 - CLI login orchestration
 - OpenAI-compatible and Anthropic-compatible ingress handlers
+- MCP dispatcher, upstream discovery, upstream execution, and runtime inspection
 
 The following are partial or placeholder:
 
-- MCP admin APIs
 - memory admin APIs
 - agent admin APIs
 - metrics endpoint
-- full MCP execution in request path
+- first-class non-HTTP MCP transports such as stdio in the active request path
+- full upstream progress relay back to MCP clients
 - full memory retrieval and writeback in request path
 - complete agent orchestration loop
 - richer static Caddyfile route syntax for all route fields
@@ -411,7 +445,7 @@ This path exists architecturally, but SQLite is the only end-to-end store curren
 
 The MCP, memory, and agent packages are already structured as internal subsystem boundaries. The intended direction is:
 
-- MCP tools become request-time tool execution sources
+- MCP expands from the current Streamable HTTP gateway path into broader transport coverage and richer runtime semantics
 - memory becomes retrieval and persistence around model calls
 - agent orchestration becomes an execution mode rather than a separate external service
 
@@ -451,9 +485,11 @@ That means some fields are representable in JSON and Go types before they are re
 
 The most coherent next steps for the architecture are:
 
-- finish the missing admin handlers for MCP, memory, agents, and metrics
+- extend MCP runtime beyond the current Streamable HTTP and request-scoped cancellation model
+- include MCP objects in bundle/export/apply flows
+- finish the missing admin handlers for memory, agents, and metrics
 - expand enforcement of route policy beyond the currently active subset
-- integrate MCP and memory into the request path
+- integrate memory into the request path
 - complete the agent orchestrator tool-call loop
 - expand Caddyfile route syntax to cover more of the existing route data model
 - decide how the separate web UI becomes a first-class operator surface

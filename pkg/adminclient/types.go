@@ -5,8 +5,8 @@ import (
 
 	adminapi "github.com/agent-guide/agent-gateway/pkg/admin"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )

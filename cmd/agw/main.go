@@ -13,6 +13,7 @@ import (
 	_ "github.com/agent-guide/agent-gateway/caddy/dispatcher/llmapi/anthropic"
 	_ "github.com/agent-guide/agent-gateway/caddy/dispatcher/llmapi/openai"
 	_ "github.com/agent-guide/agent-gateway/caddy/gateway"
+	_ "github.com/agent-guide/agent-gateway/caddy/mcpdispatcher"
 
 	// CLI authenticators (register as factory + Caddy modules via init())
 	_ "github.com/agent-guide/agent-gateway/pkg/cliauth/authenticator"

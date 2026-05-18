@@ -8,7 +8,7 @@ import (
 
 	_ "github.com/agent-guide/agent-gateway/pkg/cliauth/authenticator"
 	_ "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/openai"
-	route "github.com/agent-guide/agent-gateway/pkg/gateway/route"
+	route "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
 )
 

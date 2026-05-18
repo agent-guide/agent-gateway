@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"gopkg.in/yaml.v3"

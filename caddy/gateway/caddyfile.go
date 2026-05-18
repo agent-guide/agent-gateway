@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"

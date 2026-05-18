@@ -12,9 +12,12 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	dispatcherpkg "github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
+	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 	"gorm.io/gorm"
 )
 
@@ -28,6 +31,12 @@ type VirtualKeyView struct {
 
 type RouteView struct {
 	routepkg.AgentRoute
+	Source   string `json:"source"`
+	ReadOnly bool   `json:"read_only"`
+}
+
+type MCPRouteView struct {
+	mcproute.MCPRoute
 	Source   string `json:"source"`
 	ReadOnly bool   `json:"read_only"`
 }
@@ -59,6 +68,31 @@ type ProviderView struct {
 type ProviderTypeView struct {
 	ProviderType string `json:"provider_type"`
 	Enabled      bool   `json:"enabled"`
+}
+
+type MCPServiceView struct {
+	mcpservice.MCPServiceConfig
+	Source   string `json:"source"`
+	ReadOnly bool   `json:"read_only"`
+}
+
+type MCPDispatcherRuntimeView struct {
+	InFlight []mcpruntime.InFlightRequest      `json:"in_flight"`
+	Progress []mcpruntime.ProgressNotification `json:"progress"`
+}
+
+type MCPToolCallRequest struct {
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments,omitempty"`
+}
+
+type MCPResourceReadRequest struct {
+	URI string `json:"uri"`
+}
+
+type MCPPromptGetRequest struct {
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
 type LLMApiHandlerTypeView struct {
@@ -139,12 +173,25 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodGet, Path: "/admin/cliauth/logins/{login_id}", Handler: h.handleGetCLIAuthLoginStatus, RequireAuth: true},
 
 		// MCP
-		{Method: http.MethodGet, Path: "/admin/mcp/clients", Handler: h.handleListMCPClients, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/mcp/clients", Handler: h.handleAddMCPClient, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/mcp/clients/{id}", Handler: h.handleGetMCPClient, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/mcp/clients/{id}", Handler: h.handleUpdateMCPClient, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/mcp/clients/{id}", Handler: h.handleRemoveMCPClient, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/mcp/clients/{id}/tools", Handler: h.handleListMCPTools, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/mcp/services", Handler: h.handleListMCPClients, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/mcp/services", Handler: h.handleAddMCPClient, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}", Handler: h.handleGetMCPClient, RequireAuth: true},
+		{Method: http.MethodPut, Path: "/admin/mcp/services/{id}", Handler: h.handleUpdateMCPClient, RequireAuth: true},
+		{Method: http.MethodDelete, Path: "/admin/mcp/services/{id}", Handler: h.handleRemoveMCPClient, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/mcp/routes", Handler: h.handleListMCPRoutes, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/mcp/routes", Handler: h.handleCreateMCPRoute, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/mcp/routes/{id}", Handler: h.handleGetMCPRoute, RequireAuth: true},
+		{Method: http.MethodPut, Path: "/admin/mcp/routes/{id}", Handler: h.handleUpdateMCPRoute, RequireAuth: true},
+		{Method: http.MethodDelete, Path: "/admin/mcp/routes/{id}", Handler: h.handleDeleteMCPRoute, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/mcp/dispatcher/runtime", Handler: h.handleGetMCPDispatcherRuntime, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/mcp/dispatcher/inflight", Handler: h.handleListMCPDispatcherInFlight, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/mcp/dispatcher/progress", Handler: h.handleListMCPDispatcherProgress, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/tools", Handler: h.handleListMCPTools, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/mcp/services/{id}/tools/call", Handler: h.handleCallMCPTool, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/resources", Handler: h.handleListMCPResources, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/mcp/services/{id}/resources/read", Handler: h.handleReadMCPResource, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/prompts", Handler: h.handleListMCPPrompts, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/mcp/services/{id}/prompts/get", Handler: h.handleGetMCPPrompt, RequireAuth: true},
 
 		// Memory
 		{Method: http.MethodGet, Path: "/admin/memory/config", Handler: h.handleGetMemoryConfig, RequireAuth: true},
@@ -836,22 +883,386 @@ func (h *Handler) handleSetVirtualKeyDisabled(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) handleListMCPClients(w http.ResponseWriter, r *http.Request) {
-	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
+	manager, err := h.mcpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	items, err := manager.List(r.Context())
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	views := make([]MCPServiceView, 0, len(items))
+	for _, item := range items {
+		views = append(views, MCPServiceView{MCPServiceConfig: item, Source: "config_store"})
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": views})
 }
 func (h *Handler) handleAddMCPClient(w http.ResponseWriter, r *http.Request) {
-	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
+	manager, err := h.mcpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	var cfg mcpservice.MCPServiceConfig
+	if err := httpjson.Decode(r, &cfg); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	cfg.Normalize()
+	if err := manager.Create(r.Context(), cfg); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	created, err := manager.Get(r.Context(), cfg.ID)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusCreated, MCPServiceView{MCPServiceConfig: created, Source: "config_store"})
 }
 func (h *Handler) handleGetMCPClient(w http.ResponseWriter, r *http.Request) {
-	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
+	manager, err := h.mcpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	cfg, err := manager.Get(r.Context(), strings.TrimSpace(r.PathValue("id")))
+	if err != nil {
+		if errors.Is(err, mcpservice.ErrServiceNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "mcp service not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, MCPServiceView{MCPServiceConfig: cfg, Source: "config_store"})
 }
 func (h *Handler) handleUpdateMCPClient(w http.ResponseWriter, r *http.Request) {
-	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
+	manager, err := h.mcpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	clientID := strings.TrimSpace(r.PathValue("id"))
+	var cfg mcpservice.MCPServiceConfig
+	if err := httpjson.Decode(r, &cfg); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	if err := manager.Update(r.Context(), clientID, cfg); err != nil {
+		if errors.Is(err, mcpservice.ErrServiceNotConfigured) || errors.Is(err, configstore.ErrNotFound) {
+			_ = httpjson.Error(w, http.StatusNotFound, "mcp service not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	updated, err := manager.Get(r.Context(), clientID)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, MCPServiceView{MCPServiceConfig: updated, Source: "config_store"})
 }
 func (h *Handler) handleRemoveMCPClient(w http.ResponseWriter, r *http.Request) {
-	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
+	manager, err := h.mcpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	if err := manager.Delete(r.Context(), strings.TrimSpace(r.PathValue("id"))); err != nil {
+		if errors.Is(err, configstore.ErrNotFound) {
+			_ = httpjson.Error(w, http.StatusNotFound, "mcp service not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
+func (h *Handler) handleListMCPRoutes(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.mcpRouteManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	items, err := manager.List(r.Context(), mcproute.RouteListOptions{})
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	views := make([]MCPRouteView, 0, len(items))
+	for _, item := range items {
+		views = append(views, mcpRouteViewFromRoute(manager, item))
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": views})
+}
+func (h *Handler) handleCreateMCPRoute(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.mcpRouteManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	var route mcproute.MCPRoute
+	if err := httpjson.Decode(r, &route); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	if !route.CreatedAt.IsZero() || !route.UpdatedAt.IsZero() {
+		_ = httpjson.Error(w, http.StatusBadRequest, "created_at and updated_at are managed by the server and must be omitted")
+		return
+	}
+	route.Normalize()
+	if route.ServiceID == "" {
+		_ = httpjson.Error(w, http.StatusBadRequest, "service_id is required")
+		return
+	}
+	if err := manager.Create(r.Context(), route, ""); err != nil {
+		if errors.Is(err, mcproute.ErrStaticRouteReadOnly) {
+			_ = httpjson.Error(w, http.StatusConflict, err.Error())
+			return
+		}
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	created, err := manager.Get(r.Context(), route.ID)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusCreated, mcpRouteViewFromRoute(manager, created))
+}
+func (h *Handler) handleGetMCPRoute(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.mcpRouteManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	item, err := manager.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, mcproute.ErrRouteNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "mcp route not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, mcpRouteViewFromRoute(manager, item))
+}
+func (h *Handler) handleUpdateMCPRoute(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.mcpRouteManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	var route mcproute.MCPRoute
+	if err := httpjson.Decode(r, &route); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	id := r.PathValue("id")
+	if route.ID == "" {
+		route.ID = id
+	}
+	if route.ID != id {
+		_ = httpjson.Error(w, http.StatusBadRequest, "route id in body must match path")
+		return
+	}
+	if !route.CreatedAt.IsZero() || !route.UpdatedAt.IsZero() {
+		_ = httpjson.Error(w, http.StatusBadRequest, "created_at and updated_at are managed by the server and must be omitted")
+		return
+	}
+	route.Normalize()
+	if route.ServiceID == "" {
+		_ = httpjson.Error(w, http.StatusBadRequest, "service_id is required")
+		return
+	}
+	if err := manager.Update(r.Context(), id, route); err != nil {
+		if errors.Is(err, mcproute.ErrStaticRouteReadOnly) {
+			_ = httpjson.Error(w, http.StatusConflict, err.Error())
+			return
+		}
+		if errors.Is(err, configstore.ErrNotFound) {
+			_ = httpjson.Error(w, http.StatusNotFound, "mcp route not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	item, err := manager.Get(r.Context(), id)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, mcpRouteViewFromRoute(manager, item))
+}
+func (h *Handler) handleDeleteMCPRoute(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.mcpRouteManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	id := r.PathValue("id")
+	if err := manager.Delete(r.Context(), id); err != nil {
+		if errors.Is(err, mcproute.ErrStaticRouteReadOnly) {
+			_ = httpjson.Error(w, http.StatusConflict, err.Error())
+			return
+		}
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "deleted", "id": id})
+}
+
+func (h *Handler) handleGetMCPDispatcherRuntime(w http.ResponseWriter, r *http.Request) {
+	if h.mcpRuntimeRegistry == nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "mcp dispatcher runtime is not configured")
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, MCPDispatcherRuntimeView{
+		InFlight: h.mcpRuntimeRegistry.ListInFlight(),
+		Progress: h.mcpRuntimeRegistry.ListProgress(),
+	})
+}
+
+func (h *Handler) handleListMCPDispatcherInFlight(w http.ResponseWriter, r *http.Request) {
+	if h.mcpRuntimeRegistry == nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "mcp dispatcher runtime is not configured")
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{
+		"items": h.mcpRuntimeRegistry.ListInFlight(),
+	})
+}
+
+func (h *Handler) handleListMCPDispatcherProgress(w http.ResponseWriter, r *http.Request) {
+	if h.mcpRuntimeRegistry == nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "mcp dispatcher runtime is not configured")
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{
+		"items": h.mcpRuntimeRegistry.ListProgress(),
+	})
+}
+
 func (h *Handler) handleListMCPTools(w http.ResponseWriter, r *http.Request) {
-	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
+	manager, err := h.mcpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	tools, err := manager.ListTools(r.Context(), strings.TrimSpace(r.PathValue("id")))
+	if err != nil {
+		if errors.Is(err, mcpservice.ErrServiceNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "mcp service not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": tools})
+}
+func (h *Handler) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.mcpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	var req MCPToolCallRequest
+	if err := httpjson.Decode(r, &req); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	result, err := manager.CallTool(r.Context(), strings.TrimSpace(r.PathValue("id")), strings.TrimSpace(req.Name), req.Arguments)
+	if err != nil {
+		if errors.Is(err, mcpservice.ErrServiceNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "mcp service not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, result)
+}
+func (h *Handler) handleListMCPResources(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.mcpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	items, err := manager.ListResources(r.Context(), strings.TrimSpace(r.PathValue("id")))
+	if err != nil {
+		if errors.Is(err, mcpservice.ErrServiceNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "mcp service not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": items})
+}
+func (h *Handler) handleReadMCPResource(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.mcpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	var req MCPResourceReadRequest
+	if err := httpjson.Decode(r, &req); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	result, err := manager.ReadResource(r.Context(), strings.TrimSpace(r.PathValue("id")), strings.TrimSpace(req.URI))
+	if err != nil {
+		if errors.Is(err, mcpservice.ErrServiceNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "mcp service not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, result)
+}
+func (h *Handler) handleListMCPPrompts(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.mcpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	items, err := manager.ListPrompts(r.Context(), strings.TrimSpace(r.PathValue("id")))
+	if err != nil {
+		if errors.Is(err, mcpservice.ErrServiceNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "mcp service not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": items})
+}
+func (h *Handler) handleGetMCPPrompt(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.mcpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	var req MCPPromptGetRequest
+	if err := httpjson.Decode(r, &req); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	result, err := manager.GetPrompt(r.Context(), strings.TrimSpace(r.PathValue("id")), strings.TrimSpace(req.Name), req.Arguments)
+	if err != nil {
+		if errors.Is(err, mcpservice.ErrServiceNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "mcp service not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, result)
 }
 
 func (h *Handler) handleGetMemoryConfig(w http.ResponseWriter, r *http.Request) {
@@ -978,6 +1389,16 @@ func routeViewFromRoute(manager *routepkg.AgentRouteManager, route routepkg.Agen
 	if manager != nil && manager.IsStatic(route.ID) {
 		view.Source = "caddyfile"
 		view.ReadOnly = true
+	}
+	return view
+}
+
+func mcpRouteViewFromRoute(manager *mcproute.Manager, route mcproute.MCPRoute) MCPRouteView {
+	_ = manager
+	view := MCPRouteView{
+		MCPRoute: route,
+		Source:   "store",
+		ReadOnly: false,
 	}
 	return view
 }

@@ -16,11 +16,13 @@ import (
 	configstoreschema "github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	dispatcherpkg "github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
 	"github.com/cloudwego/eino/schema"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -28,6 +30,7 @@ import (
 type testConfigStore struct {
 	providerStore   configstore.ConfigStore
 	routeStore      configstore.ConfigStore
+	mcpRouteStore   configstore.ConfigStore
 	virtualKeyStore configstore.ConfigStore
 	modelStore      configstore.ConfigStore
 }
@@ -61,6 +64,8 @@ func (s *testConfigStore) Get(name string) (configstore.ConfigStore, error) {
 		return s.providerStore, nil
 	case configstoreschema.StoreRoutes:
 		return s.routeStore, nil
+	case configstoreschema.StoreMCPRoutes:
+		return s.mcpRouteStore, nil
 	case configstoreschema.StoreVirtualKeys:
 		return s.virtualKeyStore, nil
 	case configstoreschema.StoreManagedModels:
@@ -154,6 +159,11 @@ type testRouteStore struct {
 	tags  map[string]string
 }
 
+type testMCPRouteStore struct {
+	items map[string]*mcproute.MCPRoute
+	tags  map[string]string
+}
+
 func (s *testRouteStore) ListByTag(_ context.Context, tag string) ([]any, error) {
 	out := make([]any, 0, len(s.items))
 	for id, item := range s.items {
@@ -232,6 +242,87 @@ func (s *testRouteStore) Get(_ context.Context, keyParts ...any) (any, error) {
 }
 
 func (s *testRouteStore) GetByIndex(context.Context, string, any) (any, error) {
+	return nil, configstore.ErrNotFound
+}
+
+func (s *testMCPRouteStore) ListByTag(_ context.Context, tag string) ([]any, error) {
+	out := make([]any, 0, len(s.items))
+	for id, item := range s.items {
+		if tag != "" && s.tags[id] != tag {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func (s *testMCPRouteStore) List(ctx context.Context) ([]any, error) {
+	return s.ListByTag(ctx, "")
+}
+
+func (s *testMCPRouteStore) ListByTagPrefix(_ context.Context, tagPrefix string) ([]any, error) {
+	out := make([]any, 0, len(s.items))
+	for id, item := range s.items {
+		if tagPrefix != "" && !strings.HasPrefix(s.tags[id], tagPrefix) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func (s *testMCPRouteStore) Create(_ context.Context, obj any) error {
+	tag := ""
+	if carrier, ok := obj.(interface{ ConfigStoreTag() string }); ok {
+		tag = carrier.ConfigStoreTag()
+	}
+	if unwrapper, ok := obj.(interface{ ConfigStoreObject() any }); ok {
+		obj = unwrapper.ConfigStoreObject()
+	}
+	route, ok := obj.(*mcproute.MCPRoute)
+	if !ok {
+		return errors.New("unexpected type")
+	}
+	if s.items == nil {
+		s.items = map[string]*mcproute.MCPRoute{}
+	}
+	if s.tags == nil {
+		s.tags = map[string]string{}
+	}
+	cloned := *route
+	s.items[cloned.ID] = &cloned
+	s.tags[cloned.ID] = tag
+	return nil
+}
+
+func (s *testMCPRouteStore) Update(ctx context.Context, obj any) error {
+	route, ok := obj.(*mcproute.MCPRoute)
+	if !ok {
+		return errors.New("unexpected type")
+	}
+	if _, ok := s.items[route.ID]; !ok {
+		return configstore.ErrNotFound
+	}
+	return s.Create(ctx, obj)
+}
+
+func (s *testMCPRouteStore) Delete(_ context.Context, keyParts ...any) error {
+	id, _ := keyParts[0].(string)
+	delete(s.items, id)
+	delete(s.tags, id)
+	return nil
+}
+
+func (s *testMCPRouteStore) Get(_ context.Context, keyParts ...any) (any, error) {
+	id, _ := keyParts[0].(string)
+	item, ok := s.items[id]
+	if !ok {
+		return nil, configstore.ErrNotFound
+	}
+	return item, nil
+}
+
+func (s *testMCPRouteStore) GetByIndex(context.Context, string, any) (any, error) {
 	return nil, configstore.ErrNotFound
 }
 
@@ -560,6 +651,120 @@ func TestRouteCreateRejectsClientManagedTimestamps(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("unexpected create status: got %d want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestMCPRouteCRUD(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		mcpRouteStore: &testMCPRouteStore{items: map[string]*mcproute.MCPRoute{}},
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	createBody, err := json.Marshal(mcproute.MCPRoute{
+		ID:        "mcp-route-1",
+		ServiceID: "svc-main",
+		Match:     mcproute.RouteMatch{PathPrefix: "/mcp"},
+	})
+	if err != nil {
+		t.Fatalf("marshal mcp route: %v", err)
+	}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/admin/mcp/routes", bytes.NewReader(createBody))
+	createReq.Header.Set("Authorization", "Bearer "+token)
+	createRec := httptest.NewRecorder()
+	handler.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("unexpected create status: got %d want %d", createRec.Code, http.StatusCreated)
+	}
+
+	var created MCPRouteView
+	if err := json.NewDecoder(createRec.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created mcp route: %v", err)
+	}
+	if created.ID != "mcp-route-1" || created.ServiceID != "svc-main" {
+		t.Fatalf("unexpected created route: %#v", created)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/admin/mcp/routes/mcp-route-1", nil)
+	getReq.Header.Set("Authorization", "Bearer "+token)
+	getRec := httptest.NewRecorder()
+	handler.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("unexpected get status: got %d want %d", getRec.Code, http.StatusOK)
+	}
+}
+
+func TestListMCPRoutes(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		mcpRouteStore: &testMCPRouteStore{items: map[string]*mcproute.MCPRoute{
+			"mcp-route-1": {ID: "mcp-route-1", ServiceID: "svc-main", Match: mcproute.RouteMatch{PathPrefix: "/mcp"}},
+		}},
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/mcp/routes", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Items []MCPRouteView `json:"items"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].ID != "mcp-route-1" {
+		t.Fatalf("unexpected items: %#v", resp.Items)
+	}
+}
+
+func TestGetMCPDispatcherRuntime(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	agentGateway := newTestAgentGateway(&testConfigStore{}, nil, nil, nil, nil)
+	registry := agentGateway.MCPRuntimeRegistry()
+	routeID := "mcp:test"
+	_, finish := registry.BeginRequest(context.Background(), routeID, "req-1", "tools/call", "progress-1")
+	defer finish()
+	total := float64(10)
+	registry.StoreProgress(routeID, "progress-1", 3, &total, "working")
+
+	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/mcp/dispatcher/runtime", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusOK)
+	}
+
+	var resp MCPDispatcherRuntimeView
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode runtime response: %v", err)
+	}
+	if len(resp.InFlight) != 1 || resp.InFlight[0].RequestKey != mcpruntime.RouteRequestKey(routeID, "req-1") {
+		t.Fatalf("unexpected in-flight payload: %#v", resp.InFlight)
+	}
+	if len(resp.Progress) != 1 || resp.Progress[0].Progress != 3 {
+		t.Fatalf("unexpected progress payload: %#v", resp.Progress)
 	}
 }
 

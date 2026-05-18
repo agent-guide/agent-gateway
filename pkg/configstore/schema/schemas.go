@@ -7,12 +7,14 @@ import (
 	"strings"
 
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	modelcatalog "github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	credmodel "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/model"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 )
 
 func RegisterDefaultStores(backend configstore.ConfigStoreBackend) error {
@@ -25,6 +27,8 @@ func RegisterDefaultStores(backend configstore.ConfigStoreBackend) error {
 		RouteSchema,
 		VirtualKeySchema,
 		ManagedModelSchema,
+		MCPServiceSchema,
+		MCPRouteSchema,
 	}
 	for _, storeSchema := range schemas {
 		if err := backend.Register(storeSchema.Name, storeSchema); err != nil {
@@ -147,6 +151,44 @@ var ManagedModelSchema = configstore.StoreSchema{
 	},
 }
 
+var MCPServiceSchema = configstore.StoreSchema{
+	Name:              StoreMCPServices,
+	Kind:              "mcp service",
+	Table:             "mcp_services",
+	PrimaryKeyColumns: []string{"id"},
+	TagColumn:         "tag",
+	DataColumn:        "config",
+	Timestamped:       true,
+	Codec: typedJSONCodec{
+		kind:     "mcp service",
+		decode:   mcpservice.DecodeStoredMCPServiceConfig,
+		validate: validateMCPServiceObject,
+	},
+	Metadata: configstore.MetadataFuncs{
+		PrimaryKeyFunc: primaryKeyFromStringFields("ID"),
+		TagFunc:        requiredTagFromStringField("Transport", "transport"),
+	},
+}
+
+var MCPRouteSchema = configstore.StoreSchema{
+	Name:              StoreMCPRoutes,
+	Kind:              "mcp route",
+	Table:             "mcp_routes",
+	PrimaryKeyColumns: []string{"id"},
+	TagColumn:         "tag",
+	DataColumn:        "config",
+	Timestamped:       true,
+	Codec: typedJSONCodec{
+		kind:     "mcp route",
+		decode:   mcproute.DecodeStoredMCPRoute,
+		validate: validateMCPRouteObject,
+	},
+	Metadata: configstore.MetadataFuncs{
+		PrimaryKeyFunc: primaryKeyFromStringFields("ID"),
+		TagFunc:        optionalTagFromStringField("ServiceID"),
+	},
+}
+
 type typedJSONCodec struct {
 	kind     string
 	decode   func([]byte) (any, error)
@@ -232,6 +274,29 @@ func validateManagedModelObject(obj any) error {
 		return nil
 	default:
 		return fmt.Errorf("managed model object has unexpected type %T", obj)
+	}
+}
+
+func validateMCPServiceObject(obj any) error {
+	switch value := unwrapConfigObject(obj).(type) {
+	case mcpservice.MCPServiceConfig:
+		return value.Validate()
+	case *mcpservice.MCPServiceConfig:
+		if value == nil {
+			return fmt.Errorf("mcp service object is nil")
+		}
+		return value.Validate()
+	default:
+		return fmt.Errorf("mcp service object has unexpected type %T", obj)
+	}
+}
+
+func validateMCPRouteObject(obj any) error {
+	switch unwrapConfigObject(obj).(type) {
+	case mcproute.MCPRoute, *mcproute.MCPRoute:
+		return nil
+	default:
+		return fmt.Errorf("mcp route object has unexpected type %T", obj)
 	}
 }
 

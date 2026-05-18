@@ -1,4 +1,4 @@
-package route
+package mcproute
 
 import (
 	"context"
@@ -8,75 +8,53 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
-	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
 var (
-	ErrRouteNotConfigured  = errors.New("route is not configured")
-	ErrStaticRouteReadOnly = errors.New("static route is read-only")
+	ErrRouteNotConfigured  = errors.New("mcp route is not configured")
+	ErrStaticRouteReadOnly = errors.New("mcp route is read-only")
 )
-
-type ProviderResolver interface {
-	ResolveProvider(ctx context.Context, providerID string) (provider.Provider, string, error)
-}
 
 type RouteListOptions struct {
 	Tag       string
 	TagPrefix string
 }
 
-type AgentRouteManager struct {
+type Manager struct {
 	mu sync.RWMutex
 
-	staticRoutes map[string]AgentRoute
-	dynamicCache map[string]AgentRoute
+	staticRoutes map[string]MCPRoute
+	dynamicCache map[string]MCPRoute
 
 	routeStore configstore.ConfigStore
 }
 
-func NewAgentRouteManager(store configstore.ConfigStore) *AgentRouteManager {
-	return &AgentRouteManager{
-		staticRoutes: map[string]AgentRoute{},
-		dynamicCache: map[string]AgentRoute{},
+func NewManager(store configstore.ConfigStore) *Manager {
+	return &Manager{
+		staticRoutes: map[string]MCPRoute{},
+		dynamicCache: map[string]MCPRoute{},
 		routeStore:   store,
 	}
 }
 
-func (m *AgentRouteManager) Reset() {
+func (m *Manager) InitStaticRoutes(routes []MCPRoute) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.staticRoutes = map[string]AgentRoute{}
-	m.dynamicCache = map[string]AgentRoute{}
-}
-
-func (m *AgentRouteManager) InitStaticRoutes(routes []AgentRoute) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.staticRoutes = make(map[string]AgentRoute, len(routes))
-	for _, r := range routes {
-		if r.ID == "" {
+	m.staticRoutes = make(map[string]MCPRoute, len(routes))
+	for _, route := range routes {
+		route.Normalize()
+		if route.ID == "" {
 			continue
 		}
-		r.Normalize()
-		m.staticRoutes[r.ID] = r
+		m.staticRoutes[route.ID] = route
 	}
 }
 
-func (m *AgentRouteManager) IsStatic(routeID string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	_, ok := m.staticRoutes[routeID]
-	return ok
-}
-
-func (m *AgentRouteManager) Get(ctx context.Context, routeID string) (AgentRoute, error) {
+func (m *Manager) Get(ctx context.Context, routeID string) (MCPRoute, error) {
 	if routeID == "" {
-		return AgentRoute{}, fmt.Errorf("route_id is required")
+		return MCPRoute{}, fmt.Errorf("route_id is required")
 	}
-
 	m.mu.RLock()
 	staticRoute, ok := m.staticRoutes[routeID]
 	m.mu.RUnlock()
@@ -91,43 +69,39 @@ func (m *AgentRouteManager) Get(ctx context.Context, routeID string) (AgentRoute
 	if ok {
 		return cachedRoute, nil
 	}
-
 	if store == nil {
-		return AgentRoute{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
+		return MCPRoute{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
 	}
-
 	item, err := store.Get(ctx, routeID)
 	if err != nil {
 		if errors.Is(err, configstore.ErrNotFound) {
-			return AgentRoute{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
+			return MCPRoute{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
 		}
-		return AgentRoute{}, fmt.Errorf("load route %q: %w", routeID, err)
+		return MCPRoute{}, fmt.Errorf("load mcp route %q: %w", routeID, err)
 	}
-
 	route, err := decodeRouteItem(routeID, item)
 	if err != nil {
-		return AgentRoute{}, err
+		return MCPRoute{}, err
 	}
 	m.cacheDynamicRoute(route)
 	return route, nil
 }
 
-func (m *AgentRouteManager) List(ctx context.Context, opts RouteListOptions) ([]AgentRoute, error) {
+func (m *Manager) List(ctx context.Context, opts RouteListOptions) ([]MCPRoute, error) {
 	m.mu.RLock()
 	store := m.routeStore
-	staticRoutes := make(map[string]AgentRoute, len(m.staticRoutes))
+	staticRoutes := make(map[string]MCPRoute, len(m.staticRoutes))
 	for id, route := range m.staticRoutes {
 		staticRoutes[id] = route
 	}
 	m.mu.RUnlock()
 
-	out := make(map[string]AgentRoute, len(staticRoutes))
+	out := make(map[string]MCPRoute, len(staticRoutes))
 	if shouldIncludeStaticRoutes(opts) {
 		for id, route := range staticRoutes {
 			out[id] = route
 		}
 	}
-
 	if store == nil {
 		return mapRoutes(out), nil
 	}
@@ -144,8 +118,7 @@ func (m *AgentRouteManager) List(ctx context.Context, opts RouteListOptions) ([]
 	if err != nil {
 		return nil, err
 	}
-
-	cached := make(map[string]AgentRoute, len(items))
+	cached := make(map[string]MCPRoute, len(items))
 	for _, item := range items {
 		route, err := decodeRouteItem("", item)
 		if err != nil {
@@ -160,45 +133,41 @@ func (m *AgentRouteManager) List(ctx context.Context, opts RouteListOptions) ([]
 	return mapRoutes(out), nil
 }
 
-func (m *AgentRouteManager) Create(ctx context.Context, route AgentRoute, tag string) error {
-	if route.ID == "" {
-		return fmt.Errorf("route id is required")
+func (m *Manager) Create(ctx context.Context, route MCPRoute, tag string) error {
+	if route.ID == "" && route.ServiceID == "" {
+		return fmt.Errorf("route id or service_id is required")
 	}
+	route.Normalize()
 	if err := m.ensureWritable(route.ID); err != nil {
 		return err
 	}
-
-	route.Normalize()
 	route.NormalizeTimestamps(time.Now().UTC())
-
 	m.mu.RLock()
 	store := m.routeStore
 	m.mu.RUnlock()
 	if store == nil {
-		return fmt.Errorf("route store is not configured")
+		return fmt.Errorf("mcp route store is not configured")
 	}
 	if err := store.Create(ctx, storedRoute{route: &route, tag: tag}); err != nil {
 		return err
 	}
-
 	m.cacheDynamicRoute(route)
 	return nil
 }
 
-func (m *AgentRouteManager) Update(ctx context.Context, routeID string, route AgentRoute) error {
+func (m *Manager) Update(ctx context.Context, routeID string, route MCPRoute) error {
 	if routeID == "" {
 		return fmt.Errorf("route id is required")
 	}
 	if err := m.ensureWritable(routeID); err != nil {
 		return err
 	}
-
-	route.ID = routeID
-	route.Normalize()
 	current, err := m.Get(ctx, routeID)
 	if err != nil {
 		return err
 	}
+	route.ID = routeID
+	route.Normalize()
 	route.CreatedAt = current.CreatedAt
 	route.UpdatedAt = time.Now().UTC()
 
@@ -206,34 +175,31 @@ func (m *AgentRouteManager) Update(ctx context.Context, routeID string, route Ag
 	store := m.routeStore
 	m.mu.RUnlock()
 	if store == nil {
-		return fmt.Errorf("route store is not configured")
+		return fmt.Errorf("mcp route store is not configured")
 	}
 	if err := store.Update(ctx, &route); err != nil {
 		return err
 	}
-
 	m.cacheDynamicRoute(route)
 	return nil
 }
 
-func (m *AgentRouteManager) Delete(ctx context.Context, routeID string) error {
+func (m *Manager) Delete(ctx context.Context, routeID string) error {
 	if routeID == "" {
 		return fmt.Errorf("route id is required")
 	}
 	if err := m.ensureWritable(routeID); err != nil {
 		return err
 	}
-
 	m.mu.RLock()
 	store := m.routeStore
 	m.mu.RUnlock()
 	if store == nil {
-		return fmt.Errorf("route store is not configured")
+		return fmt.Errorf("mcp route store is not configured")
 	}
 	if err := store.Delete(ctx, routeID); err != nil {
 		return err
 	}
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.dynamicCache, routeID)
@@ -253,58 +219,36 @@ func (r storedRoute) ConfigStoreTag() string {
 	return r.tag
 }
 
-func (m *AgentRouteManager) Validate(ctx context.Context, routeID string, resolver ProviderResolver) error {
-	route, err := m.Get(ctx, routeID)
-	if err != nil {
-		return err
-	}
-	if err := route.ValidateDefinition(); err != nil {
-		return err
-	}
-	if resolver == nil {
-		return fmt.Errorf("provider resolver is not configured")
-	}
-	for _, providerID := range route.ProviderIDs() {
-		if _, _, err := resolver.ResolveProvider(ctx, providerID); err != nil {
-			return fmt.Errorf("provider %q is not configured", providerID)
-		}
-	}
-	return nil
-}
-
-func (m *AgentRouteManager) ensureWritable(routeID string) error {
+func (m *Manager) ensureWritable(routeID string) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
 	if _, ok := m.staticRoutes[routeID]; ok {
 		return fmt.Errorf("%w: %q", ErrStaticRouteReadOnly, routeID)
 	}
 	return nil
 }
 
-func (m *AgentRouteManager) cacheDynamicRoute(route AgentRoute) {
+func (m *Manager) cacheDynamicRoute(route MCPRoute) {
 	if route.ID == "" {
 		return
 	}
 	route.Normalize()
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.dynamicCache == nil {
-		m.dynamicCache = map[string]AgentRoute{}
+		m.dynamicCache = map[string]MCPRoute{}
 	}
 	m.dynamicCache[route.ID] = route
 }
 
-func (m *AgentRouteManager) cacheDynamicRoutes(routes map[string]AgentRoute) {
+func (m *Manager) cacheDynamicRoutes(routes map[string]MCPRoute) {
 	if len(routes) == 0 {
 		return
 	}
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.dynamicCache == nil {
-		m.dynamicCache = map[string]AgentRoute{}
+		m.dynamicCache = map[string]MCPRoute{}
 	}
 	for id, route := range routes {
 		route.Normalize()
@@ -312,29 +256,25 @@ func (m *AgentRouteManager) cacheDynamicRoutes(routes map[string]AgentRoute) {
 	}
 }
 
-func decodeRouteItem(routeID string, item any) (AgentRoute, error) {
-	route, ok := item.(*AgentRoute)
+func decodeRouteItem(routeID string, item any) (MCPRoute, error) {
+	route, ok := item.(*MCPRoute)
 	if !ok || route == nil || route.ID == "" {
 		if routeID == "" {
 			routeID = "<unknown>"
 		}
-		return AgentRoute{}, fmt.Errorf("route %q has unexpected type %T", routeID, item)
+		return MCPRoute{}, fmt.Errorf("mcp route %q has unexpected type %T", routeID, item)
 	}
-
 	cloned := *route
 	cloned.Normalize()
 	return cloned, nil
 }
 
 func shouldIncludeStaticRoutes(opts RouteListOptions) bool {
-	if opts.TagPrefix != "" {
-		return false
-	}
-	return opts.Tag == ""
+	return opts.Tag == "" && opts.TagPrefix == ""
 }
 
-func mapRoutes(routes map[string]AgentRoute) []AgentRoute {
-	out := make([]AgentRoute, 0, len(routes))
+func mapRoutes(routes map[string]MCPRoute) []MCPRoute {
+	out := make([]MCPRoute, 0, len(routes))
 	for _, route := range routes {
 		out = append(out, route)
 	}

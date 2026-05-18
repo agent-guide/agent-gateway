@@ -9,7 +9,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/agwctl/caddyadminclient"
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 )
 
 var outputFormat string

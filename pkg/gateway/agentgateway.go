@@ -10,12 +10,13 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/route"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	credentialmgrscheduler "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
 	"go.uber.org/zap"
 )
 
@@ -45,11 +46,13 @@ type AgentGateway struct {
 	credentialManager   *credentialmgr.Manager
 	credentialScheduler credentialmgrscheduler.CredentialScheduler
 	modelCatalog        modelcatalog.Service
+	mcpRuntimeRegistry  *mcpruntime.Registry
 }
 
 func NewAgentGateway() *AgentGateway {
 	return &AgentGateway{
-		configured: false,
+		configured:         false,
+		mcpRuntimeRegistry: mcpruntime.NewRegistry(),
 	}
 }
 
@@ -92,6 +95,7 @@ func (g *AgentGateway) Reset() {
 	g.credentialManager = nil
 	g.credentialScheduler = nil
 	g.modelCatalog = nil
+	g.mcpRuntimeRegistry = mcpruntime.NewRegistry()
 }
 
 func (g *AgentGateway) ConfigStoreBackend() configstore.ConfigStoreBackend {
@@ -146,6 +150,12 @@ func (g *AgentGateway) ModelCatalog() modelcatalog.Service {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.modelCatalog
+}
+
+func (g *AgentGateway) MCPRuntimeRegistry() *mcpruntime.Registry {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.mcpRuntimeRegistry
 }
 
 func (g *AgentGateway) ResolveRoute(ctx context.Context, r *http.Request) (routepkg.AgentRoute, error) {

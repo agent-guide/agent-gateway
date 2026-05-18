@@ -6,7 +6,8 @@
 - route-based dispatch to logical models or direct upstream providers
 - static Caddyfile configuration in `agw`, plus SQLite-backed dynamic configuration shared by both runtimes
 - admin APIs for providers, model catalog, routes, virtual keys, upstream credentials, and CLI auth
-- early MCP, memory, metrics, and agent endpoint scaffolding
+- MCP gateway routing, discovery, execution, and runtime inspection
+- early memory, metrics, and agent scaffolding
 
 Repository change policy:
 
@@ -17,13 +18,14 @@ Go module path:
 
 - `github.com/agent-guide/agent-gateway`
 
-The request path today is centered on LLM routing. MCP, memory, metrics, and agent Admin API routes are registered, but they currently return `501 not implemented`.
+The LLM path is still the most mature runtime, but MCP is now also active: the repository includes an MCP dispatcher, MCP route and service management, upstream discovery and execution, and admin runtime inspection for in-flight MCP requests.
 
 ## Current Modules
 
 - Caddy app: `agent_gateway`
 - HTTP handlers:
   - `agent_route_dispatcher`
+  - `agent_mcp_dispatcher`
   - `agent_gateway_admin`
 - Dispatcher LLM APIs:
   - `openai`
@@ -62,12 +64,13 @@ The request path today is centered on LLM routing. MCP, memory, metrics, and age
 - `pkg/configstore/sqlite/` - SQLite JSON persisted configuration backend
 - `caddy/configstore/sqlite/` - SQLite config store backend Caddy adapter
 - `standalone/server/` - standalone HTTP server assembly used by `agwd`
-- `pkg/mcp/` - early MCP transport and client scaffolding
+- `pkg/mcp/` - MCP protocol types, transport clients, service runtime, and runtime registry
 - `pkg/llm/memory/`, `pkg/llm/agent/` - early memory and agent runtime scaffolding
 
 ## Architecture Docs
 
 - [docs/DESIGN.md](docs/DESIGN.md) - current architecture overview
+- [docs/mcp-gateway-architecture.md](docs/mcp-gateway-architecture.md) - MCP gateway architecture, current status, and remaining gaps
 - [docs/configstore-design.md](docs/configstore-design.md) - ConfigStore architecture and technical specification
 - [docs/gateway-bundle-yaml-design.md](docs/gateway-bundle-yaml-design.md) - gateway bundle YAML proposal
 
@@ -683,17 +686,17 @@ curl -X POST http://localhost:8019/admin/cliauth/authenticators/codex/login \
   --data '{"provider_id":"openai-main","scope":"type:openai"}'
 ```
 
-### Registered but Not Implemented
+### Partial Admin Surface
 
-These endpoints currently return `501 not implemented`:
+Implemented MCP admin families now include:
 
-- MCP:
-  - `GET /admin/mcp/clients`
-  - `POST /admin/mcp/clients`
-  - `GET /admin/mcp/clients/{id}`
-  - `PUT /admin/mcp/clients/{id}`
-  - `DELETE /admin/mcp/clients/{id}`
-  - `GET /admin/mcp/clients/{id}/tools`
+- `mcp_services`
+- `mcp_routes`
+- MCP discovery and execution endpoints
+- MCP dispatcher runtime inspection endpoints
+
+These families still return `501 not implemented`:
+
 - Memory:
   - `GET /admin/memory/config`
   - `PUT /admin/memory/config`
