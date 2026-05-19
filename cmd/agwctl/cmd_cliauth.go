@@ -28,13 +28,14 @@ var cliauthCmd = &cobra.Command{
 // ── cliauth login ─────────────────────────────────────────────────────────────
 
 var (
-	loginAuthenticator string
-	loginProviderID    string
-	loginScope         string
-	loginLabel         string
-	loginCallbackPort  int
-	loginNoBrowser     bool
-	loginDeviceFlow    bool
+	loginAuthenticator    string
+	loginProviderID       string
+	loginScope            string
+	loginLabel            string
+	loginCallbackPort     int
+	loginNoBrowser        bool
+	loginDeviceFlow       bool
+	loginTransportProfile string
 )
 
 var cliauthLoginCmd = &cobra.Command{
@@ -76,9 +77,10 @@ var cliauthLoginCmd = &cobra.Command{
 			return err
 		}
 		if err := cliauth.ApplyAuthenticatorConfigOverrides(auth, cliauth.AuthenticatorConfig{
-			CallbackPort: loginCallbackPort,
-			NoBrowser:    loginNoBrowser,
-			DeviceFlow:   loginDeviceFlow,
+			CallbackPort:     loginCallbackPort,
+			NoBrowser:        loginNoBrowser,
+			DeviceFlow:       loginDeviceFlow,
+			TransportProfile: strings.TrimSpace(loginTransportProfile),
 		}); err != nil {
 			return err
 		}
@@ -176,13 +178,29 @@ func (r *cliauthStatusReporter) UpdateLoginStatus(update cliauth.LoginStatusUpda
 	if update.Message != "" {
 		fmt.Fprint(os.Stderr, update.Message)
 	}
-	if update.VerificationURL != "" {
-		fmt.Fprintf(os.Stderr, " %s", update.VerificationURL)
+	if renderedURL := renderLoginStatusURL(update); renderedURL != "" {
+		fmt.Fprintf(os.Stderr, " %s", renderedURL)
 	}
 	if update.UserCode != "" {
 		fmt.Fprintf(os.Stderr, " code=%s", update.UserCode)
 	}
 	fmt.Fprintln(os.Stderr)
+}
+
+func renderLoginStatusURL(update cliauth.LoginStatusUpdate) string {
+	rawURL := strings.TrimSpace(update.VerificationURL)
+	if rawURL == "" {
+		return ""
+	}
+
+	switch strings.TrimSpace(update.Phase) {
+	case "waiting_for_callback":
+		return ""
+	case "waiting_for_manual_callback":
+		return "(manual verification URL: " + rawURL + ")"
+	default:
+		return rawURL
+	}
 }
 
 func validateLoginAuthenticator(cmd *cobra.Command, raw string) (string, error) {
@@ -204,13 +222,14 @@ func init() {
 	cliauthCmd.PersistentFlags().StringVar(&gwUser, "agw-admin-user", envOr("AGW_ADMIN_USER", ""), "gateway admin username")
 	cliauthCmd.PersistentFlags().StringVar(&gwPassword, "agw-admin-password", envOr("AGW_ADMIN_PASSWORD", ""), "gateway admin password")
 
-	cliauthLoginCmd.Flags().StringVar(&loginAuthenticator, "authenticator", "", "authenticator type: codex, claude, gemini (required)")
+	cliauthLoginCmd.Flags().StringVar(&loginAuthenticator, "authenticator", "", "authenticator type: claudecode, codex, gemini (required)")
 	cliauthLoginCmd.Flags().StringVar(&loginProviderID, "provider-id", "", "provider ID to bind the credential to")
 	cliauthLoginCmd.Flags().StringVar(&loginScope, "scope", "", "credential scope override (defaults to provider-id scope)")
 	cliauthLoginCmd.Flags().StringVar(&loginLabel, "label", "", "credential label")
 	cliauthLoginCmd.Flags().IntVar(&loginCallbackPort, "callback-port", 0, "local OAuth callback port override")
 	cliauthLoginCmd.Flags().BoolVar(&loginNoBrowser, "no-browser", false, "print the login URL instead of opening a browser")
 	cliauthLoginCmd.Flags().BoolVar(&loginDeviceFlow, "device-flow", false, "use device flow when supported (Codex only)")
+	cliauthLoginCmd.Flags().StringVar(&loginTransportProfile, "transport-profile", "", "transport profile override (for example: browser_like_tls)")
 
 	cliauthCmd.AddCommand(
 		cliauthLoginCmd,

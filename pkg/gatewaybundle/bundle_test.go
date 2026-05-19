@@ -48,11 +48,12 @@ virtualKeys:
     allowed_route_ids:
       - chat-prod
 cliAuthAuthenticators:
-  - name: codex
+  - name: claudecode
     enabled: true
     config:
       callback_port: 9002
       no_browser: true
+      transport_profile: browser_like_tls
 `))
 	if err != nil {
 		t.Fatalf("DecodeYAML() error = %v", err)
@@ -86,7 +87,7 @@ cliAuthAuthenticators:
 	if len(bundle.VirtualKeys) != 1 || bundle.VirtualKeys[0].ID != "vk-local-test" || len(bundle.VirtualKeys[0].AllowedRouteIDs) != 1 || bundle.VirtualKeys[0].AllowedRouteIDs[0] != "chat-prod" {
 		t.Fatalf("VirtualKeys = %#v", bundle.VirtualKeys)
 	}
-	if len(bundle.CLIAuthAuthenticators) != 1 || bundle.CLIAuthAuthenticators[0].Name != "codex" || !bundle.CLIAuthAuthenticators[0].Enabled || bundle.CLIAuthAuthenticators[0].Config.CallbackPort != 9002 {
+	if len(bundle.CLIAuthAuthenticators) != 1 || bundle.CLIAuthAuthenticators[0].Name != "claudecode" || !bundle.CLIAuthAuthenticators[0].Enabled || bundle.CLIAuthAuthenticators[0].Config.CallbackPort != 9002 || bundle.CLIAuthAuthenticators[0].Config.TransportProfile != "browser_like_tls" {
 		t.Fatalf("CLIAuthAuthenticators = %#v", bundle.CLIAuthAuthenticators)
 	}
 }

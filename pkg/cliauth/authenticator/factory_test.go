@@ -9,7 +9,7 @@ import (
 func TestBuiltinAuthenticatorsRegisterFactories(t *testing.T) {
 	tests := []struct{ name string }{
 		{name: "codex"},
-		{name: "claude"},
+		{name: "claudecode"},
 		{name: "gemini"},
 	}
 

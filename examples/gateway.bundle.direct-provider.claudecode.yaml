@@ -1,0 +1,34 @@
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+
+providerTypes:
+  - provider_type: claudecode
+    enabled: true
+
+providers:
+  - id: claudecode-test
+    provider_type: claudecode
+    default_model: claude-sonnet-4-6
+    network:
+      proxy_url: http://127.0.0.1:7890
+
+routes:
+  - id: chat-claudecode
+    llm_api: anthropic
+    match:
+      path_prefix: /chatclaudecode
+      methods:
+        - POST
+    auth_policy:
+      require_virtual_key: true
+    target_policy:
+      provider_target:
+        provider_id: claudecode-test
+      credential_type_order:
+        - cliauth_token
+
+virtualKeys:
+  - id: vk-local-chat-claudecode
+    tag: local-test
+    allowed_route_ids:
+      - chat-claudecode

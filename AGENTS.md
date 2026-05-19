@@ -207,6 +207,7 @@ Built-in provider runtime packages:
 
 - `openai`
 - `anthropic`
+- `claudecode`
 - `gemini`
 - `ollama`
 - `openrouter`
@@ -234,7 +235,7 @@ Important files:
 Built-in authenticators currently registered via `pkg/cliauth/authenticator/`:
 
 - `codex`
-- `claude`
+- `claudecode`
 - `gemini`
 
 Authenticator registration rules:

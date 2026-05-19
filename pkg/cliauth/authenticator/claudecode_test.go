@@ -38,6 +38,21 @@ func TestBuildClaudeAuthURLUsesRedirectURI(t *testing.T) {
 	if got := query.Get("state"); got != "state-123" {
 		t.Fatalf("state = %q, want %q", got, "state-123")
 	}
+	if got := parsed.Scheme + "://" + parsed.Host + parsed.Path; got != claudeAuthURL {
+		t.Fatalf("authorize endpoint = %q, want %q", got, claudeAuthURL)
+	}
+	if got := query.Get("scope"); got != claudeScopes {
+		t.Fatalf("scope = %q, want %q", got, claudeScopes)
+	}
+	if got := query.Get("code"); got != "true" {
+		t.Fatalf("code = %q, want %q", got, "true")
+	}
+	if query.Get("org:create_api_key") != "" {
+		t.Fatalf("unexpected literal query key %q present", "org:create_api_key")
+	}
+	if strings.Contains(query.Get("scope"), "user:file_upload") {
+		t.Fatalf("scope unexpectedly contains deprecated scope user:file_upload: %q", query.Get("scope"))
+	}
 }
 
 func TestParseClaudeCallbackURL(t *testing.T) {
@@ -69,5 +84,34 @@ func TestParseClaudeCallbackURLErrors(t *testing.T) {
 		if !strings.Contains(err.Error(), tt.wantErr) {
 			t.Fatalf("%s: parseClaudeCallbackURL() error = %q, want substring %q", tt.name, err.Error(), tt.wantErr)
 		}
+	}
+}
+
+func TestParseClaudeManualInputShortCodeRejected(t *testing.T) {
+	_, err := parseClaudeManualInput("47", "state-123")
+	if err == nil {
+		t.Fatalf("parseClaudeManualInput() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "full callback URL") {
+		t.Fatalf("parseClaudeManualInput() error = %q, want mention of full callback URL", err.Error())
+	}
+}
+
+func TestParseClaudeManualInputCallbackURL(t *testing.T) {
+	outcome, err := parseClaudeManualInput("http://localhost:54545/callback?code=abc123&state=xyz789", "state-123")
+	if err != nil {
+		t.Fatalf("parseClaudeManualInput() error = %v", err)
+	}
+	if outcome.Code != "abc123" || outcome.State != "xyz789" || outcome.Manual {
+		t.Fatalf("parseClaudeManualInput() = %#v, want parsed callback URL outcome", outcome)
+	}
+}
+
+func TestRedirectURIForOutcome(t *testing.T) {
+	if got := redirectURIForOutcome("http://localhost:54545/callback", false); got != "http://localhost:54545/callback" {
+		t.Fatalf("redirectURIForOutcome(false) = %q", got)
+	}
+	if got := redirectURIForOutcome("http://localhost:54545/callback", true); got != claudeManualRedirectURL {
+		t.Fatalf("redirectURIForOutcome(true) = %q, want %q", got, claudeManualRedirectURL)
 	}
 }

@@ -2,9 +2,8 @@ apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
 
 cliAuthAuthenticators:
-  - name: codex
-    enabled: false
+  - name: claudecode
+    enabled: true
     config:
-      callback_port: 9002
       no_browser: true
-      device_flow: true
+      transport_profile: browser_like_tls

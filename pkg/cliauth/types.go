@@ -64,10 +64,11 @@ type AuthenticatorState struct {
 // AuthenticatorConfig describes the runtime configuration supported by built-in
 // CLI authenticators.
 type AuthenticatorConfig struct {
-	CallbackPort int           `json:"callback_port,omitempty"`
-	NoBrowser    bool          `json:"no_browser,omitempty"`
-	DeviceFlow   bool          `json:"device_flow,omitempty"`
-	Network      NetworkConfig `json:"network"`
+	CallbackPort     int           `json:"callback_port,omitempty"`
+	NoBrowser        bool          `json:"no_browser,omitempty"`
+	DeviceFlow       bool          `json:"device_flow,omitempty"`
+	TransportProfile string        `json:"transport_profile,omitempty"`
+	Network          NetworkConfig `json:"network"`
 }
 
 // NetworkConfig re-exports the shared HTTP network config type for authenticator configs.
@@ -89,6 +90,9 @@ func (c *AuthenticatorConfig) ApplyOverrides(overrides AuthenticatorConfig) {
 	}
 	c.NoBrowser = overrides.NoBrowser
 	c.DeviceFlow = overrides.DeviceFlow
+	if overrides.TransportProfile != "" {
+		c.TransportProfile = overrides.TransportProfile
+	}
 	applyNetworkConfigOverrides(&c.Network, overrides.Network)
 }
 

@@ -11,6 +11,7 @@ import (
 type oauthBrowserFlowOptions struct {
 	ProviderName              string
 	AuthURL                   string
+	ManualVerificationURL     string
 	NoBrowser                 bool
 	Reporter                  cliauth.LoginStatusReporter
 	AwaitingBrowserMessage    string
@@ -21,11 +22,13 @@ type oauthBrowserFlowOptions struct {
 	ManualPromptDelay         time.Duration
 	WaitForCallback           func(time.Duration) (code, state string, err error)
 	ParseCallbackURL          func(string) (code, state string, err error)
+	ParseManualInput          func(string) (oauthBrowserFlowResult, error)
 }
 
 type oauthBrowserFlowResult struct {
-	Code  string
-	State string
+	Code   string
+	State  string
+	Manual bool
 }
 
 func runOAuthBrowserFlow(opts oauthBrowserFlowOptions) (oauthBrowserFlowResult, error) {
@@ -74,11 +77,15 @@ func runOAuthBrowserFlow(opts oauthBrowserFlowOptions) (oauthBrowserFlowResult, 
 		case waitErr := <-cbErrCh:
 			return oauthBrowserFlowResult{}, newAuthError(ErrCallbackTimeout, waitErr)
 		case <-manualTimer.C:
+			manualURL := opts.AuthURL
+			if strings.TrimSpace(opts.ManualVerificationURL) != "" {
+				manualURL = opts.ManualVerificationURL
+			}
 			if opts.ManualCallbackMessage != "" {
 				reportLoginStatus(opts.Reporter, cliauth.LoginStatusUpdate{
 					Phase:           "waiting_for_manual_callback",
 					Message:         opts.ManualCallbackMessage,
-					VerificationURL: opts.AuthURL,
+					VerificationURL: manualURL,
 				})
 			}
 			select {
@@ -95,6 +102,13 @@ func runOAuthBrowserFlow(opts oauthBrowserFlowOptions) (oauthBrowserFlowResult, 
 			if strings.TrimSpace(line) == "" {
 				manualLineCh, manualLineErrCh = asyncReadLine(opts.ManualCallbackPrompt)
 				continue
+			}
+			if opts.ParseManualInput != nil {
+				outcome, parseErr := opts.ParseManualInput(line)
+				if parseErr != nil {
+					return oauthBrowserFlowResult{}, parseErr
+				}
+				return outcome, nil
 			}
 			code, state, parseErr := opts.ParseCallbackURL(line)
 			if parseErr != nil {

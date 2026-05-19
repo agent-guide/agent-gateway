@@ -283,14 +283,14 @@ func TestRegisterAuthenticatorFactoryListsNames(t *testing.T) {
 	}
 
 	RegisterAuthenticatorFactory(" Codex ", factory)
-	RegisterAuthenticatorFactory("claude", factory)
+	RegisterAuthenticatorFactory("claudecode", factory)
 	RegisterAuthenticatorFactory("", factory)
 	RegisterAuthenticatorFactory("gemini", nil)
 
 	names := ListAuthenticatorTypes()
 	sort.Strings(names)
 
-	want := []string{"claude", "codex"}
+	want := []string{"claudecode", "codex"}
 	if len(names) != len(want) {
 		t.Fatalf("ListAuthenticatorTypes() = %v, want %v", names, want)
 	}
@@ -315,7 +315,7 @@ func TestListAuthenticatorStatesListsSupportedAuthenticators(t *testing.T) {
 	RegisterAuthenticatorFactory("codex", func() (Authenticator, error) {
 		return &stubAuthenticator{}, nil
 	})
-	RegisterAuthenticatorFactory("claude", func() (Authenticator, error) {
+	RegisterAuthenticatorFactory("claudecode", func() (Authenticator, error) {
 		return &stubAuthenticator{}, nil
 	})
 
@@ -326,8 +326,8 @@ func TestListAuthenticatorStatesListsSupportedAuthenticators(t *testing.T) {
 	if len(states) != 2 {
 		t.Fatalf("ListAuthenticatorStates() = %#v, want 2 states", states)
 	}
-	if states[0].Name != "claude" || states[0].Enabled {
-		t.Fatalf("first state = %#v, want disabled claude with defaults", states[0])
+	if states[0].Name != "claudecode" || states[0].Enabled {
+		t.Fatalf("first state = %#v, want disabled claudecode with defaults", states[0])
 	}
 	if states[1].Name != "codex" || !states[1].Enabled {
 		t.Fatalf("second state = %#v, want enabled codex", states[1])

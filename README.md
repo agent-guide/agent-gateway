@@ -31,6 +31,7 @@ The request path today is centered on LLM routing. MCP, memory, metrics, and age
 - Provider modules:
   - `openai`
   - `anthropic`
+  - `claudecode`
   - `gemini`
   - `ollama`
   - `openrouter`
@@ -38,7 +39,7 @@ The request path today is centered on LLM routing. MCP, memory, metrics, and age
   - `zhipu`
 - CLI auth authenticators:
   - `codex`
-  - `claude`
+  - `claudecode`
   - `gemini`
 - Config store:
   - `sqlite`
@@ -97,6 +98,8 @@ The `agw` binary includes Caddy standard modules, the gateway app adapter, the a
 Important distinction:
 
 - `agwctl gateway credential ...` manages remote gateway credentials through the Admin API, including `api_key` and `cliauth_token` credential types
+- the `claudecode` provider expects a `cliauth_token` credential carrying `metadata.access_token`, typically created by the `claudecode` authenticator
+- the `claudecode` authenticator accepts `config.transport_profile`; leave it empty for the standard Go HTTP client, or set `browser_like_tls` to use the dedicated Firefox-like TLS transport for Anthropic OAuth requests
 - `agwctl cliauth ...` runs local login flows; the login usage itself shows supported authenticator names
 - `agwctl gateway cliauth ...` inspects remote gateway CLI auth authenticators and manages refresher state through the Admin API
 - `agwctl gateway apply/export ...` manages remote CLI auth authenticator config as part of the gateway bundle

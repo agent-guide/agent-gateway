@@ -12,17 +12,17 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
-	"github.com/agent-guide/agent-gateway/pkg/httpclient"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	"github.com/google/uuid"
 )
 
-// OAuth constants for Anthropic Claude CLI authentication.
+// OAuth constants for Anthropic Claude Code CLI authentication.
 const (
-	claudeAuthURL  = "https://claude.ai/oauth/authorize"
-	claudeTokenURL = "https://api.anthropic.com/v1/oauth/token"
-	claudeClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-	claudeScopes   = "org:create_api_key user:profile user:inference"
+	claudeAuthURL           = "https://platform.claude.com/oauth/authorize"
+	claudeTokenURL          = "https://platform.claude.com/v1/oauth/token"
+	claudeManualRedirectURL = "https://platform.claude.com/oauth/code/callback"
+	claudeClientID          = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+	claudeScopes            = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers"
 
 	claudeCallbackTimeout     = 5 * time.Minute
 	claudeDefaultCallbackPort = 54545
@@ -31,7 +31,7 @@ const (
 )
 
 func init() {
-	cliauth.RegisterAuthenticatorFactory("claude", NewClaudeAuthenticator)
+	cliauth.RegisterAuthenticatorFactory("claudecode", NewClaudeAuthenticator)
 }
 
 // claudeTokenResponse represents the token endpoint response from Anthropic.
@@ -52,7 +52,7 @@ type claudeTokenResponse struct {
 
 // ---- ClaudeAuthenticator ----
 
-// ClaudeAuthenticator implements manager.Authenticator for the Anthropic Claude CLI login flow.
+// ClaudeAuthenticator implements manager.Authenticator for the Anthropic Claude Code CLI login flow.
 // It uses browser-based OAuth PKCE authentication against the Anthropic OAuth endpoints.
 type ClaudeAuthenticator struct {
 	cliauth.AuthenticatorConfig
@@ -70,7 +70,7 @@ func NewClaudeAuthenticator() (cliauth.Authenticator, error) {
 	}, nil
 }
 
-// RefreshLeadTime returns how far in advance of token expiry to refresh Claude credentials.
+// RefreshLeadTime returns how far in advance of token expiry to refresh Claude Code credentials.
 func (a *ClaudeAuthenticator) RefreshLeadTime() *time.Duration {
 	lead := 4 * time.Hour
 	return &lead
@@ -87,10 +87,10 @@ func (a *ClaudeAuthenticator) GetConfig() cliauth.AuthenticatorConfig {
 // SetConfig applies runtime configuration to the authenticator.
 func (a *ClaudeAuthenticator) SetConfig(cfg cliauth.AuthenticatorConfig) error {
 	if a == nil {
-		return fmt.Errorf("claude: authenticator is nil")
+		return fmt.Errorf("claudecode: authenticator is nil")
 	}
 	if cfg.DeviceFlow {
-		return fmt.Errorf("device flow is not supported by claude authenticator")
+		return fmt.Errorf("device flow is not supported by claudecode authenticator")
 	}
 	cfg.Defaults()
 	a.AuthenticatorConfig = cfg
@@ -98,7 +98,7 @@ func (a *ClaudeAuthenticator) SetConfig(cfg cliauth.AuthenticatorConfig) error {
 	return nil
 }
 
-// Login initiates the Claude CLI login flow and returns a new credential on success.
+// Login initiates the Claude Code CLI login flow and returns a new credential on success.
 func (a *ClaudeAuthenticator) Login(ctx context.Context, _ cliauth.LoginRequest, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -110,7 +110,7 @@ func (a *ClaudeAuthenticator) Login(ctx context.Context, _ cliauth.LoginRequest,
 // Returns nil if no refresh token is present.
 func (a *ClaudeAuthenticator) Refresh(ctx context.Context, cred *credentialmgr.Credential) (*credentialmgr.Credential, error) {
 	if cred == nil {
-		return nil, fmt.Errorf("claude: credential is nil")
+		return nil, fmt.Errorf("claudecode: credential is nil")
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -123,7 +123,7 @@ func (a *ClaudeAuthenticator) Refresh(ctx context.Context, cred *credentialmgr.C
 
 	tokenResp, err := a.refreshTokensWithRetry(ctx, refreshToken, claudeRefreshMaxRetries)
 	if err != nil {
-		return nil, fmt.Errorf("claude: token refresh failed: %w", err)
+		return nil, fmt.Errorf("claudecode: token refresh failed: %w", err)
 	}
 
 	updated := cred.Clone()
@@ -136,12 +136,12 @@ func (a *ClaudeAuthenticator) Refresh(ctx context.Context, cred *credentialmgr.C
 func (a *ClaudeAuthenticator) loginWithBrowser(ctx context.Context, reporter cliauth.LoginStatusReporter) (*credentialmgr.Credential, error) {
 	codeVerifier, codeChallenge, err := generatePKCECodes()
 	if err != nil {
-		return nil, fmt.Errorf("claude: PKCE generation failed: %w", err)
+		return nil, fmt.Errorf("claudecode: PKCE generation failed: %w", err)
 	}
 
 	state, err := generateState()
 	if err != nil {
-		return nil, fmt.Errorf("claude: state generation failed: %w", err)
+		return nil, fmt.Errorf("claudecode: state generation failed: %w", err)
 	}
 
 	port := a.CallbackPort
@@ -163,20 +163,29 @@ func (a *ClaudeAuthenticator) loginWithBrowser(ctx context.Context, reporter cli
 		_ = srv.stop(stopCtx)
 	}()
 
-	authURL := buildClaudeAuthURL(state, codeChallenge, redirectURI)
+	callbackAuthURL := buildClaudeAuthURL(state, codeChallenge, redirectURI)
+	manualAuthURL := buildClaudeAuthURL(state, codeChallenge, claudeManualRedirectURL)
+	authURL := callbackAuthURL
+	if a.NoBrowser {
+		authURL = manualAuthURL
+	}
 	outcome, err := runOAuthBrowserFlow(oauthBrowserFlowOptions{
-		ProviderName:              "Claude",
+		ProviderName:              "Claude Code",
 		AuthURL:                   authURL,
+		ManualVerificationURL:     manualAuthURL,
 		NoBrowser:                 a.NoBrowser,
 		Reporter:                  reporter,
-		AwaitingBrowserMessage:    "Open the verification URL in a browser and complete the Claude login flow.",
-		WaitingForCallbackMessage: "Waiting for the Claude OAuth callback after browser verification.",
-		ManualCallbackMessage:     "If the browser cannot reach localhost, paste the full Claude callback URL to continue.",
-		ManualCallbackPrompt:      "Paste the Claude callback URL (or press Enter to keep waiting): ",
+		AwaitingBrowserMessage:    "Open the verification URL in a browser and complete the Claude Code login flow.",
+		WaitingForCallbackMessage: "Waiting for the Claude Code OAuth callback after browser verification.",
+		ManualCallbackMessage:     "If the browser cannot reach localhost, open the manual verification URL, finish the browser flow, then paste the full callback URL from the browser address bar.",
+		ManualCallbackPrompt:      "Paste the full Claude Code callback URL from the browser address bar (or press Enter to keep waiting): ",
 		CallbackTimeout:           claudeCallbackTimeout,
 		ManualPromptDelay:         claudeManualPromptDelay,
 		WaitForCallback:           srv.waitForCallback,
 		ParseCallbackURL:          parseClaudeCallbackURL,
+		ParseManualInput: func(line string) (oauthBrowserFlowResult, error) {
+			return parseClaudeManualInput(line, state)
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -186,7 +195,7 @@ func (a *ClaudeAuthenticator) loginWithBrowser(ctx context.Context, reporter cli
 		return nil, newAuthError(ErrInvalidState, fmt.Errorf("state mismatch"))
 	}
 
-	tokenResp, err := a.exchangeCode(ctx, outcome.Code, state, redirectURI, codeVerifier)
+	tokenResp, err := a.exchangeCode(ctx, outcome.Code, state, redirectURIForOutcome(redirectURI, outcome.Manual), codeVerifier)
 	if err != nil {
 		return nil, newAuthError(ErrCodeExchangeFailed, err)
 	}
@@ -286,7 +295,7 @@ func (a *ClaudeAuthenticator) buildCredential(tokenResp *claudeTokenResponse) (*
 		Metadata:   make(map[string]any),
 		Attributes: make(map[string]string),
 	}
-	cred.Metadata[credentialmgr.MetadataRefreshNameKey] = "claude"
+	cred.Metadata[credentialmgr.MetadataRefreshNameKey] = "claudecode"
 
 	a.applyTokenToMetadata(cred, tokenResp)
 
@@ -303,7 +312,7 @@ func (a *ClaudeAuthenticator) buildCredential(tokenResp *claudeTokenResponse) (*
 		cred.Attributes["org_id"] = orgUUID
 	}
 
-	fmt.Println("Claude authentication successful.")
+	fmt.Println("Claude Code authentication successful.")
 	return cred, nil
 }
 
@@ -329,7 +338,7 @@ func (a *ClaudeAuthenticator) httpClient() *http.Client {
 	if a.client != nil {
 		return a.client
 	}
-	a.client = httpclient.BuildHTTPClient(a.Network)
+	a.client = buildClaudeCodeHTTPClient(a.AuthenticatorConfig)
 	return a.client
 }
 
@@ -368,7 +377,29 @@ func parseClaudeCodeParam(code string) (parsedCode, parsedState string) {
 }
 
 func parseClaudeCallbackURL(rawURL string) (code, state string, err error) {
-	return parseOAuthCallbackURL("claude", rawURL, true)
+	return parseOAuthCallbackURL("claudecode", rawURL, true)
+}
+
+func parseClaudeManualInput(rawInput, state string) (oauthBrowserFlowResult, error) {
+	trimmed := strings.TrimSpace(rawInput)
+	if trimmed == "" {
+		return oauthBrowserFlowResult{}, fmt.Errorf("claudecode: empty manual authorization input")
+	}
+	if strings.Contains(trimmed, "://") || strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
+		code, parsedState, err := parseClaudeCallbackURL(trimmed)
+		if err != nil {
+			return oauthBrowserFlowResult{}, err
+		}
+		return oauthBrowserFlowResult{Code: code, State: parsedState}, nil
+	}
+	return oauthBrowserFlowResult{}, fmt.Errorf("claudecode: manual flow requires the full callback URL from the browser address bar, not the short verification number %q", trimmed)
+}
+
+func redirectURIForOutcome(callbackRedirectURI string, manual bool) string {
+	if manual {
+		return claudeManualRedirectURL
+	}
+	return callbackRedirectURI
 }
 
 // ---- OAuth callback server for Claude ----

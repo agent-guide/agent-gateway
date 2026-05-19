@@ -392,7 +392,7 @@ func TestAutoRefresherWorkerUsesConsistentCredentialSnapshot(t *testing.T) {
 			return cred.Clone(), nil
 		},
 	})
-	refresher.manager.RegisterAuthenticator("claude", &testRefreshAuthenticator{
+	refresher.manager.RegisterAuthenticator("claudecode", &testRefreshAuthenticator{
 		refreshFn: func(context.Context, *credentialmgr.Credential) (*credentialmgr.Credential, error) {
 			t.Fatal("worker resolved authenticator from a newer refresh name instead of the credential snapshot")
 			return nil, nil
@@ -424,7 +424,7 @@ func TestAutoRefresherWorkerUsesConsistentCredentialSnapshot(t *testing.T) {
 			ID:           "cred-1",
 			ProviderType: "anthropic",
 			Metadata: map[string]any{
-				credentialmgr.MetadataRefreshNameKey: "claude",
+				credentialmgr.MetadataRefreshNameKey: "claudecode",
 				"expires_at":                         now.Add(2 * time.Minute).Format(time.RFC3339),
 			},
 		},

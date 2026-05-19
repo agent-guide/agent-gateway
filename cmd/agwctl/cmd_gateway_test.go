@@ -224,9 +224,9 @@ func TestCLIAuthLoginRequiresAuthenticatorWithClearUsage(t *testing.T) {
 	if !strings.Contains(msg, "--authenticator is required") {
 		t.Fatalf("error = %q, want missing authenticator message", msg)
 	}
-	if !strings.Contains(msg, "supported authenticators: claude, codex, gemini") &&
-		!strings.Contains(msg, "supported authenticators: codex, claude, gemini") &&
-		!strings.Contains(msg, "supported authenticators: gemini, codex, claude") {
+	if !strings.Contains(msg, "supported authenticators: claudecode, codex, gemini") &&
+		!strings.Contains(msg, "supported authenticators: codex, claudecode, gemini") &&
+		!strings.Contains(msg, "supported authenticators: gemini, codex, claudecode") {
 		t.Fatalf("error = %q, want supported authenticators", msg)
 	}
 	if !strings.Contains(msg, "Usage:\n  agwctl cliauth login") {
@@ -371,10 +371,11 @@ virtualKeys:
   - id: vk-local-test
     allowed_route_ids: []
 cliAuthAuthenticators:
-  - name: codex
+  - name: claudecode
     enabled: true
     config:
       no_browser: true
+      transport_profile: browser_like_tls
 `), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
@@ -437,17 +438,28 @@ cliAuthAuthenticators:
 			})
 		case r.URL.Path == "/admin/cliauth/authenticators" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case r.URL.Path == "/admin/cliauth/authenticators/codex" && r.Method == http.MethodPut:
+		case r.URL.Path == "/admin/cliauth/authenticators/claudecode" && r.Method == http.MethodPut:
 			authenticatorUpdated.Store(true)
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode cliauth authenticator request: %v", err)
+			}
+			config, ok := req["config"].(map[string]any)
+			if !ok {
+				t.Fatalf("cliauth authenticator request config = %#v, want object", req["config"])
+			}
+			if got := config["transport_profile"]; got != "browser_like_tls" {
+				t.Fatalf("transport_profile = %#v, want browser_like_tls", got)
+			}
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"status": "enabled",
 				"authenticator": map[string]any{
-					"name":          "codex",
-					"provider_type": "openai",
-					"enabled":       true,
+					"name":    "claudecode",
+					"enabled": true,
 					"config": map[string]any{
-						"no_browser": true,
+						"no_browser":        true,
+						"transport_profile": "browser_like_tls",
 					},
 				},
 			})
