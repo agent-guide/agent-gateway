@@ -26,7 +26,7 @@ providers:
     api_key: ${OPENAI_API_KEY}
 routes:
   - id: chat-prod
-    llm_api: openai
+    protocol: openai
     match:
       path_prefix: /
       methods:
@@ -74,7 +74,7 @@ providers:
     api_key: ${OPENAI_API_KEY}
 routes:
   - id: chat-prod
-    llm_api: openai
+    protocol: openai
     match:
       path_prefix: /
       methods:
@@ -102,7 +102,7 @@ managedModels:
 	if gw.ProviderManager() == nil || !gw.ProviderManager().IsStatic("openai-main") {
 		t.Fatal("expected static provider openai-main")
 	}
-	if gw.AgentRouteManager() == nil || !gw.AgentRouteManager().IsStatic("chat-prod") {
+	if gw.AgentRouteConfigManager() == nil || !gw.AgentRouteConfigManager().IsStatic("chat-prod") {
 		t.Fatal("expected static route chat-prod")
 	}
 	model, ok, err := gw.ModelCatalog().GetManagedModel(context.Background(), "openai-main", "gpt-4.1")
@@ -141,7 +141,7 @@ providers:
     provider_type: openai
 routes:
   - id: chat-prod
-    llm_api: openai
+    protocol: openai
     match:
       path_prefix: /
       methods:

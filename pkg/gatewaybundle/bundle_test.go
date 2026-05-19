@@ -32,7 +32,7 @@ managedModels:
     enabled: true
 routes:
   - id: chat-prod
-    llm_api: openai
+    protocol: openai
     match:
       path_prefix: /
       methods:
@@ -165,7 +165,7 @@ providers:
     provider_type: openai
 routes:
   - id: chat-prod
-    llm_api: openai
+    protocol: openai
     match:
       path_prefix: /
       methods:
@@ -210,7 +210,7 @@ managedModels:
     upstream_model: gpt-4.1
 routes:
   - id: route-a
-    llm_api: openai
+    protocol: openai
     match:
       path_prefix: /
     auth_policy:
@@ -219,7 +219,7 @@ routes:
       provider_target:
         provider_id: dup
   - id: route-a
-    llm_api: openai
+    protocol: openai
     match:
       path_prefix: /v2
     auth_policy:
@@ -323,7 +323,7 @@ providers:
     provider_type: deepseek
 routes:
   - id: chat-test
-    llm_api: openai
+    protocol: openai
     match:
       path_prefix: /chat
       methods:
@@ -369,7 +369,7 @@ providers:
     provider_type: openai
 routes:
   - id: chat-test
-    llm_api: openai
+    protocol: openai
     match:
       path_prefix: /chat
       methods:

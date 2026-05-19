@@ -57,7 +57,7 @@ func TestManagedModelSchemaPrimaryKey(t *testing.T) {
 }
 
 func TestRouteSchemaTagDefaultsEmpty(t *testing.T) {
-	obj := &routepkg.AgentRoute{ID: "route-1"}
+	obj := &routepkg.AgentRouteConfig{ID: "route-1"}
 
 	tag, ok, err := RouteSchema.Metadata.Tag(obj)
 	if err != nil {
@@ -69,7 +69,10 @@ func TestRouteSchemaTagDefaultsEmpty(t *testing.T) {
 }
 
 func TestMCPRouteSchemaPrimaryKey(t *testing.T) {
-	obj := &mcproute.MCPRoute{ID: "mcp-route-1", ServiceID: "svc-1"}
+	obj := &mcproute.MCPRoute{
+		AgentRouteConfig: mcproute.AgentRouteConfig{ID: "mcp-route-1"},
+		ServiceID:        "svc-1",
+	}
 
 	keys, err := MCPRouteSchema.Metadata.PrimaryKey(obj)
 	if err != nil {

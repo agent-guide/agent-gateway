@@ -21,7 +21,7 @@ type ManagedModel = adminapi.ManagedConcreteModelView
 type DiscoveredModel = modelcatalog.ProviderModelSnapshot
 
 type ProviderConfig = provider.ProviderConfig
-type RouteConfig = routepkg.AgentRoute
+type RouteConfig = routepkg.LLMRoute
 type ManagedCredential = credentialmgr.ManagedCredential
 
 type VirtualKeyConfig struct {

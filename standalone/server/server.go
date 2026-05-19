@@ -68,7 +68,10 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	adminHandler := admin.NewHandler(agentGateway, logger.Named("admin"), opts.AdminUser, opts.AdminPasswordHash)
-	dispatchHandler := dispatcher.NewHandler(agentGateway, newLLMAPIHandlers(logger.Named("dispatcher")), logger.Named("dispatcher"))
+	dispatchHandler, err := newDispatchHandler(agentGateway, logger.Named("dispatcher"))
+	if err != nil {
+		return err
+	}
 
 	var servers []*http.Server
 	if opts.AdminAddr == opts.Addr {
@@ -106,6 +109,15 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		return shutdownServers(context.Background(), servers)
 	}
+}
+
+func newDispatchHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) (*dispatcher.Handler, error) {
+	return dispatcher.NewHandler(
+		agentGateway,
+		newLLMAPIHandlers(logger),
+		logger,
+		dispatcher.HandlerOptions{EnableMCP: true},
+	), nil
 }
 
 func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*gateway.AgentGateway, *cliauth.AutoRefresher, error) {
@@ -162,7 +174,7 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 type staticConfig struct {
 	Providers     map[string]provider.Provider
 	ManagedModels []modelcatalog.ManagedModel
-	Routes        []routepkg.AgentRoute
+	Routes        []routepkg.LLMRoute
 }
 
 func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) {
@@ -187,7 +199,7 @@ func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) 
 	}
 	cfg.Providers = providers
 	cfg.ManagedModels = append([]modelcatalog.ManagedModel(nil), bundle.ManagedModels...)
-	cfg.Routes = append([]routepkg.AgentRoute(nil), bundle.Routes...)
+	cfg.Routes = append([]routepkg.LLMRoute(nil), bundle.Routes...)
 	return cfg, nil
 }
 

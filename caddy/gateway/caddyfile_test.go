@@ -26,7 +26,7 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 		}
 
 		route openai-chat {
-			llm_api openai
+			protocol openai
 			host api.example.test
 			path_prefix /tenant-a
 			method POST
@@ -97,14 +97,14 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	if route.ID != "openai-chat" {
 		t.Fatalf("route id = %q, want openai-chat", route.ID)
 	}
-	if route.LLMAPI != "openai" {
-		t.Fatalf("route llm_api = %q, want openai", route.LLMAPI)
+	if route.Protocol != routepkg.RouteProtocolOpenAI {
+		t.Fatalf("route protocol = %q, want openai", route.Protocol)
 	}
-	if route.Match.Host != "api.example.test" || route.Match.PathPrefix != "/tenant-a" {
-		t.Fatalf("route match = %#v", route.Match)
+	if route.MatchPolicy.Host != "api.example.test" || route.MatchPolicy.PathPrefix != "/tenant-a" {
+		t.Fatalf("route match = %#v", route.MatchPolicy)
 	}
-	if len(route.Match.Methods) != 1 || route.Match.Methods[0] != "POST" {
-		t.Fatalf("route methods = %#v", route.Match.Methods)
+	if len(route.MatchPolicy.Methods) != 1 || route.MatchPolicy.Methods[0] != "POST" {
+		t.Fatalf("route methods = %#v", route.MatchPolicy.Methods)
 	}
 	if !route.AuthPolicy.RequireVirtualKey {
 		t.Fatal("expected route require_virtual_key to be true")
@@ -175,7 +175,7 @@ func TestParseAppRejectsTargetModel(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`
 	agent_gateway {
 		route openai-chat {
-			llm_api openai
+			protocol openai
 			target model chat-fast openai-main gpt-4.1-mini weight 100 default
 		}
 	}
@@ -194,7 +194,7 @@ func TestParseAppRejectsLogicalTargetPolicy(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`
 	agent_gateway {
 		route openai-chat {
-			llm_api openai
+			protocol openai
 			target_policy logical-model {
 				model chat-fast openai-main gpt-4.1-mini
 			}

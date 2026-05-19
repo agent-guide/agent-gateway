@@ -5,13 +5,16 @@ import (
 	"slices"
 )
 
-func (r AgentRoute) ValidateDefinition() error {
+func (r LLMRoute) ValidateDefinition() error {
 	r.Normalize()
 	if r.ID == "" {
 		return fmt.Errorf("route_id is required")
 	}
-	if r.LLMAPI == "" {
-		return fmt.Errorf("route %q llm_api is required", r.ID)
+	if r.Protocol == "" {
+		return fmt.Errorf("route %q protocol is required", r.ID)
+	}
+	if r.Protocol == RouteProtocolMCP {
+		return fmt.Errorf("route %q protocol %q is invalid for llm routes", r.ID, r.Protocol)
 	}
 	if r.TargetPolicy == nil {
 		return fmt.Errorf("route %q targets are required in model-target mode", r.ID)
@@ -19,7 +22,7 @@ func (r AgentRoute) ValidateDefinition() error {
 	return r.TargetPolicy.ValidateDefinition(r.ID)
 }
 
-func (r AgentRoute) ValidateStaticDefinition() error {
+func (r LLMRoute) ValidateStaticDefinition() error {
 	r.Normalize()
 	if err := r.ValidateDefinition(); err != nil {
 		return err
@@ -152,7 +155,7 @@ func (p *RouteLogicalModelTargetPolicy) ValidateDefinition(routeID string) error
 	return nil
 }
 
-func (r AgentRoute) ProviderIDs() []string {
+func (r LLMRoute) ProviderIDs() []string {
 	r.Normalize()
 	if r.TargetPolicy == nil {
 		return nil

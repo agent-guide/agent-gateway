@@ -236,7 +236,7 @@ func applyRoutes(ctx context.Context, client *adminclient.Client, bundle *gatewa
 			}
 			continue
 		}
-		currentRoute := normalizeComparableRoute(item.AgentRoute)
+		currentRoute := normalizeComparableRoute(item.LLMRoute)
 		desiredRoute := normalizeComparableRoute(desired)
 		if reflect.DeepEqual(currentRoute, desiredRoute) {
 			record("route", desired.ID, "skip", nil)
@@ -350,7 +350,7 @@ func providerConfigsEqual(a, b provider.ProviderConfig) bool {
 	return reflect.DeepEqual(a, b)
 }
 
-func normalizeComparableRoute(route routepkg.AgentRoute) routepkg.AgentRoute {
+func normalizeComparableRoute(route routepkg.LLMRoute) routepkg.LLMRoute {
 	route.Normalize()
 	route.CreatedAt = time.Time{}
 	route.UpdatedAt = time.Time{}

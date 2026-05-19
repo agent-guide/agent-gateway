@@ -19,10 +19,12 @@ import (
 	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
+	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 	"github.com/cloudwego/eino/schema"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -31,11 +33,12 @@ type testConfigStore struct {
 	providerStore   configstore.ConfigStore
 	routeStore      configstore.ConfigStore
 	mcpRouteStore   configstore.ConfigStore
+	mcpServiceStore configstore.ConfigStore
 	virtualKeyStore configstore.ConfigStore
 	modelStore      configstore.ConfigStore
 }
 
-func newTestAgentGateway(configStoreBackend configstore.ConfigStoreBackend, cliauthMgr *cliauth.Manager, cliauthRefresher *cliauth.AutoRefresher, staticRoutes []routepkg.AgentRoute, staticVirtualKeys []virtualkeypkg.VirtualKey, staticProviders ...map[string]provider.Provider) *gateway.AgentGateway {
+func newTestAgentGateway(configStoreBackend configstore.ConfigStoreBackend, cliauthMgr *cliauth.Manager, cliauthRefresher *cliauth.AutoRefresher, staticRoutes []routepkg.LLMRoute, staticVirtualKeys []virtualkeypkg.VirtualKey, staticProviders ...map[string]provider.Provider) *gateway.AgentGateway {
 	var providers map[string]provider.Provider
 	if len(staticProviders) > 0 {
 		providers = staticProviders[0]
@@ -66,6 +69,8 @@ func (s *testConfigStore) Get(name string) (configstore.ConfigStore, error) {
 		return s.routeStore, nil
 	case configstoreschema.StoreMCPRoutes:
 		return s.mcpRouteStore, nil
+	case configstoreschema.StoreMCPServices:
+		return s.mcpServiceStore, nil
 	case configstoreschema.StoreVirtualKeys:
 		return s.virtualKeyStore, nil
 	case configstoreschema.StoreManagedModels:
@@ -155,12 +160,25 @@ func (s *testModelStore) GetByIndex(context.Context, string, any) (any, error) {
 }
 
 type testRouteStore struct {
-	items map[string]*routepkg.AgentRoute
+	items map[string]*routecore.AgentRouteConfig
 	tags  map[string]string
 }
 
+func testAdminRoute(cfg routepkg.AgentRouteConfig, protocol routepkg.RouteProtocol, targetPolicy routepkg.RouteTargetPolicy) routepkg.LLMRoute {
+	cfg.Protocol = protocol
+	return routepkg.LLMRoute{
+		AgentRouteConfig: cfg,
+		TargetPolicy:     targetPolicy,
+	}
+}
+
 type testMCPRouteStore struct {
-	items map[string]*mcproute.MCPRoute
+	items map[string]*routecore.AgentRouteConfig
+	tags  map[string]string
+}
+
+type testMCPServiceStore struct {
+	items map[string]*mcpservice.MCPServiceConfig
 	tags  map[string]string
 }
 
@@ -198,28 +216,31 @@ func (s *testRouteStore) Create(_ context.Context, obj any) error {
 	if unwrapper, ok := obj.(interface{ ConfigStoreObject() any }); ok {
 		obj = unwrapper.ConfigStoreObject()
 	}
-	r, ok := obj.(*routepkg.AgentRoute)
-	if !ok {
+	cfg, ok := obj.(*routecore.AgentRouteConfig)
+	if !ok || cfg == nil {
 		return errors.New("unexpected type")
 	}
 	if s.items == nil {
-		s.items = map[string]*routepkg.AgentRoute{}
+		s.items = map[string]*routecore.AgentRouteConfig{}
 	}
 	if s.tags == nil {
 		s.tags = map[string]string{}
 	}
-	cloned := *r
+	cloned := *cfg
 	s.items[cloned.ID] = &cloned
 	s.tags[cloned.ID] = tag
 	return nil
 }
 
 func (s *testRouteStore) Update(ctx context.Context, obj any) error {
-	r, ok := obj.(*routepkg.AgentRoute)
-	if !ok {
+	if unwrapper, ok := obj.(interface{ ConfigStoreObject() any }); ok {
+		obj = unwrapper.ConfigStoreObject()
+	}
+	cfg, ok := obj.(*routecore.AgentRouteConfig)
+	if !ok || cfg == nil {
 		return errors.New("unexpected type")
 	}
-	if _, ok := s.items[r.ID]; !ok {
+	if _, ok := s.items[cfg.ID]; !ok {
 		return configstore.ErrNotFound
 	}
 	return s.Create(ctx, obj)
@@ -238,7 +259,26 @@ func (s *testRouteStore) Get(_ context.Context, keyParts ...any) (any, error) {
 	if !ok {
 		return nil, configstore.ErrNotFound
 	}
-	return item, nil
+	cloned := *item
+	return &cloned, nil
+}
+
+func mustRouteConfig(t *testing.T, route routepkg.LLMRoute) *routecore.AgentRouteConfig {
+	t.Helper()
+	cfg, err := route.ToConfig()
+	if err != nil {
+		t.Fatalf("ToConfig returned error: %v", err)
+	}
+	return &cfg
+}
+
+func mustMCPRouteConfig(t *testing.T, route mcproute.MCPRoute) *routecore.AgentRouteConfig {
+	t.Helper()
+	cfg, err := route.ToConfig()
+	if err != nil {
+		t.Fatalf("ToConfig returned error: %v", err)
+	}
+	return &cfg
 }
 
 func (s *testRouteStore) GetByIndex(context.Context, string, any) (any, error) {
@@ -279,28 +319,31 @@ func (s *testMCPRouteStore) Create(_ context.Context, obj any) error {
 	if unwrapper, ok := obj.(interface{ ConfigStoreObject() any }); ok {
 		obj = unwrapper.ConfigStoreObject()
 	}
-	route, ok := obj.(*mcproute.MCPRoute)
-	if !ok {
+	cfg, ok := obj.(*routecore.AgentRouteConfig)
+	if !ok || cfg == nil {
 		return errors.New("unexpected type")
 	}
 	if s.items == nil {
-		s.items = map[string]*mcproute.MCPRoute{}
+		s.items = map[string]*routecore.AgentRouteConfig{}
 	}
 	if s.tags == nil {
 		s.tags = map[string]string{}
 	}
-	cloned := *route
+	cloned := *cfg
 	s.items[cloned.ID] = &cloned
 	s.tags[cloned.ID] = tag
 	return nil
 }
 
 func (s *testMCPRouteStore) Update(ctx context.Context, obj any) error {
-	route, ok := obj.(*mcproute.MCPRoute)
-	if !ok {
+	if unwrapper, ok := obj.(interface{ ConfigStoreObject() any }); ok {
+		obj = unwrapper.ConfigStoreObject()
+	}
+	cfg, ok := obj.(*routecore.AgentRouteConfig)
+	if !ok || cfg == nil {
 		return errors.New("unexpected type")
 	}
-	if _, ok := s.items[route.ID]; !ok {
+	if _, ok := s.items[cfg.ID]; !ok {
 		return configstore.ErrNotFound
 	}
 	return s.Create(ctx, obj)
@@ -319,10 +362,101 @@ func (s *testMCPRouteStore) Get(_ context.Context, keyParts ...any) (any, error)
 	if !ok {
 		return nil, configstore.ErrNotFound
 	}
-	return item, nil
+	cloned := *item
+	return &cloned, nil
 }
 
 func (s *testMCPRouteStore) GetByIndex(context.Context, string, any) (any, error) {
+	return nil, configstore.ErrNotFound
+}
+
+func (s *testMCPServiceStore) ListByTag(_ context.Context, tag string) ([]any, error) {
+	out := make([]any, 0, len(s.items))
+	for id, item := range s.items {
+		if tag != "" && s.tags[id] != tag {
+			continue
+		}
+		cloned := *item
+		out = append(out, &cloned)
+	}
+	return out, nil
+}
+
+func (s *testMCPServiceStore) List(ctx context.Context) ([]any, error) {
+	return s.ListByTag(ctx, "")
+}
+
+func (s *testMCPServiceStore) ListByTagPrefix(_ context.Context, tagPrefix string) ([]any, error) {
+	out := make([]any, 0, len(s.items))
+	for id, item := range s.items {
+		if tagPrefix != "" && !strings.HasPrefix(s.tags[id], tagPrefix) {
+			continue
+		}
+		cloned := *item
+		out = append(out, &cloned)
+	}
+	return out, nil
+}
+
+func (s *testMCPServiceStore) Create(_ context.Context, obj any) error {
+	tag := ""
+	if carrier, ok := obj.(interface{ ConfigStoreTag() string }); ok {
+		tag = carrier.ConfigStoreTag()
+	}
+	if unwrapper, ok := obj.(interface{ ConfigStoreObject() any }); ok {
+		obj = unwrapper.ConfigStoreObject()
+	}
+	cfg, ok := obj.(*mcpservice.MCPServiceConfig)
+	if !ok || cfg == nil {
+		return errors.New("unexpected type")
+	}
+	if s.items == nil {
+		s.items = map[string]*mcpservice.MCPServiceConfig{}
+	}
+	if s.tags == nil {
+		s.tags = map[string]string{}
+	}
+	cloned := *cfg
+	s.items[cloned.ID] = &cloned
+	s.tags[cloned.ID] = tag
+	return nil
+}
+
+func (s *testMCPServiceStore) Update(ctx context.Context, obj any) error {
+	if unwrapper, ok := obj.(interface{ ConfigStoreObject() any }); ok {
+		obj = unwrapper.ConfigStoreObject()
+	}
+	cfg, ok := obj.(*mcpservice.MCPServiceConfig)
+	if !ok || cfg == nil {
+		return errors.New("unexpected type")
+	}
+	if _, ok := s.items[cfg.ID]; !ok {
+		return configstore.ErrNotFound
+	}
+	return s.Create(ctx, obj)
+}
+
+func (s *testMCPServiceStore) Delete(_ context.Context, keyParts ...any) error {
+	id, _ := keyParts[0].(string)
+	if _, ok := s.items[id]; !ok {
+		return configstore.ErrNotFound
+	}
+	delete(s.items, id)
+	delete(s.tags, id)
+	return nil
+}
+
+func (s *testMCPServiceStore) Get(_ context.Context, keyParts ...any) (any, error) {
+	id, _ := keyParts[0].(string)
+	item, ok := s.items[id]
+	if !ok {
+		return nil, configstore.ErrNotFound
+	}
+	cloned := *item
+	return &cloned, nil
+}
+
+func (s *testMCPServiceStore) GetByIndex(context.Context, string, any) (any, error) {
 	return nil, configstore.ErrNotFound
 }
 
@@ -504,13 +638,12 @@ func TestRouteCRUD(t *testing.T) {
 	}
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		routeStore: &testRouteStore{items: map[string]*routepkg.AgentRoute{}},
+		routeStore: &testRouteStore{items: map[string]*routecore.AgentRouteConfig{}},
 	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	createBody, err := json.Marshal(routepkg.AgentRoute{
-		ID:     "chat-prod",
-		LLMAPI: "openai",
+	createBody, err := json.Marshal(routepkg.LLMRoute{
+		AgentRouteConfig: routepkg.AgentRouteConfig{ID: "chat-prod", Protocol: routepkg.RouteProtocolOpenAI},
 		TargetPolicy: &routepkg.RouteDirectProviderPolicy{
 			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
 		},
@@ -577,22 +710,24 @@ func TestRouteUpdatePreservesCreatedAt(t *testing.T) {
 	createdAt := time.Now().UTC().Add(-time.Hour).Round(0)
 	updatedAt := createdAt
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		routeStore: &testRouteStore{items: map[string]*routepkg.AgentRoute{
-			"chat-prod": {
-				ID:        "chat-prod",
-				LLMAPI:    "openai",
-				CreatedAt: createdAt,
-				UpdatedAt: updatedAt,
+		routeStore: &testRouteStore{items: map[string]*routecore.AgentRouteConfig{
+			"chat-prod": mustRouteConfig(t, routepkg.LLMRoute{
+				AgentRouteConfig: routepkg.AgentRouteConfig{
+					ID:        "chat-prod",
+					Protocol:  routepkg.RouteProtocolOpenAI,
+					CreatedAt: createdAt,
+					UpdatedAt: updatedAt,
+				},
 				TargetPolicy: &routepkg.RouteDirectProviderPolicy{
 					ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
 				},
-			},
+			}),
 		}, tags: map[string]string{"chat-prod": defaultRouteTag}},
 	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	updateBody, err := json.Marshal(routepkg.AgentRoute{
-		LLMAPI: "openai",
+	updateBody, err := json.Marshal(routepkg.LLMRoute{
+		AgentRouteConfig: routepkg.AgentRouteConfig{Protocol: routepkg.RouteProtocolOpenAI},
 		TargetPolicy: &routepkg.RouteDirectProviderPolicy{
 			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "anthropic"},
 		},
@@ -628,14 +763,16 @@ func TestRouteCreateRejectsClientManagedTimestamps(t *testing.T) {
 	}
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		routeStore: &testRouteStore{items: map[string]*routepkg.AgentRoute{}},
+		routeStore: &testRouteStore{items: map[string]*routecore.AgentRouteConfig{}},
 	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	body, err := json.Marshal(routepkg.AgentRoute{
-		ID:        "chat-prod",
-		LLMAPI:    "openai",
-		CreatedAt: time.Now().UTC(),
+	body, err := json.Marshal(routepkg.LLMRoute{
+		AgentRouteConfig: routepkg.AgentRouteConfig{
+			ID:        "chat-prod",
+			Protocol:  routepkg.RouteProtocolOpenAI,
+			CreatedAt: time.Now().UTC(),
+		},
 		TargetPolicy: &routepkg.RouteDirectProviderPolicy{
 			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
 		},
@@ -661,14 +798,16 @@ func TestMCPRouteCRUD(t *testing.T) {
 	}
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		mcpRouteStore: &testMCPRouteStore{items: map[string]*mcproute.MCPRoute{}},
+		mcpRouteStore: &testMCPRouteStore{items: map[string]*routecore.AgentRouteConfig{}},
 	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	createBody, err := json.Marshal(mcproute.MCPRoute{
-		ID:        "mcp-route-1",
+		AgentRouteConfig: mcproute.AgentRouteConfig{
+			ID:          "mcp-route-1",
+			MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
+		},
 		ServiceID: "svc-main",
-		Match:     mcproute.RouteMatch{PathPrefix: "/mcp"},
 	})
 	if err != nil {
 		t.Fatalf("marshal mcp route: %v", err)
@@ -706,8 +845,14 @@ func TestListMCPRoutes(t *testing.T) {
 	}
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		mcpRouteStore: &testMCPRouteStore{items: map[string]*mcproute.MCPRoute{
-			"mcp-route-1": {ID: "mcp-route-1", ServiceID: "svc-main", Match: mcproute.RouteMatch{PathPrefix: "/mcp"}},
+		mcpRouteStore: &testMCPRouteStore{items: map[string]*routecore.AgentRouteConfig{
+			"mcp-route-1": mustMCPRouteConfig(t, mcproute.MCPRoute{
+				AgentRouteConfig: mcproute.AgentRouteConfig{
+					ID:          "mcp-route-1",
+					MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
+				},
+				ServiceID: "svc-main",
+			}),
 		}},
 	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
@@ -1204,13 +1349,13 @@ func TestRouteEnableDisable(t *testing.T) {
 	}
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		routeStore: &testRouteStore{items: map[string]*routepkg.AgentRoute{
-			"chat-prod": {
-				ID: "chat-prod",
+		routeStore: &testRouteStore{items: map[string]*routecore.AgentRouteConfig{
+			"chat-prod": mustRouteConfig(t, routepkg.LLMRoute{
+				AgentRouteConfig: routepkg.AgentRouteConfig{ID: "chat-prod"},
 				TargetPolicy: &routepkg.RouteDirectProviderPolicy{
 					ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
 				},
-			},
+			}),
 		}},
 	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
@@ -1683,24 +1828,24 @@ func TestListVirtualKeysFiltersByTag(t *testing.T) {
 	}
 }
 
-func TestRouteGetPrefersStaticAgentRouteManager(t *testing.T) {
+func TestRouteGetPrefersStaticRouteConfigManager(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
 	}
 
 	store := &testRouteStore{
-		items: map[string]*routepkg.AgentRoute{
-			"chat-prod": {
-				ID: "chat-prod",
+		items: map[string]*routecore.AgentRouteConfig{
+			"chat-prod": mustRouteConfig(t, routepkg.LLMRoute{
+				AgentRouteConfig: routepkg.AgentRouteConfig{ID: "chat-prod"},
 				TargetPolicy: &routepkg.RouteDirectProviderPolicy{
 					ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
 				},
-			},
+			}),
 		},
 	}
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []routepkg.AgentRoute{{
-		ID: "chat-prod",
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []routepkg.LLMRoute{{
+		AgentRouteConfig: routepkg.AgentRouteConfig{ID: "chat-prod"},
 		TargetPolicy: &routepkg.RouteDirectProviderPolicy{
 			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "anthropic"},
 		},
@@ -1735,17 +1880,17 @@ func TestRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 	}
 
 	store := &testRouteStore{
-		items: map[string]*routepkg.AgentRoute{
-			"chat-dynamic": {
-				ID: "chat-dynamic",
+		items: map[string]*routecore.AgentRouteConfig{
+			"chat-dynamic": mustRouteConfig(t, routepkg.LLMRoute{
+				AgentRouteConfig: routepkg.AgentRouteConfig{ID: "chat-dynamic"},
 				TargetPolicy: &routepkg.RouteDirectProviderPolicy{
 					ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
 				},
-			},
+			}),
 		},
 	}
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []routepkg.AgentRoute{{
-		ID: "chat-static",
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []routepkg.LLMRoute{{
+		AgentRouteConfig: routepkg.AgentRouteConfig{ID: "chat-static"},
 		TargetPolicy: &routepkg.RouteDirectProviderPolicy{
 			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "anthropic"},
 		},

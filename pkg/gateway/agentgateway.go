@@ -11,17 +11,20 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	mcproutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	credentialmgrscheduler "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
+	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 	"go.uber.org/zap"
 )
 
 type BootstrapOptions struct {
-	StaticRoutes        []routepkg.AgentRoute
+	StaticRoutes        []routepkg.LLMRoute
 	StaticVirtualKeys   []virtualkeypkg.VirtualKey
 	StaticProviders     map[string]provider.Provider
 	ConfigStoreBackend  configstore.ConfigStoreBackend
@@ -36,17 +39,21 @@ type BootstrapOptions struct {
 type AgentGateway struct {
 	mu sync.RWMutex
 
-	configured          bool
-	configStoreBackend  configstore.ConfigStoreBackend
-	routeManager        *routepkg.AgentRouteManager
-	virtualKeyManager   *virtualkeypkg.VirtualKeyManager
-	providerManager     *ProviderManager
-	cliauthManager      *cliauth.Manager
-	cliauthRefresher    *cliauth.AutoRefresher
-	credentialManager   *credentialmgr.Manager
-	credentialScheduler credentialmgrscheduler.CredentialScheduler
-	modelCatalog        modelcatalog.Service
-	mcpRuntimeRegistry  *mcpruntime.Registry
+	configured            bool
+	configStoreBackend    configstore.ConfigStoreBackend
+	routeConfigManager    *routecore.AgentRouteConfigManager
+	routeResolver         *routepkg.LLMRouteResolver
+	mcpRouteConfigManager *routecore.AgentRouteConfigManager
+	mcpRouteResolver      *mcproutepkg.MCPRouteResolver
+	virtualKeyManager     *virtualkeypkg.VirtualKeyManager
+	providerManager       *ProviderManager
+	cliauthManager        *cliauth.Manager
+	cliauthRefresher      *cliauth.AutoRefresher
+	credentialManager     *credentialmgr.Manager
+	credentialScheduler   credentialmgrscheduler.CredentialScheduler
+	modelCatalog          modelcatalog.Service
+	mcpServiceManager     *mcpservice.Manager
+	mcpRuntimeRegistry    *mcpruntime.Registry
 }
 
 func NewAgentGateway() *AgentGateway {
@@ -61,7 +68,13 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	defer g.mu.Unlock()
 
 	g.configureConfigStoreBackend(opts.ConfigStoreBackend)
-	if err := g.configureAgentRouteManager(ctx, opts.ConfigStoreBackend, opts.StaticRoutes); err != nil {
+	if err := g.configureRouteResolver(ctx, opts.ConfigStoreBackend, opts.StaticRoutes); err != nil {
+		return err
+	}
+	if err := g.configureMCPRouteResolver(ctx, opts.ConfigStoreBackend); err != nil {
+		return err
+	}
+	if err := g.configureMCPServiceManager(opts.ConfigStoreBackend); err != nil {
 		return err
 	}
 	if err := g.configureVirtualKeyManager(ctx, opts.ConfigStoreBackend, opts.StaticVirtualKeys); err != nil {
@@ -87,7 +100,10 @@ func (g *AgentGateway) Reset() {
 
 	g.configured = false
 	g.configStoreBackend = nil
-	g.routeManager = nil
+	g.routeConfigManager = nil
+	g.routeResolver = nil
+	g.mcpRouteConfigManager = nil
+	g.mcpRouteResolver = nil
 	g.virtualKeyManager = nil
 	g.providerManager = nil
 	g.cliauthManager = nil
@@ -95,6 +111,7 @@ func (g *AgentGateway) Reset() {
 	g.credentialManager = nil
 	g.credentialScheduler = nil
 	g.modelCatalog = nil
+	g.mcpServiceManager = nil
 	g.mcpRuntimeRegistry = mcpruntime.NewRegistry()
 }
 
@@ -128,10 +145,28 @@ func (g *AgentGateway) CredentialScheduler() credentialmgrscheduler.CredentialSc
 	return g.credentialScheduler
 }
 
-func (g *AgentGateway) AgentRouteManager() *routepkg.AgentRouteManager {
+func (g *AgentGateway) AgentRouteConfigManager() *routecore.AgentRouteConfigManager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	return g.routeManager
+	return g.routeConfigManager
+}
+
+func (g *AgentGateway) LLMRouteResolver() *routepkg.LLMRouteResolver {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.routeResolver
+}
+
+func (g *AgentGateway) MCPRouteConfigManager() *routecore.AgentRouteConfigManager {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.mcpRouteConfigManager
+}
+
+func (g *AgentGateway) MCPRouteResolver() *mcproutepkg.MCPRouteResolver {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.mcpRouteResolver
 }
 
 func (g *AgentGateway) VirtualKeyManager() *virtualkeypkg.VirtualKeyManager {
@@ -152,39 +187,89 @@ func (g *AgentGateway) ModelCatalog() modelcatalog.Service {
 	return g.modelCatalog
 }
 
+func (g *AgentGateway) MCPServiceManager() *mcpservice.Manager {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.mcpServiceManager
+}
+
 func (g *AgentGateway) MCPRuntimeRegistry() *mcpruntime.Registry {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.mcpRuntimeRegistry
 }
 
-func (g *AgentGateway) ResolveRoute(ctx context.Context, r *http.Request) (routepkg.AgentRoute, error) {
-	routeManager := g.AgentRouteManager()
-	if routeManager == nil {
-		return routepkg.AgentRoute{}, statuserr.New(http.StatusServiceUnavailable, "route manager is not configured")
+func (g *AgentGateway) Match(ctx context.Context, r *http.Request) (routecore.AgentRouteConfig, error) {
+	g.mu.RLock()
+	llmManager := g.routeConfigManager
+	mcpManager := g.mcpRouteConfigManager
+	g.mu.RUnlock()
+
+	if llmManager == nil && mcpManager == nil {
+		return routecore.AgentRouteConfig{}, statuserr.New(http.StatusServiceUnavailable, "route resolver is not configured")
 	}
-	route, ok, err := routeManager.Match(ctx, r)
+
+	route, ok, err := routecore.MatchManagers(ctx, r, llmManager, mcpManager)
 	if err != nil {
-		return routepkg.AgentRoute{}, statuserr.New(http.StatusInternalServerError, fmt.Sprintf("match route: %v", err))
+		return routecore.AgentRouteConfig{}, statuserr.New(http.StatusInternalServerError, fmt.Sprintf("match route: %v", err))
 	}
 	if !ok {
-		return routepkg.AgentRoute{}, nil
-	}
-	if err := route.ValidateDefinition(); err != nil {
-		return routepkg.AgentRoute{}, statuserr.New(http.StatusServiceUnavailable, err.Error())
-	}
-	if route.Disabled {
-		return routepkg.AgentRoute{}, statuserr.New(http.StatusForbidden, fmt.Sprintf("route %q is disabled", route.ID))
+		return routecore.AgentRouteConfig{}, nil
 	}
 	return route, nil
 }
 
-func (g *AgentGateway) NewRoutedProvider(route routepkg.AgentRoute, requestRequirements routepkg.RequestRequirements) (*RoutedProvider, error) {
+func (g *AgentGateway) ResolveRoute(ctx context.Context, r *http.Request) (*routepkg.LLMRoute, error) {
+	cfg, err := g.Match(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.ID == "" || cfg.Kind != routecore.RouteKindLLM {
+		return nil, nil
+	}
+
+	routeResolver := g.LLMRouteResolver()
+	if routeResolver == nil {
+		return nil, statuserr.New(http.StatusServiceUnavailable, "route resolver is not configured")
+	}
+	route, err := routeResolver.Get(ctx, cfg.ID)
+	if err != nil {
+		return nil, statuserr.New(http.StatusInternalServerError, fmt.Sprintf("get route %q: %v", cfg.ID, err))
+	}
+	if err := route.ValidateDefinition(); err != nil {
+		return nil, statuserr.New(http.StatusServiceUnavailable, err.Error())
+	}
+	if route.Disabled {
+		return nil, statuserr.New(http.StatusForbidden, fmt.Sprintf("route %q is disabled", route.ID))
+	}
+	return route, nil
+}
+
+func (g *AgentGateway) RegisterStaticMCPRoute(route mcproutepkg.MCPRoute) error {
+	route.Normalize()
+	cfg, err := route.ToConfig()
+	if err != nil {
+		return err
+	}
+
+	g.mu.RLock()
+	manager := g.mcpRouteConfigManager
+	g.mu.RUnlock()
+	if manager == nil {
+		return statuserr.New(http.StatusServiceUnavailable, "mcp route resolver is not configured")
+	}
+	manager.UpsertStaticRoute(cfg)
+	return nil
+}
+
+func (g *AgentGateway) NewRoutedProvider(route *routepkg.LLMRoute, requestRequirements routepkg.RequestRequirements) (*RoutedProvider, error) {
 	resolver := g.providerResolver()
 	if resolver == nil {
 		return nil, statuserr.New(http.StatusServiceUnavailable, "provider resolver is not configured")
 	}
-	route.Normalize()
+	if route == nil {
+		return nil, statuserr.New(http.StatusServiceUnavailable, "route is not configured")
+	}
 	return &RoutedProvider{
 		route:               route,
 		requestRequirements: requestRequirements,
@@ -196,7 +281,7 @@ func (g *AgentGateway) NewRoutedProvider(route routepkg.AgentRoute, requestRequi
 	}, nil
 }
 
-func (g *AgentGateway) ResolveVirtualKey(ctx context.Context, httpReq *http.Request, r routepkg.AgentRoute) (*virtualkeypkg.VirtualKey, error) {
+func (g *AgentGateway) ResolveVirtualKey(ctx context.Context, httpReq *http.Request, r routecore.AgentRouteConfig) (*virtualkeypkg.VirtualKey, error) {
 	rawKey := virtualkeypkg.ExtractAPIKey(httpReq)
 	if rawKey == "" {
 		if r.AuthPolicy.RequireVirtualKey {
@@ -232,10 +317,10 @@ func (g *AgentGateway) configureConfigStoreBackend(configStoreBackend configstor
 	g.configStoreBackend = configStoreBackend
 }
 
-func (g *AgentGateway) configureAgentRouteManager(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend, staticRoutes []routepkg.AgentRoute) error {
+func (g *AgentGateway) configureRouteResolver(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend, staticRoutes []routepkg.LLMRoute) error {
 	_ = ctx
-	if g.routeManager != nil {
-		return fmt.Errorf("route manager is not nil")
+	if g.routeConfigManager != nil || g.routeResolver != nil {
+		return fmt.Errorf("route resolver is already configured")
 	}
 
 	var routeStore configstore.ConfigStore
@@ -246,10 +331,57 @@ func (g *AgentGateway) configureAgentRouteManager(ctx context.Context, configSto
 			return fmt.Errorf("get route store: %w", err)
 		}
 	}
-	g.routeManager = routepkg.NewAgentRouteManager(routeStore)
-	g.routeManager.InitStaticRoutes(staticRoutes)
+	g.routeConfigManager = routecore.NewAgentRouteConfigManager(routeStore)
+	g.routeConfigManager.InitStaticRoutes(llmRoutesToConfigs(staticRoutes))
+	g.routeResolver = routepkg.NewLLMRouteResolver(g.routeConfigManager)
 
 	return nil
+}
+
+func (g *AgentGateway) configureMCPRouteResolver(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend) error {
+	_ = ctx
+	if g.mcpRouteConfigManager != nil || g.mcpRouteResolver != nil {
+		return fmt.Errorf("mcp route resolver is already configured")
+	}
+
+	var routeStore configstore.ConfigStore
+	if configStoreBackend != nil {
+		var err error
+		routeStore, err = configStoreBackend.Get(schema.StoreMCPRoutes)
+		if err != nil {
+			return fmt.Errorf("get mcp route store: %w", err)
+		}
+	}
+	g.mcpRouteConfigManager = routecore.NewAgentRouteConfigManager(routeStore)
+	g.mcpRouteResolver = mcproutepkg.NewMCPRouteResolver(g.mcpRouteConfigManager)
+	return nil
+}
+
+func (g *AgentGateway) configureMCPServiceManager(configStoreBackend configstore.ConfigStoreBackend) error {
+	if g.mcpServiceManager != nil {
+		return nil
+	}
+	if configStoreBackend == nil {
+		return nil
+	}
+	store, err := configStoreBackend.Get(schema.StoreMCPServices)
+	if err != nil {
+		return err
+	}
+	g.mcpServiceManager = mcpservice.NewManager(store)
+	return nil
+}
+
+func llmRoutesToConfigs(routes []routepkg.LLMRoute) []routecore.AgentRouteConfig {
+	out := make([]routecore.AgentRouteConfig, 0, len(routes))
+	for _, route := range routes {
+		cfg, err := route.ToConfig()
+		if err != nil || cfg.ID == "" {
+			continue
+		}
+		out = append(out, cfg)
+	}
+	return out
 }
 
 func (g *AgentGateway) configureVirtualKeyManager(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend, staticVirtualKeys []virtualkeypkg.VirtualKey) error {

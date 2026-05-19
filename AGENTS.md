@@ -7,12 +7,12 @@ The current primary LLM path is:
 
 1. `agent_gateway` app loads providers, routes, virtual keys, credentials, and CLI auth state
 2. `agent_route_dispatcher` matches an incoming HTTP request to a route
-3. the route's `llm_api` selects the protocol adapter (`openai` or `anthropic`)
+3. the route's `protocol` selects the protocol adapter (`openai` or `anthropic`)
 4. the gateway validates the VirtualKey
 5. in logical-model routes, the model catalog resolves the logical model to one concrete `(provider_id, upstream_model)` binding
 6. the selected provider executes `Generate` or `Stream`
 
-MCP is also active now through `agent_mcp_dispatcher`, `pkg/gateway/mcproute`, `pkg/mcp/service`, and MCP Admin APIs. Memory, agent, and metrics areas still exist as earlier-stage subsystems.
+MCP is also active now through `agent_route_dispatcher` with MCP enabled, `pkg/gateway/mcproute`, `pkg/mcp/service`, and MCP Admin APIs. Memory, agent, and metrics areas still exist as earlier-stage subsystems.
 
 ## Change Policy
 
@@ -78,26 +78,14 @@ Responsibilities:
 Responsibilities:
 
 - resolve the matching `AgentRoute`
-- select the route's `llm_api`
+- select the route's `protocol`
 - rewrite the request path by removing the route `path_prefix`
 - validate the VirtualKey
 - prepare the provider request payload
 - resolve the logical model or direct provider target
 - rewrite the provider-facing request model when logical-model routing is used
-- invoke the selected protocol handler
-
-### MCP HTTP middleware
-
-- Module ID: `http.handlers.agent_mcp_dispatcher`
-- Package: `caddy/mcpdispatcher/`
-- Main entry: `caddy/mcpdispatcher/module.go`
-
-Responsibilities:
-
-- resolve the matching `MCPRoute`
-- validate the VirtualKey when required
-- parse inbound MCP JSON-RPC requests and notifications
-- invoke `pkg/mcp/service` discovery and execution methods
+- invoke the selected LLM protocol handler
+- when `mcp` is configured, resolve `MCPRoute` requests, parse MCP JSON-RPC, and invoke `pkg/mcp/service`
 - track in-flight MCP requests and progress through the shared runtime registry
 
 ### Protocol handler modules
@@ -175,7 +163,7 @@ Static config restriction:
 - Caddyfile routes and standalone `--static-config` bundle routes only support direct-provider mode
 - logical-model routes remain supported through the Admin API and config-store-backed bundle workflows
 
-The route model uses `llm_api` and `require_virtual_key`. Do not reintroduce the old `local API key` naming in new code or docs.
+The route model uses `protocol` and `require_virtual_key`. Do not reintroduce the old `local API key` naming in new code or docs.
 
 ### `pkg/gateway/modelcatalog/`
 
@@ -308,7 +296,7 @@ Current persisted backend:
 HTTP request
   -> http.handlers.agent_route_dispatcher
   -> AgentGateway.ResolveRoute(...)
-  -> pick route.llm_api
+  -> pick route.protocol
   -> rewrite path using route.match.path_prefix
   -> AgentGateway.ResolveVirtualKey(...)
   -> protocol handler PrepareLLMApiRequest(...)
@@ -341,7 +329,7 @@ Minimal example:
         }
 
         route openai-chat {
-            llm_api openai
+            protocol openai
             path_prefix /
             require_virtual_key
             target provider openai-main
@@ -353,6 +341,7 @@ http://127.0.0.1:8080 {
     agent_route_dispatcher {
         llm_api openai
         llm_api anthropic
+        mcp
     }
 }
 ```
@@ -360,7 +349,8 @@ http://127.0.0.1:8080 {
 Important current directives:
 
 - providers use `provider_type <name>`
-- routes use `llm_api <openai|anthropic>`
+- LLM routes use `protocol <openai|anthropic>` and MCP routes use `protocol mcp`
+- `agent_route_dispatcher` uses `llm_api <name>` for LLM protocol handlers and `mcp` to enable MCP protocol handling
 - auth uses `virtualkey`, not `local_api_key`
 
 ## Admin API Notes

@@ -45,25 +45,27 @@ func (h *nextHandler) ServeHTTP(w http.ResponseWriter, _ *http.Request) error {
 	return nil
 }
 
-func TestHandlerDefersVirtualKeyUntilLLMApiMatch(t *testing.T) {
+func TestHandlerRequiresVirtualKeyBeforeLLMApiMatch(t *testing.T) {
 	gw := gateway.NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
-		StaticRoutes: []routepkg.AgentRoute{{
-			ID:     "broad-route",
-			LLMAPI: "stub",
-			Match:  routepkg.RouteMatch{PathPrefix: "/"},
+		StaticRoutes: []routepkg.LLMRoute{{
+			AgentRouteConfig: routepkg.AgentRouteConfig{
+				ID:          "broad-route",
+				Protocol:    routepkg.RouteProtocol("stub"),
+				MatchPolicy: routepkg.RouteMatchPolicy{PathPrefix: "/"},
+				AuthPolicy:  routepkg.RouteAuthPolicy{RequireVirtualKey: true},
+			},
 			TargetPolicy: &routepkg.RouteDirectProviderPolicy{
 				ProviderTarget: routepkg.DirectProviderTarget{
 					ProviderID: "openai",
 				},
 			},
-			AuthPolicy: routepkg.RouteAuthPolicy{RequireVirtualKey: true},
 		}},
 	}); err != nil {
 		t.Fatalf("Bootstrap returned error: %v", err)
 	}
 
-	handler := NewHandler(gw, map[string]LLMApiHandler{"stub": nonMatchingLLMApiHandler{}}, nil)
+	handler := NewHandler(gw, map[string]LLMApiHandler{"stub": nonMatchingLLMApiHandler{}}, nil, HandlerOptions{})
 	next := &nextHandler{}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -71,11 +73,11 @@ func TestHandlerDefersVirtualKeyUntilLLMApiMatch(t *testing.T) {
 	if err := handler.Dispatch(rec, req, next); err != nil {
 		t.Fatalf("Dispatch returned error: %v", err)
 	}
-	if !next.called {
-		t.Fatal("next handler was not called")
+	if next.called {
+		t.Fatal("next handler should not be called when virtual key is required")
 	}
-	if rec.Code != http.StatusTeapot {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusTeapot)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
 }
 
@@ -88,5 +90,12 @@ func TestRewriteRoutePathStripsMatchedPrefix(t *testing.T) {
 	}
 	if req.URL.Path != "/tenant/v1/chat/completions" {
 		t.Fatalf("original path mutated to %q", req.URL.Path)
+	}
+}
+
+func TestHandlerValidateAllowsMCPOnly(t *testing.T) {
+	handler := NewHandler(nil, nil, nil, HandlerOptions{EnableMCP: true})
+	if err := handler.Validate(); err != nil {
+		t.Fatalf("Validate returned error: %v", err)
 	}
 }

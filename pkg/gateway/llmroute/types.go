@@ -6,7 +6,28 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 )
+
+type RouteKind = routecore.RouteKind
+
+const (
+	RouteKindLLM = routecore.RouteKindLLM
+	RouteKindMCP = routecore.RouteKindMCP
+)
+
+type RouteProtocol = routecore.RouteProtocol
+
+const (
+	RouteProtocolOpenAI    = routecore.RouteProtocolOpenAI
+	RouteProtocolAnthropic = routecore.RouteProtocolAnthropic
+	RouteProtocolMCP       = routecore.RouteProtocolMCP
+)
+
+type AgentRouteConfig = routecore.AgentRouteConfig
+type RouteMatchPolicy = routecore.RouteMatchPolicy
+type RouteAuthPolicy = routecore.RouteAuthPolicy
 
 type RouteTargetPolicyKind string
 
@@ -77,28 +98,25 @@ type RouteDirectProviderPolicy struct {
 	ProviderTarget DirectProviderTarget `json:"provider_target,omitempty"`
 }
 
-// DecodeStoredRoute decodes a persisted route and fills missing runtime defaults.
+// DecodeStoredRoute decodes a persisted route config and converts it to a runtime route.
 func DecodeStoredRoute(data []byte) (any, error) {
-	var r AgentRoute
-	if err := json.Unmarshal(data, &r); err != nil {
-		return nil, fmt.Errorf("decode route: %w", err)
+	var cfg AgentRouteConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("decode route config: %w", err)
 	}
-	r.Normalize()
-	r.NormalizeTimestamps(time.Now().UTC())
-	return &r, nil
+	route, err := NewLLMRouteFromConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	route.Normalize()
+	route.NormalizeTimestamps(time.Now().UTC())
+	return &route, nil
 }
 
-// AgentRoute is the primary gateway route configuration exposed to agent clients.
-type AgentRoute struct {
-	ID           string            `json:"id"`
-	Description  string            `json:"description,omitempty"`
-	Disabled     bool              `json:"disabled"`
-	LLMAPI       string            `json:"llm_api"`
-	Match        RouteMatch        `json:"match"`
-	TargetPolicy RouteTargetPolicy `json:"target_policy"`
-	AuthPolicy   RouteAuthPolicy   `json:"auth_policy"`
-	CreatedAt    time.Time         `json:"created_at"`
-	UpdatedAt    time.Time         `json:"updated_at"`
+// LLMRoute is the runtime gateway route instance used by dispatch and resolution.
+type LLMRoute struct {
+	AgentRouteConfig
+	TargetPolicy RouteTargetPolicy
 }
 
 type RouteModelTarget struct {
@@ -125,18 +143,7 @@ type RouteFallbackPolicy struct {
 	MaxNum  int  `json:"max_num,omitempty"`
 }
 
-// RouteMatch contains transport-facing match fields for binding requests to a route.
-type RouteMatch struct {
-	Host       string   `json:"host,omitempty"`
-	PathPrefix string   `json:"path_prefix,omitempty"`
-	Methods    []string `json:"methods,omitempty"`
-}
-
-type RouteAuthPolicy struct {
-	RequireVirtualKey bool `json:"require_virtual_key"`
-}
-
-func (r *AgentRoute) NormalizeTimestamps(now time.Time) {
+func (r *LLMRoute) NormalizeTimestamps(now time.Time) {
 	if r == nil {
 		return
 	}
@@ -148,19 +155,52 @@ func (r *AgentRoute) NormalizeTimestamps(now time.Time) {
 	}
 }
 
-func (r *AgentRoute) UnmarshalJSON(data []byte) error {
-	type agentRouteJSON struct {
-		ID           string          `json:"id"`
-		Description  string          `json:"description,omitempty"`
-		Disabled     bool            `json:"disabled"`
-		LLMAPI       string          `json:"llm_api"`
-		Match        RouteMatch      `json:"match"`
-		TargetPolicy json.RawMessage `json:"target_policy"`
-		AuthPolicy   RouteAuthPolicy `json:"auth_policy"`
-		CreatedAt    time.Time       `json:"created_at"`
-		UpdatedAt    time.Time       `json:"updated_at"`
+func (r LLMRoute) MarshalJSON() ([]byte, error) {
+	type llmRouteJSON struct {
+		ID           string            `json:"id"`
+		Kind         RouteKind         `json:"kind,omitempty"`
+		Protocol     RouteProtocol     `json:"protocol,omitempty"`
+		Description  string            `json:"description,omitempty"`
+		Disabled     bool              `json:"disabled"`
+		MatchPolicy  RouteMatchPolicy  `json:"match_policy"`
+		TargetPolicy RouteTargetPolicy `json:"target_policy"`
+		AuthPolicy   RouteAuthPolicy   `json:"auth_policy"`
+		CreatedAt    time.Time         `json:"created_at"`
+		UpdatedAt    time.Time         `json:"updated_at"`
 	}
-	var raw agentRouteJSON
+	r.Normalize()
+	cfg, err := r.ToConfig()
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(llmRouteJSON{
+		ID:           cfg.ID,
+		Kind:         cfg.Kind,
+		Protocol:     cfg.Protocol,
+		Description:  cfg.Description,
+		Disabled:     cfg.Disabled,
+		MatchPolicy:  cfg.MatchPolicy,
+		TargetPolicy: r.TargetPolicy,
+		AuthPolicy:   cfg.AuthPolicy,
+		CreatedAt:    cfg.CreatedAt,
+		UpdatedAt:    cfg.UpdatedAt,
+	})
+}
+
+func (r *LLMRoute) UnmarshalJSON(data []byte) error {
+	type llmRouteJSON struct {
+		ID           string           `json:"id"`
+		Kind         RouteKind        `json:"kind,omitempty"`
+		Protocol     RouteProtocol    `json:"protocol,omitempty"`
+		Description  string           `json:"description,omitempty"`
+		Disabled     bool             `json:"disabled"`
+		MatchPolicy  RouteMatchPolicy `json:"match_policy"`
+		TargetPolicy json.RawMessage  `json:"target_policy"`
+		AuthPolicy   RouteAuthPolicy  `json:"auth_policy"`
+		CreatedAt    time.Time        `json:"created_at"`
+		UpdatedAt    time.Time        `json:"updated_at"`
+	}
+	var raw llmRouteJSON
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
@@ -168,16 +208,65 @@ func (r *AgentRoute) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	r.ID = raw.ID
-	r.Description = raw.Description
-	r.Disabled = raw.Disabled
-	r.LLMAPI = raw.LLMAPI
-	r.Match = raw.Match
+	r.AgentRouteConfig = AgentRouteConfig{
+		ID:          raw.ID,
+		Kind:        raw.Kind,
+		Protocol:    raw.Protocol,
+		Description: raw.Description,
+		Disabled:    raw.Disabled,
+		AuthPolicy:  raw.AuthPolicy,
+		MatchPolicy: raw.MatchPolicy,
+		CreatedAt:   raw.CreatedAt,
+		UpdatedAt:   raw.UpdatedAt,
+	}
 	r.TargetPolicy = policy
-	r.AuthPolicy = raw.AuthPolicy
-	r.CreatedAt = raw.CreatedAt
-	r.UpdatedAt = raw.UpdatedAt
 	return nil
+}
+
+func NewLLMRouteFromConfig(cfg AgentRouteConfig) (LLMRoute, error) {
+	cfg = normalizeConfigDefaults(cfg)
+	targetPolicy, err := unmarshalRouteTargetPolicy(cfg.TargetPolicy)
+	if err != nil {
+		return LLMRoute{}, fmt.Errorf("route %q decode target policy: %w", cfg.ID, err)
+	}
+	return LLMRoute{
+		AgentRouteConfig: cfg,
+		TargetPolicy:     targetPolicy,
+	}, nil
+}
+
+func (r LLMRoute) ToConfig() (AgentRouteConfig, error) {
+	r.Normalize()
+	targetPolicy, err := json.Marshal(r.TargetPolicy)
+	if err != nil {
+		return AgentRouteConfig{}, fmt.Errorf("route %q encode target policy: %w", r.ID, err)
+	}
+	cfg := r.AgentRouteConfig
+	cfg.ID = strings.TrimSpace(r.ID)
+	cfg.Kind = RouteKindLLM
+	cfg.Protocol = normalizeRouteProtocol(cfg.Protocol)
+	cfg.Description = strings.TrimSpace(r.Description)
+	cfg.Disabled = r.Disabled
+	cfg.AuthPolicy = r.AuthPolicy
+	cfg.MatchPolicy = r.MatchPolicy
+	cfg.TargetPolicy = targetPolicy
+	cfg.CreatedAt = r.CreatedAt
+	cfg.UpdatedAt = r.UpdatedAt
+	return cfg, nil
+}
+
+func normalizeConfigDefaults(cfg AgentRouteConfig) AgentRouteConfig {
+	cfg.ID = strings.TrimSpace(cfg.ID)
+	cfg.Protocol = normalizeRouteProtocol(cfg.Protocol)
+	cfg.Description = strings.TrimSpace(cfg.Description)
+	if cfg.Kind == "" {
+		cfg.Kind = RouteKindLLM
+	}
+	return cfg
+}
+
+func normalizeRouteProtocol(protocol RouteProtocol) RouteProtocol {
+	return RouteProtocol(strings.TrimSpace(string(protocol)))
 }
 
 func (p RouteLogicalModelTargetPolicy) MarshalJSON() ([]byte, error) {
@@ -269,142 +358,16 @@ func unmarshalRouteTargetPolicy(data []byte) (RouteTargetPolicy, error) {
 }
 
 // Normalize fills runtime defaults on a route value before it is used by the gateway.
-func (r *AgentRoute) Normalize() {
+func (r *LLMRoute) Normalize() {
+	if r == nil {
+		return
+	}
+	r.AgentRouteConfig = normalizeConfigDefaults(r.AgentRouteConfig)
 	if r.TargetPolicy != nil {
 		r.TargetPolicy.Normalize()
 	}
 }
 
-func (r AgentRoute) UsesLogicalModel() bool {
+func (r LLMRoute) UsesLogicalModel() bool {
 	return r.TargetPolicy != nil && r.TargetPolicy.PolicyKind() == RouteTargetPolicyKindLogicalModel
-}
-
-func (c *RouteTargetPolicyCommon) Normalize(defaultScopes []RouteCredentialScope) {
-	if c == nil {
-		return
-	}
-	if len(c.CredentialScopeOrderValue) == 0 {
-		c.CredentialScopeOrderValue = append([]RouteCredentialScope(nil), defaultScopes...)
-	}
-	if c.CredentialSelectorValue == "" {
-		c.CredentialSelectorValue = RouteCredentialSelectRoundRobin
-	}
-	if len(c.CredentialTypeOrderValue) == 0 {
-		c.CredentialTypeOrderValue = []RouteCredentialType{RouteCredentialTypeAPIKey, RouteCredentialTypeCLIAuthToken}
-	}
-}
-
-func (c RouteTargetPolicyCommon) CredentialSelector() RouteCredentialSelectStrategy {
-	return c.CredentialSelectorValue
-}
-
-func (c RouteTargetPolicyCommon) CredentialScopeOrder() []RouteCredentialScope {
-	return c.CredentialScopeOrderValue
-}
-
-func (c RouteTargetPolicyCommon) CredentialTypeOrder() []RouteCredentialType {
-	return c.CredentialTypeOrderValue
-}
-
-func (p *RouteDirectProviderPolicy) Normalize() {
-	if p == nil {
-		return
-	}
-	p.ProviderID = strings.TrimSpace(p.ProviderID)
-	p.ProviderTarget.ProviderID = strings.TrimSpace(p.ProviderTarget.ProviderID)
-	if p.ProviderID == "" && p.ProviderTarget.ProviderID != "" {
-		p.ProviderID = p.ProviderTarget.ProviderID
-	}
-	if p.ProviderTarget.ProviderID == "" && p.ProviderID != "" {
-		p.ProviderTarget.ProviderID = p.ProviderID
-	}
-	p.RouteTargetPolicyCommon.Normalize([]RouteCredentialScope{RouteCredentialScopeProviderID})
-}
-
-func (p *RouteLogicalModelTargetPolicy) Normalize() {
-	if p == nil {
-		return
-	}
-	p.DefaultModel = strings.TrimSpace(p.DefaultModel)
-	for i := range p.ModelTargets {
-		p.ModelTargets[i].Normalize()
-		hasDefaultCandidate := false
-		for j := range p.ModelTargets[i].Candidates {
-			p.ModelTargets[i].Candidates[j].ProviderID = strings.TrimSpace(p.ModelTargets[i].Candidates[j].ProviderID)
-			p.ModelTargets[i].Candidates[j].UpstreamModel = strings.TrimSpace(p.ModelTargets[i].Candidates[j].UpstreamModel)
-			hasDefaultCandidate = hasDefaultCandidate || p.ModelTargets[i].Candidates[j].Default
-		}
-		if hasDefaultCandidate && p.DefaultModel == "" {
-			p.DefaultModel = p.ModelTargets[i].Name
-		}
-	}
-	if p.ModelSelectorStrategy == "" {
-		p.ModelSelectorStrategy = RouteSelectionStrategyAuto
-	}
-	if !p.Fallback.Enabled && p.Fallback.MaxNum == 0 {
-		p.Fallback.Enabled = true
-		p.Fallback.MaxNum = 1
-	}
-	p.RouteTargetPolicyCommon.Normalize([]RouteCredentialScope{RouteCredentialScopeModelCustom, RouteCredentialScopeProviderID})
-}
-
-func (p *RouteDirectProviderPolicy) PolicyKind() RouteTargetPolicyKind {
-	return RouteTargetPolicyKindDirectProvider
-}
-
-func (p *RouteLogicalModelTargetPolicy) PolicyKind() RouteTargetPolicyKind {
-	return RouteTargetPolicyKindLogicalModel
-}
-
-func (p *RouteDirectProviderPolicy) FallbackPolicy() RouteFallbackPolicy {
-	return RouteFallbackPolicy{}
-}
-
-func (p *RouteLogicalModelTargetPolicy) FallbackPolicy() RouteFallbackPolicy {
-	return p.Fallback
-}
-
-func (p *RouteDirectProviderPolicy) ProviderIDs() []string {
-	p.Normalize()
-	if p.ProviderID == "" {
-		return nil
-	}
-	return []string{p.ProviderID}
-}
-
-func (p *RouteLogicalModelTargetPolicy) ProviderIDs() []string {
-	p.Normalize()
-	ids := map[string]struct{}{}
-	for _, target := range p.ModelTargets {
-		for _, candidate := range target.Candidates {
-			if candidate.ProviderID == "" {
-				continue
-			}
-			ids[candidate.ProviderID] = struct{}{}
-		}
-	}
-	out := make([]string, 0, len(ids))
-	for id := range ids {
-		out = append(out, id)
-	}
-	return out
-}
-
-func DirectProviderPolicyOf(policy RouteTargetPolicy) (*RouteDirectProviderPolicy, bool) {
-	p, ok := policy.(*RouteDirectProviderPolicy)
-	return p, ok
-}
-
-func LogicalModelTargetPolicyOf(policy RouteTargetPolicy) (*RouteLogicalModelTargetPolicy, bool) {
-	p, ok := policy.(*RouteLogicalModelTargetPolicy)
-	return p, ok
-}
-
-func (t *RouteModelTarget) Normalize() {
-	if t == nil {
-		return
-	}
-	if t.Strategy == "" {
-		t.Strategy = RouteSelectionStrategyAuto
-	}
 }

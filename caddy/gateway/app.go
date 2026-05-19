@@ -32,7 +32,7 @@ type App struct {
 	// ConfigStore configures persistent admin/auth state storage.
 	ConfigStoreRaw caddy.ModuleMap `json:"config_store,omitempty" caddy:"namespace=agent_gateway.config_store_backends"`
 	// Routes lists statically configured gateway routes from the Caddyfile app block.
-	Routes []routepkg.AgentRoute `json:"routes,omitempty"`
+	Routes []routepkg.LLMRoute `json:"routes,omitempty"`
 	// Models lists statically configured managed concrete models derived from the Caddyfile app block.
 	Models []modelcatalog.ManagedModel `json:"models,omitempty"`
 

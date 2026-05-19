@@ -18,7 +18,7 @@ The goal is to answer one design question clearly:
 
 The recommended answer is:
 
-- use a dedicated inbound Caddy handler for MCP gateway traffic
+- use the main inbound gateway dispatcher with MCP protocol handling enabled
 - use protocol-aware forward MCP client transports for upstream access
 - do not make `reverse_proxy` the primary MCP execution model
 
@@ -28,7 +28,7 @@ The recommended answer is:
 
 #### Inbound MCP Gateway Surface
 
-- dedicated inbound Caddy handler: `http.handlers.agent_mcp_dispatcher`
+- MCP handling in `http.handlers.agent_route_dispatcher` when `mcp` is enabled
 - MCP route model in `pkg/gateway/mcproute`
 - route resolution for MCP requests through the shared runtime
 - VirtualKey validation for MCP routes when required
@@ -221,15 +221,15 @@ If the core design starts from Caddy reverse proxy, `stdio` becomes an awkward s
 
 ### 6.1 Inbound Layer
 
-Add a dedicated Caddy HTTP handler module.
+Use the main Caddy HTTP handler module and enable MCP handling explicitly.
 
-Recommended module ID:
+Current module ID:
 
-- `http.handlers.agent_mcp_dispatcher`
+- `http.handlers.agent_route_dispatcher`
 
-Recommended package:
+Current Caddyfile option:
 
-- `caddy/mcpdispatcher/`
+- `mcp`
 
 Responsibilities:
 
@@ -238,11 +238,7 @@ Responsibilities:
 - attach request-scoped gateway metadata
 - hand off to runtime MCP gateway service
 
-This module should be independent from `http.handlers.agent_route_dispatcher`.
-
-Reason:
-
-- LLM route dispatch and MCP sessions have different runtime semantics
+MCP request handling stays inside the shared dispatcher runtime, while LLM protocol adapters remain separate `llm_api` modules.
 
 ### 6.2 Runtime Service Layer
 
@@ -318,7 +314,7 @@ Recommended client-facing request flow:
 
 ```text
 HTTP request
-  -> http.handlers.agent_mcp_dispatcher
+  -> http.handlers.agent_route_dispatcher with mcp enabled
   -> gateway auth and VirtualKey validation
   -> pkg/mcp/service resolves upstream MCP client definition
   -> pkg/mcp/service loads or opens upstream MCP session
@@ -505,7 +501,7 @@ Defer:
 
 Recommended first implementation units:
 
-- `caddy/mcpdispatcher/module.go`
+- `caddy/dispatcher/` with `agent_route_dispatcher { mcp }`
 - `pkg/mcp/service/`
 - `pkg/mcp/transport/streamablehttp.go`
 - `pkg/gateway/mcproute/`

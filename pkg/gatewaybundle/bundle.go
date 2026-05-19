@@ -30,7 +30,7 @@ type GatewayBundle struct {
 	ProviderTypes         []ProviderTypeSetting       `json:"providerTypes,omitempty"`
 	Providers             []provider.ProviderConfig   `json:"providers,omitempty"`
 	ManagedModels         []modelcatalog.ManagedModel `json:"managedModels,omitempty"`
-	Routes                []routepkg.AgentRoute       `json:"routes,omitempty"`
+	Routes                []routepkg.LLMRoute         `json:"routes,omitempty"`
 	VirtualKeys           []BundleVirtualKey          `json:"virtualKeys,omitempty"`
 	CLIAuthAuthenticators []CLIAuthAuthenticator      `json:"cliAuthAuthenticators,omitempty"`
 }

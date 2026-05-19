@@ -16,7 +16,7 @@ import (
 )
 
 type RoutedProvider struct {
-	route               routepkg.AgentRoute
+	route               *routepkg.LLMRoute
 	requestRequirements routepkg.RequestRequirements
 	providerResolver    ProviderResolver
 	providerConfigs     routepkg.ProviderConfigResolver
@@ -130,6 +130,9 @@ func (p *RoutedProvider) Config() provider.ProviderConfig {
 }
 
 func (p *RoutedProvider) executeWithFallback(ctx context.Context, reqModel string, call func(context.Context, *resolvedAttempt) error) error {
+	if p.route == nil {
+		return statuserr.New(http.StatusServiceUnavailable, "route is not configured")
+	}
 	state := &executionState{
 		triedCandidates:          map[string]struct{}{},
 		triedCredentials:         map[string]struct{}{},

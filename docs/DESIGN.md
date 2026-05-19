@@ -28,12 +28,12 @@ Client
   |
   v
 HTTP handlers
-  - Caddy adapters: http.handlers.agent_route_dispatcher, http.handlers.agent_mcp_dispatcher, http.handlers.agent_gateway_admin
+  - Caddy adapters: http.handlers.agent_route_dispatcher, http.handlers.agent_gateway_admin
   - Standalone server: net/http handlers assembled by standalone/server
 Dispatcher / protocol modules
   - agent_route_dispatcher.llm_apis.openai
   - agent_route_dispatcher.llm_apis.anthropic
-  - agent_mcp_dispatcher
+  - agent_route_dispatcher with MCP enabled
   |
   v
 Shared gateway runtime
@@ -89,15 +89,18 @@ The `caddy/dispatcher/` package registers the `agent_route_dispatcher` Caddyfile
 agent_route_dispatcher {
     llm_api openai
     llm_api anthropic
+    mcp
 }
 ```
 
-The HTTP handler is `http.handlers.agent_route_dispatcher`, and it loads protocol handlers from:
+The HTTP handler is `http.handlers.agent_route_dispatcher`, and it loads LLM protocol handlers from:
 
 - `agent_route_dispatcher.llm_apis.openai`
 - `agent_route_dispatcher.llm_apis.anthropic`
 
-The runtime dispatcher in `pkg/dispatcher` does not define route policy inline. Instead, it asks the shared gateway route manager to match the HTTP request against `AgentRoute.match`, strips the matched route path prefix, selects the route's `llm_api`, and resolves the matched route and target provider.
+MCP handling is enabled with the dispatcher-local `mcp` option instead of a separate HTTP handler module.
+
+The runtime dispatcher in `pkg/dispatcher` does not define route policy inline. Instead, it asks the shared gateway route manager to match the HTTP request against `AgentRoute.match`, strips the matched route path prefix, selects the route's `protocol`, and resolves the matched route and target provider.
 
 This separation is deliberate:
 
@@ -281,7 +284,7 @@ Important fields include:
 
 - `ID`
 - `Match`
-- `LLMAPI`
+- `Protocol`
 - `TargetPolicy`
 - `Policy`
 - timestamps and disabled state
@@ -324,7 +327,7 @@ HTTP request
   -> agent_route_dispatcher
   -> match AgentRoute by host/path prefix/method
   -> strip matched path prefix
-  -> select route llm_api protocol handler
+  -> select route protocol handler
   -> validate virtual key if required
   -> resolve target provider
   -> convert request into provider.Chat/StreamChat input
@@ -340,7 +343,7 @@ The MCP request path is now:
 
 ```text
 HTTP request
-  -> agent_mcp_dispatcher
+  -> agent_route_dispatcher with mcp enabled
   -> match MCPRoute by host/path prefix/method
   -> validate virtual key if required
   -> decode JSON-RPC request

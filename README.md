@@ -18,14 +18,13 @@ Go module path:
 
 - `github.com/agent-guide/agent-gateway`
 
-The LLM path is still the most mature runtime, but MCP is now also active: the repository includes an MCP dispatcher, MCP route and service management, upstream discovery and execution, and admin runtime inspection for in-flight MCP requests.
+The LLM path is still the most mature runtime, but MCP is now also active: the repository includes MCP handling in the main dispatcher, MCP route and service management, upstream discovery and execution, and admin runtime inspection for in-flight MCP requests.
 
 ## Current Modules
 
 - Caddy app: `agent_gateway`
 - HTTP handlers:
   - `agent_route_dispatcher`
-  - `agent_mcp_dispatcher`
   - `agent_gateway_admin`
 - Dispatcher LLM APIs:
   - `openai`
@@ -254,7 +253,7 @@ Create a minimal `Caddyfile`:
 		}
 
 		route openai-chat {
-			llm_api openai
+			protocol openai
 			path_prefix /
 			require_virtual_key
 			target provider openai-main
@@ -266,6 +265,7 @@ http://127.0.0.1:8080 {
 	agent_route_dispatcher {
 		llm_api openai
 		llm_api anthropic
+		mcp
 	}
 }
 ```
@@ -414,7 +414,7 @@ Static route syntax:
 
 ```caddy
 route openai-chat {
-	llm_api openai
+	protocol openai
 	host api.example.com
 	path_prefix /v1
 	method POST
@@ -425,7 +425,7 @@ route openai-chat {
 
 Supported route subdirectives:
 
-- `llm_api <openai|anthropic>`
+- `protocol <openai|anthropic>`
 - `host <host>`
 - `path_prefix <prefix>`
 - `method <method> [more-methods...]`
@@ -444,7 +444,7 @@ If a route sets `require_virtual_key`, create virtual keys through the Admin API
 
 1. `agent_route_dispatcher` receives the HTTP request.
 2. The dispatcher finds the best matching route by host, path prefix, and method.
-3. The matched route's `llm_api` selects the protocol handler.
+3. The matched route's `protocol` selects the protocol handler.
 4. The route manager lists static routes plus persisted routes from SQLite, caching persisted routes as it loads them.
 5. If required, the virtual key is extracted from `x-api-key` or `Authorization: Bearer`.
 6. The protocol handler converts the request into the internal provider request.
@@ -556,7 +556,7 @@ curl -X POST http://localhost:8019/admin/routes \
   -H 'Content-Type: application/json' \
   -d '{
     "id": "chat-prod",
-    "llm_api": "openai",
+    "protocol": "openai",
     "match": {
       "path_prefix": "/",
       "methods": ["POST"]
@@ -572,7 +572,7 @@ curl -X POST http://localhost:8019/admin/routes \
   }'
 ```
 
-`llm_api` and `target_policy` are required.
+`protocol` and `target_policy` are required.
 
 `created_at` and `updated_at` are server-managed fields. Omit them from `POST /admin/routes` and `PUT /admin/routes/{id}` request bodies.
 

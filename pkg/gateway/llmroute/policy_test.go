@@ -39,8 +39,8 @@ func (r testProviderConfigResolver) GetConfig(_ context.Context, providerID stri
 }
 
 func TestAgentRouteResolveTargetUsesRouteDefaultModel(t *testing.T) {
-	route := AgentRoute{
-		ID: "chat-prod",
+	route := LLMRoute{
+		AgentRouteConfig: AgentRouteConfig{ID: "chat-prod"},
 		TargetPolicy: &RouteLogicalModelTargetPolicy{
 			DefaultModel: "chat-fast",
 			ModelTargets: []RouteModelTarget{{
@@ -93,8 +93,8 @@ func TestAgentRouteResolveTargetUsesRouteDefaultModel(t *testing.T) {
 }
 
 func TestAgentRouteResolveTargetRejectsUnknownModel(t *testing.T) {
-	route := AgentRoute{
-		ID: "chat-prod",
+	route := LLMRoute{
+		AgentRouteConfig: AgentRouteConfig{ID: "chat-prod"},
 		TargetPolicy: &RouteLogicalModelTargetPolicy{
 			ModelTargets: []RouteModelTarget{{Name: "chat-fast"}},
 		},
@@ -111,8 +111,8 @@ func TestAgentRouteResolveTargetRejectsUnknownModel(t *testing.T) {
 }
 
 func TestAgentRouteResolveTargetUsesDirectProvider(t *testing.T) {
-	route := AgentRoute{
-		ID: "chat-prod",
+	route := LLMRoute{
+		AgentRouteConfig: AgentRouteConfig{ID: "chat-prod"},
 		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
 		},
@@ -159,8 +159,8 @@ func TestAgentRouteResolveTargetUsesDirectProvider(t *testing.T) {
 }
 
 func TestAgentRouteResolveTargetUsesDirectProviderWhenModelNameIsPresent(t *testing.T) {
-	route := AgentRoute{
-		ID: "chat-prod",
+	route := LLMRoute{
+		AgentRouteConfig: AgentRouteConfig{ID: "chat-prod"},
 		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
 		},

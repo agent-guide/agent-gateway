@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	modelcatalog "github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
+	routecore "github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	credmodel "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/model"
@@ -86,7 +86,7 @@ var RouteSchema = configstore.StoreSchema{
 	Timestamped:       true,
 	Codec: typedJSONCodec{
 		kind:     "route",
-		decode:   routepkg.DecodeStoredRoute,
+		decode:   routecore.DecodeStoredAgentRouteConfig,
 		validate: validateRouteObject,
 	},
 	Metadata: configstore.MetadataFuncs{
@@ -180,12 +180,12 @@ var MCPRouteSchema = configstore.StoreSchema{
 	Timestamped:       true,
 	Codec: typedJSONCodec{
 		kind:     "mcp route",
-		decode:   mcproute.DecodeStoredMCPRoute,
+		decode:   routecore.DecodeStoredAgentRouteConfig,
 		validate: validateMCPRouteObject,
 	},
 	Metadata: configstore.MetadataFuncs{
 		PrimaryKeyFunc: primaryKeyFromStringFields("ID"),
-		TagFunc:        optionalTagFromStringField("ServiceID"),
+		TagFunc:        routeTagValue,
 	},
 }
 
@@ -252,7 +252,7 @@ func validateCredentialObject(obj any) error {
 
 func validateRouteObject(obj any) error {
 	switch unwrapConfigObject(obj).(type) {
-	case routepkg.AgentRoute, *routepkg.AgentRoute:
+	case routecore.AgentRouteConfig, *routecore.AgentRouteConfig:
 		return nil
 	default:
 		return fmt.Errorf("route object has unexpected type %T", obj)
@@ -293,6 +293,8 @@ func validateMCPServiceObject(obj any) error {
 
 func validateMCPRouteObject(obj any) error {
 	switch unwrapConfigObject(obj).(type) {
+	case routecore.AgentRouteConfig, *routecore.AgentRouteConfig:
+		return nil
 	case mcproute.MCPRoute, *mcproute.MCPRoute:
 		return nil
 	default:

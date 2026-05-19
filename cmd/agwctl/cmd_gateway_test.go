@@ -265,7 +265,7 @@ providers:
     provider_type: openai
 routes:
   - id: chat-prod
-    llm_api: openai
+    protocol: openai
     match:
       path_prefix: /
       methods:
@@ -306,7 +306,7 @@ providers:
     provider_type: codex
 routes:
   - id: code-codex
-    llm_api: openai
+    protocol: openai
     match:
       path_prefix: /codecodex
       methods:
@@ -726,8 +726,8 @@ func TestGatewayExportCommand(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
-						"id":      "chat-prod",
-						"llm_api": "openai",
+						"id":       "chat-prod",
+						"protocol": "openai",
 						"match": map[string]any{
 							"path_prefix": "/",
 							"methods":     []string{"POST"},
@@ -843,8 +843,8 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
-						"id":      "chat-prod",
-						"llm_api": "openai",
+						"id":       "chat-prod",
+						"protocol": "openai",
 						"match": map[string]any{
 							"path_prefix": "/",
 							"methods":     []string{"POST"},

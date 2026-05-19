@@ -5,8 +5,13 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
+	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
+	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
 	"go.uber.org/zap"
 )
 
@@ -20,27 +25,34 @@ type Handler struct {
 	apiHandlers map[string]LLMApiHandler
 	gateway     *gateway.AgentGateway
 	logger      *zap.Logger
+	mcpEnabled  bool
+}
+
+type HandlerOptions struct {
+	EnableMCP bool
 }
 
 // NewHandler constructs a runtime dispatcher handler.
-func NewHandler(agentGateway *gateway.AgentGateway, apiHandlers map[string]LLMApiHandler, logger *zap.Logger) *Handler {
+func NewHandler(agentGateway *gateway.AgentGateway, apiHandlers map[string]LLMApiHandler, logger *zap.Logger, opts HandlerOptions) *Handler {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	if apiHandlers == nil {
 		apiHandlers = map[string]LLMApiHandler{}
 	}
-	return &Handler{
+	handler := &Handler{
 		apiHandlers: apiHandlers,
 		gateway:     agentGateway,
 		logger:      logger,
+		mcpEnabled:  opts.EnableMCP,
 	}
+	return handler
 }
 
-// Validate verifies the dispatcher has at least one configured LLM API handler.
+// Validate verifies the dispatcher has at least one configured ingress protocol handler.
 func (h *Handler) Validate() error {
-	if h == nil || len(h.apiHandlers) == 0 {
-		return fmt.Errorf("agent_route_dispatcher requires at least one llm_api")
+	if h == nil || (len(h.apiHandlers) == 0 && !h.mcpEnabled) {
+		return fmt.Errorf("agent_route_dispatcher requires at least one llm_api or mcp")
 	}
 	return nil
 }
@@ -58,28 +70,48 @@ func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request, next NextHand
 		return WriteLoggedError(loggerOrNop(h), ErrorContext{}, w, r, http.StatusServiceUnavailable, "agent gateway is not configured", fmt.Errorf("agent gateway is not configured"))
 	}
 
-	route, err := h.gateway.ResolveRoute(r.Context(), r)
+	cfg, err := h.gateway.Match(r.Context(), r)
 	if err != nil {
 		status := statuserr.StatusCode(err, http.StatusBadGateway)
 		return WriteLoggedError(h.logger, ErrorContext{}, w, r, status, "failed to resolve route", err)
 	}
-	if route.ID == "" {
+	if cfg.ID == "" {
 		return serveNextOrNotFound(next, w, r)
 	}
+	if cfg.Disabled {
+		return httpjson.Error(w, http.StatusForbidden, fmt.Sprintf("route %q is disabled", cfg.ID))
+	}
 
-	apiName := strings.TrimSpace(route.LLMAPI)
+	if _, err := h.gateway.ResolveVirtualKey(r.Context(), r, cfg); err != nil {
+		return WriteError(h.logger, "", cfg.ID, "", w, r, err, "resolve virtual key")
+	}
+
+	switch cfg.Kind {
+	case routecore.RouteKindLLM:
+		return h.dispatchLLM(w, r, next, cfg)
+	case routecore.RouteKindMCP:
+		return h.dispatchMCP(w, r, next, cfg)
+	default:
+		return WriteLoggedError(h.logger, ErrorContext{RouteID: cfg.ID, Protocol: string(cfg.Protocol)}, w, r, http.StatusServiceUnavailable, "route kind is not configured", fmt.Errorf("route %q kind %q is not configured", cfg.ID, cfg.Kind))
+	}
+}
+
+func (h *Handler) dispatchLLM(w http.ResponseWriter, r *http.Request, next NextHandler, cfg routecore.AgentRouteConfig) error {
+	route, err := h.resolveLLMRoute(r, cfg)
+	if err != nil {
+		status := statuserr.StatusCode(err, http.StatusBadGateway)
+		return WriteLoggedError(h.logger, ErrorContext{RouteID: cfg.ID, Protocol: string(cfg.Protocol)}, w, r, status, "failed to resolve llm route", err)
+	}
+
+	apiName := strings.TrimSpace(string(route.Protocol))
 	apiHandler := h.apiHandlers[apiName]
 	if apiHandler == nil {
-		return WriteLoggedError(h.logger, ErrorContext{RouteID: route.ID}, w, r, http.StatusServiceUnavailable, "route llm_api is not configured", fmt.Errorf("route %q llm_api %q is not configured", route.ID, apiName))
+		return WriteLoggedError(h.logger, ErrorContext{RouteID: route.ID, Protocol: apiName}, w, r, http.StatusServiceUnavailable, "route protocol is not configured", fmt.Errorf("route %q protocol %q is not configured", route.ID, apiName))
 	}
 
-	rewritten := RewriteRoutePath(r, route.Match.PathPrefix)
+	rewritten := RewriteRoutePath(r, route.MatchPolicy.PathPrefix)
 	if !apiHandler.MatchLLMApi(rewritten) {
 		return serveNextOrNotFound(next, w, r)
-	}
-
-	if _, err := h.gateway.ResolveVirtualKey(r.Context(), r, route); err != nil {
-		return WriteError(h.logger, apiHandler.Name(), route.ID, "", w, rewritten, err, "resolve virtual key")
 	}
 
 	prepared, requestRequirements, err := apiHandler.PrepareLLMApiRequest(rewritten)
@@ -100,6 +132,28 @@ func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request, next NextHand
 	}
 
 	return apiHandler.ServeLLMApi(w, rewritten, routedProvider, prepared)
+}
+
+func (h *Handler) resolveLLMRoute(r *http.Request, cfg routecore.AgentRouteConfig) (*routepkg.LLMRoute, error) {
+	if cfg.ID == "" || cfg.Kind != routecore.RouteKindLLM {
+		return nil, nil
+	}
+
+	routeResolver := h.gateway.LLMRouteResolver()
+	if routeResolver == nil {
+		return nil, statuserr.New(http.StatusServiceUnavailable, "route resolver is not configured")
+	}
+	route, err := routeResolver.Get(r.Context(), cfg.ID)
+	if err != nil {
+		return nil, statuserr.New(http.StatusInternalServerError, fmt.Sprintf("get route %q: %v", cfg.ID, err))
+	}
+	if err := route.ValidateDefinition(); err != nil {
+		return nil, statuserr.New(http.StatusServiceUnavailable, err.Error())
+	}
+	if route.Disabled {
+		return nil, statuserr.New(http.StatusForbidden, fmt.Sprintf("route %q is disabled", route.ID))
+	}
+	return route, nil
 }
 
 // RewriteRoutePath returns a cloned request with the matched route prefix stripped.
@@ -135,4 +189,28 @@ func loggerOrNop(h *Handler) *zap.Logger {
 		return h.logger
 	}
 	return zap.NewNop()
+}
+
+func (h *Handler) resolveMCPRoute(r *http.Request, cfg routecore.AgentRouteConfig) (*mcproute.MCPRoute, error) {
+	if cfg.ID == "" || cfg.Kind != routecore.RouteKindMCP {
+		return nil, nil
+	}
+
+	routeResolver := h.gateway.MCPRouteResolver()
+	if routeResolver == nil {
+		return nil, statuserr.New(http.StatusServiceUnavailable, "route resolver is not configured")
+	}
+
+	route, err := routeResolver.Get(r.Context(), cfg.ID)
+	if err != nil {
+		return nil, statuserr.New(http.StatusInternalServerError, fmt.Sprintf("get route %q: %v", cfg.ID, err))
+	}
+	return route, nil
+}
+
+func (h *Handler) mcpRuntimeRegistry() *mcpruntime.Registry {
+	if h == nil || h.gateway == nil {
+		return nil
+	}
+	return h.gateway.MCPRuntimeRegistry()
 }

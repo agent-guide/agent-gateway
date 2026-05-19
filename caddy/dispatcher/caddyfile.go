@@ -44,12 +44,17 @@ func (h *AgentRouteDispatcher) UnmarshalCaddyfile(d *caddyfile.Dispenser) error 
 				h.APIHandlersRaw = make(map[string]json.RawMessage)
 			}
 			h.APIHandlersRaw[apiName] = caddyconfig.JSON(mod.New(), nil)
+		case "mcp":
+			if d.NextArg() {
+				return d.ArgErr()
+			}
+			h.EnableMCP = true
 		default:
 			return d.Errf("unknown subdirective: %s", d.Val())
 		}
 	}
-	if len(h.APIHandlersRaw) == 0 {
-		return d.Err("agent_route_dispatcher requires at least one llm_api")
+	if len(h.APIHandlersRaw) == 0 && !h.EnableMCP {
+		return d.Err("agent_route_dispatcher requires at least one llm_api or mcp")
 	}
 	return nil
 }

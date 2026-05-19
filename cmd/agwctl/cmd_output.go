@@ -145,15 +145,15 @@ func printGatewayProvidersTable(items []adminclient.Provider) {
 }
 
 // printGatewayRoutesTable renders a list of RouteView items.
-// Fields: id, llm_api, path_prefix (from match), disabled, target, source.
+// Fields: id, protocol, path_prefix (from match), disabled, target, source.
 func printGatewayRoutesTable(items []adminclient.Route) {
-	headers := []string{"ID", "LLM-API", "PATH-PREFIX", "DISABLED", "TARGET", "SOURCE"}
+	headers := []string{"ID", "PROTOCOL", "PATH-PREFIX", "DISABLED", "TARGET", "SOURCE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
 		rows = append(rows, []string{
 			dash(item.ID),
-			dash(item.LLMAPI),
-			dash(item.Match.PathPrefix),
+			dash(string(item.Protocol)),
+			dash(item.MatchPolicy.PathPrefix),
 			boolStr(item.Disabled),
 			dash(extractRouteTargetID(item)),
 			dash(item.Source),

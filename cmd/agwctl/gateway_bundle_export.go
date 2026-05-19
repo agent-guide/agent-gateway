@@ -55,7 +55,7 @@ func runGatewayExport(ctx context.Context, path string) error {
 		bundle.ManagedModels = append(bundle.ManagedModels, item.ManagedModel)
 	}
 	for _, item := range routes {
-		bundle.Routes = append(bundle.Routes, item.AgentRoute)
+		bundle.Routes = append(bundle.Routes, item.LLMRoute)
 	}
 	for _, item := range virtualKeys {
 		bundle.VirtualKeys = append(bundle.VirtualKeys, gatewaybundle.BundleVirtualKeyFromRuntime(item.VirtualKey))
