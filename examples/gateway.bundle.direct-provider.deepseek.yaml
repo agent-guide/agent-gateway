@@ -7,7 +7,7 @@ providers:
     api_key: ${DEEPSEEK_API_KEY}
     default_model: deepseek-v4-pro
 
-routes:
+llmRoutes:
   - id: chat-deepseek
     llm_api: openai
     match:

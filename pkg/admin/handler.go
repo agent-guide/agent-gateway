@@ -145,5 +145,9 @@ func (h *Handler) mcpRouteResolver() (*mcproute.MCPRouteResolver, error) {
 	if h.sharedMCPRouteResolver != nil {
 		return h.sharedMCPRouteResolver, nil
 	}
-	return nil, configstore.ErrUnknownStoreName
+	manager := h.routeConfigManagerForRoutes()
+	if manager == nil {
+		return nil, configstore.ErrUnknownStoreName
+	}
+	return mcproute.NewMCPRouteResolver(manager), nil
 }

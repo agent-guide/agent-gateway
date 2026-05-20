@@ -64,7 +64,7 @@ var gatewayValidateCmd = &cobra.Command{
 					"provider_types":         len(bundle.ProviderTypes),
 					"providers":              len(bundle.Providers),
 					"managed_models":         len(bundle.ManagedModels),
-					"routes":                 len(bundle.Routes),
+					"llm_routes":             len(bundle.LLMRoutes),
 					"virtual_keys":           len(bundle.VirtualKeys),
 					"cliauth_authenticators": len(bundle.CLIAuthAuthenticators),
 				},
@@ -166,35 +166,35 @@ var gatewayProviderDisableCmd = &cobra.Command{
 	},
 }
 
-// ── gateway route ─────────────────────────────────────────────────────────────
+// ── gateway llm route ─────────────────────────────────────────────────────────
 
-var gatewayRouteCmd = &cobra.Command{
-	Use:   "route",
-	Short: "Manage gateway routes",
+var gatewayLLMRouteCmd = &cobra.Command{
+	Use:   "llm-route",
+	Short: "Manage gateway LLM routes",
 }
 
-var gatewayRouteListCmd = &cobra.Command{
+var gatewayLLMRouteListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List all routes",
+	Short: "List all LLM routes",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		items, err := newGatewayClient().ListRoutes(context.Background(), adminclient.RouteListOptions{})
+		items, err := newGatewayClient().ListLLMRoutes(context.Background(), adminclient.LLMRouteListOptions{})
 		if err != nil {
 			return err
 		}
 		if outputFormat == "json" {
 			return printJSON(items)
 		}
-		printGatewayRoutesTable(items)
+		printGatewayLLMRoutesTable(items)
 		return nil
 	},
 }
 
-var gatewayRouteGetCmd = &cobra.Command{
-	Use:   "get <route-id>",
-	Short: "Get one route",
+var gatewayLLMRouteGetCmd = &cobra.Command{
+	Use:   "get <llm-route-id>",
+	Short: "Get one LLM route",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		item, err := newGatewayClient().GetRoute(context.Background(), args[0])
+		item, err := newGatewayClient().GetLLMRoute(context.Background(), args[0])
 		if err != nil {
 			return err
 		}
@@ -202,12 +202,12 @@ var gatewayRouteGetCmd = &cobra.Command{
 	},
 }
 
-var gatewayRouteDeleteCmd = &cobra.Command{
-	Use:   "delete <route-id>",
-	Short: "Delete a route",
+var gatewayLLMRouteDeleteCmd = &cobra.Command{
+	Use:   "delete <llm-route-id>",
+	Short: "Delete an LLM route",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		resp, err := newGatewayClient().DeleteRoute(context.Background(), args[0])
+		resp, err := newGatewayClient().DeleteLLMRoute(context.Background(), args[0])
 		if err != nil {
 			return err
 		}
@@ -215,12 +215,12 @@ var gatewayRouteDeleteCmd = &cobra.Command{
 	},
 }
 
-var gatewayRouteEnableCmd = &cobra.Command{
-	Use:   "enable <route-id>",
-	Short: "Enable a route",
+var gatewayLLMRouteEnableCmd = &cobra.Command{
+	Use:   "enable <llm-route-id>",
+	Short: "Enable an LLM route",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		item, err := newGatewayClient().EnableRoute(context.Background(), args[0])
+		item, err := newGatewayClient().EnableLLMRoute(context.Background(), args[0])
 		if err != nil {
 			return err
 		}
@@ -228,12 +228,12 @@ var gatewayRouteEnableCmd = &cobra.Command{
 	},
 }
 
-var gatewayRouteDisableCmd = &cobra.Command{
-	Use:   "disable <route-id>",
-	Short: "Disable a route",
+var gatewayLLMRouteDisableCmd = &cobra.Command{
+	Use:   "disable <llm-route-id>",
+	Short: "Disable an LLM route",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		item, err := newGatewayClient().DisableRoute(context.Background(), args[0])
+		item, err := newGatewayClient().DisableLLMRoute(context.Background(), args[0])
 		if err != nil {
 			return err
 		}
@@ -646,12 +646,12 @@ func init() {
 		gatewayProviderEnableCmd,
 		gatewayProviderDisableCmd,
 	)
-	gatewayRouteCmd.AddCommand(
-		gatewayRouteListCmd,
-		gatewayRouteGetCmd,
-		gatewayRouteDeleteCmd,
-		gatewayRouteEnableCmd,
-		gatewayRouteDisableCmd,
+	gatewayLLMRouteCmd.AddCommand(
+		gatewayLLMRouteListCmd,
+		gatewayLLMRouteGetCmd,
+		gatewayLLMRouteDeleteCmd,
+		gatewayLLMRouteEnableCmd,
+		gatewayLLMRouteDisableCmd,
 	)
 	gatewayVirtualKeyCmd.AddCommand(
 		gatewayVirtualKeyListCmd,
@@ -699,7 +699,7 @@ func init() {
 		gatewayApplyCmd,
 		gatewayExportCmd,
 		gatewayProviderCmd,
-		gatewayRouteCmd,
+		gatewayLLMRouteCmd,
 		gatewayVirtualKeyCmd,
 		gatewayCredentialCmd,
 		gatewayProviderTypesCmd,

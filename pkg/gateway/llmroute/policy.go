@@ -288,7 +288,7 @@ type ProviderConfigResolver interface {
 	GetConfig(ctx context.Context, providerID string) (provider.ProviderConfig, error)
 }
 
-func (r LLMRoute) ResolveTarget(ctx context.Context, catalog ModelCatalogResolver, providers ProviderConfigResolver, req RequestRequirements) (*ResolvedTarget, error) {
+func (r LLMRouteConfig) ResolveTarget(ctx context.Context, catalog ModelCatalogResolver, providers ProviderConfigResolver, req RequestRequirements) (*ResolvedTarget, error) {
 	r.Normalize()
 	if catalog == nil {
 		return nil, statuserr.New(http.StatusServiceUnavailable, "model catalog is not configured")
@@ -300,6 +300,10 @@ func (r LLMRoute) ResolveTarget(ctx context.Context, catalog ModelCatalogResolve
 		return nil, statuserr.New(http.StatusBadGateway, fmt.Sprintf("route %q target policy is not configured", r.ID))
 	}
 	return r.TargetPolicy.ResolveTarget(ctx, r.ID, catalog, providers, req)
+}
+
+func (r LLMRoute) ResolveTarget(ctx context.Context, catalog ModelCatalogResolver, providers ProviderConfigResolver, req RequestRequirements) (*ResolvedTarget, error) {
+	return r.Config().ResolveTarget(ctx, catalog, providers, req)
 }
 
 type resolvedCandidate struct {

@@ -106,17 +106,17 @@ func TestCreateProvider(t *testing.T) {
 	}
 }
 
-func TestListRoutesIncludesQuery(t *testing.T) {
+func TestListLLMRoutesIncludesQuery(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/admin/routes" {
+		if r.URL.Path != "/admin/llm/routes" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		if got := r.URL.Query().Get("tag_prefix"); got != "prod-" {
 			t.Fatalf("unexpected tag_prefix: %q", got)
 		}
-		_ = json.NewEncoder(w).Encode(itemsResponse[Route]{Items: []Route{}})
+		_ = json.NewEncoder(w).Encode(itemsResponse[LLMRoute]{Items: []LLMRoute{}})
 	}))
 	defer srv.Close()
 
@@ -125,8 +125,8 @@ func TestListRoutesIncludesQuery(t *testing.T) {
 		Token:   "preset-token",
 	})
 
-	if _, err := client.ListRoutes(context.Background(), RouteListOptions{TagPrefix: "prod-"}); err != nil {
-		t.Fatalf("ListRoutes error: %v", err)
+	if _, err := client.ListLLMRoutes(context.Background(), LLMRouteListOptions{TagPrefix: "prod-"}); err != nil {
+		t.Fatalf("ListLLMRoutes error: %v", err)
 	}
 }
 

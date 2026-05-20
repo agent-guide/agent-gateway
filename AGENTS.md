@@ -114,7 +114,7 @@ Responsibilities:
 
 - session login with `POST /admin/auth/login`
 - CRUD for providers, routes, virtual keys, and credentials
-- CRUD for `mcp_services` and `mcp_routes`
+- CRUD for `mcp_services` and MCP routes
 - MCP discovery, execution, and dispatcher runtime inspection
 - enable or disable provider types and LLM API handler types
 - configure and trigger CLI auth authenticators
@@ -160,7 +160,7 @@ Current route modes:
 
 Static config restriction:
 
-- Caddyfile routes and standalone `--static-config` bundle routes only support direct-provider mode
+- Caddyfile routes and standalone `--static-config` bundle `llmRoutes` only support direct-provider mode
 - logical-model routes remain supported through the Admin API and config-store-backed bundle workflows
 
 The route model uses `protocol` and `require_virtual_key`. Do not reintroduce the old `local API key` naming in new code or docs.
@@ -176,13 +176,21 @@ Important types:
 
 ### `pkg/gateway/mcproute/`
 
-Defines the MCP route model used by static config, the Admin API, and runtime resolution.
+Defines the MCP route config expansion and runtime route model.
 
 Important types:
 
+- `MCPRouteConfig`
 - `MCPRoute`
 - `RouteMatch`
-- `AuthPolicy`
+- `RouteAuthPolicy`
+
+Current shape:
+
+- persisted/static MCP routes use `routecore.AgentRouteConfig`
+- `MCPRouteConfig` is the expanded config form used by admin and config-adjacent layers that need direct `service_id` access
+- `MCPRoute` is the runtime object created by `MCPRouteResolver` and used by dispatcher/runtime code
+- prefer `*MCPRoute` at runtime rather than copying `MCPRoute` values
 
 ### `pkg/gateway/virtualkey/`
 
@@ -281,7 +289,6 @@ Current store names:
 - `providers`
 - `credentials`
 - `routes`
-- `mcp_routes`
 - `mcp_services`
 - `virtual_keys`
 - `managed_models`
@@ -361,7 +368,7 @@ Implemented families:
 - `/admin/providers/...`
 - `/admin/provider_types/...`
 - `/admin/llm_api_handler_types`
-- `/admin/routes/...`
+- `/admin/llm/routes/...`
 - `/admin/virtual_keys/...`
 - `/admin/credentials/...`
 - `/admin/models/providers/{provider_id}/discovered`

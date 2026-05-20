@@ -1,90 +1,26 @@
 package admin
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	dispatcherpkg "github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"gorm.io/gorm"
 )
 
-const defaultRouteTag = ""
-
 type VirtualKeyView struct {
 	virtualkeypkg.VirtualKey
 	Source   string `json:"source"`
 	ReadOnly bool   `json:"read_only"`
-}
-
-type RouteView struct {
-	routepkg.LLMRoute
-	Source   string `json:"source"`
-	ReadOnly bool   `json:"read_only"`
-}
-
-func (v RouteView) MarshalJSON() ([]byte, error) {
-	cfg, err := v.LLMRoute.ToConfig()
-	if err != nil {
-		return nil, err
-	}
-	type routeViewJSON struct {
-		ID           string                     `json:"id"`
-		Kind         routepkg.RouteKind         `json:"kind,omitempty"`
-		Protocol     routepkg.RouteProtocol     `json:"protocol,omitempty"`
-		Description  string                     `json:"description,omitempty"`
-		Disabled     bool                       `json:"disabled"`
-		MatchPolicy  routepkg.RouteMatchPolicy  `json:"match_policy"`
-		TargetPolicy routepkg.RouteTargetPolicy `json:"target_policy"`
-		AuthPolicy   routepkg.RouteAuthPolicy   `json:"auth_policy"`
-		CreatedAt    time.Time                  `json:"created_at"`
-		UpdatedAt    time.Time                  `json:"updated_at"`
-		Source       string                     `json:"source"`
-		ReadOnly     bool                       `json:"read_only"`
-	}
-	return json.Marshal(routeViewJSON{
-		ID:           cfg.ID,
-		Kind:         cfg.Kind,
-		Protocol:     cfg.Protocol,
-		Description:  cfg.Description,
-		Disabled:     cfg.Disabled,
-		MatchPolicy:  cfg.MatchPolicy,
-		TargetPolicy: v.TargetPolicy,
-		AuthPolicy:   cfg.AuthPolicy,
-		CreatedAt:    cfg.CreatedAt,
-		UpdatedAt:    cfg.UpdatedAt,
-		Source:       v.Source,
-		ReadOnly:     v.ReadOnly,
-	})
-}
-
-func (v *RouteView) UnmarshalJSON(data []byte) error {
-	var route routepkg.LLMRoute
-	if err := json.Unmarshal(data, &route); err != nil {
-		return err
-	}
-	var meta struct {
-		Source   string `json:"source"`
-		ReadOnly bool   `json:"read_only"`
-	}
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return err
-	}
-	v.LLMRoute = route
-	v.Source = meta.Source
-	v.ReadOnly = meta.ReadOnly
-	return nil
 }
 
 type ProviderView struct {
@@ -144,13 +80,13 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodGet, Path: "/admin/models/managed/{provider_id}/{upstream_model}", Handler: h.handleGetManagedModel, RequireAuth: true},
 		{Method: http.MethodPut, Path: "/admin/models/managed/{provider_id}/{upstream_model}", Handler: h.handleUpdateManagedModel, RequireAuth: true},
 		{Method: http.MethodDelete, Path: "/admin/models/managed/{provider_id}/{upstream_model}", Handler: h.handleDeleteManagedModel, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/routes", Handler: h.handleListRoutes, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/routes", Handler: h.handleCreateRoute, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/routes/{id}", Handler: h.handleGetRoute, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/routes/{id}", Handler: h.handleUpdateRoute, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/routes/{id}/enable", Handler: h.handleEnableRoute, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/routes/{id}/disable", Handler: h.handleDisableRoute, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/routes/{id}", Handler: h.handleDeleteRoute, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/llm/routes", Handler: h.handleListLLMRoutes, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/llm/routes", Handler: h.handleCreateLLMRoute, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/llm/routes/{id}", Handler: h.handleGetLLMRoute, RequireAuth: true},
+		{Method: http.MethodPut, Path: "/admin/llm/routes/{id}", Handler: h.handleUpdateLLMRoute, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/llm/routes/{id}/enable", Handler: h.handleEnableLLMRoute, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/llm/routes/{id}/disable", Handler: h.handleDisableLLMRoute, RequireAuth: true},
+		{Method: http.MethodDelete, Path: "/admin/llm/routes/{id}", Handler: h.handleDeleteLLMRoute, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/virtual_keys", Handler: h.handleListVirtualKeys, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/virtual_keys", Handler: h.handleCreateVirtualKey, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/virtual_keys/{id}", Handler: h.handleGetVirtualKey, RequireAuth: true},
@@ -473,235 +409,6 @@ func (h *Handler) handleSetProviderDisabled(w http.ResponseWriter, r *http.Reque
 	_ = httpjson.Write(w, http.StatusOK, providerViewFromConfig(manager, updatedCfg))
 }
 
-func (h *Handler) handleListRoutes(w http.ResponseWriter, r *http.Request) {
-	manager := h.routeConfigManagerForRoutes()
-	resolver := h.routeResolverForRoutes()
-	if manager == nil || resolver == nil {
-		_ = httpjson.Error(w, http.StatusServiceUnavailable, "route resolver is not configured")
-		return
-	}
-
-	tagPrefix := r.URL.Query().Get("tag_prefix")
-	tag := r.URL.Query().Get("tag")
-	if tag == "" && tagPrefix == "" {
-		tag = defaultRouteTag
-	}
-
-	items, err := resolver.List(r.Context(), routecore.RouteListOptions{Tag: tag, TagPrefix: tagPrefix})
-	if err != nil {
-		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	views := make([]RouteView, 0, len(items))
-	for _, item := range items {
-		views = append(views, routeViewFromRoute(manager, item))
-	}
-	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": views})
-}
-
-func (h *Handler) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
-	manager := h.routeConfigManagerForRoutes()
-	resolver := h.routeResolverForRoutes()
-	if manager == nil || resolver == nil {
-		_ = httpjson.Error(w, http.StatusServiceUnavailable, "route resolver is not configured")
-		return
-	}
-
-	var route routepkg.LLMRoute
-	if err := httpjson.Decode(r, &route); err != nil {
-		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
-		return
-	}
-	if route.ID == "" {
-		_ = httpjson.Error(w, http.StatusBadRequest, "id is required")
-		return
-	}
-	if !route.CreatedAt.IsZero() || !route.UpdatedAt.IsZero() {
-		_ = httpjson.Error(w, http.StatusBadRequest, "created_at and updated_at are managed by the server and must be omitted")
-		return
-	}
-	route.Normalize()
-	if err := route.ValidateDefinition(); err != nil {
-		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	tag := r.URL.Query().Get("tag")
-	if tag == "" {
-		tag = defaultRouteTag
-	}
-
-	cfg, err := route.ToConfig()
-	if err != nil {
-		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := manager.Create(r.Context(), cfg, tag); err != nil {
-		if errors.Is(err, routecore.ErrStaticRouteReadOnly) {
-			_ = httpjson.Error(w, http.StatusConflict, err.Error())
-			return
-		}
-		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	created, err := resolver.Get(r.Context(), route.ID)
-	if err != nil {
-		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	_ = httpjson.Write(w, http.StatusCreated, routeViewFromRoute(manager, created))
-}
-
-func (h *Handler) handleGetRoute(w http.ResponseWriter, r *http.Request) {
-	manager := h.routeConfigManagerForRoutes()
-	resolver := h.routeResolverForRoutes()
-	if manager == nil || resolver == nil {
-		_ = httpjson.Error(w, http.StatusServiceUnavailable, "route resolver is not configured")
-		return
-	}
-
-	item, err := resolver.Get(r.Context(), r.PathValue("id"))
-	if err != nil {
-		if errors.Is(err, routecore.ErrRouteNotConfigured) {
-			_ = httpjson.Error(w, http.StatusNotFound, "route not found")
-			return
-		}
-		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	_ = httpjson.Write(w, http.StatusOK, routeViewFromRoute(manager, item))
-}
-
-func (h *Handler) handleUpdateRoute(w http.ResponseWriter, r *http.Request) {
-	manager := h.routeConfigManagerForRoutes()
-	resolver := h.routeResolverForRoutes()
-	if manager == nil || resolver == nil {
-		_ = httpjson.Error(w, http.StatusServiceUnavailable, "route resolver is not configured")
-		return
-	}
-
-	var route routepkg.LLMRoute
-	if err := httpjson.Decode(r, &route); err != nil {
-		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
-		return
-	}
-	id := r.PathValue("id")
-	if route.ID == "" {
-		route.ID = id
-	}
-	if route.ID != id {
-		_ = httpjson.Error(w, http.StatusBadRequest, "route id in body must match path")
-		return
-	}
-	if !route.CreatedAt.IsZero() || !route.UpdatedAt.IsZero() {
-		_ = httpjson.Error(w, http.StatusBadRequest, "created_at and updated_at are managed by the server and must be omitted")
-		return
-	}
-	route.Normalize()
-	if err := route.ValidateDefinition(); err != nil {
-		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	cfg, err := route.ToConfig()
-	if err != nil {
-		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := manager.Update(r.Context(), id, cfg); err != nil {
-		if errors.Is(err, routecore.ErrStaticRouteReadOnly) {
-			_ = httpjson.Error(w, http.StatusConflict, err.Error())
-			return
-		}
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			_ = httpjson.Error(w, http.StatusNotFound, "route not found")
-			return
-		}
-		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	item, err := resolver.Get(r.Context(), id)
-	if err != nil {
-		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	_ = httpjson.Write(w, http.StatusOK, routeViewFromRoute(manager, item))
-}
-
-func (h *Handler) handleDeleteRoute(w http.ResponseWriter, r *http.Request) {
-	manager := h.routeConfigManagerForRoutes()
-	if manager == nil {
-		_ = httpjson.Error(w, http.StatusServiceUnavailable, "route config manager is not configured")
-		return
-	}
-
-	id := r.PathValue("id")
-	if err := manager.Delete(r.Context(), id); err != nil {
-		if errors.Is(err, routecore.ErrStaticRouteReadOnly) {
-			_ = httpjson.Error(w, http.StatusConflict, err.Error())
-			return
-		}
-		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "deleted", "id": id})
-}
-
-func (h *Handler) handleEnableRoute(w http.ResponseWriter, r *http.Request) {
-	h.handleSetRouteDisabled(w, r, false)
-}
-
-func (h *Handler) handleDisableRoute(w http.ResponseWriter, r *http.Request) {
-	h.handleSetRouteDisabled(w, r, true)
-}
-
-func (h *Handler) handleSetRouteDisabled(w http.ResponseWriter, r *http.Request, disabled bool) {
-	manager := h.routeConfigManagerForRoutes()
-	resolver := h.routeResolverForRoutes()
-	if manager == nil || resolver == nil {
-		_ = httpjson.Error(w, http.StatusServiceUnavailable, "route resolver is not configured")
-		return
-	}
-
-	id := r.PathValue("id")
-	item, err := resolver.Get(r.Context(), id)
-	if err != nil {
-		if errors.Is(err, routecore.ErrRouteNotConfigured) {
-			_ = httpjson.Error(w, http.StatusNotFound, "route not found")
-			return
-		}
-		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	item.Disabled = disabled
-
-	cfg, err := item.ToConfig()
-	if err != nil {
-		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if err := manager.Update(r.Context(), id, cfg); err != nil {
-		if errors.Is(err, routecore.ErrStaticRouteReadOnly) {
-			_ = httpjson.Error(w, http.StatusConflict, err.Error())
-			return
-		}
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			_ = httpjson.Error(w, http.StatusNotFound, "route not found")
-			return
-		}
-		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	updated, err := resolver.Get(r.Context(), id)
-	if err != nil {
-		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	_ = httpjson.Write(w, http.StatusOK, routeViewFromRoute(manager, updated))
-}
-
 func (h *Handler) handleListVirtualKeys(w http.ResponseWriter, r *http.Request) {
 	manager := h.virtualKeyManagerForRoutes()
 	if manager == nil {
@@ -723,7 +430,7 @@ func (h *Handler) handleListVirtualKeys(w http.ResponseWriter, r *http.Request) 
 	}
 	views := make([]VirtualKeyView, 0, len(items))
 	for _, item := range items {
-		views = append(views, virtualKeyViewFromKey(manager, item))
+		views = append(views, virtualKeyViewFromKey(item))
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": views})
 }
@@ -789,7 +496,7 @@ func (h *Handler) handleGetVirtualKey(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = httpjson.Write(w, http.StatusOK, virtualKeyViewFromKey(manager, item))
+	_ = httpjson.Write(w, http.StatusOK, virtualKeyViewFromKey(item))
 }
 
 func (h *Handler) handleUpdateVirtualKey(w http.ResponseWriter, r *http.Request) {
@@ -885,10 +592,6 @@ func (h *Handler) handleSetVirtualKeyDisabled(w http.ResponseWriter, r *http.Req
 	key.Disabled = disabled
 
 	if err := manager.Update(r.Context(), keyID, key); err != nil {
-		if errors.Is(err, virtualkeypkg.ErrStaticVirtualKeyReadOnly) {
-			_ = httpjson.Error(w, http.StatusConflict, err.Error())
-			return
-		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			_ = httpjson.Error(w, http.StatusNotFound, "virtual key not found")
 			return
@@ -902,7 +605,7 @@ func (h *Handler) handleSetVirtualKeyDisabled(w http.ResponseWriter, r *http.Req
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = httpjson.Write(w, http.StatusOK, virtualKeyViewFromKey(manager, updated))
+	_ = httpjson.Write(w, http.StatusOK, virtualKeyViewFromKey(updated))
 }
 
 func (h *Handler) handleGetMemoryConfig(w http.ResponseWriter, r *http.Request) {
@@ -948,9 +651,6 @@ func (h *Handler) providerStore() configstore.ConfigStore {
 
 func (h *Handler) providerManagerForRoutes() *gateway.ProviderManager {
 	if h.providerManager != nil {
-		if !h.providerManager.IsConfigured() {
-			return nil
-		}
 		return h.providerManager
 	}
 
@@ -984,15 +684,14 @@ func (h *Handler) routeConfigManagerForRoutes() *routecore.AgentRouteConfigManag
 	return routecore.NewAgentRouteConfigManager(store)
 }
 
-func (h *Handler) routeResolverForRoutes() *routepkg.LLMRouteResolver {
-	if h.sharedLLMRouteResolver != nil {
-		return h.sharedLLMRouteResolver
+func filterRouteConfigsByKind(items []routecore.AgentRouteConfig, kind routecore.RouteKind) []routecore.AgentRouteConfig {
+	filtered := make([]routecore.AgentRouteConfig, 0, len(items))
+	for _, item := range items {
+		if item.Kind == kind {
+			filtered = append(filtered, item)
+		}
 	}
-	manager := h.routeConfigManagerForRoutes()
-	if manager == nil {
-		return nil
-	}
-	return routepkg.NewLLMRouteResolver(manager)
+	return filtered
 }
 
 func (h *Handler) virtualKeyStore() configstore.ConfigStore {
@@ -1018,34 +717,12 @@ func (h *Handler) virtualKeyManagerForRoutes() *virtualkeypkg.VirtualKeyManager 
 	return virtualkeypkg.NewVirtualKeyManager(store)
 }
 
-func virtualKeyViewFromKey(manager *virtualkeypkg.VirtualKeyManager, key virtualkeypkg.VirtualKey) VirtualKeyView {
-	view := VirtualKeyView{
+func virtualKeyViewFromKey(key virtualkeypkg.VirtualKey) VirtualKeyView {
+	return VirtualKeyView{
 		VirtualKey: key,
 		Source:     "store",
 		ReadOnly:   false,
 	}
-	if manager != nil && manager.IsStatic(key.ID) {
-		view.Source = "caddyfile"
-		view.ReadOnly = true
-	}
-	return view
-}
-
-func routeViewFromRoute(manager *routecore.AgentRouteConfigManager, route *routepkg.LLMRoute) RouteView {
-	var item routepkg.LLMRoute
-	if route != nil {
-		item = *route
-	}
-	view := RouteView{
-		LLMRoute: item,
-		Source:   "store",
-		ReadOnly: false,
-	}
-	if route != nil && manager != nil && manager.IsStatic(route.ID) {
-		view.Source = "caddyfile"
-		view.ReadOnly = true
-	}
-	return view
 }
 
 func providerViewFromConfig(manager *gateway.ProviderManager, cfg provider.ProviderConfig) ProviderView {

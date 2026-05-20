@@ -35,28 +35,21 @@ type providerResolver interface {
 type service struct {
 	mu sync.RWMutex
 
-	store         configstore.ConfigStore
-	providerMgr   providerResolver
-	staticManaged map[string]ManagedModel
-	snapshots     map[string][]ProviderModelSnapshot
-	logger        *zap.Logger
+	store       configstore.ConfigStore
+	providerMgr providerResolver
+	snapshots   map[string][]ProviderModelSnapshot
+	logger      *zap.Logger
 }
 
-func NewService(store configstore.ConfigStore, providerMgr providerResolver, staticManaged []ManagedModel, logger *zap.Logger) Service {
+func NewService(store configstore.ConfigStore, providerMgr providerResolver, logger *zap.Logger) Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	staticMap := make(map[string]ManagedModel, len(staticManaged))
-	for _, item := range staticManaged {
-		item.Normalize()
-		staticMap[managedKey(item.ProviderID, item.UpstreamModel)] = item
-	}
 	return &service{
-		store:         store,
-		providerMgr:   providerMgr,
-		staticManaged: staticMap,
-		snapshots:     map[string][]ProviderModelSnapshot{},
-		logger:        logger,
+		store:       store,
+		providerMgr: providerMgr,
+		snapshots:   map[string][]ProviderModelSnapshot{},
+		logger:      logger,
 	}
 }
 
@@ -218,35 +211,26 @@ func (s *service) DeleteManagedModel(ctx context.Context, providerID string, ups
 }
 
 func (s *service) loadManagedModels(ctx context.Context) ([]ManagedModel, error) {
-	merged := map[string]ManagedModel{}
-	for key, item := range s.staticManaged {
-		merged[key] = item
+	if s.store == nil {
+		return nil, nil
 	}
-	if s.store != nil {
-		items, err := s.store.List(ctx)
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range items {
-			model, ok := item.(*ManagedModel)
-			if !ok || model == nil {
-				return nil, fmt.Errorf("unexpected managed model type %T", item)
-			}
-			model.Normalize()
-			merged[managedKey(model.ProviderID, model.UpstreamModel)] = *model
-		}
+	items, err := s.store.List(ctx)
+	if err != nil {
+		return nil, err
 	}
-	out := make([]ManagedModel, 0, len(merged))
-	for _, item := range merged {
-		out = append(out, item)
+	out := make([]ManagedModel, 0, len(items))
+	for _, item := range items {
+		model, ok := item.(*ManagedModel)
+		if !ok || model == nil {
+			return nil, fmt.Errorf("unexpected managed model type %T", item)
+		}
+		model.Normalize()
+		out = append(out, *model)
 	}
 	return out, nil
 }
 
 func (s *service) getManagedModel(ctx context.Context, providerID string, upstreamModel string) (ManagedModel, bool, error) {
-	if item, ok := s.staticManaged[managedKey(providerID, upstreamModel)]; ok {
-		return item, true, nil
-	}
 	if s.store == nil {
 		return ManagedModel{}, false, nil
 	}
@@ -291,10 +275,6 @@ func (s *service) findSnapshot(providerID string, upstreamModel string) (Provide
 		}
 	}
 	return ProviderModelSnapshot{}, false
-}
-
-func managedKey(providerID string, upstreamModel string) string {
-	return providerID + "\x00" + upstreamModel
 }
 
 func firstNonEmpty(items ...string) string {

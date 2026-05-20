@@ -26,9 +26,19 @@ type RouteMatch = routecore.RouteMatchPolicy
 type RouteAuthPolicy = routecore.RouteAuthPolicy
 type RouteListOptions = routecore.RouteListOptions
 
+// MCPRouteState holds runtime-only state for a resolved MCP route.
+type MCPRouteState struct{}
+
+// MCPRouteConfig is the expanded configuration form of an MCP route.
+type MCPRouteConfig struct {
+	AgentRouteConfig
+	ServiceID string `json:"service_id"`
+}
+
 type MCPRoute struct {
 	AgentRouteConfig
 	ServiceID string `json:"service_id"`
+	State     MCPRouteState `json:"-"`
 }
 
 type routeTargetPolicy struct {
@@ -36,20 +46,25 @@ type routeTargetPolicy struct {
 	ServiceID string                          `json:"service_id"`
 }
 
-func (r *MCPRoute) Normalize() {
+func normalizeConfigDefaults(cfg AgentRouteConfig) AgentRouteConfig {
+	cfg.ID = strings.TrimSpace(cfg.ID)
+	cfg.Kind = RouteKindMCP
+	cfg.Protocol = RouteProtocolMCP
+	cfg.Description = strings.TrimSpace(cfg.Description)
+	cfg.MatchPolicy.Host = strings.TrimSpace(cfg.MatchPolicy.Host)
+	cfg.MatchPolicy.PathPrefix = strings.TrimSpace(cfg.MatchPolicy.PathPrefix)
+	for i := range cfg.MatchPolicy.Methods {
+		cfg.MatchPolicy.Methods[i] = strings.TrimSpace(cfg.MatchPolicy.Methods[i])
+	}
+	return cfg
+}
+
+func (r *MCPRouteConfig) Normalize() {
 	if r == nil {
 		return
 	}
-	r.ID = strings.TrimSpace(r.ID)
-	r.Kind = RouteKindMCP
-	r.Protocol = RouteProtocolMCP
-	r.Description = strings.TrimSpace(r.Description)
+	r.AgentRouteConfig = normalizeConfigDefaults(r.AgentRouteConfig)
 	r.ServiceID = strings.TrimSpace(r.ServiceID)
-	r.MatchPolicy.Host = strings.TrimSpace(r.MatchPolicy.Host)
-	r.MatchPolicy.PathPrefix = strings.TrimSpace(r.MatchPolicy.PathPrefix)
-	for i := range r.MatchPolicy.Methods {
-		r.MatchPolicy.Methods[i] = strings.TrimSpace(r.MatchPolicy.Methods[i])
-	}
 	if r.ID == "" && r.ServiceID != "" {
 		path := r.MatchPolicy.PathPrefix
 		if path == "" {
@@ -59,7 +74,7 @@ func (r *MCPRoute) Normalize() {
 	}
 }
 
-func (r *MCPRoute) NormalizeTimestamps(now time.Time) {
+func (r *MCPRouteConfig) NormalizeTimestamps(now time.Time) {
 	if r == nil {
 		return
 	}
@@ -71,7 +86,7 @@ func (r *MCPRoute) NormalizeTimestamps(now time.Time) {
 	}
 }
 
-func (r MCPRoute) MarshalJSON() ([]byte, error) {
+func (r MCPRouteConfig) MarshalJSON() ([]byte, error) {
 	type mcpRouteJSON struct {
 		ID          string          `json:"id"`
 		Kind        RouteKind       `json:"kind,omitempty"`
@@ -85,21 +100,34 @@ func (r MCPRoute) MarshalJSON() ([]byte, error) {
 		UpdatedAt   time.Time       `json:"updated_at"`
 	}
 	r.Normalize()
+	cfg, err := r.ToConfig()
+	if err != nil {
+		return nil, err
+	}
 	return json.Marshal(mcpRouteJSON{
-		ID:          r.ID,
-		Kind:        r.Kind,
-		Protocol:    r.Protocol,
-		Description: r.Description,
-		Disabled:    r.Disabled,
-		MatchPolicy: r.MatchPolicy,
-		AuthPolicy:  r.AuthPolicy,
+		ID:          cfg.ID,
+		Kind:        cfg.Kind,
+		Protocol:    cfg.Protocol,
+		Description: cfg.Description,
+		Disabled:    cfg.Disabled,
+		MatchPolicy: cfg.MatchPolicy,
+		AuthPolicy:  cfg.AuthPolicy,
 		ServiceID:   r.ServiceID,
-		CreatedAt:   r.CreatedAt,
-		UpdatedAt:   r.UpdatedAt,
+		CreatedAt:   cfg.CreatedAt,
+		UpdatedAt:   cfg.UpdatedAt,
 	})
 }
 
 func (r *MCPRoute) UnmarshalJSON(data []byte) error {
+	var cfg MCPRouteConfig
+	if err := cfg.UnmarshalJSON(data); err != nil {
+		return err
+	}
+	*r = NewRuntimeMCPRoute(cfg)
+	return nil
+}
+
+func (r *MCPRouteConfig) UnmarshalJSON(data []byte) error {
 	type mcpRouteJSON struct {
 		ID          string          `json:"id"`
 		Kind        RouteKind       `json:"kind,omitempty"`
@@ -116,7 +144,7 @@ func (r *MCPRoute) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	r.AgentRouteConfig = AgentRouteConfig{
+	r.AgentRouteConfig = normalizeConfigDefaults(AgentRouteConfig{
 		ID:          raw.ID,
 		Kind:        raw.Kind,
 		Protocol:    raw.Protocol,
@@ -126,7 +154,7 @@ func (r *MCPRoute) UnmarshalJSON(data []byte) error {
 		MatchPolicy: raw.MatchPolicy,
 		CreatedAt:   raw.CreatedAt,
 		UpdatedAt:   raw.UpdatedAt,
-	}
+	})
 	r.ServiceID = raw.ServiceID
 	r.Normalize()
 	return nil
@@ -137,7 +165,7 @@ func DecodeStoredMCPRoute(data []byte) (any, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("decode mcp route config: %w", err)
 	}
-	route, err := NewMCPRouteFromConfig(cfg)
+	route, err := NewMCPRouteConfigFromConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -145,12 +173,13 @@ func DecodeStoredMCPRoute(data []byte) (any, error) {
 	return &route, nil
 }
 
-func NewMCPRouteFromConfig(cfg AgentRouteConfig) (MCPRoute, error) {
+func NewMCPRouteConfigFromConfig(cfg AgentRouteConfig) (MCPRouteConfig, error) {
+	cfg = normalizeConfigDefaults(cfg)
 	serviceID, err := decodeServiceID(cfg.TargetPolicy)
 	if err != nil {
-		return MCPRoute{}, fmt.Errorf("route %q decode target policy: %w", cfg.ID, err)
+		return MCPRouteConfig{}, fmt.Errorf("route %q decode target policy: %w", cfg.ID, err)
 	}
-	route := MCPRoute{
+	route := MCPRouteConfig{
 		AgentRouteConfig: cfg,
 		ServiceID:        serviceID,
 	}
@@ -158,7 +187,23 @@ func NewMCPRouteFromConfig(cfg AgentRouteConfig) (MCPRoute, error) {
 	return route, nil
 }
 
-func (r MCPRoute) ToConfig() (AgentRouteConfig, error) {
+func NewMCPRouteFromConfig(cfg AgentRouteConfig) (MCPRoute, error) {
+	routeCfg, err := NewMCPRouteConfigFromConfig(cfg)
+	if err != nil {
+		return MCPRoute{}, err
+	}
+	return NewRuntimeMCPRoute(routeCfg), nil
+}
+
+func NewRuntimeMCPRoute(cfg MCPRouteConfig) MCPRoute {
+	return MCPRoute{
+		AgentRouteConfig: cfg.AgentRouteConfig,
+		ServiceID:        cfg.ServiceID,
+		State:            MCPRouteState{},
+	}
+}
+
+func (r MCPRouteConfig) ToConfig() (AgentRouteConfig, error) {
 	r.Normalize()
 	targetPolicy, err := json.Marshal(routeTargetPolicy{
 		Kind:      routecore.RouteTargetPolicyKindMCPService,
@@ -179,6 +224,40 @@ func (r MCPRoute) ToConfig() (AgentRouteConfig, error) {
 	cfg.CreatedAt = r.CreatedAt
 	cfg.UpdatedAt = r.UpdatedAt
 	return cfg, nil
+}
+
+func (r MCPRoute) Config() MCPRouteConfig {
+	return MCPRouteConfig{
+		AgentRouteConfig: r.AgentRouteConfig,
+		ServiceID:        r.ServiceID,
+	}
+}
+
+func (r *MCPRoute) Normalize() {
+	if r == nil {
+		return
+	}
+	cfg := r.Config()
+	cfg.Normalize()
+	r.AgentRouteConfig = cfg.AgentRouteConfig
+	r.ServiceID = cfg.ServiceID
+}
+
+func (r *MCPRoute) NormalizeTimestamps(now time.Time) {
+	if r == nil {
+		return
+	}
+	cfg := r.Config()
+	cfg.NormalizeTimestamps(now)
+	r.AgentRouteConfig = cfg.AgentRouteConfig
+}
+
+func (r MCPRoute) MarshalJSON() ([]byte, error) {
+	return r.Config().MarshalJSON()
+}
+
+func (r MCPRoute) ToConfig() (AgentRouteConfig, error) {
+	return r.Config().ToConfig()
 }
 
 func decodeServiceID(targetPolicy json.RawMessage) (string, error) {

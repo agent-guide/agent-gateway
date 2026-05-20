@@ -127,12 +127,12 @@ func TestLLMRouteResolverGetCachesDecodedRoute(t *testing.T) {
 	manager := routecore.NewAgentRouteConfigManager(store)
 	resolver := NewLLMRouteResolver(manager)
 
-	_, err := resolver.Get(context.Background(), "chat-prod")
+	_, err := resolver.ResolveByID(context.Background(), "chat-prod")
 	if err != nil {
 		t.Fatalf("Get returned error: %v", err)
 	}
 
-	_, err = resolver.Get(context.Background(), "chat-prod")
+	_, err = resolver.ResolveByID(context.Background(), "chat-prod")
 	if err != nil {
 		t.Fatalf("second Get returned error: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestLLMRouteResolverGetPrefersStaticRoute(t *testing.T) {
 	})
 	resolver := NewLLMRouteResolver(manager)
 
-	got, err := resolver.Get(context.Background(), "chat-prod")
+	got, err := resolver.ResolveByID(context.Background(), "chat-prod")
 	if err != nil {
 		t.Fatalf("Get returned error: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestAgentRouteConfigManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	resolver := NewLLMRouteResolver(manager)
 
 	createCfg := mustConfigFromRoute(t, LLMRoute{
-		AgentRouteConfig: AgentRouteConfig{ID: "chat-prod"},
+		AgentRouteConfig: AgentRouteConfig{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
 		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "openai"},
 		},
@@ -188,7 +188,7 @@ func TestAgentRouteConfigManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	}
 
 	store.items["chat-prod"].Description = "stale-store-value"
-	got, err := resolver.Get(context.Background(), "chat-prod")
+	got, err := resolver.ResolveByID(context.Background(), "chat-prod")
 	if err != nil {
 		t.Fatalf("Get returned error: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestAgentRouteConfigManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	firstUpdatedAt := got.UpdatedAt
 
 	updateCfg := mustConfigFromRoute(t, LLMRoute{
-		AgentRouteConfig: AgentRouteConfig{Description: "updated"},
+		AgentRouteConfig: AgentRouteConfig{Description: "updated", Protocol: RouteProtocolOpenAI},
 		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "anthropic"},
 		},
@@ -213,7 +213,7 @@ func TestAgentRouteConfigManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	if err := manager.Update(context.Background(), "chat-prod", updateCfg); err != nil {
 		t.Fatalf("Update returned error: %v", err)
 	}
-	got, err = resolver.Get(context.Background(), "chat-prod")
+	got, err = resolver.ResolveByID(context.Background(), "chat-prod")
 	if err != nil {
 		t.Fatalf("Get after update returned error: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestAgentRouteConfigManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	if err := manager.Delete(context.Background(), "chat-prod"); err != nil {
 		t.Fatalf("Delete returned error: %v", err)
 	}
-	if _, err := resolver.Get(context.Background(), "chat-prod"); !errors.Is(err, routecore.ErrRouteNotConfigured) {
+	if _, err := resolver.ResolveByID(context.Background(), "chat-prod"); !errors.Is(err, routecore.ErrRouteNotConfigured) {
 		t.Fatalf("Get after delete error = %v, want ErrRouteNotConfigured", err)
 	}
 }

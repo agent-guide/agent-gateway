@@ -79,7 +79,7 @@ Static bundle objects are intentionally equivalent to Caddyfile-owned static obj
 
 Static route limitation:
 
-- standalone `--static-config` routes only support direct-provider targets
+- standalone `--static-config` `llmRoutes` only support direct-provider targets
 - logical-model routes remain valid in config-store bundle workflows such as `agwctl gateway apply`
 
 Dynamic objects remain writable through the Admin API and are persisted in SQLite.
@@ -180,7 +180,7 @@ managedModels:
     upstream_model: gpt-4.1
     enabled: true
 
-routes:
+llmRoutes:
   - id: chat-prod
     llm_api: openai
     match:
@@ -315,13 +315,12 @@ Current standalone integration does the following:
 - validate the bundle locally
 - instantiate static providers from bundle provider configs
 - register static provider API-key credentials into the shared credential manager
-- pass static providers, managed models, routes, and virtual keys into `gateway.BootstrapOptions`
+- pass static providers, managed models, and routes into `gateway.BootstrapOptions`
 
 The resulting runtime behavior matches the existing static-object model:
 
 - static providers are read-only
 - static routes are read-only
-- static virtual keys are read-only
 - static managed models participate in model catalog reads
 
 ## 14. Secrets Handling

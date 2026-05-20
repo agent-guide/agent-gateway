@@ -26,7 +26,11 @@ func (h *Handler) dispatchMCP(w http.ResponseWriter, r *http.Request, next NextH
 		return WriteLoggedError(h.logger, ErrorContext{RouteID: cfg.ID, Protocol: string(cfg.Protocol)}, w, r, http.StatusServiceUnavailable, "mcp dispatcher is not configured", fmt.Errorf("mcp dispatcher is not configured"))
 	}
 
-	route, err := h.resolveMCPRoute(r, cfg)
+	routeResolver := h.gateway.MCPRouteResolver()
+	if routeResolver == nil {
+		return WriteLoggedError(h.logger, ErrorContext{RouteID: cfg.ID, Protocol: string(cfg.Protocol)}, w, r, http.StatusServiceUnavailable, "route resolver is not configured", fmt.Errorf("route resolver is not configured"))
+	}
+	route, err := routeResolver.Resolve(r.Context(), cfg)
 	if err != nil {
 		status := statuserr.StatusCode(err, http.StatusBadGateway)
 		return WriteLoggedError(h.logger, ErrorContext{RouteID: cfg.ID, Protocol: string(cfg.Protocol)}, w, r, status, "failed to resolve mcp route", err)
@@ -35,10 +39,13 @@ func (h *Handler) dispatchMCP(w http.ResponseWriter, r *http.Request, next NextH
 		return WriteLoggedError(h.logger, ErrorContext{RouteID: cfg.ID, Protocol: string(cfg.Protocol)}, w, r, http.StatusServiceUnavailable, "mcp route is not configured", fmt.Errorf("mcp route %q is not configured", cfg.ID))
 	}
 
-	return h.dispatchJSONRPC(w, r, *route)
+	return h.dispatchJSONRPC(w, r, route)
 }
 
-func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route mcproute.MCPRoute) error {
+func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route *mcproute.MCPRoute) error {
+	if route == nil {
+		return WriteLoggedError(h.logger, ErrorContext{Protocol: string(routecore.RouteProtocolMCP)}, w, r, http.StatusServiceUnavailable, "mcp route is not configured", fmt.Errorf("mcp route is nil"))
+	}
 	if r.Method != http.MethodPost {
 		return httpjson.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -187,7 +194,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 	}
 }
 
-func (h *Handler) dispatchNotification(w http.ResponseWriter, r *http.Request, route mcproute.MCPRoute, msg transport.Message) error {
+func (h *Handler) dispatchNotification(w http.ResponseWriter, r *http.Request, route *mcproute.MCPRoute, msg transport.Message) error {
 	switch msg.Method {
 	case "notifications/initialized":
 		serviceManager := h.gateway.MCPServiceManager()
@@ -217,9 +224,9 @@ func (h *Handler) dispatchNotification(w http.ResponseWriter, r *http.Request, r
 	return nil
 }
 
-func (h *Handler) beginRequest(parent context.Context, route mcproute.MCPRoute, msg transport.Message) (context.Context, func()) {
+func (h *Handler) beginRequest(parent context.Context, route *mcproute.MCPRoute, msg transport.Message) (context.Context, func()) {
 	registry := h.mcpRuntimeRegistry()
-	if registry == nil || msg.ID == nil {
+	if registry == nil || route == nil || msg.ID == nil {
 		return parent, func() {}
 	}
 	return registry.BeginRequest(
@@ -231,7 +238,7 @@ func (h *Handler) beginRequest(parent context.Context, route mcproute.MCPRoute, 
 	)
 }
 
-func (h *Handler) handleCancelledNotification(route mcproute.MCPRoute, params any) (bool, error) {
+func (h *Handler) handleCancelledNotification(route *mcproute.MCPRoute, params any) (bool, error) {
 	object, err := objectParams(params)
 	if err != nil {
 		return false, err
@@ -247,7 +254,7 @@ func (h *Handler) handleCancelledNotification(route mcproute.MCPRoute, params an
 	return h.cancelRequest(route, requestID, reason)
 }
 
-func (h *Handler) handleProgressNotification(route mcproute.MCPRoute, params any) error {
+func (h *Handler) handleProgressNotification(route *mcproute.MCPRoute, params any) error {
 	object, err := objectParams(params)
 	if err != nil {
 		return err
@@ -272,21 +279,21 @@ func (h *Handler) handleProgressNotification(route mcproute.MCPRoute, params any
 	return nil
 }
 
-func (h *Handler) cancelRequest(route mcproute.MCPRoute, requestID any, reason string) (bool, error) {
+func (h *Handler) cancelRequest(route *mcproute.MCPRoute, requestID any, reason string) (bool, error) {
 	registry := h.mcpRuntimeRegistry()
-	if registry == nil {
+	if registry == nil || route == nil {
 		return false, nil
 	}
 	return registry.Cancel(resolvedRouteID(route), requestID, reason)
 }
 
-func (h *Handler) storeProgressNotification(route mcproute.MCPRoute, token any, progress float64, total *float64, message string) {
-	if registry := h.mcpRuntimeRegistry(); registry != nil {
+func (h *Handler) storeProgressNotification(route *mcproute.MCPRoute, token any, progress float64, total *float64, message string) {
+	if registry := h.mcpRuntimeRegistry(); registry != nil && route != nil {
 		registry.StoreProgress(resolvedRouteID(route), token, progress, total, message)
 	}
 }
 
-func (h *Handler) writeRequestError(w http.ResponseWriter, route mcproute.MCPRoute, msg transport.Message, err error) error {
+func (h *Handler) writeRequestError(w http.ResponseWriter, route *mcproute.MCPRoute, msg transport.Message, err error) error {
 	if errors.Is(err, context.Canceled) {
 		reason := h.cancelReason(route, msg.ID)
 		message := "request cancelled"
@@ -301,8 +308,8 @@ func (h *Handler) writeRequestError(w http.ResponseWriter, route mcproute.MCPRou
 	return writeMCPError(w, msg.ID, http.StatusBadGateway, -32002, err.Error())
 }
 
-func (h *Handler) cancelReason(route mcproute.MCPRoute, requestID any) string {
-	if registry := h.mcpRuntimeRegistry(); registry != nil {
+func (h *Handler) cancelReason(route *mcproute.MCPRoute, requestID any) string {
+	if registry := h.mcpRuntimeRegistry(); registry != nil && route != nil {
 		return registry.CancelReason(resolvedRouteID(route), requestID)
 	}
 	return ""
@@ -422,7 +429,10 @@ func extractProgressToken(params any) any {
 	return token
 }
 
-func resolvedRouteID(route mcproute.MCPRoute) string {
+func resolvedRouteID(route *mcproute.MCPRoute) string {
+	if route == nil {
+		return ""
+	}
 	routeID := strings.TrimSpace(route.ID)
 	if routeID != "" {
 		return routeID

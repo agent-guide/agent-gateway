@@ -3,8 +3,7 @@ package schema
 import (
 	"testing"
 
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
-	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
+	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	modelcatalog "github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
@@ -57,7 +56,7 @@ func TestManagedModelSchemaPrimaryKey(t *testing.T) {
 }
 
 func TestRouteSchemaTagDefaultsEmpty(t *testing.T) {
-	obj := &routepkg.AgentRouteConfig{ID: "route-1"}
+	obj := &llmroutepkg.AgentRouteConfig{ID: "route-1"}
 
 	tag, ok, err := RouteSchema.Metadata.Tag(obj)
 	if err != nil {
@@ -65,21 +64,6 @@ func TestRouteSchemaTagDefaultsEmpty(t *testing.T) {
 	}
 	if !ok || tag != "" {
 		t.Fatalf("tag = %q, ok = %v", tag, ok)
-	}
-}
-
-func TestMCPRouteSchemaPrimaryKey(t *testing.T) {
-	obj := &mcproute.MCPRoute{
-		AgentRouteConfig: mcproute.AgentRouteConfig{ID: "mcp-route-1"},
-		ServiceID:        "svc-1",
-	}
-
-	keys, err := MCPRouteSchema.Metadata.PrimaryKey(obj)
-	if err != nil {
-		t.Fatalf("primary key: %v", err)
-	}
-	if len(keys) != 1 || keys[0] != "mcp-route-1" {
-		t.Fatalf("keys = %#v", keys)
 	}
 }
 

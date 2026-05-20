@@ -32,8 +32,7 @@ func (b *testConfigStoreBackend) Get(name string) (configstore.ConfigStore, erro
 		configstoreschema.StoreRoutes,
 		configstoreschema.StoreVirtualKeys,
 		configstoreschema.StoreManagedModels,
-		configstoreschema.StoreMCPServices,
-		configstoreschema.StoreMCPRoutes:
+		configstoreschema.StoreMCPServices:
 		return b.store, nil
 	default:
 		return nil, configstore.ErrUnknownStoreName
@@ -53,6 +52,25 @@ func (emptyConfigStore) Get(context.Context, ...any) (any, error) {
 }
 func (emptyConfigStore) GetByIndex(context.Context, string, any) (any, error) {
 	return nil, configstore.ErrNotFound
+}
+
+type singleVirtualKeyStore struct {
+	emptyConfigStore
+	keyID string
+	key   string
+	route string
+}
+
+func (s singleVirtualKeyStore) GetByIndex(_ context.Context, _ string, value any) (any, error) {
+	key, _ := value.(string)
+	if key != s.key {
+		return nil, configstore.ErrNotFound
+	}
+	return &virtualkeypkg.VirtualKey{
+		ID:              s.keyID,
+		Key:             s.key,
+		AllowedRouteIDs: []string{s.route},
+	}, nil
 }
 
 func TestIsNotification(t *testing.T) {
@@ -123,7 +141,7 @@ func TestCancelRequestCancelsInFlightRequest(t *testing.T) {
 	t.Parallel()
 
 	handler := &Handler{gateway: gateway.NewAgentGateway()}
-	route := mcproute.MCPRoute{AgentRouteConfig: mcproute.AgentRouteConfig{ID: "route-1"}, ServiceID: "svc-1"}
+	route := &mcproute.MCPRoute{AgentRouteConfig: mcproute.AgentRouteConfig{ID: "route-1"}, ServiceID: "svc-1"}
 	msg := transport.Message{
 		JSONRPC: "2.0",
 		ID:      "req-1",
@@ -154,7 +172,7 @@ func TestCancelRequestRejectsInitialize(t *testing.T) {
 	t.Parallel()
 
 	handler := &Handler{gateway: gateway.NewAgentGateway()}
-	route := mcproute.MCPRoute{AgentRouteConfig: mcproute.AgentRouteConfig{ID: "route-1"}, ServiceID: "svc-1"}
+	route := &mcproute.MCPRoute{AgentRouteConfig: mcproute.AgentRouteConfig{ID: "route-1"}, ServiceID: "svc-1"}
 	_, finish := handler.beginRequest(context.Background(), route, transport.Message{
 		JSONRPC: "2.0",
 		ID:      "init-1",
@@ -175,7 +193,7 @@ func TestHandleProgressNotificationStoresState(t *testing.T) {
 	t.Parallel()
 
 	handler := &Handler{gateway: gateway.NewAgentGateway()}
-	route := mcproute.MCPRoute{AgentRouteConfig: mcproute.AgentRouteConfig{ID: "route-1"}, ServiceID: "svc-1"}
+	route := &mcproute.MCPRoute{AgentRouteConfig: mcproute.AgentRouteConfig{ID: "route-1"}, ServiceID: "svc-1"}
 	_, finish := handler.beginRequest(context.Background(), route, transport.Message{
 		JSONRPC: "2.0",
 		ID:      "req-2",
@@ -219,11 +237,10 @@ func TestDispatchJSONRPCUsesGatewayVirtualKeyResolution(t *testing.T) {
 
 	gw := gateway.NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
-		ConfigStoreBackend: &testConfigStoreBackend{store: emptyConfigStore{}},
-		StaticVirtualKeys: []virtualkeypkg.VirtualKey{{
-			ID:              "vk-1",
-			Key:             "secret-key",
-			AllowedRouteIDs: []string{"mcp-route"},
+		ConfigStoreBackend: &testConfigStoreBackend{store: singleVirtualKeyStore{
+			keyID: "vk-1",
+			key:   "secret-key",
+			route: "mcp-route",
 		}},
 	}); err != nil {
 		t.Fatalf("Bootstrap returned error: %v", err)
@@ -236,7 +253,7 @@ func TestDispatchJSONRPCUsesGatewayVirtualKeyResolution(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer secret-key")
 	rec := httptest.NewRecorder()
-	route := mcproute.MCPRoute{
+	route := &mcproute.MCPRoute{
 		AgentRouteConfig: mcproute.AgentRouteConfig{
 			ID:         "mcp-route",
 			AuthPolicy: mcproute.RouteAuthPolicy{RequireVirtualKey: true},

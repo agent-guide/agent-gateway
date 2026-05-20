@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -10,8 +11,10 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	configstoreschema "github.com/agent-guide/agent-gateway/pkg/configstore/schema"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	mcproutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	credentialmgrscheduler "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
@@ -119,16 +122,16 @@ func (r testGatewayProviderConfigResolver) GetConfig(_ context.Context, provider
 }
 
 func TestNewRoutedProviderModelTargetRewritesDuringExecution(t *testing.T) {
-	route := routepkg.LLMRoute{
-		AgentRouteConfig: routepkg.AgentRouteConfig{
+	route := llmroutepkg.LLMRoute{
+		AgentRouteConfig: llmroutepkg.AgentRouteConfig{
 			ID:          "chat-prod",
-			Protocol:    routepkg.RouteProtocolOpenAI,
-			MatchPolicy: routepkg.RouteMatchPolicy{PathPrefix: "/v1"},
+			Protocol:    llmroutepkg.RouteProtocolOpenAI,
+			MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/v1"},
 		},
-		TargetPolicy: &routepkg.RouteLogicalModelTargetPolicy{
-			ModelTargets: []routepkg.RouteModelTarget{{
+		TargetPolicy: &llmroutepkg.RouteLogicalModelTargetPolicy{
+			ModelTargets: []llmroutepkg.RouteModelTarget{{
 				Name: "chat-fast",
-				Candidates: []routepkg.RouteModelCandidate{{
+				Candidates: []llmroutepkg.RouteModelCandidate{{
 					ProviderID:    "openai",
 					UpstreamModel: "gpt-4.1-mini",
 				}},
@@ -138,15 +141,21 @@ func TestNewRoutedProviderModelTargetRewritesDuringExecution(t *testing.T) {
 	}
 	gw := NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
-		StaticRoutes: []routepkg.LLMRoute{route},
+		StaticLLMRoutes: mustLLMRouteConfigs(t, route),
 		StaticProviders: map[string]provider.Provider{
 			"openai": testProvider{cfg: provider.ProviderConfig{Id: "openai", ProviderType: "openai"}},
 		},
-		StaticModels: []modelcatalog.ManagedModel{{
-			ProviderID:    "openai",
-			UpstreamModel: "gpt-4.1-mini",
-			Enabled:       true,
-		}},
+		ConfigStoreBackend: &testGatewayConfigStore{
+			modelStore: &testGatewayManagedModelStore{
+				items: map[string]*modelcatalog.ManagedModel{
+					"openai/gpt-4.1-mini": {
+						ProviderID:    "openai",
+						UpstreamModel: "gpt-4.1-mini",
+						Enabled:       true,
+					},
+				},
+			},
+		},
 	}); err != nil {
 		t.Fatalf("Bootstrap returned error: %v", err)
 	}
@@ -156,7 +165,7 @@ func TestNewRoutedProviderModelTargetRewritesDuringExecution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRoute returned error: %v", err)
 	}
-	routedProvider, err := gw.NewRoutedProvider(resolvedRoute, routepkg.RequestRequirements{})
+	routedProvider, err := gw.NewRoutedProvider(resolvedRoute, llmroutepkg.RequestRequirements{})
 	if err != nil {
 		t.Fatalf("NewRoutedProvider returned error: %v", err)
 	}
@@ -176,17 +185,17 @@ func TestNewRoutedProviderModelTargetRewritesDuringExecution(t *testing.T) {
 func TestResolveRejectsDisabledRoute(t *testing.T) {
 	gw := NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
-		StaticRoutes: []routepkg.LLMRoute{{
-			AgentRouteConfig: routepkg.AgentRouteConfig{
+		StaticLLMRoutes: mustLLMRouteConfigs(t, llmroutepkg.LLMRoute{
+			AgentRouteConfig: llmroutepkg.AgentRouteConfig{
 				ID:          "chat-prod",
-				Protocol:    routepkg.RouteProtocolOpenAI,
+				Protocol:    llmroutepkg.RouteProtocolOpenAI,
 				Disabled:    true,
-				MatchPolicy: routepkg.RouteMatchPolicy{PathPrefix: "/v1"},
+				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/v1"},
 			},
-			TargetPolicy: &routepkg.RouteDirectProviderPolicy{
-				ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
+			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
+				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
 			},
-		}},
+		}),
 		StaticProviders: map[string]provider.Provider{
 			"openai": testProvider{cfg: provider.ProviderConfig{Id: "openai", ProviderType: "openai"}},
 		},
@@ -198,6 +207,69 @@ func TestResolveRejectsDisabledRoute(t *testing.T) {
 	_, err := gw.ResolveRoute(context.Background(), req)
 	if err == nil {
 		t.Fatal("ResolveRoute returned nil error, want disabled route rejection")
+	}
+}
+
+func mustLLMRouteConfigs(t *testing.T, routes ...llmroutepkg.LLMRoute) []routecore.AgentRouteConfig {
+	t.Helper()
+
+	out := make([]routecore.AgentRouteConfig, 0, len(routes))
+	for _, route := range routes {
+		cfg, err := route.ToConfig()
+		if err != nil {
+			t.Fatalf("ToConfig returned error: %v", err)
+		}
+		out = append(out, cfg)
+	}
+	return out
+}
+
+func TestBootstrapInitializesStaticMCPRoutes(t *testing.T) {
+	staticRoute, err := (mcproutepkg.MCPRouteConfig{
+		AgentRouteConfig: mcproutepkg.AgentRouteConfig{
+			ID:          "mcp-route",
+			MatchPolicy: mcproutepkg.RouteMatch{PathPrefix: "/mcp"},
+			AuthPolicy:  mcproutepkg.RouteAuthPolicy{RequireVirtualKey: true},
+		},
+		ServiceID: "svc-1",
+	}).ToConfig()
+	if err != nil {
+		t.Fatalf("ToConfig returned error: %v", err)
+	}
+
+	gw := NewAgentGateway()
+	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
+		StaticMCPRoutes: []routecore.AgentRouteConfig{staticRoute},
+	}); err != nil {
+		t.Fatalf("Bootstrap returned error: %v", err)
+	}
+
+	manager := gw.MCPRouteConfigManager()
+	if manager == nil {
+		t.Fatal("MCPRouteConfigManager() = nil")
+	}
+	if !manager.IsStatic("mcp-route") {
+		t.Fatal("expected mcp-route to be initialized as static")
+	}
+
+	resolver := gw.MCPRouteResolver()
+	if resolver == nil {
+		t.Fatal("MCPRouteResolver() = nil")
+	}
+	route, err := resolver.ResolveByID(context.Background(), "mcp-route")
+	if err != nil {
+		t.Fatalf("ResolveByID returned error: %v", err)
+	}
+	if route.ServiceID != "svc-1" {
+		t.Fatalf("ServiceID = %q, want svc-1", route.ServiceID)
+	}
+
+	err = resolver.DeleteConfig(context.Background(), "mcp-route")
+	if err == nil {
+		t.Fatal("DeleteConfig returned nil error, want static route rejection")
+	}
+	if !errors.Is(err, routecore.ErrStaticRouteReadOnly) {
+		t.Fatalf("DeleteConfig returned %v, want static route read-only error", err)
 	}
 }
 
@@ -281,6 +353,7 @@ func (r testGatewayModelCatalogResolver) GetResolvedManagedModel(_ context.Conte
 
 type testGatewayConfigStore struct {
 	providerStore configstore.ConfigStore
+	modelStore    configstore.ConfigStore
 }
 
 func (s *testGatewayConfigStore) Register(string, configstore.StoreSchema) error {
@@ -291,7 +364,70 @@ func (s *testGatewayConfigStore) Get(name string) (configstore.ConfigStore, erro
 	if name == configstoreschema.StoreProviders {
 		return s.providerStore, nil
 	}
+	if name == configstoreschema.StoreManagedModels {
+		return s.modelStore, nil
+	}
 	return nil, nil
+}
+
+type testGatewayManagedModelStore struct {
+	items map[string]*modelcatalog.ManagedModel
+}
+
+func (s *testGatewayManagedModelStore) List(context.Context) ([]any, error) {
+	out := make([]any, 0, len(s.items))
+	for _, item := range s.items {
+		cloned := *item
+		out = append(out, &cloned)
+	}
+	return out, nil
+}
+
+func (s *testGatewayManagedModelStore) ListByTag(context.Context, string) ([]any, error) {
+	return nil, nil
+}
+
+func (s *testGatewayManagedModelStore) ListByTagPrefix(context.Context, string) ([]any, error) {
+	return nil, nil
+}
+
+func (s *testGatewayManagedModelStore) Create(_ context.Context, obj any) error {
+	model, ok := obj.(*modelcatalog.ManagedModel)
+	if !ok {
+		return nil
+	}
+	if s.items == nil {
+		s.items = map[string]*modelcatalog.ManagedModel{}
+	}
+	cloned := *model
+	s.items[cloned.ProviderID+"/"+cloned.UpstreamModel] = &cloned
+	return nil
+}
+
+func (s *testGatewayManagedModelStore) Update(ctx context.Context, obj any) error {
+	return s.Create(ctx, obj)
+}
+
+func (s *testGatewayManagedModelStore) Delete(_ context.Context, keyParts ...any) error {
+	providerID, _ := keyParts[0].(string)
+	upstreamModel, _ := keyParts[1].(string)
+	delete(s.items, providerID+"/"+upstreamModel)
+	return nil
+}
+
+func (s *testGatewayManagedModelStore) Get(_ context.Context, keyParts ...any) (any, error) {
+	providerID, _ := keyParts[0].(string)
+	upstreamModel, _ := keyParts[1].(string)
+	item := s.items[providerID+"/"+upstreamModel]
+	if item == nil {
+		return nil, configstore.ErrNotFound
+	}
+	cloned := *item
+	return &cloned, nil
+}
+
+func (s *testGatewayManagedModelStore) GetByIndex(context.Context, string, any) (any, error) {
+	return nil, configstore.ErrNotFound
 }
 
 func TestBootstrapDoesNotSyncDynamicProviderConfigCredentials(t *testing.T) {
@@ -335,10 +471,10 @@ func TestDirectProviderFallsBackToProviderConfigAPIKey(t *testing.T) {
 		},
 	}
 	routedProvider := &RoutedProvider{
-		route: &routepkg.LLMRoute{
-			AgentRouteConfig: routepkg.AgentRouteConfig{ID: "chat-prod", Protocol: routepkg.RouteProtocolOpenAI},
-			TargetPolicy: &routepkg.RouteDirectProviderPolicy{
-				ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai-main"},
+		route: &llmroutepkg.LLMRoute{
+			AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
+			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
+				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
 			},
 		},
 		providerResolver: ProviderResolverFunc(func(context.Context, string) (provider.Provider, error) {
@@ -389,10 +525,10 @@ func TestRoutedProviderInjectsExplicitCredentialValuesIntoContext(t *testing.T) 
 		},
 	}
 	routedProvider := &RoutedProvider{
-		route: &routepkg.LLMRoute{
-			AgentRouteConfig: routepkg.AgentRouteConfig{ID: "chat-prod", Protocol: routepkg.RouteProtocolOpenAI},
-			TargetPolicy: &routepkg.RouteDirectProviderPolicy{
-				ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai-main"},
+		route: &llmroutepkg.LLMRoute{
+			AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
+			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
+				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
 			},
 		},
 		providerResolver: ProviderResolverFunc(func(context.Context, string) (provider.Provider, error) {
@@ -462,10 +598,10 @@ func TestRoutedProviderRetriesAnotherCredentialBeforeModelFallback(t *testing.T)
 		},
 	}
 	routedProvider := &RoutedProvider{
-		route: &routepkg.LLMRoute{
-			AgentRouteConfig: routepkg.AgentRouteConfig{ID: "chat-prod", Protocol: routepkg.RouteProtocolOpenAI},
-			TargetPolicy: &routepkg.RouteDirectProviderPolicy{
-				ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai-main"},
+		route: &llmroutepkg.LLMRoute{
+			AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
+			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
+				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
 			},
 		},
 		providerResolver: ProviderResolverFunc(func(context.Context, string) (provider.Provider, error) {
@@ -539,15 +675,15 @@ func TestRoutedProviderFallsBackToAnotherModelAfterCandidateCredentialsExhausted
 		},
 	}
 	routedProvider := &RoutedProvider{
-		route: &routepkg.LLMRoute{
-			AgentRouteConfig: routepkg.AgentRouteConfig{ID: "chat-prod", Protocol: routepkg.RouteProtocolOpenAI},
-			TargetPolicy: &routepkg.RouteLogicalModelTargetPolicy{
+		route: &llmroutepkg.LLMRoute{
+			AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
+			TargetPolicy: &llmroutepkg.RouteLogicalModelTargetPolicy{
 				DefaultModel:          "chat-fast",
-				ModelSelectorStrategy: routepkg.RouteSelectionStrategyPriority,
-				Fallback:              routepkg.RouteFallbackPolicy{Enabled: true, MaxNum: 1},
-				ModelTargets: []routepkg.RouteModelTarget{{
+				ModelSelectorStrategy: llmroutepkg.RouteSelectionStrategyPriority,
+				Fallback:              llmroutepkg.RouteFallbackPolicy{Enabled: true, MaxNum: 1},
+				ModelTargets: []llmroutepkg.RouteModelTarget{{
 					Name: "chat-fast",
-					Candidates: []routepkg.RouteModelCandidate{
+					Candidates: []llmroutepkg.RouteModelCandidate{
 						{ProviderID: "openai-main", UpstreamModel: "gpt-4.1", Priority: 2},
 						{ProviderID: "openai-backup", UpstreamModel: "gpt-4.1-mini", Priority: 1},
 					},

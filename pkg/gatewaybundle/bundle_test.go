@@ -8,7 +8,7 @@ import (
 
 	_ "github.com/agent-guide/agent-gateway/pkg/cliauth/authenticator"
 	_ "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/openai"
-	route "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
 )
 
@@ -30,7 +30,7 @@ managedModels:
   - provider_id: openai-main
     upstream_model: gpt-4.1
     enabled: true
-routes:
+llmRoutes:
   - id: chat-prod
     protocol: openai
     match:
@@ -77,12 +77,16 @@ cliAuthAuthenticators:
 	if len(bundle.ManagedModels) != 1 || bundle.ManagedModels[0].ProviderID != "openai-main" || bundle.ManagedModels[0].UpstreamModel != "gpt-4.1" {
 		t.Fatalf("ManagedModels = %#v", bundle.ManagedModels)
 	}
-	if len(bundle.Routes) != 1 {
-		t.Fatalf("len(Routes) = %d, want 1", len(bundle.Routes))
+	if len(bundle.LLMRoutes) != 1 {
+		t.Fatalf("len(LLMRoutes) = %d, want 1", len(bundle.LLMRoutes))
 	}
-	directPolicy, ok := route.DirectProviderPolicyOf(bundle.Routes[0].TargetPolicy)
+	route, err := llmroutepkg.NewLLMRouteConfigFromConfig(bundle.LLMRoutes[0])
+	if err != nil {
+		t.Fatalf("NewLLMRouteConfigFromConfig() error = %v", err)
+	}
+	directPolicy, ok := llmroutepkg.DirectProviderPolicyOf(route.TargetPolicy)
 	if !ok || directPolicy.ProviderTarget.ProviderID != "openai-main" {
-		t.Fatalf("Routes[0].TargetPolicy = %#v, want direct provider openai-main", bundle.Routes[0].TargetPolicy)
+		t.Fatalf("LLMRoutes[0].TargetPolicy = %#v, want direct provider openai-main", route.TargetPolicy)
 	}
 	if len(bundle.VirtualKeys) != 1 || bundle.VirtualKeys[0].ID != "vk-local-test" || len(bundle.VirtualKeys[0].AllowedRouteIDs) != 1 || bundle.VirtualKeys[0].AllowedRouteIDs[0] != "chat-prod" {
 		t.Fatalf("VirtualKeys = %#v", bundle.VirtualKeys)
@@ -163,7 +167,7 @@ providerTypes:
 providers:
   - id: openai-main
     provider_type: openai
-routes:
+llmRoutes:
   - id: chat-prod
     protocol: openai
     match:
@@ -208,7 +212,7 @@ managedModels:
     upstream_model: gpt-4.1
   - provider_id: openai-main
     upstream_model: gpt-4.1
-routes:
+llmRoutes:
   - id: route-a
     protocol: openai
     match:
@@ -258,8 +262,8 @@ cliAuthAuthenticators:
 		`providerTypes["missing-provider"]: unknown provider_type`,
 		`providers["dup"]: duplicate id`,
 		`managedModels["openai-main/gpt-4.1"]: duplicate provider_id/upstream_model`,
-		`routes["route-a"]: duplicate id`,
-		`virtualKeys["vk-a"]: allowed_route_id "missing-route" does not exist in bundle routes`,
+		`llmRoutes["route-a"]: duplicate id`,
+		`virtualKeys["vk-a"]: allowed_route_id "missing-route" does not exist in bundle llmRoutes`,
 		`virtualKeys["vk-a"]: duplicate id`,
 		`cliAuthAuthenticators["codex"]: duplicate name`,
 		`cliAuthAuthenticators["missing-authenticator"]: unknown authenticator`,
@@ -307,6 +311,27 @@ virtualKeys:
 	}
 }
 
+func TestValidateForStaticConfigRejectsManagedModels(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+managedModels:
+  - provider_id: openai-main
+    upstream_model: gpt-4.1
+`))
+	if err != nil {
+		t.Fatalf("DecodeYAML() error = %v", err)
+	}
+
+	err = bundle.ValidateForStaticConfig()
+	if err == nil {
+		t.Fatal("ValidateForStaticConfig() error = nil, want managed model rejection")
+	}
+	if !strings.Contains(err.Error(), "managedModels are not supported in static config") {
+		t.Fatalf("ValidateForStaticConfig() error = %v", err)
+	}
+}
+
 func TestValidateRejectsConflictingRouteDefaults(t *testing.T) {
 	bundle, err := DecodeYAML([]byte(`
 apiVersion: gateway.agw/v1alpha1
@@ -321,7 +346,7 @@ providers:
     provider_type: zhipu
   - id: deepseek-main
     provider_type: deepseek
-routes:
+llmRoutes:
   - id: chat-test
     protocol: openai
     match:
@@ -352,7 +377,7 @@ routes:
 	if err == nil {
 		t.Fatal("Validate() error = nil, want conflicting route defaults rejection")
 	}
-	if !strings.Contains(err.Error(), `routes["chat-test"]: route "chat-test" default candidates must belong to a single target model`) {
+	if !strings.Contains(err.Error(), `llmRoutes["chat-test"]: route "chat-test" default candidates must belong to a single target model`) {
 		t.Fatalf("Validate() error = %v", err)
 	}
 }
@@ -367,7 +392,7 @@ providerTypes:
 providers:
   - id: openai-main
     provider_type: openai
-routes:
+llmRoutes:
   - id: chat-test
     protocol: openai
     match:
@@ -393,7 +418,7 @@ routes:
 	if err == nil {
 		t.Fatal("ValidateForStaticConfig() error = nil, want logical-model rejection")
 	}
-	if !strings.Contains(err.Error(), `routes["chat-test"]: route "chat-test" logical-model target_policy is not supported in static config`) {
+	if !strings.Contains(err.Error(), `llmRoutes["chat-test"]: route "chat-test" logical-model target_policy is not supported in static config`) {
 		t.Fatalf("ValidateForStaticConfig() error = %v", err)
 	}
 }

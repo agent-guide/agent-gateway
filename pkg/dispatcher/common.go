@@ -9,7 +9,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/httplog"
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"go.uber.org/zap"
 )
@@ -17,7 +17,7 @@ import (
 type LLMApiHandler interface {
 	Name() string
 	MatchLLMApi(*http.Request) bool
-	PrepareLLMApiRequest(*http.Request) (*PreparedLLMApiRequest, routepkg.RequestRequirements, error)
+	PrepareLLMApiRequest(*http.Request) (*PreparedLLMApiRequest, llmroutepkg.RequestRequirements, error)
 	ServeLLMApi(http.ResponseWriter, *http.Request, provider.Provider, *PreparedLLMApiRequest) error
 }
 

@@ -7,7 +7,8 @@ import (
 
 	configstoresqlite "github.com/agent-guide/agent-gateway/caddy/configstore/sqlite"
 	_ "github.com/agent-guide/agent-gateway/caddy/provider/ollama"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 )
@@ -90,26 +91,33 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	if cfg.SQLitePath != "/tmp/agent-gateway.db" {
 		t.Fatalf("sqlite path = %q, want /tmp/agent-gateway.db", cfg.SQLitePath)
 	}
-	if len(app.Routes) != 1 {
-		t.Fatalf("route count = %d, want 1", len(app.Routes))
+	if len(app.LLMRoutes) != 1 {
+		t.Fatalf("llm route count = %d, want 1", len(app.LLMRoutes))
 	}
-	route := app.Routes[0]
-	if route.ID != "openai-chat" {
-		t.Fatalf("route id = %q, want openai-chat", route.ID)
+	routeCfg := app.LLMRoutes[0]
+	if routeCfg.ID != "openai-chat" {
+		t.Fatalf("route id = %q, want openai-chat", routeCfg.ID)
 	}
-	if route.Protocol != routepkg.RouteProtocolOpenAI {
-		t.Fatalf("route protocol = %q, want openai", route.Protocol)
+	if routeCfg.Kind != routecore.RouteKindLLM {
+		t.Fatalf("route kind = %q, want llm", routeCfg.Kind)
 	}
-	if route.MatchPolicy.Host != "api.example.test" || route.MatchPolicy.PathPrefix != "/tenant-a" {
-		t.Fatalf("route match = %#v", route.MatchPolicy)
+	if routeCfg.Protocol != llmroutepkg.RouteProtocolOpenAI {
+		t.Fatalf("route protocol = %q, want openai", routeCfg.Protocol)
 	}
-	if len(route.MatchPolicy.Methods) != 1 || route.MatchPolicy.Methods[0] != "POST" {
-		t.Fatalf("route methods = %#v", route.MatchPolicy.Methods)
+	if routeCfg.MatchPolicy.Host != "api.example.test" || routeCfg.MatchPolicy.PathPrefix != "/tenant-a" {
+		t.Fatalf("route match = %#v", routeCfg.MatchPolicy)
 	}
-	if !route.AuthPolicy.RequireVirtualKey {
+	if len(routeCfg.MatchPolicy.Methods) != 1 || routeCfg.MatchPolicy.Methods[0] != "POST" {
+		t.Fatalf("route methods = %#v", routeCfg.MatchPolicy.Methods)
+	}
+	if !routeCfg.AuthPolicy.RequireVirtualKey {
 		t.Fatal("expected route require_virtual_key to be true")
 	}
-	directPolicy, ok := routepkg.DirectProviderPolicyOf(route.TargetPolicy)
+	route, err := llmroutepkg.NewLLMRouteConfigFromConfig(routeCfg)
+	if err != nil {
+		t.Fatalf("NewLLMRouteConfigFromConfig() error = %v", err)
+	}
+	directPolicy, ok := llmroutepkg.DirectProviderPolicyOf(route.TargetPolicy)
 	if !ok || directPolicy.ProviderTarget.ProviderID != "local-ollama" {
 		t.Fatalf("route target_policy = %#v", route.TargetPolicy)
 	}

@@ -6,7 +6,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 )
 
-func mustConfigFromMCPRoute(t *testing.T, route MCPRoute) routecore.AgentRouteConfig {
+func mustConfigFromMCPRoute(t *testing.T, route MCPRouteConfig) routecore.AgentRouteConfig {
 	t.Helper()
 	cfg, err := route.ToConfig()
 	if err != nil {

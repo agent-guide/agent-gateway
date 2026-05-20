@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 )
 
@@ -26,63 +26,54 @@ type RouteListOptions struct {
 }
 
 type AgentRouteConfigManager struct {
-	mu sync.RWMutex
-
-	staticRoutes map[string]AgentRouteConfig
-	dynamicCache map[string]AgentRouteConfig
-
-	routeStore configstore.ConfigStore
+	base *configmgr.BaseConfigManager[AgentRouteConfig]
 }
 
 func NewAgentRouteConfigManager(store configstore.ConfigStore) *AgentRouteConfigManager {
 	return &AgentRouteConfigManager{
-		staticRoutes: map[string]AgentRouteConfig{},
-		dynamicCache: map[string]AgentRouteConfig{},
-		routeStore:   store,
+		base: configmgr.NewBaseConfigManager(store, configmgr.Definition[AgentRouteConfig]{
+			GetID:  routeConfigID,
+			Decode: decodeRouteConfigItem,
+			Clone:  cloneRouteConfig,
+			PrepareCreate: func(route AgentRouteConfig) (any, AgentRouteConfig, error) {
+				if route.ID == "" {
+					return nil, AgentRouteConfig{}, fmt.Errorf("route id is required")
+				}
+				route = normalizeRouteConfigTimestamps(route, time.Now().UTC(), true)
+				return storedRouteConfig{route: route}, route, nil
+			},
+			PrepareUpdate: func(routeID string, current AgentRouteConfig, route AgentRouteConfig) (any, AgentRouteConfig, error) {
+				route.ID = routeID
+				route = normalizeRouteConfigTimestamps(route, time.Now().UTC(), false)
+				route.CreatedAt = current.CreatedAt
+				return storedRouteConfig{route: route}, route, nil
+			},
+			ShouldIncludeStatic: func(query configmgr.ListQuery) bool {
+				return query.TagPrefix == "" && query.Tag == ""
+			},
+			NotConfiguredErr: func(id string) error {
+				return fmt.Errorf("%w: %q", ErrRouteNotConfigured, id)
+			},
+			ReadOnlyErr: func(id string) error {
+				return fmt.Errorf("%w: %q", ErrStaticRouteReadOnly, id)
+			},
+			StoreNilErr: func() error {
+				return fmt.Errorf("route store is not configured")
+			},
+		}),
 	}
 }
 
 func (m *AgentRouteConfigManager) Reset() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.staticRoutes = map[string]AgentRouteConfig{}
-	m.dynamicCache = map[string]AgentRouteConfig{}
+	m.base.Reset()
 }
 
 func (m *AgentRouteConfigManager) InitStaticRoutes(routes []AgentRouteConfig) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.staticRoutes = make(map[string]AgentRouteConfig, len(routes))
-	for _, route := range routes {
-		if route.ID == "" {
-			continue
-		}
-		m.staticRoutes[route.ID] = route
-	}
-}
-
-func (m *AgentRouteConfigManager) UpsertStaticRoute(route AgentRouteConfig) {
-	if route.ID == "" {
-		return
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.staticRoutes == nil {
-		m.staticRoutes = map[string]AgentRouteConfig{}
-	}
-	m.staticRoutes[route.ID] = route
+	m.base.InitStatic(routes)
 }
 
 func (m *AgentRouteConfigManager) IsStatic(routeID string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	_, ok := m.staticRoutes[routeID]
-	return ok
+	return m.base.IsStatic(routeID)
 }
 
 func (m *AgentRouteConfigManager) Get(ctx context.Context, routeID string) (AgentRouteConfig, error) {
@@ -90,87 +81,24 @@ func (m *AgentRouteConfigManager) Get(ctx context.Context, routeID string) (Agen
 		return AgentRouteConfig{}, fmt.Errorf("route_id is required")
 	}
 
-	m.mu.RLock()
-	staticRoute, ok := m.staticRoutes[routeID]
-	m.mu.RUnlock()
-	if ok {
-		return staticRoute, nil
-	}
-
-	m.mu.RLock()
-	cachedRoute, ok := m.dynamicCache[routeID]
-	store := m.routeStore
-	m.mu.RUnlock()
-	if ok {
-		return cachedRoute, nil
-	}
-
-	if store == nil {
-		return AgentRouteConfig{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
-	}
-
-	item, err := store.Get(ctx, routeID)
+	route, err := m.base.Get(ctx, routeID)
 	if err != nil {
 		if errors.Is(err, configstore.ErrNotFound) {
 			return AgentRouteConfig{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
 		}
+		if errors.Is(err, ErrRouteNotConfigured) {
+			return AgentRouteConfig{}, err
+		}
 		return AgentRouteConfig{}, fmt.Errorf("load route %q: %w", routeID, err)
 	}
-
-	route, err := decodeRouteConfigItem(routeID, item)
-	if err != nil {
-		return AgentRouteConfig{}, err
-	}
-	m.cacheDynamicRoute(route)
 	return route, nil
 }
 
 func (m *AgentRouteConfigManager) List(ctx context.Context, opts RouteListOptions) ([]AgentRouteConfig, error) {
-	m.mu.RLock()
-	store := m.routeStore
-	staticRoutes := make(map[string]AgentRouteConfig, len(m.staticRoutes))
-	for id, route := range m.staticRoutes {
-		staticRoutes[id] = route
-	}
-	m.mu.RUnlock()
-
-	out := make(map[string]AgentRouteConfig, len(staticRoutes))
-	if shouldIncludeStaticRoutes(opts) {
-		for id, route := range staticRoutes {
-			out[id] = route
-		}
-	}
-
-	if store == nil {
-		return mapRouteConfigs(out), nil
-	}
-
-	var (
-		items []any
-		err   error
-	)
-	if opts.TagPrefix != "" {
-		items, err = store.ListByTagPrefix(ctx, opts.TagPrefix)
-	} else {
-		items, err = store.ListByTag(ctx, opts.Tag)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	cached := make(map[string]AgentRouteConfig, len(items))
-	for _, item := range items {
-		route, err := decodeRouteConfigItem("", item)
-		if err != nil {
-			return nil, err
-		}
-		cached[route.ID] = route
-		if _, ok := out[route.ID]; !ok {
-			out[route.ID] = route
-		}
-	}
-	m.cacheDynamicRoutes(cached)
-	return mapRouteConfigs(out), nil
+	return m.base.List(ctx, configmgr.ListQuery{
+		Tag:       opts.Tag,
+		TagPrefix: opts.TagPrefix,
+	})
 }
 
 // Match resolves the most specific route config whose MatchPolicy accepts the request.
@@ -228,77 +156,22 @@ func (m *AgentRouteConfigManager) Create(ctx context.Context, route AgentRouteCo
 	if route.ID == "" {
 		return fmt.Errorf("route id is required")
 	}
-	if err := m.ensureWritable(route.ID); err != nil {
-		return err
-	}
 	route = normalizeRouteConfigTimestamps(route, time.Now().UTC(), true)
-
-	m.mu.RLock()
-	store := m.routeStore
-	m.mu.RUnlock()
-	if store == nil {
-		return fmt.Errorf("route store is not configured")
-	}
-	if err := store.Create(ctx, storedRouteConfig{route: route, tag: tag}); err != nil {
-		return err
-	}
-
-	m.cacheDynamicRoute(route)
-	return nil
+	return m.base.CreatePrepared(ctx, route.ID, storedRouteConfig{route: route, tag: tag}, route)
 }
 
 func (m *AgentRouteConfigManager) Update(ctx context.Context, routeID string, route AgentRouteConfig) error {
 	if routeID == "" {
 		return fmt.Errorf("route id is required")
 	}
-	if err := m.ensureWritable(routeID); err != nil {
-		return err
-	}
-
-	route.ID = routeID
-	current, err := m.Get(ctx, routeID)
-	if err != nil {
-		return err
-	}
-	route = normalizeRouteConfigTimestamps(route, time.Now().UTC(), false)
-	route.CreatedAt = current.CreatedAt
-
-	m.mu.RLock()
-	store := m.routeStore
-	m.mu.RUnlock()
-	if store == nil {
-		return fmt.Errorf("route store is not configured")
-	}
-	if err := store.Update(ctx, storedRouteConfig{route: route}); err != nil {
-		return err
-	}
-
-	m.cacheDynamicRoute(route)
-	return nil
+	return m.base.Update(ctx, routeID, route)
 }
 
 func (m *AgentRouteConfigManager) Delete(ctx context.Context, routeID string) error {
 	if routeID == "" {
 		return fmt.Errorf("route id is required")
 	}
-	if err := m.ensureWritable(routeID); err != nil {
-		return err
-	}
-
-	m.mu.RLock()
-	store := m.routeStore
-	m.mu.RUnlock()
-	if store == nil {
-		return fmt.Errorf("route store is not configured")
-	}
-	if err := store.Delete(ctx, routeID); err != nil {
-		return err
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.dynamicCache, routeID)
-	return nil
+	return m.base.Delete(ctx, routeID)
 }
 
 type storedRouteConfig struct {
@@ -322,44 +195,6 @@ func DecodeStoredAgentRouteConfig(data []byte) (any, error) {
 	return &cfg, nil
 }
 
-func (m *AgentRouteConfigManager) ensureWritable(routeID string) error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if _, ok := m.staticRoutes[routeID]; ok {
-		return fmt.Errorf("%w: %q", ErrStaticRouteReadOnly, routeID)
-	}
-	return nil
-}
-
-func (m *AgentRouteConfigManager) cacheDynamicRoute(route AgentRouteConfig) {
-	if route.ID == "" {
-		return
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.dynamicCache == nil {
-		m.dynamicCache = map[string]AgentRouteConfig{}
-	}
-	m.dynamicCache[route.ID] = route
-}
-
-func (m *AgentRouteConfigManager) cacheDynamicRoutes(routes map[string]AgentRouteConfig) {
-	if len(routes) == 0 {
-		return
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.dynamicCache == nil {
-		m.dynamicCache = map[string]AgentRouteConfig{}
-	}
-	for id, route := range routes {
-		m.dynamicCache[id] = route
-	}
-}
-
 func decodeRouteConfigItem(routeID string, item any) (AgentRouteConfig, error) {
 	switch route := item.(type) {
 	case *AgentRouteConfig:
@@ -379,6 +214,17 @@ func decodeRouteConfigItem(routeID string, item any) (AgentRouteConfig, error) {
 	return AgentRouteConfig{}, fmt.Errorf("route %q has unexpected type %T", routeID, item)
 }
 
+func cloneRouteConfig(route AgentRouteConfig) AgentRouteConfig {
+	if len(route.MatchPolicy.Methods) > 0 {
+		route.MatchPolicy.Methods = append([]string(nil), route.MatchPolicy.Methods...)
+	}
+	return route
+}
+
+func routeConfigID(route AgentRouteConfig) string {
+	return route.ID
+}
+
 func normalizeRouteConfigTimestamps(route AgentRouteConfig, now time.Time, create bool) AgentRouteConfig {
 	if create {
 		if route.CreatedAt.IsZero() {
@@ -391,21 +237,6 @@ func normalizeRouteConfigTimestamps(route AgentRouteConfig, now time.Time, creat
 	}
 	route.UpdatedAt = now
 	return route
-}
-
-func shouldIncludeStaticRoutes(opts RouteListOptions) bool {
-	if opts.TagPrefix != "" {
-		return false
-	}
-	return opts.Tag == ""
-}
-
-func mapRouteConfigs(routes map[string]AgentRouteConfig) []AgentRouteConfig {
-	out := make([]AgentRouteConfig, 0, len(routes))
-	for _, route := range routes {
-		out = append(out, route)
-	}
-	return out
 }
 
 type routeMatchScore struct {
@@ -458,12 +289,20 @@ func scoreRouteMatch(match RouteMatchPolicy) routeMatchScore {
 }
 
 func requestHost(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+
 	host := r.Host
 	if host == "" && r.URL != nil {
 		host = r.URL.Host
 	}
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		return h
+	if host == "" {
+		return ""
+	}
+
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		return parsedHost
 	}
 	return host
 }

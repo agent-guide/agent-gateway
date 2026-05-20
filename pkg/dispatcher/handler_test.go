@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
@@ -17,11 +17,11 @@ func (stubLLMApiHandler) Name() string { return "stub" }
 
 func (stubLLMApiHandler) MatchLLMApi(*http.Request) bool { return true }
 
-func (stubLLMApiHandler) PrepareLLMApiRequest(*http.Request) (*PreparedLLMApiRequest, routepkg.RequestRequirements, error) {
+func (stubLLMApiHandler) PrepareLLMApiRequest(*http.Request) (*PreparedLLMApiRequest, llmroutepkg.RequestRequirements, error) {
 	return &PreparedLLMApiRequest{
 		Type:        provider.LLMApiRequestTypeChat,
 		ChatRequest: &provider.ChatRequest{},
-	}, routepkg.RequestRequirements{}, nil
+	}, llmroutepkg.RequestRequirements{}, nil
 }
 
 func (stubLLMApiHandler) ServeLLMApi(w http.ResponseWriter, _ *http.Request, _ provider.Provider, _ *PreparedLLMApiRequest) error {
@@ -48,19 +48,19 @@ func (h *nextHandler) ServeHTTP(w http.ResponseWriter, _ *http.Request) error {
 func TestHandlerRequiresVirtualKeyBeforeLLMApiMatch(t *testing.T) {
 	gw := gateway.NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
-		StaticRoutes: []routepkg.LLMRoute{{
-			AgentRouteConfig: routepkg.AgentRouteConfig{
+		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
+			AgentRouteConfig: llmroutepkg.AgentRouteConfig{
 				ID:          "broad-route",
-				Protocol:    routepkg.RouteProtocol("stub"),
-				MatchPolicy: routepkg.RouteMatchPolicy{PathPrefix: "/"},
-				AuthPolicy:  routepkg.RouteAuthPolicy{RequireVirtualKey: true},
+				Protocol:    llmroutepkg.RouteProtocol("stub"),
+				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
+				AuthPolicy:  llmroutepkg.RouteAuthPolicy{RequireVirtualKey: true},
 			},
-			TargetPolicy: &routepkg.RouteDirectProviderPolicy{
-				ProviderTarget: routepkg.DirectProviderTarget{
+			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
+				ProviderTarget: llmroutepkg.DirectProviderTarget{
 					ProviderID: "openai",
 				},
 			},
-		}},
+		}}),
 	}); err != nil {
 		t.Fatalf("Bootstrap returned error: %v", err)
 	}
@@ -81,9 +81,9 @@ func TestHandlerRequiresVirtualKeyBeforeLLMApiMatch(t *testing.T) {
 	}
 }
 
-func TestRewriteRoutePathStripsMatchedPrefix(t *testing.T) {
+func TestRewriteLLMRoutePathStripsMatchedPrefix(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/tenant/v1/chat/completions", nil)
-	rewritten := RewriteRoutePath(req, "/tenant")
+	rewritten := RewriteLLMRoutePath(req, "/tenant")
 
 	if rewritten.URL.Path != "/v1/chat/completions" {
 		t.Fatalf("rewritten path = %q, want /v1/chat/completions", rewritten.URL.Path)
@@ -98,4 +98,18 @@ func TestHandlerValidateAllowsMCPOnly(t *testing.T) {
 	if err := handler.Validate(); err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
+}
+
+func mustRouteConfigs(t *testing.T, routes []llmroutepkg.LLMRoute) []llmroutepkg.AgentRouteConfig {
+	t.Helper()
+
+	out := make([]llmroutepkg.AgentRouteConfig, 0, len(routes))
+	for _, route := range routes {
+		cfg, err := route.ToConfig()
+		if err != nil {
+			t.Fatalf("ToConfig returned error: %v", err)
+		}
+		out = append(out, cfg)
+	}
+	return out
 }

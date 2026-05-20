@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model",
         default=os.getenv("AGW_MODEL", "gpt-4.1"),
-        help="Model allowed by the gateway route.",
+        help="Model allowed by the gateway LLM route.",
     )
     parser.add_argument(
         "--prompt",

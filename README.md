@@ -112,7 +112,7 @@ Show available commands:
 ./agwctl --help
 ```
 
-List gateway routes through the gateway Admin API:
+List gateway LLM routes through the gateway Admin API:
 
 ```bash
 ./agwctl gateway --admin-addr http://localhost:8019 \
@@ -202,14 +202,15 @@ Bundle YAML examples for batch workflows:
 
 Static route restriction:
 
-- Caddyfile routes and `agwd --static-config` routes only support direct-provider targets
+- Caddyfile routes and `agwd --static-config` `llmRoutes` only support direct-provider targets
+- `agwd --static-config` does not support `managedModels`; create them through the Admin API or `agwctl gateway apply`
 - logical-model routes remain supported through the Admin API and `agwctl gateway apply`
 
 For `agwctl gateway apply/export`, `virtualKeys` are declared by `id`. The gateway generates the actual `key` value when the virtual key is created in the config store.
 
 - `providers`
 - `managedModels`
-- `routes`
+- `llmRoutes`
 - `virtualKeys`
 - `cliAuthAuthenticators`
 - `credentials`
@@ -408,7 +409,7 @@ Provider-specific notes:
 - `ollama` can be used without an API key.
 - `option` values are parsed as strings in the Caddyfile.
 
-### Routes
+### LLM Routes
 
 Static route syntax:
 
@@ -469,7 +470,7 @@ Configuration comes from two places:
 - persisted SQLite records managed through the Admin API
 - optional standalone static bundle YAML loaded with `agwd --static-config`
 
-Static providers and routes are loaded during startup. Persisted provider, managed model, route, credential, and virtual key records can be changed through the Admin API without rebuilding the binaries.
+Static providers and LLM routes are loaded during startup. Persisted provider, managed model, LLM route, credential, and virtual key records can be changed through the Admin API without rebuilding the binaries.
 
 Model catalog Admin API families:
 
@@ -479,12 +480,12 @@ Model catalog Admin API families:
 - `PUT /admin/models/managed/{provider_id}/{upstream_model}`
 - `GET /admin/models/logical`
 
-Static records are exposed through Admin API list/read responses with source/read-only metadata where applicable. Attempts to mutate static providers or routes return conflict errors.
+Static records are exposed through Admin API list/read responses with source/read-only metadata where applicable. Attempts to mutate static providers or LLM routes return conflict errors.
 
 For the standalone daemon, static bundle YAML uses the same read-only semantics as Caddyfile-owned objects:
 
 `--static-config` does not support `virtualKeys`. Create virtual keys through the Admin API after startup.
-`--static-config` routes must use `target_policy.provider_target.provider_id`. Logical-model route policies are rejected in static startup config.
+`--static-config` `llmRoutes` entries must use `target_policy.provider_target.provider_id`. Logical-model route policies are rejected in static startup config.
 
 ```bash
 ./agwd --config-store ./data/configstore.db \
@@ -538,20 +539,20 @@ curl -X POST http://localhost:8019/admin/providers \
   }'
 ```
 
-### Routes
+### LLM Routes
 
-- `GET /admin/routes`
-- `POST /admin/routes`
-- `GET /admin/routes/{id}`
-- `PUT /admin/routes/{id}`
-- `POST /admin/routes/{id}/enable`
-- `POST /admin/routes/{id}/disable`
-- `DELETE /admin/routes/{id}`
+- `GET /admin/llm/routes`
+- `POST /admin/llm/routes`
+- `GET /admin/llm/routes/{id}`
+- `PUT /admin/llm/routes/{id}`
+- `POST /admin/llm/routes/{id}/enable`
+- `POST /admin/llm/routes/{id}/disable`
+- `DELETE /admin/llm/routes/{id}`
 
 Create a route:
 
 ```bash
-curl -X POST http://localhost:8019/admin/routes \
+curl -X POST http://localhost:8019/admin/llm/routes \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
@@ -574,7 +575,7 @@ curl -X POST http://localhost:8019/admin/routes \
 
 `protocol` and `target_policy` are required.
 
-`created_at` and `updated_at` are server-managed fields. Omit them from `POST /admin/routes` and `PUT /admin/routes/{id}` request bodies.
+`created_at` and `updated_at` are server-managed fields. Omit them from `POST /admin/llm/routes` and `PUT /admin/llm/routes/{id}` request bodies.
 
 When `target_policy.provider_target.provider_id` is present, the route is resolved in direct-provider mode.
 
@@ -620,8 +621,6 @@ Example response:
 
 The `id` is the stable management identifier. The `key` is the bearer credential value clients must send on requests.
 `created_at` and `updated_at` are server-managed fields. Omit them from `POST /admin/virtual_keys` and `PUT /admin/virtual_keys/{id}` request bodies.
-
-For statically configured virtual keys, the same `GET /admin/virtual_keys/{id}` endpoint returns the generated `key` value after startup.
 
 ### Upstream Credentials
 
@@ -691,7 +690,7 @@ curl -X POST http://localhost:8019/admin/cliauth/authenticators/codex/login \
 Implemented MCP admin families now include:
 
 - `mcp_services`
-- `mcp_routes`
+- MCP routes
 - MCP discovery and execution endpoints
 - MCP dispatcher runtime inspection endpoints
 

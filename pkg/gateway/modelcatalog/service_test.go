@@ -61,7 +61,7 @@ func TestListProviderSnapshotsRefreshesOnFirstRead(t *testing.T) {
 				DisplayName: "GLM-4.5",
 			}},
 		},
-	}, nil, nil)
+	}, nil)
 
 	items, err := svc.ListProviderSnapshots(context.Background(), "zhipu-main")
 	if err != nil {
@@ -86,7 +86,7 @@ func TestListProviderSnapshotsReturnsErrorSnapshotWhenRefreshFails(t *testing.T)
 			cfg: provider.ProviderConfig{Id: "zhipu-main", ProviderType: "zhipu"},
 			err: errors.New("upstream /models is not supported"),
 		},
-	}, nil, nil)
+	}, nil)
 
 	items, err := svc.ListProviderSnapshots(context.Background(), "zhipu-main")
 	if err != nil {

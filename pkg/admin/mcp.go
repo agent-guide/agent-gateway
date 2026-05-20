@@ -14,7 +14,7 @@ import (
 )
 
 type MCPRouteView struct {
-	mcproute.MCPRoute
+	mcproute.MCPRouteConfig
 	Source   string `json:"source"`
 	ReadOnly bool   `json:"read_only"`
 }
@@ -155,14 +155,15 @@ func (h *Handler) handleListMCPRoutes(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
-	items, err := resolver.List(r.Context(), mcproute.RouteListOptions{})
+	items, err := resolver.ListConfigs(r.Context(), mcproute.RouteListOptions{})
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	items = filterRouteConfigsByKind(items, mcproute.RouteKindMCP)
 	views := make([]MCPRouteView, 0, len(items))
 	for _, item := range items {
-		views = append(views, mcpRouteViewFromRoute(resolver, item))
+		views = append(views, mcpRouteViewFromConfig(resolver, item))
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": views})
 }
@@ -173,7 +174,7 @@ func (h *Handler) handleCreateMCPRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
-	var route mcproute.MCPRoute
+	var route mcproute.MCPRouteConfig
 	if err := httpjson.Decode(r, &route); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
@@ -187,7 +188,12 @@ func (h *Handler) handleCreateMCPRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusBadRequest, "service_id is required")
 		return
 	}
-	if err := resolver.Create(r.Context(), &route, ""); err != nil {
+	cfg, err := route.ToConfig()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := resolver.CreateConfig(r.Context(), cfg, ""); err != nil {
 		if errors.Is(err, mcproute.ErrStaticRouteReadOnly) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
@@ -195,12 +201,12 @@ func (h *Handler) handleCreateMCPRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	created, err := resolver.Get(r.Context(), route.ID)
+	created, err := resolver.GetConfig(r.Context(), route.ID)
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = httpjson.Write(w, http.StatusCreated, mcpRouteViewFromRoute(resolver, created))
+	_ = httpjson.Write(w, http.StatusCreated, mcpRouteViewFromConfig(resolver, created))
 }
 
 func (h *Handler) handleGetMCPRoute(w http.ResponseWriter, r *http.Request) {
@@ -209,7 +215,7 @@ func (h *Handler) handleGetMCPRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
-	item, err := resolver.Get(r.Context(), r.PathValue("id"))
+	item, err := resolver.GetConfig(r.Context(), r.PathValue("id"))
 	if err != nil {
 		if errors.Is(err, mcproute.ErrRouteNotConfigured) {
 			_ = httpjson.Error(w, http.StatusNotFound, "mcp route not found")
@@ -218,7 +224,11 @@ func (h *Handler) handleGetMCPRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = httpjson.Write(w, http.StatusOK, mcpRouteViewFromRoute(resolver, item))
+	if item.Kind != mcproute.RouteKindMCP {
+		_ = httpjson.Error(w, http.StatusNotFound, "mcp route not found")
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, mcpRouteViewFromConfig(resolver, item))
 }
 
 func (h *Handler) handleUpdateMCPRoute(w http.ResponseWriter, r *http.Request) {
@@ -227,12 +237,25 @@ func (h *Handler) handleUpdateMCPRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
-	var route mcproute.MCPRoute
+	var route mcproute.MCPRouteConfig
 	if err := httpjson.Decode(r, &route); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}
 	id := r.PathValue("id")
+	current, err := resolver.GetConfig(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, mcproute.ErrRouteNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "mcp route not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if current.Kind != mcproute.RouteKindMCP {
+		_ = httpjson.Error(w, http.StatusNotFound, "mcp route not found")
+		return
+	}
 	if route.ID == "" {
 		route.ID = id
 	}
@@ -249,7 +272,12 @@ func (h *Handler) handleUpdateMCPRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusBadRequest, "service_id is required")
 		return
 	}
-	if err := resolver.Update(r.Context(), id, &route); err != nil {
+	cfg, err := route.ToConfig()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := resolver.UpdateConfig(r.Context(), id, cfg); err != nil {
 		if errors.Is(err, mcproute.ErrStaticRouteReadOnly) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
@@ -261,12 +289,12 @@ func (h *Handler) handleUpdateMCPRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	item, err := resolver.Get(r.Context(), id)
+	item, err := resolver.GetConfig(r.Context(), id)
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = httpjson.Write(w, http.StatusOK, mcpRouteViewFromRoute(resolver, item))
+	_ = httpjson.Write(w, http.StatusOK, mcpRouteViewFromConfig(resolver, item))
 }
 
 func (h *Handler) handleDeleteMCPRoute(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +304,20 @@ func (h *Handler) handleDeleteMCPRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if err := resolver.Delete(r.Context(), id); err != nil {
+	item, err := resolver.GetConfig(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, mcproute.ErrRouteNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "mcp route not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if item.Kind != mcproute.RouteKindMCP {
+		_ = httpjson.Error(w, http.StatusNotFound, "mcp route not found")
+		return
+	}
+	if err := resolver.DeleteConfig(r.Context(), id); err != nil {
 		if errors.Is(err, mcproute.ErrStaticRouteReadOnly) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
@@ -441,18 +482,15 @@ func (h *Handler) handleGetMCPPrompt(w http.ResponseWriter, r *http.Request) {
 	_ = httpjson.Write(w, http.StatusOK, result)
 }
 
-func mcpRouteViewFromRoute(resolver *mcproute.MCPRouteResolver, route *mcproute.MCPRoute) MCPRouteView {
-	var item mcproute.MCPRoute
-	if route != nil {
-		item = *route
-	}
+func mcpRouteViewFromConfig(resolver *mcproute.MCPRouteResolver, cfg mcproute.AgentRouteConfig) MCPRouteView {
+	item, _ := mcproute.NewMCPRouteConfigFromConfig(cfg)
 	view := MCPRouteView{
-		MCPRoute: item,
-		Source:   "store",
-		ReadOnly: false,
+		MCPRouteConfig: item,
+		Source:         "store",
+		ReadOnly:       false,
 	}
-	if route != nil && resolver != nil {
-		if configManager := resolver.ConfigManager(); configManager != nil && configManager.IsStatic(route.ID) {
+	if resolver != nil {
+		if configManager := resolver.ConfigManager(); configManager != nil && configManager.IsStatic(cfg.ID) {
 			view.Source = "caddyfile"
 			view.ReadOnly = true
 		}

@@ -114,27 +114,6 @@ func TestVirtualKeyManagerGetCachesDynamicKey(t *testing.T) {
 	}
 }
 
-func TestVirtualKeyManagerGetPrefersStaticKey(t *testing.T) {
-	store := &testManagedVirtualKeyStore{
-		items: map[string]*VirtualKey{
-			"vk-test": {ID: "vk-test", Key: "lk-test", Tag: "dynamic"},
-		},
-	}
-	manager := NewVirtualKeyManager(store)
-	manager.InitStaticKeys([]VirtualKey{{ID: "vk-test", Key: "lk-test", Tag: "static"}})
-
-	got, err := manager.GetByKey(context.Background(), "lk-test")
-	if err != nil {
-		t.Fatalf("Get returned error: %v", err)
-	}
-	if got.Tag != "static" {
-		t.Fatalf("Tag = %q, want static", got.Tag)
-	}
-	if store.getCalls != 0 {
-		t.Fatalf("store get calls = %d, want 0", store.getCalls)
-	}
-}
-
 func TestVirtualKeyManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	store := &testManagedVirtualKeyStore{items: map[string]*VirtualKey{}}
 	manager := NewVirtualKeyManager(store)
@@ -191,17 +170,5 @@ func TestVirtualKeyManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	}
 	if _, err := manager.GetByID(context.Background(), "vk-test"); !errors.Is(err, ErrVirtualKeyNotConfigured) {
 		t.Fatalf("Get after delete error = %v, want ErrVirtualKeyNotConfigured", err)
-	}
-}
-
-func TestVirtualKeyManagerRejectsStaticKeyMutation(t *testing.T) {
-	manager := NewVirtualKeyManager(&testManagedVirtualKeyStore{items: map[string]*VirtualKey{}})
-	manager.InitStaticKeys([]VirtualKey{{ID: "vk-test", Key: "lk-test"}})
-
-	if err := manager.Update(context.Background(), "vk-test", VirtualKey{}); !errors.Is(err, ErrStaticVirtualKeyReadOnly) {
-		t.Fatalf("Update error = %v, want ErrStaticVirtualKeyReadOnly", err)
-	}
-	if err := manager.Delete(context.Background(), "vk-test"); !errors.Is(err, ErrStaticVirtualKeyReadOnly) {
-		t.Fatalf("Delete error = %v, want ErrStaticVirtualKeyReadOnly", err)
 	}
 }

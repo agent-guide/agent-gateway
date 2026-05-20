@@ -13,8 +13,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	runtimegateway "github.com/agent-guide/agent-gateway/pkg/gateway"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
-	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	credentialmgrscheduler "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
@@ -31,10 +30,8 @@ type App struct {
 	ProvidersRaw caddy.ModuleMap `json:"providers,omitempty" caddy:"namespace=llm.providers inline_key=provider_type"`
 	// ConfigStore configures persistent admin/auth state storage.
 	ConfigStoreRaw caddy.ModuleMap `json:"config_store,omitempty" caddy:"namespace=agent_gateway.config_store_backends"`
-	// Routes lists statically configured gateway routes from the Caddyfile app block.
-	Routes []routepkg.LLMRoute `json:"routes,omitempty"`
-	// Models lists statically configured managed concrete models derived from the Caddyfile app block.
-	Models []modelcatalog.ManagedModel `json:"models,omitempty"`
+	// LLMRoutes lists statically configured gateway LLM route configs from the Caddyfile app block.
+	LLMRoutes []routecore.AgentRouteConfig `json:"llm_routes,omitempty"`
 
 	logger           *zap.Logger
 	cliauthManager   *cliauth.Manager
@@ -85,11 +82,9 @@ func (a *App) Provision(ctx caddy.Context) error {
 	if err := a.cliauthRefresher.Load(ctx); err != nil {
 		return fmt.Errorf("load cliauth credentials: %w", err)
 	}
-
 	if err := a.agentGateway.Bootstrap(ctx, runtimegateway.BootstrapOptions{
-		StaticRoutes:        a.Routes,
+		StaticLLMRoutes:     a.LLMRoutes,
 		StaticProviders:     a.providers,
-		StaticModels:        a.Models,
 		ConfigStoreBackend:  a.configBackend,
 		CLIAuthManager:      a.cliauthManager,
 		CLIAuthRefresher:    a.cliauthRefresher,

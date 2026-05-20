@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
-	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	modelcatalog "github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	routecore "github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
@@ -28,7 +27,6 @@ func RegisterDefaultStores(backend configstore.ConfigStoreBackend) error {
 		VirtualKeySchema,
 		ManagedModelSchema,
 		MCPServiceSchema,
-		MCPRouteSchema,
 	}
 	for _, storeSchema := range schemas {
 		if err := backend.Register(storeSchema.Name, storeSchema); err != nil {
@@ -170,25 +168,6 @@ var MCPServiceSchema = configstore.StoreSchema{
 	},
 }
 
-var MCPRouteSchema = configstore.StoreSchema{
-	Name:              StoreMCPRoutes,
-	Kind:              "mcp route",
-	Table:             "mcp_routes",
-	PrimaryKeyColumns: []string{"id"},
-	TagColumn:         "tag",
-	DataColumn:        "config",
-	Timestamped:       true,
-	Codec: typedJSONCodec{
-		kind:     "mcp route",
-		decode:   routecore.DecodeStoredAgentRouteConfig,
-		validate: validateMCPRouteObject,
-	},
-	Metadata: configstore.MetadataFuncs{
-		PrimaryKeyFunc: primaryKeyFromStringFields("ID"),
-		TagFunc:        routeTagValue,
-	},
-}
-
 type typedJSONCodec struct {
 	kind     string
 	decode   func([]byte) (any, error)
@@ -288,17 +267,6 @@ func validateMCPServiceObject(obj any) error {
 		return value.Validate()
 	default:
 		return fmt.Errorf("mcp service object has unexpected type %T", obj)
-	}
-}
-
-func validateMCPRouteObject(obj any) error {
-	switch unwrapConfigObject(obj).(type) {
-	case routecore.AgentRouteConfig, *routecore.AgentRouteConfig:
-		return nil
-	case mcproute.MCPRoute, *mcproute.MCPRoute:
-		return nil
-	default:
-		return fmt.Errorf("mcp route object has unexpected type %T", obj)
 	}
 }
 

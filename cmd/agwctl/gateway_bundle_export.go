@@ -25,7 +25,7 @@ func runGatewayExport(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	routes, err := client.ListRoutes(ctx, adminclient.RouteListOptions{})
+	llmRoutes, err := client.ListLLMRoutes(ctx, adminclient.LLMRouteListOptions{})
 	if err != nil {
 		return err
 	}
@@ -54,8 +54,16 @@ func runGatewayExport(ctx context.Context, path string) error {
 	for _, item := range managedModels {
 		bundle.ManagedModels = append(bundle.ManagedModels, item.ManagedModel)
 	}
-	for _, item := range routes {
-		bundle.Routes = append(bundle.Routes, item.LLMRoute)
+	for _, item := range llmRoutes {
+		routeCfg, err := item.LLMRouteConfig()
+		if err != nil {
+			return fmt.Errorf("decode llm route %q: %w", item.ID, err)
+		}
+		cfg, err := routeCfg.ToConfig()
+		if err != nil {
+			return fmt.Errorf("encode llm route %q: %w", item.ID, err)
+		}
+		bundle.LLMRoutes = append(bundle.LLMRoutes, cfg)
 	}
 	for _, item := range virtualKeys {
 		bundle.VirtualKeys = append(bundle.VirtualKeys, gatewaybundle.BundleVirtualKeyFromRuntime(item.VirtualKey))
@@ -103,8 +111,8 @@ func sortGatewayBundle(bundle *gatewaybundle.GatewayBundle) {
 		}
 		return bundle.ManagedModels[i].UpstreamModel < bundle.ManagedModels[j].UpstreamModel
 	})
-	sort.Slice(bundle.Routes, func(i, j int) bool {
-		return bundle.Routes[i].ID < bundle.Routes[j].ID
+	sort.Slice(bundle.LLMRoutes, func(i, j int) bool {
+		return bundle.LLMRoutes[i].ID < bundle.LLMRoutes[j].ID
 	})
 	sort.Slice(bundle.VirtualKeys, func(i, j int) bool {
 		return bundle.VirtualKeys[i].ID < bundle.VirtualKeys[j].ID

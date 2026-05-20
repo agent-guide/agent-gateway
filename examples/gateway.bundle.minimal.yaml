@@ -11,7 +11,7 @@ providers:
     api_key: ${OPENAI_API_KEY}
     default_model: gpt-4.1
 
-routes:
+llmRoutes:
   - id: chat-prod
     llm_api: openai
     match:

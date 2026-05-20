@@ -25,7 +25,7 @@ managedModels:
     upstream_model: claude-sonnet-4-5
     enabled: true
 
-routes:
+llmRoutes:
   - id: chat-prod
     llm_api: openai
     match:

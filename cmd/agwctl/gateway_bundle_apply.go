@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
@@ -85,7 +85,7 @@ func runGatewayApply(ctx context.Context, path string) error {
 	if err := applyManagedModels(ctx, client, bundle, record); err != nil {
 		return err
 	}
-	if err := applyRoutes(ctx, client, bundle, record); err != nil {
+	if err := applyLLMRoutes(ctx, client, bundle, record); err != nil {
 		return err
 	}
 	if err := applyVirtualKeys(ctx, client, bundle, record); err != nil {
@@ -216,40 +216,49 @@ func applyManagedModels(ctx context.Context, client *adminclient.Client, bundle 
 	return nil
 }
 
-func applyRoutes(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
-	items, err := client.ListRoutes(ctx, adminclient.RouteListOptions{})
+func applyLLMRoutes(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+	items, err := client.ListLLMRoutes(ctx, adminclient.LLMRouteListOptions{})
 	if err != nil {
 		return err
 	}
-	current := map[string]adminclient.Route{}
+	current := map[string]adminclient.LLMRoute{}
 	for _, item := range items {
 		current[item.ID] = item
 	}
-	for _, desired := range bundle.Routes {
-		desired.Normalize()
+	for _, desired := range bundle.LLMRoutes {
+		desiredConfig, err := llmroutepkg.NewLLMRouteConfigFromConfig(desired)
+		if err != nil {
+			record("llm_route", desired.ID, "error", fmt.Errorf("llm route %q decode: %w", desired.ID, err))
+			continue
+		}
 		item, ok := current[desired.ID]
 		if !ok {
-			if _, err := client.CreateRoute(ctx, desired); err != nil {
-				record("route", desired.ID, "error", fmt.Errorf("route %q create: %w", desired.ID, err))
+			if _, err := client.CreateLLMRoute(ctx, desiredConfig); err != nil {
+				record("llm_route", desired.ID, "error", fmt.Errorf("llm route %q create: %w", desired.ID, err))
 			} else {
-				record("route", desired.ID, "create", nil)
+				record("llm_route", desired.ID, "create", nil)
 			}
 			continue
 		}
-		currentRoute := normalizeComparableRoute(item.LLMRoute)
-		desiredRoute := normalizeComparableRoute(desired)
-		if reflect.DeepEqual(currentRoute, desiredRoute) {
-			record("route", desired.ID, "skip", nil)
+		currentLLMRoute, err := item.LLMRouteConfig()
+		if err != nil {
+			record("llm_route", desired.ID, "error", fmt.Errorf("llm route %q decode current config: %w", desired.ID, err))
+			continue
+		}
+		currentLLMRoute = normalizeComparableLLMRoute(currentLLMRoute)
+		desiredLLMRoute := normalizeComparableLLMRoute(desiredConfig)
+		if reflect.DeepEqual(currentLLMRoute, desiredLLMRoute) {
+			record("llm_route", desired.ID, "skip", nil)
 			continue
 		}
 		if item.ReadOnly {
-			record("route", desired.ID, "error", fmt.Errorf("route %q is read-only", desired.ID))
+			record("llm_route", desired.ID, "error", fmt.Errorf("llm route %q is read-only", desired.ID))
 			continue
 		}
-		if _, err := client.UpdateRoute(ctx, desired.ID, desired); err != nil {
-			record("route", desired.ID, "error", fmt.Errorf("route %q update: %w", desired.ID, err))
+		if _, err := client.UpdateLLMRoute(ctx, desired.ID, desiredConfig); err != nil {
+			record("llm_route", desired.ID, "error", fmt.Errorf("llm route %q update: %w", desired.ID, err))
 		} else {
-			record("route", desired.ID, "update", nil)
+			record("llm_route", desired.ID, "update", nil)
 		}
 	}
 	return nil
@@ -350,7 +359,7 @@ func providerConfigsEqual(a, b provider.ProviderConfig) bool {
 	return reflect.DeepEqual(a, b)
 }
 
-func normalizeComparableRoute(route routepkg.LLMRoute) routepkg.LLMRoute {
+func normalizeComparableLLMRoute(route llmroutepkg.LLMRouteConfig) llmroutepkg.LLMRouteConfig {
 	route.Normalize()
 	route.CreatedAt = time.Time{}
 	route.UpdatedAt = time.Time{}

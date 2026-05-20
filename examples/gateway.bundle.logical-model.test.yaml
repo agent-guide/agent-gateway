@@ -19,7 +19,7 @@ managedModels:
     upstream_model: deepseek-v4-pro
     enabled: true
 
-routes:
+llmRoutes:
   - id: chat-test-logical-model
     llm_api: openai
     match:

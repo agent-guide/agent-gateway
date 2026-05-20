@@ -263,7 +263,7 @@ providerTypes:
 providers:
   - id: openai-main
     provider_type: openai
-routes:
+llmRoutes:
   - id: chat-prod
     protocol: openai
     match:
@@ -304,7 +304,7 @@ providerTypes:
 providers:
   - id: codex-test
     provider_type: codex
-routes:
+llmRoutes:
   - id: code-codex
     protocol: openai
     match:
@@ -415,7 +415,7 @@ cliAuthAuthenticators:
 			})
 		case r.URL.Path == "/admin/models/managed":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case r.URL.Path == "/admin/routes":
+		case r.URL.Path == "/admin/llm/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/virtual_keys" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -552,7 +552,7 @@ cliAuthAuthenticators:
 			t.Fatalf("unexpected provider update request for unchanged object")
 		case r.URL.Path == "/admin/models/managed":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case r.URL.Path == "/admin/routes":
+		case r.URL.Path == "/admin/llm/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/virtual_keys" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -650,7 +650,7 @@ providers:
 			})
 		case r.URL.Path == "/admin/models/managed":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case r.URL.Path == "/admin/routes":
+		case r.URL.Path == "/admin/llm/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/virtual_keys" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -722,7 +722,7 @@ func TestGatewayExportCommand(t *testing.T) {
 					},
 				},
 			})
-		case "/admin/routes":
+		case "/admin/llm/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
@@ -792,7 +792,7 @@ func TestGatewayExportCommand(t *testing.T) {
 		"kind: GatewayBundle",
 		"providerTypes:",
 		"providers:",
-		"routes:",
+		"llmRoutes:",
 		"virtualKeys:",
 		"cliAuthAuthenticators:",
 		"id: openai-main",
@@ -839,7 +839,7 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 			})
 		case "/admin/models/managed":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case "/admin/routes":
+		case "/admin/llm/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{

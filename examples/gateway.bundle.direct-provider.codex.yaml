@@ -12,7 +12,7 @@ providers:
     network:
       proxy_url: http://127.0.0.1:7890
 
-routes:
+llmRoutes:
   - id: chat-codex
     llm_api: openai
     match:

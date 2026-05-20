@@ -13,7 +13,7 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/httplog"
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	dispatcher "github.com/agent-guide/agent-gateway/pkg/dispatcher"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
@@ -49,16 +49,16 @@ func (h *Handler) MatchLLMApi(r *http.Request) bool {
 	return r.URL.Path == "/v1/messages" || r.URL.Path == "/v1/messages/count_tokens"
 }
 
-func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLMApiRequest, routepkg.RequestRequirements, error) {
+func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLMApiRequest, llmroutepkg.RequestRequirements, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return nil, routepkg.RequestRequirements{}, fmt.Errorf("failed to read request body")
+		return nil, llmroutepkg.RequestRequirements{}, fmt.Errorf("failed to read request body")
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 
 	var req MessagesRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, routepkg.RequestRequirements{}, fmt.Errorf("invalid request: %s", err)
+		return nil, llmroutepkg.RequestRequirements{}, fmt.Errorf("invalid request: %s", err)
 	}
 
 	conv := &Converter{}
@@ -68,7 +68,7 @@ func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLM
 		StreamRequested: req.Stream,
 		RawRequest:      &req,
 	}
-	requestRequirements := routepkg.RequestRequirements{
+	requestRequirements := llmroutepkg.RequestRequirements{
 		Model:            req.Model,
 		RequireStreaming: req.Stream,
 	}

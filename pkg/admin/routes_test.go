@@ -16,7 +16,7 @@ import (
 	configstoreschema "github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	dispatcherpkg "github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
@@ -32,22 +32,28 @@ import (
 type testConfigStore struct {
 	providerStore   configstore.ConfigStore
 	routeStore      configstore.ConfigStore
-	mcpRouteStore   configstore.ConfigStore
 	mcpServiceStore configstore.ConfigStore
 	virtualKeyStore configstore.ConfigStore
 	modelStore      configstore.ConfigStore
 }
 
-func newTestAgentGateway(configStoreBackend configstore.ConfigStoreBackend, cliauthMgr *cliauth.Manager, cliauthRefresher *cliauth.AutoRefresher, staticRoutes []routepkg.LLMRoute, staticVirtualKeys []virtualkeypkg.VirtualKey, staticProviders ...map[string]provider.Provider) *gateway.AgentGateway {
+func newTestAgentGateway(configStoreBackend configstore.ConfigStoreBackend, cliauthMgr *cliauth.Manager, cliauthRefresher *cliauth.AutoRefresher, staticRoutes []llmroutepkg.LLMRoute, _ []virtualkeypkg.VirtualKey, staticProviders ...map[string]provider.Provider) *gateway.AgentGateway {
 	var providers map[string]provider.Provider
 	if len(staticProviders) > 0 {
 		providers = staticProviders[0]
 	}
+	staticLLMRoutes := make([]routecore.AgentRouteConfig, 0, len(staticRoutes))
+	for _, route := range staticRoutes {
+		cfg, err := route.ToConfig()
+		if err != nil {
+			panic(err)
+		}
+		staticLLMRoutes = append(staticLLMRoutes, cfg)
+	}
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
 		ConfigStoreBackend: configStoreBackend,
-		StaticRoutes:       staticRoutes,
-		StaticVirtualKeys:  staticVirtualKeys,
+		StaticLLMRoutes:    staticLLMRoutes,
 		StaticProviders:    providers,
 		CLIAuthManager:     cliauthMgr,
 		CLIAuthRefresher:   cliauthRefresher,
@@ -67,8 +73,6 @@ func (s *testConfigStore) Get(name string) (configstore.ConfigStore, error) {
 		return s.providerStore, nil
 	case configstoreschema.StoreRoutes:
 		return s.routeStore, nil
-	case configstoreschema.StoreMCPRoutes:
-		return s.mcpRouteStore, nil
 	case configstoreschema.StoreMCPServices:
 		return s.mcpServiceStore, nil
 	case configstoreschema.StoreVirtualKeys:
@@ -164,9 +168,9 @@ type testRouteStore struct {
 	tags  map[string]string
 }
 
-func testAdminRoute(cfg routepkg.AgentRouteConfig, protocol routepkg.RouteProtocol, targetPolicy routepkg.RouteTargetPolicy) routepkg.LLMRoute {
+func testAdminRoute(cfg llmroutepkg.AgentRouteConfig, protocol llmroutepkg.RouteProtocol, targetPolicy llmroutepkg.RouteTargetPolicy) llmroutepkg.LLMRoute {
 	cfg.Protocol = protocol
-	return routepkg.LLMRoute{
+	return llmroutepkg.LLMRoute{
 		AgentRouteConfig: cfg,
 		TargetPolicy:     targetPolicy,
 	}
@@ -263,7 +267,7 @@ func (s *testRouteStore) Get(_ context.Context, keyParts ...any) (any, error) {
 	return &cloned, nil
 }
 
-func mustRouteConfig(t *testing.T, route routepkg.LLMRoute) *routecore.AgentRouteConfig {
+func mustRouteConfig(t *testing.T, route llmroutepkg.LLMRoute) *routecore.AgentRouteConfig {
 	t.Helper()
 	cfg, err := route.ToConfig()
 	if err != nil {
@@ -272,7 +276,7 @@ func mustRouteConfig(t *testing.T, route routepkg.LLMRoute) *routecore.AgentRout
 	return &cfg
 }
 
-func mustMCPRouteConfig(t *testing.T, route mcproute.MCPRoute) *routecore.AgentRouteConfig {
+func mustMCPRouteConfig(t *testing.T, route mcproute.MCPRouteConfig) *routecore.AgentRouteConfig {
 	t.Helper()
 	cfg, err := route.ToConfig()
 	if err != nil {
@@ -631,7 +635,7 @@ func (s *testVirtualKeyStore) GetByIndex(_ context.Context, indexName string, va
 	return nil, configstore.ErrNotFound
 }
 
-func TestRouteCRUD(t *testing.T) {
+func TestLLMRouteCRUD(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
@@ -642,17 +646,17 @@ func TestRouteCRUD(t *testing.T) {
 	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	createBody, err := json.Marshal(routepkg.LLMRoute{
-		AgentRouteConfig: routepkg.AgentRouteConfig{ID: "chat-prod", Protocol: routepkg.RouteProtocolOpenAI},
-		TargetPolicy: &routepkg.RouteDirectProviderPolicy{
-			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
+	createBody, err := json.Marshal(llmroutepkg.LLMRoute{
+		AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
+		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
+			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
 		},
 	})
 	if err != nil {
 		t.Fatalf("marshal route: %v", err)
 	}
 
-	createReq := httptest.NewRequest(http.MethodPost, "/admin/routes", bytes.NewReader(createBody))
+	createReq := httptest.NewRequest(http.MethodPost, "/admin/llm/routes", bytes.NewReader(createBody))
 	createReq.Header.Set("Authorization", "Bearer "+token)
 	createRec := httptest.NewRecorder()
 	handler.ServeHTTP(createRec, createReq)
@@ -660,7 +664,7 @@ func TestRouteCRUD(t *testing.T) {
 		t.Fatalf("unexpected create status: got %d want %d", createRec.Code, http.StatusCreated)
 	}
 
-	var created RouteView
+	var created LLMRouteView
 	if err := json.NewDecoder(createRec.Body).Decode(&created); err != nil {
 		t.Fatalf("decode created route: %v", err)
 	}
@@ -674,7 +678,7 @@ func TestRouteCRUD(t *testing.T) {
 		t.Fatalf("unexpected created route metadata: %#v", created)
 	}
 
-	getReq := httptest.NewRequest(http.MethodGet, "/admin/routes/chat-prod", nil)
+	getReq := httptest.NewRequest(http.MethodGet, "/admin/llm/routes/chat-prod", nil)
 	getReq.Header.Set("Authorization", "Bearer "+token)
 	getRec := httptest.NewRecorder()
 	handler.ServeHTTP(getRec, getReq)
@@ -682,16 +686,20 @@ func TestRouteCRUD(t *testing.T) {
 		t.Fatalf("unexpected get status: got %d want %d", getRec.Code, http.StatusOK)
 	}
 
-	var got RouteView
+	var got LLMRouteView
 	if err := json.NewDecoder(getRec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode route: %v", err)
 	}
 	if got.ID != "chat-prod" {
 		t.Fatalf("unexpected route id: got %q want %q", got.ID, "chat-prod")
 	}
-	directPolicy, ok := routepkg.DirectProviderPolicyOf(got.TargetPolicy)
+	gotCfg, err := got.LLMRouteConfig()
+	if err != nil {
+		t.Fatalf("decode route config: %v", err)
+	}
+	directPolicy, ok := llmroutepkg.DirectProviderPolicyOf(gotCfg.TargetPolicy)
 	if !ok || directPolicy.ProviderTarget.ProviderID != "openai" {
-		t.Fatalf("unexpected target_policy: %#v", got.TargetPolicy)
+		t.Fatalf("unexpected target_policy: %#v", gotCfg.TargetPolicy)
 	}
 	if got.Source != "store" || got.ReadOnly {
 		t.Fatalf("unexpected route metadata: %#v", got)
@@ -701,7 +709,7 @@ func TestRouteCRUD(t *testing.T) {
 	}
 }
 
-func TestRouteUpdatePreservesCreatedAt(t *testing.T) {
+func TestLLMRouteUpdatePreservesCreatedAt(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
@@ -711,32 +719,32 @@ func TestRouteUpdatePreservesCreatedAt(t *testing.T) {
 	updatedAt := createdAt
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testRouteStore{items: map[string]*routecore.AgentRouteConfig{
-			"chat-prod": mustRouteConfig(t, routepkg.LLMRoute{
-				AgentRouteConfig: routepkg.AgentRouteConfig{
+			"chat-prod": mustRouteConfig(t, llmroutepkg.LLMRoute{
+				AgentRouteConfig: llmroutepkg.AgentRouteConfig{
 					ID:        "chat-prod",
-					Protocol:  routepkg.RouteProtocolOpenAI,
+					Protocol:  llmroutepkg.RouteProtocolOpenAI,
 					CreatedAt: createdAt,
 					UpdatedAt: updatedAt,
 				},
-				TargetPolicy: &routepkg.RouteDirectProviderPolicy{
-					ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
+				TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
+					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
 				},
 			}),
-		}, tags: map[string]string{"chat-prod": defaultRouteTag}},
+		}, tags: map[string]string{"chat-prod": defaultLLMRouteTag}},
 	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	updateBody, err := json.Marshal(routepkg.LLMRoute{
-		AgentRouteConfig: routepkg.AgentRouteConfig{Protocol: routepkg.RouteProtocolOpenAI},
-		TargetPolicy: &routepkg.RouteDirectProviderPolicy{
-			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "anthropic"},
+	updateBody, err := json.Marshal(llmroutepkg.LLMRoute{
+		AgentRouteConfig: llmroutepkg.AgentRouteConfig{Protocol: llmroutepkg.RouteProtocolOpenAI},
+		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
+			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "anthropic"},
 		},
 	})
 	if err != nil {
 		t.Fatalf("marshal route update: %v", err)
 	}
 
-	updateReq := httptest.NewRequest(http.MethodPut, "/admin/routes/chat-prod", bytes.NewReader(updateBody))
+	updateReq := httptest.NewRequest(http.MethodPut, "/admin/llm/routes/chat-prod", bytes.NewReader(updateBody))
 	updateReq.Header.Set("Authorization", "Bearer "+token)
 	updateRec := httptest.NewRecorder()
 	handler.ServeHTTP(updateRec, updateReq)
@@ -744,7 +752,7 @@ func TestRouteUpdatePreservesCreatedAt(t *testing.T) {
 		t.Fatalf("unexpected update status: got %d want %d", updateRec.Code, http.StatusOK)
 	}
 
-	var updated RouteView
+	var updated LLMRouteView
 	if err := json.NewDecoder(updateRec.Body).Decode(&updated); err != nil {
 		t.Fatalf("decode updated route: %v", err)
 	}
@@ -756,7 +764,7 @@ func TestRouteUpdatePreservesCreatedAt(t *testing.T) {
 	}
 }
 
-func TestRouteCreateRejectsClientManagedTimestamps(t *testing.T) {
+func TestLLMRouteCreateRejectsClientManagedTimestamps(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
@@ -767,21 +775,21 @@ func TestRouteCreateRejectsClientManagedTimestamps(t *testing.T) {
 	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	body, err := json.Marshal(routepkg.LLMRoute{
-		AgentRouteConfig: routepkg.AgentRouteConfig{
+	body, err := json.Marshal(llmroutepkg.LLMRoute{
+		AgentRouteConfig: llmroutepkg.AgentRouteConfig{
 			ID:        "chat-prod",
-			Protocol:  routepkg.RouteProtocolOpenAI,
+			Protocol:  llmroutepkg.RouteProtocolOpenAI,
 			CreatedAt: time.Now().UTC(),
 		},
-		TargetPolicy: &routepkg.RouteDirectProviderPolicy{
-			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
+		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
+			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
 		},
 	})
 	if err != nil {
 		t.Fatalf("marshal route: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/admin/routes", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/admin/llm/routes", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -798,11 +806,11 @@ func TestMCPRouteCRUD(t *testing.T) {
 	}
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		mcpRouteStore: &testMCPRouteStore{items: map[string]*routecore.AgentRouteConfig{}},
+		routeStore: &testMCPRouteStore{items: map[string]*routecore.AgentRouteConfig{}},
 	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	createBody, err := json.Marshal(mcproute.MCPRoute{
+	createBody, err := json.Marshal(mcproute.MCPRouteConfig{
 		AgentRouteConfig: mcproute.AgentRouteConfig{
 			ID:          "mcp-route-1",
 			MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
@@ -845,8 +853,104 @@ func TestListMCPRoutes(t *testing.T) {
 	}
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		mcpRouteStore: &testMCPRouteStore{items: map[string]*routecore.AgentRouteConfig{
-			"mcp-route-1": mustMCPRouteConfig(t, mcproute.MCPRoute{
+		routeStore: &testMCPRouteStore{items: map[string]*routecore.AgentRouteConfig{
+			"mcp-route-1": mustMCPRouteConfig(t, mcproute.MCPRouteConfig{
+				AgentRouteConfig: mcproute.AgentRouteConfig{
+					ID:          "mcp-route-1",
+					MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
+				},
+				ServiceID: "svc-main",
+			}),
+		}},
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/mcp/routes", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Items []MCPRouteView `json:"items"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].ID != "mcp-route-1" {
+		t.Fatalf("unexpected items: %#v", resp.Items)
+	}
+}
+
+func TestListRoutesExcludesMCPRoutesFromSharedStore(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		routeStore: &testRouteStore{items: map[string]*routecore.AgentRouteConfig{
+			"chat-prod": mustRouteConfig(t, llmroutepkg.LLMRoute{
+				AgentRouteConfig: llmroutepkg.AgentRouteConfig{
+					ID:          "chat-prod",
+					Protocol:    llmroutepkg.RouteProtocolOpenAI,
+					MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/v1"},
+				},
+				TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
+					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
+				},
+			}),
+			"mcp-route-1": mustMCPRouteConfig(t, mcproute.MCPRouteConfig{
+				AgentRouteConfig: mcproute.AgentRouteConfig{
+					ID:          "mcp-route-1",
+					MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
+				},
+				ServiceID: "svc-main",
+			}),
+		}},
+	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/llm/routes", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Items []LLMRouteView `json:"items"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].ID != "chat-prod" {
+		t.Fatalf("unexpected items: %#v", resp.Items)
+	}
+}
+
+func TestListMCPRoutesExcludesLLMRoutesFromSharedStore(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		routeStore: &testRouteStore{items: map[string]*routecore.AgentRouteConfig{
+			"chat-prod": mustRouteConfig(t, llmroutepkg.LLMRoute{
+				AgentRouteConfig: llmroutepkg.AgentRouteConfig{
+					ID:          "chat-prod",
+					Protocol:    llmroutepkg.RouteProtocolOpenAI,
+					MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/v1"},
+				},
+				TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
+					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
+				},
+			}),
+			"mcp-route-1": mustMCPRouteConfig(t, mcproute.MCPRouteConfig{
 				AgentRouteConfig: mcproute.AgentRouteConfig{
 					ID:          "mcp-route-1",
 					MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
@@ -1022,111 +1126,6 @@ func TestVirtualKeyCreateRejectsClientManagedTimestamps(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("unexpected create status: got %d want %d", rec.Code, http.StatusBadRequest)
-	}
-}
-
-func TestVirtualKeyGetMarksStaticKeyAsReadOnly(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
-	virtualKeyManager := virtualkeypkg.NewVirtualKeyManager(&testVirtualKeyStore{
-		items: map[string]*virtualkeypkg.VirtualKey{
-			"vk-static": {ID: "vk-static", Key: "lk-static", Tag: "dynamic copy"},
-		},
-	})
-	virtualKeyManager.InitStaticKeys([]virtualkeypkg.VirtualKey{
-		{ID: "vk-static", Key: "lk-static", Tag: "static key"},
-	})
-
-	agentGateway := gateway.NewAgentGateway()
-	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
-		ConfigStoreBackend: &testConfigStore{
-			virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{}},
-		},
-		StaticVirtualKeys: []virtualkeypkg.VirtualKey{
-			{ID: "vk-static", Key: "lk-static", Tag: "static key"},
-		},
-	}); err != nil {
-		t.Fatalf("bootstrap gateway: %v", err)
-	}
-	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
-	token := loginForTest(t, handler, "admin", "secret-pass")
-
-	req := httptest.NewRequest(http.MethodGet, "/admin/virtual_keys/vk-static", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("unexpected get status: got %d want %d", rec.Code, http.StatusOK)
-	}
-
-	var got VirtualKeyView
-	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
-		t.Fatalf("decode virtual key: %v", err)
-	}
-	if got.ID != "vk-static" {
-		t.Fatalf("id = %q, want vk-static", got.ID)
-	}
-	if got.Tag != "static key" {
-		t.Fatalf("tag = %q, want static key", got.Tag)
-	}
-	if got.Source != "caddyfile" || !got.ReadOnly {
-		t.Fatalf("unexpected virtual key metadata: %#v", got)
-	}
-}
-
-func TestVirtualKeyListMarksStaticKeysAsReadOnly(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
-	store := &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{
-		"vk-dynamic": {ID: "vk-dynamic", Key: "lk-dynamic", Tag: "dynamic key"},
-	}}
-	agentGateway := gateway.NewAgentGateway()
-	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
-		ConfigStoreBackend: &testConfigStore{virtualKeyStore: store},
-		StaticVirtualKeys: []virtualkeypkg.VirtualKey{
-			{ID: "vk-static", Key: "lk-static", Tag: "static key"},
-		},
-	}); err != nil {
-		t.Fatalf("bootstrap gateway: %v", err)
-	}
-	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
-	token := loginForTest(t, handler, "admin", "secret-pass")
-
-	req := httptest.NewRequest(http.MethodGet, "/admin/virtual_keys", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("unexpected list status: got %d want %d", rec.Code, http.StatusOK)
-	}
-
-	var got struct {
-		Items []VirtualKeyView `json:"items"`
-	}
-	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
-		t.Fatalf("decode virtual keys: %v", err)
-	}
-	if len(got.Items) != 2 {
-		t.Fatalf("item count = %d, want 2", len(got.Items))
-	}
-
-	byID := map[string]VirtualKeyView{}
-	for _, item := range got.Items {
-		byID[item.ID] = item
-	}
-	if byID["vk-static"].Source != "caddyfile" || !byID["vk-static"].ReadOnly {
-		t.Fatalf("unexpected static virtual key metadata: %#v", byID["vk-static"])
-	}
-	if byID["vk-dynamic"].Source != "store" || byID["vk-dynamic"].ReadOnly {
-		t.Fatalf("unexpected dynamic virtual key metadata: %#v", byID["vk-dynamic"])
 	}
 }
 
@@ -1342,7 +1341,7 @@ func TestLLMApiHandlerTypeList(t *testing.T) {
 	}
 }
 
-func TestRouteEnableDisable(t *testing.T) {
+func TestLLMRouteEnableDisable(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
@@ -1350,17 +1349,17 @@ func TestRouteEnableDisable(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testRouteStore{items: map[string]*routecore.AgentRouteConfig{
-			"chat-prod": mustRouteConfig(t, routepkg.LLMRoute{
-				AgentRouteConfig: routepkg.AgentRouteConfig{ID: "chat-prod"},
-				TargetPolicy: &routepkg.RouteDirectProviderPolicy{
-					ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
+			"chat-prod": mustRouteConfig(t, llmroutepkg.LLMRoute{
+				AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-prod"},
+				TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
+					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
 				},
 			}),
 		}},
 	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	disableReq := httptest.NewRequest(http.MethodPost, "/admin/routes/chat-prod/disable", nil)
+	disableReq := httptest.NewRequest(http.MethodPost, "/admin/llm/routes/chat-prod/disable", nil)
 	disableReq.Header.Set("Authorization", "Bearer "+token)
 	disableRec := httptest.NewRecorder()
 	handler.ServeHTTP(disableRec, disableReq)
@@ -1368,7 +1367,7 @@ func TestRouteEnableDisable(t *testing.T) {
 		t.Fatalf("disable status = %d, want %d", disableRec.Code, http.StatusOK)
 	}
 
-	var disabled RouteView
+	var disabled LLMRouteView
 	if err := json.NewDecoder(disableRec.Body).Decode(&disabled); err != nil {
 		t.Fatalf("decode disabled route: %v", err)
 	}
@@ -1376,7 +1375,7 @@ func TestRouteEnableDisable(t *testing.T) {
 		t.Fatal("route disabled = false, want true")
 	}
 
-	enableReq := httptest.NewRequest(http.MethodPost, "/admin/routes/chat-prod/enable", nil)
+	enableReq := httptest.NewRequest(http.MethodPost, "/admin/llm/routes/chat-prod/enable", nil)
 	enableReq.Header.Set("Authorization", "Bearer "+token)
 	enableRec := httptest.NewRecorder()
 	handler.ServeHTTP(enableRec, enableReq)
@@ -1384,7 +1383,7 @@ func TestRouteEnableDisable(t *testing.T) {
 		t.Fatalf("enable status = %d, want %d", enableRec.Code, http.StatusOK)
 	}
 
-	var enabled RouteView
+	var enabled LLMRouteView
 	if err := json.NewDecoder(enableRec.Body).Decode(&enabled); err != nil {
 		t.Fatalf("decode enabled route: %v", err)
 	}
@@ -1828,7 +1827,7 @@ func TestListVirtualKeysFiltersByTag(t *testing.T) {
 	}
 }
 
-func TestRouteGetPrefersStaticRouteConfigManager(t *testing.T) {
+func TestLLMRouteGetPrefersStaticRouteConfigManager(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
@@ -1836,23 +1835,23 @@ func TestRouteGetPrefersStaticRouteConfigManager(t *testing.T) {
 
 	store := &testRouteStore{
 		items: map[string]*routecore.AgentRouteConfig{
-			"chat-prod": mustRouteConfig(t, routepkg.LLMRoute{
-				AgentRouteConfig: routepkg.AgentRouteConfig{ID: "chat-prod"},
-				TargetPolicy: &routepkg.RouteDirectProviderPolicy{
-					ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
+			"chat-prod": mustRouteConfig(t, llmroutepkg.LLMRoute{
+				AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-prod"},
+				TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
+					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
 				},
 			}),
 		},
 	}
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []routepkg.LLMRoute{{
-		AgentRouteConfig: routepkg.AgentRouteConfig{ID: "chat-prod"},
-		TargetPolicy: &routepkg.RouteDirectProviderPolicy{
-			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "anthropic"},
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []llmroutepkg.LLMRoute{{
+		AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-prod"},
+		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
+			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "anthropic"},
 		},
 	}}, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/routes/chat-prod", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/llm/routes/chat-prod", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -1861,7 +1860,7 @@ func TestRouteGetPrefersStaticRouteConfigManager(t *testing.T) {
 		t.Fatalf("unexpected get status: got %d want %d", rec.Code, http.StatusOK)
 	}
 
-	var got RouteView
+	var got LLMRouteView
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode route: %v", err)
 	}
@@ -1873,7 +1872,7 @@ func TestRouteGetPrefersStaticRouteConfigManager(t *testing.T) {
 	}
 }
 
-func TestRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
+func TestLLMRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
@@ -1881,23 +1880,23 @@ func TestRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 
 	store := &testRouteStore{
 		items: map[string]*routecore.AgentRouteConfig{
-			"chat-dynamic": mustRouteConfig(t, routepkg.LLMRoute{
-				AgentRouteConfig: routepkg.AgentRouteConfig{ID: "chat-dynamic"},
-				TargetPolicy: &routepkg.RouteDirectProviderPolicy{
-					ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "openai"},
+			"chat-dynamic": mustRouteConfig(t, llmroutepkg.LLMRoute{
+				AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-dynamic"},
+				TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
+					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
 				},
 			}),
 		},
 	}
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []routepkg.LLMRoute{{
-		AgentRouteConfig: routepkg.AgentRouteConfig{ID: "chat-static"},
-		TargetPolicy: &routepkg.RouteDirectProviderPolicy{
-			ProviderTarget: routepkg.DirectProviderTarget{ProviderID: "anthropic"},
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []llmroutepkg.LLMRoute{{
+		AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-static"},
+		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
+			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "anthropic"},
 		},
 	}}, nil), nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/routes", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/llm/routes", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -1907,7 +1906,7 @@ func TestRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 	}
 
 	var got struct {
-		Items []RouteView `json:"items"`
+		Items []LLMRouteView `json:"items"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode routes: %v", err)
@@ -1916,7 +1915,7 @@ func TestRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 		t.Fatalf("item count = %d, want 2", len(got.Items))
 	}
 
-	byID := map[string]RouteView{}
+	byID := map[string]LLMRouteView{}
 	for _, item := range got.Items {
 		byID[item.ID] = item
 	}

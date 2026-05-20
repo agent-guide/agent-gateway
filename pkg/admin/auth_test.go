@@ -55,8 +55,8 @@ func TestAuthProtectedRouteRequiresFreshBearerToken(t *testing.T) {
 	authedReq.Header.Set("Authorization", "Bearer "+loginResp.Token)
 	authedRec := httptest.NewRecorder()
 	handler.ServeHTTP(authedRec, authedReq)
-	if authedRec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("unexpected authenticated status: got %d want %d", authedRec.Code, http.StatusServiceUnavailable)
+	if authedRec.Code != http.StatusOK {
+		t.Fatalf("unexpected authenticated status: got %d want %d", authedRec.Code, http.StatusOK)
 	}
 
 	staleReq := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)

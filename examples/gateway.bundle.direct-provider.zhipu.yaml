@@ -7,7 +7,7 @@ providers:
     api_key: ${ZHIPU_API_KEY}
     default_model: glm-5.1
 
-routes:
+llmRoutes:
   - id: chat-zhipu
     llm_api: openai
     match:

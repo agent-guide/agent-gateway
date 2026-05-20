@@ -9,7 +9,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/agwctl/caddyadminclient"
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 )
 
 var outputFormat string
@@ -144,9 +144,9 @@ func printGatewayProvidersTable(items []adminclient.Provider) {
 	printTable(headers, rows)
 }
 
-// printGatewayRoutesTable renders a list of RouteView items.
+// printGatewayLLMRoutesTable renders a list of LLMRouteView items.
 // Fields: id, protocol, path_prefix (from match), disabled, target, source.
-func printGatewayRoutesTable(items []adminclient.Route) {
+func printGatewayLLMRoutesTable(items []adminclient.LLMRoute) {
 	headers := []string{"ID", "PROTOCOL", "PATH-PREFIX", "DISABLED", "TARGET", "SOURCE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -155,7 +155,7 @@ func printGatewayRoutesTable(items []adminclient.Route) {
 			dash(string(item.Protocol)),
 			dash(item.MatchPolicy.PathPrefix),
 			boolStr(item.Disabled),
-			dash(extractRouteTargetID(item)),
+			dash(extractLLMRouteTargetID(item)),
 			dash(item.Source),
 		})
 	}
@@ -273,8 +273,12 @@ func printGatewayLLMAPIHandlerTypesTable(items []adminclient.LLMAPIHandlerType) 
 	printTable(headers, rows)
 }
 
-func extractRouteTargetID(item adminclient.Route) string {
-	if directPolicy, ok := routepkg.DirectProviderPolicyOf(item.TargetPolicy); ok {
+func extractLLMRouteTargetID(item adminclient.LLMRoute) string {
+	routeCfg, err := item.LLMRouteConfig()
+	if err != nil {
+		return ""
+	}
+	if directPolicy, ok := llmroutepkg.DirectProviderPolicyOf(routeCfg.TargetPolicy); ok {
 		if directPolicy.ProviderID != "" {
 			return directPolicy.ProviderID
 		}

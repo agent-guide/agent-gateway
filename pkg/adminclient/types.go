@@ -5,7 +5,7 @@ import (
 
 	adminapi "github.com/agent-guide/agent-gateway/pkg/admin"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
@@ -14,14 +14,14 @@ import (
 type Provider = adminapi.ProviderView
 type ProviderType = adminapi.ProviderTypeView
 type LLMAPIHandlerType = adminapi.LLMApiHandlerTypeView
-type Route = adminapi.RouteView
+type LLMRoute = adminapi.LLMRouteView
 type VirtualKey = adminapi.VirtualKeyView
 type Credential = adminapi.CredentialView
 type ManagedModel = adminapi.ManagedConcreteModelView
 type DiscoveredModel = modelcatalog.ProviderModelSnapshot
 
 type ProviderConfig = provider.ProviderConfig
-type RouteConfig = routepkg.LLMRoute
+type LLMRouteConfig = llmroutepkg.LLMRouteConfig
 type ManagedCredential = credentialmgr.ManagedCredential
 
 type VirtualKeyConfig struct {
@@ -38,7 +38,7 @@ type ProviderListOptions struct {
 	ProviderType string
 }
 
-type RouteListOptions struct {
+type LLMRouteListOptions struct {
 	Tag       string
 	TagPrefix string
 }

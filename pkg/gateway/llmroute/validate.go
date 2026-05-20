@@ -5,7 +5,7 @@ import (
 	"slices"
 )
 
-func (r LLMRoute) ValidateDefinition() error {
+func (r LLMRouteConfig) ValidateDefinition() error {
 	r.Normalize()
 	if r.ID == "" {
 		return fmt.Errorf("route_id is required")
@@ -22,7 +22,7 @@ func (r LLMRoute) ValidateDefinition() error {
 	return r.TargetPolicy.ValidateDefinition(r.ID)
 }
 
-func (r LLMRoute) ValidateStaticDefinition() error {
+func (r LLMRouteConfig) ValidateStaticDefinition() error {
 	r.Normalize()
 	if err := r.ValidateDefinition(); err != nil {
 		return err
@@ -155,7 +155,7 @@ func (p *RouteLogicalModelTargetPolicy) ValidateDefinition(routeID string) error
 	return nil
 }
 
-func (r LLMRoute) ProviderIDs() []string {
+func (r LLMRouteConfig) ProviderIDs() []string {
 	r.Normalize()
 	if r.TargetPolicy == nil {
 		return nil
@@ -163,4 +163,16 @@ func (r LLMRoute) ProviderIDs() []string {
 	ids := r.TargetPolicy.ProviderIDs()
 	slices.Sort(ids)
 	return ids
+}
+
+func (r LLMRoute) ValidateDefinition() error {
+	return r.Config().ValidateDefinition()
+}
+
+func (r LLMRoute) ValidateStaticDefinition() error {
+	return r.Config().ValidateStaticDefinition()
+}
+
+func (r LLMRoute) ProviderIDs() []string {
+	return r.Config().ProviderIDs()
 }

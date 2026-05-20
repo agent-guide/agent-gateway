@@ -10,8 +10,9 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"gopkg.in/yaml.v3"
@@ -25,14 +26,14 @@ const (
 var envVarPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 type GatewayBundle struct {
-	APIVersion            string                      `json:"apiVersion"`
-	Kind                  string                      `json:"kind"`
-	ProviderTypes         []ProviderTypeSetting       `json:"providerTypes,omitempty"`
-	Providers             []provider.ProviderConfig   `json:"providers,omitempty"`
-	ManagedModels         []modelcatalog.ManagedModel `json:"managedModels,omitempty"`
-	Routes                []routepkg.LLMRoute         `json:"routes,omitempty"`
-	VirtualKeys           []BundleVirtualKey          `json:"virtualKeys,omitempty"`
-	CLIAuthAuthenticators []CLIAuthAuthenticator      `json:"cliAuthAuthenticators,omitempty"`
+	APIVersion            string                       `json:"apiVersion"`
+	Kind                  string                       `json:"kind"`
+	ProviderTypes         []ProviderTypeSetting        `json:"providerTypes,omitempty"`
+	Providers             []provider.ProviderConfig    `json:"providers,omitempty"`
+	ManagedModels         []modelcatalog.ManagedModel  `json:"managedModels,omitempty"`
+	LLMRoutes             []routecore.AgentRouteConfig `json:"llmRoutes,omitempty"`
+	VirtualKeys           []BundleVirtualKey           `json:"virtualKeys,omitempty"`
+	CLIAuthAuthenticators []CLIAuthAuthenticator       `json:"cliAuthAuthenticators,omitempty"`
 }
 
 type BundleVirtualKey struct {
@@ -122,9 +123,16 @@ func (b *GatewayBundle) ValidateForStaticConfig() error {
 	if err := b.validate(false); err != nil {
 		return err
 	}
-	for i := range b.Routes {
-		if err := b.Routes[i].ValidateStaticDefinition(); err != nil {
-			return fmt.Errorf("routes[%q]: %w", strings.TrimSpace(b.Routes[i].ID), err)
+	if len(b.ManagedModels) > 0 {
+		return fmt.Errorf("managedModels are not supported in static config; create managed models through the Admin API or agwctl gateway apply")
+	}
+	for i := range b.LLMRoutes {
+		route, err := llmroutepkg.NewLLMRouteConfigFromConfig(b.LLMRoutes[i])
+		if err != nil {
+			return fmt.Errorf("llmRoutes[%q]: %w", strings.TrimSpace(b.LLMRoutes[i].ID), err)
+		}
+		if err := route.ValidateStaticDefinition(); err != nil {
+			return fmt.Errorf("llmRoutes[%q]: %w", strings.TrimSpace(b.LLMRoutes[i].ID), err)
 		}
 	}
 	if len(b.VirtualKeys) > 0 {
@@ -198,20 +206,24 @@ func (b *GatewayBundle) validate(_ bool) error {
 			managedKeys[key] = struct{}{}
 		}
 	}
-	for i := range b.Routes {
-		b.Routes[i].Normalize()
-		routeID := strings.TrimSpace(b.Routes[i].ID)
+	for i := range b.LLMRoutes {
+		routeID := strings.TrimSpace(b.LLMRoutes[i].ID)
 		if routeID == "" {
-			errs.Append(fmt.Errorf("routes[%d].id is required", i))
+			errs.Append(fmt.Errorf("llmRoutes[%d].id is required", i))
 			continue
 		}
 		if _, exists := routeIDs[routeID]; exists {
-			errs.Append(fmt.Errorf("routes[%q]: duplicate id", routeID))
+			errs.Append(fmt.Errorf("llmRoutes[%q]: duplicate id", routeID))
 		} else {
 			routeIDs[routeID] = struct{}{}
 		}
-		if err := b.Routes[i].ValidateDefinition(); err != nil {
-			errs.Append(fmt.Errorf("routes[%q]: %w", routeID, err))
+		route, err := llmroutepkg.NewLLMRouteConfigFromConfig(b.LLMRoutes[i])
+		if err != nil {
+			errs.Append(fmt.Errorf("llmRoutes[%q]: %v", routeID, err))
+			continue
+		}
+		if err := route.ValidateDefinition(); err != nil {
+			errs.Append(fmt.Errorf("llmRoutes[%q]: %w", routeID, err))
 		}
 	}
 	virtualKeys := map[string]struct{}{}
@@ -234,7 +246,7 @@ func (b *GatewayBundle) validate(_ bool) error {
 			}
 			if len(routeIDs) > 0 {
 				if _, ok := routeIDs[trimmedRouteID]; !ok {
-					errs.Append(fmt.Errorf("virtualKeys[%q]: allowed_route_id %q does not exist in bundle routes", id, trimmedRouteID))
+					errs.Append(fmt.Errorf("virtualKeys[%q]: allowed_route_id %q does not exist in bundle llmRoutes", id, trimmedRouteID))
 				}
 			}
 		}

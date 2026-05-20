@@ -7,5 +7,4 @@ const (
 	StoreVirtualKeys   = "virtual_keys"
 	StoreManagedModels = "managed_models"
 	StoreMCPServices   = "mcp_services"
-	StoreMCPRoutes     = "mcp_routes"
 )

@@ -30,16 +30,17 @@ The recommended answer is:
 
 - MCP handling in `http.handlers.agent_route_dispatcher` when `mcp` is enabled
 - MCP route model in `pkg/gateway/mcproute`
-- route resolution for MCP requests through the shared runtime
+- unified route matching via `pkg/gateway/routecore.AgentRouteConfigManager` shared with LLM routes
+- MCP dispatch in `pkg/dispatcher/mcp_handler.go`, dispatched by `pkg/dispatcher/handler.go` on `RouteKindMCP`
 - VirtualKey validation for MCP routes when required
 - MCP JSON-RPC request parsing and response writing
 
 #### Persisted MCP Configuration
 
 - config-store-backed `mcp_services`
-- config-store-backed `mcp_routes`
+- config-store-backed MCP routes stored in `routes` (same store as LLM routes, distinguished by `kind: "mcp"`)
 - Admin CRUD for `mcp_services`
-- Admin CRUD for `mcp_routes`
+- Admin CRUD for MCP routes
 
 #### Upstream MCP Discovery
 
@@ -98,14 +99,27 @@ The recommended answer is:
   - `GET /admin/mcp/dispatcher/inflight`
   - `GET /admin/mcp/dispatcher/progress`
 
+#### Transport Packages
+
+- `pkg/mcp/transport/streamablehttp.go`: fully integrated as the primary upstream transport
+- `pkg/mcp/transport/stdio.go`: transport-layer implementation complete (Connect, Send, Receive, Close), not yet wired as a gateway upstream service type
+- `pkg/mcp/transport/sse.go`: SSE read loop implemented, `Send()` not yet implemented
+
 ### 2.2 Implemented But Not Yet Complete
 
 These areas exist in the codebase, but should not be treated as fully complete MCP gateway product surfaces yet.
 
-#### Transport Integration Beyond Streamable HTTP
+#### stdio Upstream Transport Integration
 
-- `stdio` and `sse` related packages or code paths exist
-- they are not yet integrated as equally supported runtime transports for MCP dispatch
+- `pkg/mcp/transport/stdio.go` exists with a working Connect/Send/Receive/Close implementation
+- no service config type or session manager in `pkg/mcp/service` wires stdio as an upstream client
+- stdio is a transport-layer implementation only and cannot yet be selected as a gateway upstream in `mcp_services`
+
+#### SSE Transport Send
+
+- `pkg/mcp/transport/sse.go` handles SSE stream reading via `Connect()` and `readLoop()`
+- `Send()` is not implemented and returns an error
+- the SSE transport cannot be used for bidirectional upstream communication until `Send()` is implemented
 
 #### Runtime Registry Depth
 
@@ -125,10 +139,15 @@ These areas exist in the codebase, but should not be treated as fully complete M
 
 ### 2.3 Not Yet Implemented
 
-#### Additional Transport Support
+#### stdio As Gateway Upstream Type
 
-- first-class `stdio` upstream transport integration
-- first-class non-compatibility `sse` transport integration, if retained as a normal configured transport
+- service config and session manager support for `transport_type: stdio`
+- spawning and managing local MCP processes as upstream clients from gateway service definitions
+
+#### Legacy SSE Upstream Transport
+
+- first-class non-compatibility SSE upstream support, if retained as a normal configured transport
+- this requires completing `SSETransport.Send()` and wiring SSE as a selectable service type
 
 #### Richer Runtime Control
 
@@ -169,7 +188,7 @@ That pattern is already used for LLM APIs:
 - runtime route and provider logic under `pkg/gateway/...`
 - outbound upstream calls through `pkg/llm/provider/...`
 
-MCP should follow the same architectural style instead of introducing a separate reverse-proxy-first model.
+MCP follows the same architectural style. LLM and MCP routes share a common route foundation in `pkg/gateway/routecore/` and are dispatched by the same `pkg/dispatcher.Handler`, which branches on `RouteKind`.
 
 ## 5. Why Reverse Proxy Should Not Be The Core Abstraction
 
@@ -205,12 +224,13 @@ Those behaviors require protocol-aware request handling and upstream client logi
 
 ### 5.3 Reverse Proxy Biases The Design Toward HTTP-Only Upstreams
 
-This repository already includes `pkg/mcp` transport concepts for:
+This repository includes `pkg/mcp/transport/` implementations for:
 
 - `stdio`
 - `sse`
+- `streamablehttp`
 
-Even though the transport package is early, the architectural implication is important:
+The architectural implication is important:
 
 - MCP upstream access should be transport-abstracted
 - not every upstream is best modeled as a remote HTTP origin behind `reverse_proxy`
@@ -236,42 +256,73 @@ Responsibilities:
 - match inbound MCP gateway routes
 - enforce gateway authentication and VirtualKey policy
 - attach request-scoped gateway metadata
-- hand off to runtime MCP gateway service
+- hand off to `pkg/dispatcher.Handler` for MCP dispatch
 
-MCP request handling stays inside the shared dispatcher runtime, while LLM protocol adapters remain separate `llm_api` modules.
+MCP request handling stays inside the shared dispatcher runtime. LLM protocol adapters remain separate `llm_api` modules registered under `pkg/dispatcher/llmapi/...`.
 
-### 6.2 Runtime Service Layer
+### 6.2 Shared Route Foundation Layer
+
+Both LLM and MCP routes share a common config and storage foundation.
+
+Package:
+
+- `pkg/gateway/routecore/`
+
+Key types:
+
+- `AgentRouteConfig`: the base persisted route record, with `Kind` (`llm` or `mcp`), `Protocol`, `MatchPolicy`, `AuthPolicy`, `TargetPolicy`
+- `AgentRouteConfigManager`: stores and resolves both LLM and MCP routes from the same config store under `StoreRoutes`
+- `RouteKind`, `RouteProtocol`, `RouteTargetPolicyKind`: shared constants used by both route families
+
+`pkg/gateway/mcproute/` extends `AgentRouteConfig` into `MCPRoute` and `MCPRouteConfig` by decoding the `TargetPolicy` JSON field into a `ServiceID`.
+
+`pkg/gateway/llmroute/` extends `AgentRouteConfig` into `LLMRoute` and related types using provider and model target policy shapes.
+
+### 6.3 Runtime Dispatch Layer
+
+Actual protocol dispatch lives in `pkg/dispatcher/`.
+
+Package:
+
+- `pkg/dispatcher/`
+
+Key files:
+
+- `handler.go`: matches route kind, branches to `dispatchLLM` or `dispatchMCP`
+- `mcp_handler.go`: parses MCP JSON-RPC, resolves the MCP route, and calls `pkg/mcp/service`
+- `llmapi/openai/`, `llmapi/anthropic/`: LLM protocol handlers
+
+The Caddy adapter at `caddy/dispatcher/` wires configuration and modules into `pkg/dispatcher.Handler`.
+
+### 6.4 Runtime MCP Service Layer
 
 Add a runtime package responsible for MCP gateway orchestration.
 
-Recommended package:
+Current package:
 
 - `pkg/mcp/service/`
 
 Responsibilities:
 
-- resolve the inbound gateway route or upstream binding
-- select the configured upstream MCP server
-- manage client-facing and upstream-facing session state
-- enforce policy before forwarding requests upstream
-- translate between client-facing MCP surface and upstream transport implementation
-- record audit and observability events
+- manage MCP service definitions (config CRUD)
+- manage client-facing upstream session state
+- execute upstream discovery and execution requests
+- select and initialize the upstream transport client
 
-This package is the MCP equivalent of the current `pkg/gateway` plus parts of `pkg/dispatcher`.
+### 6.5 Upstream Transport Layer
 
-### 6.3 Upstream Transport Layer
+`pkg/mcp/transport/` provides outbound MCP transport implementations.
 
-Extend `pkg/mcp/` so it becomes the outbound MCP transport and client runtime.
+Current transport direction:
 
-Recommended transport direction:
+- first-class integrated
+  - `streamablehttp`: fully integrated as the upstream transport for `mcp_services`
+- transport-layer complete but not yet integrated as upstream service type
+  - `stdio`: Connect/Send/Receive/Close implemented; no gateway service wiring yet
+- transport-layer incomplete
+  - `sse`: read path implemented; `Send()` not yet implemented
 
-- first-class
-  - `stdio`
-  - `streamable_http`
-- compatibility
-  - legacy `sse`
-
-Recommended `pkg/mcp` responsibilities:
+Recommended transport responsibilities:
 
 - transport-specific connect and send logic
 - initialize handshake
@@ -280,67 +331,67 @@ Recommended `pkg/mcp` responsibilities:
 - JSON-RPC request ID tracking
 - tool, resource, and prompt request helpers
 
-Recommended `pkg/mcp` non-responsibilities:
+Transport non-responsibilities:
 
 - gateway VirtualKey policy
 - inbound HTTP route matching
 - admin CRUD
 
-### 6.4 Configuration And Storage Layer
+### 6.6 Configuration And Storage Layer
 
 Persist MCP upstream definitions through the existing config store model rather than static-only Caddy directives.
 
-Recommended store family:
+Current store family:
 
 - `mcp_services`
 
-Recommended config shape:
+Current config shape:
 
 - `id`
 - `name`
 - `transport_type`
 - `url` for remote transports
-- `command` and `args` for `stdio`
+- `command` and `args` for `stdio` (field exists in config, not yet fully wired)
 - auth reference or inline auth config
 - enabled flag
 - capability cache metadata
 - policy metadata such as tags or tool filters
 
-The existing admin shape under `/admin/mcp/services/...` and `/admin/mcp/routes/...` is already close to this direction.
+The existing admin shape under `/admin/mcp/services/...` and `/admin/mcp/routes/...` reflects this direction.
 
 ## 7. Request Flow
 
-Recommended client-facing request flow:
+Current client-facing request flow:
 
 ```text
 HTTP request
   -> http.handlers.agent_route_dispatcher with mcp enabled
   -> gateway auth and VirtualKey validation
-  -> pkg/mcp/service resolves upstream MCP client definition
-  -> pkg/mcp/service loads or opens upstream MCP session
+  -> pkg/dispatcher.Handler.dispatchMCP()
+  -> MCPRouteResolver.Resolve() -> *MCPRoute (with ServiceID)
+  -> pkg/dispatcher.Handler.dispatchJSONRPC()
+  -> pkg/mcp/service.Manager executes the requested MCP method
   -> pkg/mcp transport sends initialize if needed
-  -> pkg/mcp/service evaluates policy for the requested MCP method
   -> pkg/mcp transport executes upstream JSON-RPC call or stream
-  -> pkg/mcp/service writes client-facing MCP response
+  -> MCP JSON-RPC response written back to client
 ```
 
-For a remote Streamable HTTP upstream, the outbound path should look like:
+For a remote Streamable HTTP upstream, the outbound path looks like:
 
 ```text
-pkg/mcp/service
-  -> pkg/mcp/streamablehttp client
+pkg/mcp/service.Manager
+  -> pkg/mcp/transport/streamablehttp client
   -> HTTP request with Authorization and MCP headers
   -> upstream MCP server
   -> response and optional session ID
   -> session state cached by gateway
 ```
 
-For a local stdio upstream, the outbound path should look like:
+For a local stdio upstream (transport layer only, not yet wired as gateway upstream):
 
 ```text
-pkg/mcp/service
-  -> pkg/mcp/stdio client
-  -> spawn or connect local MCP process
+pkg/mcp/transport/stdio.StdioTransport
+  -> spawn or connect local MCP process via exec.CommandContext
   -> initialize session
   -> exchange JSON-RPC messages over stdio pipes
 ```
@@ -374,7 +425,7 @@ Recommended near-term additions:
 - `POST /admin/mcp/dispatcher/inflight/{route_id}/{request_id}/cancel`
 - capability cache inspection
 - upstream session connect/disconnect actions if session lifecycle needs to be externally managed
-- richer filter/policy editing for `mcp_services` and `mcp_routes`
+- richer filter/policy editing for `mcp_services` and MCP routes
 
 Recommended response metadata:
 
@@ -390,37 +441,34 @@ Do not model MCP servers as `llm.providers.*`.
 
 Do not model MCP endpoints as `llm_api` handler types.
 
-Instead, add a separate MCP gateway route model.
+MCP routes use a separate route kind (`kind: "mcp"`) within the shared `routecore.AgentRouteConfig` foundation. The `MCPRouteConfig` and `MCPRoute` types in `pkg/gateway/mcproute/` extend this base.
 
-Recommended package:
+Current route fields:
 
-- `pkg/gateway/mcproute/`
-
-Recommended route fields:
-
-- `id`
-- `match.host`
-- `match.path_prefix`
-- `upstream_client_id`
-- `require_virtual_key`
-- optional policy fields
-  - allowed_tools
-  - denied_tools
-  - allowed_resource_prefixes
-  - audit_mode
+- `id` (auto-generated as `"mcp:" + service_id + ":" + path_prefix` if not set)
+- `kind` (always `"mcp"`)
+- `protocol` (always `"mcp"`)
+- `description`
+- `disabled`
+- `match_policy.host`
+- `match_policy.path_prefix`
+- `match_policy.methods`
+- `auth_policy.require_virtual_key`
+- `service_id` (the linked `mcp_services` entry; encoded in `target_policy` as `kind: "mcp-service"`)
 
 Reason:
 
 - MCP routing is upstream-client oriented, not model-routing oriented
+- policy fields such as `allowed_tools`, `denied_tools`, and `allowed_resource_prefixes` are reserved for a later phase
 
 ## 10. Session Model
 
 The gateway should be stateful about upstream MCP sessions even if the client-facing API remains HTTP-based.
 
-Recommended session ownership:
+Current session ownership:
 
 - `pkg/mcp/service` owns gateway-visible session lifecycle
-- `pkg/mcp` transport client owns transport-visible session handles such as `Mcp-Session-Id`
+- `pkg/mcp/transport` client owns transport-visible session handles such as `Mcp-Session-Id`
 
 Important rule:
 
@@ -453,7 +501,7 @@ Recommended later controls:
 - per-VirtualKey capability restrictions
 - human approval hooks for selected tools
 
-These controls should live in `pkg/mcp/service`, not inside transport implementations.
+These controls should live in `pkg/mcp/service` or `pkg/dispatcher/mcp_handler.go`, not inside transport implementations.
 
 ## 12. Caddy Integration Strategy
 
@@ -475,66 +523,49 @@ Do not rely on Caddy `reverse_proxy` for:
 - tool-level authorization
 - transport abstraction over `stdio` and HTTP
 
-## 13. MVP Recommendation
+## 13. MVP Status
 
-The first shippable MCP gateway should be intentionally narrow.
+The first shippable MCP gateway scope defined in the original plan is substantially complete.
 
-### 13.1 MVP Scope
+### 13.1 Achieved
 
-Support:
+- inbound HTTP MCP endpoint via `agent_route_dispatcher` with `mcp` enabled
+- remote Streamable HTTP upstream transport (fully integrated)
+- config-store-backed MCP service definitions and routes
+- gateway VirtualKey validation for MCP routes
+- pass-through JSON-RPC method handling for all standard MCP methods
+- Admin CRUD for services, routes, and runtime inspection
+- Admin execution endpoints for tools, resources, and prompts
 
-- inbound HTTP MCP endpoint
-- one upstream transport: remote Streamable HTTP
-- config-store-backed MCP client definitions
-- gateway VirtualKey validation
-- pass-through JSON-RPC methods
-- audit logging for `tools/call`
+### 13.2 Remaining Gaps Before Full MVP Closure
 
-Defer:
-
-- `stdio`
-- legacy SSE upstream compatibility
-- advanced tool policy
-- multi-upstream fan-out
-
-### 13.2 MVP Internal Shape
-
-Recommended first implementation units:
-
-- `caddy/dispatcher/` with `agent_route_dispatcher { mcp }`
-- `pkg/mcp/service/`
-- `pkg/mcp/transport/streamablehttp.go`
-- `pkg/gateway/mcproute/`
-- `pkg/mcp/runtime/`
-- admin CRUD and runtime inspection for `mcp_services`, `mcp_routes`, and dispatcher state
-
-### 13.3 MVP Non-Goals
-
-The first version should not try to:
-
-- reuse `agent_route_dispatcher`
-- reuse `pkg/llm/provider`
-- support every historical MCP transport variant
-- implement transparent reverse proxy fallback
+- stdio upstream wiring: `pkg/mcp/transport/stdio.go` exists but `pkg/mcp/service` does not yet create or manage stdio-backed clients
+- SSE `Send()`: `pkg/mcp/transport/sse.go` connect/read works but `Send()` is not implemented, blocking SSE as an upstream transport
+- audit logging for `tools/call` is not yet confirmed as a durable log path
 
 ## 14. Evolution Path
 
-After the MVP is stable, the recommended expansion order is:
+After the remaining MVP gaps are closed, the recommended expansion order is:
 
-1. add `stdio` upstream support
-2. add compatibility support for legacy SSE-based upstream MCP servers
-3. add tool, resource, and prompt policy controls
-4. add richer session inspection and debugging endpoints
+1. wire stdio upstream: add service config support and session manager for `transport_type: stdio`
+2. complete SSE upstream: implement `SSETransport.Send()` and wire SSE as a selectable service type
+3. add tool, resource, and prompt policy controls (allow/deny lists on routes)
+4. add admin-triggered cancellation for in-flight MCP requests
+5. add richer session inspection and debugging endpoints
+6. add durable request and event history
 
 ## 15. Final Recommendation
 
 For this repository, the correct default architecture is:
 
 - Caddy module for inbound serving
-- runtime MCP gateway service for protocol and policy handling
-- forward MCP clients for outbound execution
+- shared route foundation in `pkg/gateway/routecore/` for both LLM and MCP routes
+- `pkg/dispatcher.Handler` for unified dispatch branching on route kind
+- `pkg/mcp/service` runtime for MCP protocol and session handling
+- `pkg/mcp/transport` forward clients for outbound execution
 
 In short:
 
 - use Caddy as the ingress host
 - do not use reverse proxy as the core MCP abstraction
+- MCP and LLM routes share the same route storage and match infrastructure

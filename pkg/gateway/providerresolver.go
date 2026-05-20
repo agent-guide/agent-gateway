@@ -2,12 +2,13 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
 
+	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/runtimecore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
@@ -33,29 +34,72 @@ type ProviderListOptions struct {
 	ProviderType string
 }
 
+func (o ProviderListOptions) listQuery() configmgr.ListQuery {
+	return configmgr.ListQuery{Tag: o.ProviderType}
+}
+
 type ProviderManager struct {
 	mu sync.RWMutex
 
+	configs         *configmgr.BaseConfigManager[provider.ProviderConfig]
 	staticProviders map[string]provider.Provider
-	dynamicCache    map[string]cachedProviderEntry
+	resolver        *runtimecore.Resolver[provider.ProviderConfig, provider.Provider, ProviderListOptions]
 
 	store configstore.ConfigStore
 }
 
 func NewProviderManager(store configstore.ConfigStore) *ProviderManager {
-	return &ProviderManager{
+	manager := &ProviderManager{
+		configs: configmgr.NewBaseConfigManager(store, configmgr.Definition[provider.ProviderConfig]{
+			GetID:  providerConfigID,
+			Decode: decodeProviderConfigManagerItem,
+			Clone:  cloneProviderConfig,
+			PrepareCreate: func(cfg provider.ProviderConfig) (any, provider.ProviderConfig, error) {
+				if cfg.Id == "" {
+					return nil, provider.ProviderConfig{}, fmt.Errorf("provider id is required")
+				}
+				if cfg.ProviderType == "" {
+					return nil, provider.ProviderConfig{}, fmt.Errorf("provider_type is required")
+				}
+				cfg = provider.NormalizeConfig(cfg, cfg.Id, "")
+				return &cfg, cfg, nil
+			},
+			PrepareUpdate: func(providerID string, _ provider.ProviderConfig, cfg provider.ProviderConfig) (any, provider.ProviderConfig, error) {
+				if cfg.ProviderType == "" {
+					return nil, provider.ProviderConfig{}, fmt.Errorf("provider_type is required")
+				}
+				cfg.Id = providerID
+				cfg = provider.NormalizeConfig(cfg, providerID, "")
+				return &cfg, cfg, nil
+			},
+			MatchesListQuery: func(cfg provider.ProviderConfig, query configmgr.ListQuery) bool {
+				return query.Tag == "" || cfg.ProviderType == query.Tag
+			},
+			NotConfiguredErr: func(id string) error {
+				return fmt.Errorf("%w: %q", ErrProviderNotConfigured, id)
+			},
+			ReadOnlyErr: func(id string) error {
+				return fmt.Errorf("%w: %q", ErrStaticProviderReadOnly, id)
+			},
+			StoreNilErr: func() error {
+				return fmt.Errorf("provider store is not configured")
+			},
+		}),
 		staticProviders: map[string]provider.Provider{},
-		dynamicCache:    map[string]cachedProviderEntry{},
 		store:           store,
 	}
+	manager.resolver = newDynamicProviderRuntimeResolver(manager)
+	return manager
 }
 
 func (m *ProviderManager) Reset() {
+	m.configs.Reset()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.staticProviders = map[string]provider.Provider{}
-	m.dynamicCache = map[string]cachedProviderEntry{}
+	m.resolver = newDynamicProviderRuntimeResolver(m)
 }
 
 func (m *ProviderManager) InitStaticProviders(providers map[string]provider.Provider) error {
@@ -63,6 +107,7 @@ func (m *ProviderManager) InitStaticProviders(providers map[string]provider.Prov
 	defer m.mu.Unlock()
 
 	m.staticProviders = make(map[string]provider.Provider, len(providers))
+	staticConfigs := make([]provider.ProviderConfig, 0, len(providers))
 	for name, prov := range providers {
 		if name == "" || prov == nil {
 			continue
@@ -74,24 +119,15 @@ func (m *ProviderManager) InitStaticProviders(providers map[string]provider.Prov
 		if cfg.Id != name {
 			return fmt.Errorf("static provider %q: provider config id %q must match registration id", name, cfg.Id)
 		}
+		staticConfigs = append(staticConfigs, provider.NormalizeConfig(cfg, name, ""))
 		m.staticProviders[name] = prov
 	}
+	m.configs.InitStatic(staticConfigs)
 	return nil
 }
 
 func (m *ProviderManager) IsStatic(providerID string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	_, ok := m.staticProviders[providerID]
-	return ok
-}
-
-func (m *ProviderManager) IsConfigured() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	return m.store != nil || len(m.staticProviders) > 0
+	return m.configs.IsStatic(providerID)
 }
 
 func (m *ProviderManager) GetConfig(ctx context.Context, providerID string) (provider.ProviderConfig, error) {
@@ -99,92 +135,22 @@ func (m *ProviderManager) GetConfig(ctx context.Context, providerID string) (pro
 		return provider.ProviderConfig{}, fmt.Errorf("provider id is required")
 	}
 
-	m.mu.RLock()
-	staticProvider, ok := m.staticProviders[providerID]
-	m.mu.RUnlock()
-	if ok {
-		return provider.NormalizeConfig(staticProvider.Config(), providerID, ""), nil
-	}
-
-	m.mu.RLock()
-	store := m.store
-	m.mu.RUnlock()
-	if store == nil {
-		return provider.ProviderConfig{}, fmt.Errorf("%w: %q", ErrProviderNotConfigured, providerID)
-	}
-
-	obj, err := store.Get(ctx, providerID)
+	cfg, err := m.configs.Get(ctx, providerID)
 	if err != nil {
 		if errors.Is(err, configstore.ErrNotFound) {
 			return provider.ProviderConfig{}, fmt.Errorf("%w: %q", ErrProviderNotConfigured, providerID)
 		}
 		return provider.ProviderConfig{}, fmt.Errorf("load provider %q: %w", providerID, err)
 	}
-
-	cfg, err := decodeProviderConfigItem(providerID, "", obj)
-	if err != nil {
-		return provider.ProviderConfig{}, err
-	}
 	return cfg, nil
 }
 
 func (m *ProviderManager) ListConfigs(ctx context.Context, opts ProviderListOptions) ([]provider.ProviderConfig, error) {
-	m.mu.RLock()
-	store := m.store
-	staticProviders := make(map[string]provider.Provider, len(m.staticProviders))
-	for providerID, prov := range m.staticProviders {
-		staticProviders[providerID] = prov
-	}
-	m.mu.RUnlock()
-
-	out := make(map[string]provider.ProviderConfig, len(staticProviders))
-	for providerID, prov := range staticProviders {
-		cfg := provider.NormalizeConfig(prov.Config(), providerID, "")
-		if opts.ProviderType != "" && cfg.ProviderType != opts.ProviderType {
-			continue
-		}
-		out[providerID] = cfg
-	}
-
-	if store == nil {
-		return mapProviderConfigs(out), nil
-	}
-
-	items, err := store.ListByTag(ctx, opts.ProviderType)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, item := range items {
-		cfg, err := decodeProviderConfigItem("", "", item)
-		if err != nil {
-			return nil, err
-		}
-		if _, ok := out[cfg.Id]; !ok {
-			out[cfg.Id] = cfg
-		}
-	}
-	return mapProviderConfigs(out), nil
+	return m.configs.List(ctx, opts.listQuery())
 }
 
 func (m *ProviderManager) CreateConfig(ctx context.Context, cfg provider.ProviderConfig) error {
-	if cfg.Id == "" {
-		return fmt.Errorf("provider id is required")
-	}
-	if cfg.ProviderType == "" {
-		return fmt.Errorf("provider_type is required")
-	}
-	if err := m.ensureWritable(cfg.Id); err != nil {
-		return err
-	}
-
-	m.mu.RLock()
-	store := m.store
-	m.mu.RUnlock()
-	if store == nil {
-		return fmt.Errorf("provider store is not configured")
-	}
-	if err := store.Create(ctx, &cfg); err != nil {
+	if err := m.configs.Create(ctx, cfg); err != nil {
 		return err
 	}
 
@@ -196,22 +162,7 @@ func (m *ProviderManager) UpdateConfig(ctx context.Context, providerID string, c
 	if providerID == "" {
 		return fmt.Errorf("provider id is required")
 	}
-	if cfg.ProviderType == "" {
-		return fmt.Errorf("provider_type is required")
-	}
-	if err := m.ensureWritable(providerID); err != nil {
-		return err
-	}
-
-	cfg.Id = providerID
-
-	m.mu.RLock()
-	store := m.store
-	m.mu.RUnlock()
-	if store == nil {
-		return fmt.Errorf("provider store is not configured")
-	}
-	if err := store.Update(ctx, &cfg); err != nil {
+	if err := m.configs.Update(ctx, providerID, cfg); err != nil {
 		return err
 	}
 
@@ -223,17 +174,7 @@ func (m *ProviderManager) DeleteConfig(ctx context.Context, providerID string) e
 	if providerID == "" {
 		return fmt.Errorf("provider id is required")
 	}
-	if err := m.ensureWritable(providerID); err != nil {
-		return err
-	}
-
-	m.mu.RLock()
-	store := m.store
-	m.mu.RUnlock()
-	if store == nil {
-		return fmt.Errorf("provider store is not configured")
-	}
-	if err := store.Delete(ctx, providerID); err != nil {
+	if err := m.configs.Delete(ctx, providerID); err != nil {
 		return err
 	}
 
@@ -266,120 +207,64 @@ func (m *ProviderManager) ResolveProvider(ctx context.Context, providerID string
 	}
 
 	m.mu.RLock()
-	cached, ok := m.dynamicCache[providerID]
-	store := m.store
+	resolver := m.resolver
 	m.mu.RUnlock()
-	if store == nil {
-		return nil, fmt.Errorf("%w: %q", ErrProviderNotConfigured, providerID)
+	if resolver == nil {
+		return nil, fmt.Errorf("provider runtime resolver is not configured")
 	}
 
-	item, err := m.loadDynamicProviderConfig(ctx, providerID, store)
-	if err != nil {
-		return nil, err
-	}
-	if ok && cached.cfgJSON == item.fingerprint {
-		return cached.provider, nil
-	}
-
-	entry, err := m.buildDynamicProvider(providerID, item)
-	if err != nil {
-		return nil, err
-	}
-	m.cacheDynamicProvider(providerID, entry)
-	return entry.provider, nil
+	return resolver.Get(ctx, providerID)
 }
 
-// cachedProviderEntry holds a cached provider instance and the config fingerprint
-// used to detect config changes.
-type cachedProviderEntry struct {
-	cfgJSON  string
-	provider provider.Provider
-	name     string
-}
-
-type dynamicProviderConfigItem struct {
-	tag         string
-	obj         any
-	fingerprint string
-}
-
-func (m *ProviderManager) cacheDynamicProvider(providerID string, entry cachedProviderEntry) {
-	if providerID == "" || entry.provider == nil {
-		return
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.dynamicCache == nil {
-		m.dynamicCache = map[string]cachedProviderEntry{}
-	}
-	m.dynamicCache[providerID] = entry
-}
-
-func (m *ProviderManager) loadDynamicProviderConfig(ctx context.Context, providerID string, store configstore.ConfigStore) (dynamicProviderConfigItem, error) {
-	obj, err := store.Get(ctx, providerID)
-	if err != nil {
-		if errors.Is(err, configstore.ErrNotFound) {
-			return dynamicProviderConfigItem{}, fmt.Errorf("%w: %q", ErrProviderNotConfigured, providerID)
-		}
-		return dynamicProviderConfigItem{}, err
-	}
-
-	fingerprint, err := fingerprintProviderConfig(providerID, obj)
-	if err != nil {
-		return dynamicProviderConfigItem{}, err
-	}
-
-	return dynamicProviderConfigItem{
-		tag:         "",
-		obj:         obj,
-		fingerprint: fingerprint,
-	}, nil
-}
-
-func (m *ProviderManager) buildDynamicProvider(providerID string, item dynamicProviderConfigItem) (cachedProviderEntry, error) {
-	resolvedCfg, err := decodeProviderConfigItem(providerID, item.tag, item.obj)
-	if err != nil {
-		return cachedProviderEntry{}, fmt.Errorf("normalize provider config %q: %w", providerID, err)
-	}
-	if resolvedCfg.Disabled {
-		return cachedProviderEntry{}, fmt.Errorf("%w: %q", ErrProviderDisabled, providerID)
-	}
-
-	prov, err := provider.NewProvider(resolvedCfg)
-	if err != nil {
-		return cachedProviderEntry{}, err
-	}
-
-	return cachedProviderEntry{
-		cfgJSON:  item.fingerprint,
-		provider: prov,
-		name:     providerID,
-	}, nil
-}
-
-func (m *ProviderManager) ensureWritable(providerID string) error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if _, ok := m.staticProviders[providerID]; ok {
-		return fmt.Errorf("%w: %q", ErrStaticProviderReadOnly, providerID)
-	}
-	return nil
+func newDynamicProviderRuntimeResolver(manager *ProviderManager) *runtimecore.Resolver[provider.ProviderConfig, provider.Provider, ProviderListOptions] {
+	return runtimecore.NewResolver(
+		runtimecore.FuncSource[provider.ProviderConfig, ProviderListOptions]{
+			GetFunc: func(ctx context.Context, providerID string) (provider.ProviderConfig, error) {
+				if manager == nil || manager.configs == nil {
+					return provider.ProviderConfig{}, fmt.Errorf("provider manager is not configured")
+				}
+				cfg, err := manager.configs.GetFresh(ctx, providerID)
+				if err != nil {
+					if errors.Is(err, configstore.ErrNotFound) {
+						return provider.ProviderConfig{}, fmt.Errorf("%w: %q", ErrProviderNotConfigured, providerID)
+					}
+					return provider.ProviderConfig{}, fmt.Errorf("load provider %q: %w", providerID, err)
+				}
+				return cfg, nil
+			},
+			ListFunc: func(ctx context.Context, opts ProviderListOptions) ([]provider.ProviderConfig, error) {
+				if manager == nil || manager.configs == nil {
+					return nil, fmt.Errorf("provider manager is not configured")
+				}
+				return manager.configs.List(ctx, opts.listQuery())
+			},
+		},
+		func(cfg provider.ProviderConfig) string {
+			return cfg.Id
+		},
+		func(cfg provider.ProviderConfig) (string, error) {
+			return runtimecore.FingerprintJSON(cfg.Id, "provider config", cfg)
+		},
+		func(cfg provider.ProviderConfig) (provider.Provider, error) {
+			return buildProvider(cfg)
+		},
+	)
 }
 
 func (m *ProviderManager) deleteDynamicCache(providerID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.dynamicCache, providerID)
+	m.mu.RLock()
+	resolver := m.resolver
+	m.mu.RUnlock()
+	if resolver != nil {
+		resolver.Invalidate(providerID)
+	}
 }
 
-func fingerprintProviderConfig(providerID string, obj any) (string, error) {
-	cfgJSON, err := json.Marshal(obj)
-	if err != nil {
-		return "", fmt.Errorf("fingerprint provider config %q: %w", providerID, err)
+func buildProvider(cfg provider.ProviderConfig) (provider.Provider, error) {
+	if cfg.Disabled {
+		return nil, fmt.Errorf("%w: %q", ErrProviderDisabled, cfg.Id)
 	}
-	return string(cfgJSON), nil
+	return provider.NewProvider(cfg)
 }
 
 func decodeProviderConfigItem(providerID string, fallbackName string, item any) (provider.ProviderConfig, error) {
@@ -393,10 +278,21 @@ func decodeProviderConfigItem(providerID string, fallbackName string, item any) 
 	return normalized, nil
 }
 
-func mapProviderConfigs(configs map[string]provider.ProviderConfig) []provider.ProviderConfig {
-	out := make([]provider.ProviderConfig, 0, len(configs))
-	for _, cfg := range configs {
-		out = append(out, cfg)
+func decodeProviderConfigManagerItem(providerID string, item any) (provider.ProviderConfig, error) {
+	return decodeProviderConfigItem(providerID, "", item)
+}
+
+func cloneProviderConfig(cfg provider.ProviderConfig) provider.ProviderConfig {
+	if len(cfg.Options) > 0 {
+		cloned := make(map[string]any, len(cfg.Options))
+		for k, v := range cfg.Options {
+			cloned[k] = v
+		}
+		cfg.Options = cloned
 	}
-	return out
+	return cfg
+}
+
+func providerConfigID(cfg provider.ProviderConfig) string {
+	return cfg.Id
 }

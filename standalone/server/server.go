@@ -16,8 +16,7 @@ import (
 	anthropicapi "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/anthropic"
 	openaiapi "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/openai"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
-	routepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
-	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	credentialmgrscheduler "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/scheduler"
@@ -154,12 +153,10 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 	if err := cliauthRefresher.Load(ctx); err != nil {
 		return nil, nil, fmt.Errorf("load cliauth credentials: %w", err)
 	}
-
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(ctx, gateway.BootstrapOptions{
-		StaticRoutes:        staticConfig.Routes,
+		StaticLLMRoutes:     staticConfig.LLMRoutes,
 		StaticProviders:     staticConfig.Providers,
-		StaticModels:        staticConfig.ManagedModels,
 		ConfigStoreBackend:  configstoreBackend,
 		CLIAuthManager:      cliauthManager,
 		CLIAuthRefresher:    cliauthRefresher,
@@ -172,9 +169,8 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 }
 
 type staticConfig struct {
-	Providers     map[string]provider.Provider
-	ManagedModels []modelcatalog.ManagedModel
-	Routes        []routepkg.LLMRoute
+	Providers map[string]provider.Provider
+	LLMRoutes []routecore.AgentRouteConfig
 }
 
 func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) {
@@ -198,8 +194,7 @@ func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) 
 		return nil, err
 	}
 	cfg.Providers = providers
-	cfg.ManagedModels = append([]modelcatalog.ManagedModel(nil), bundle.ManagedModels...)
-	cfg.Routes = append([]routepkg.LLMRoute(nil), bundle.Routes...)
+	cfg.LLMRoutes = append([]routecore.AgentRouteConfig(nil), bundle.LLMRoutes...)
 	return cfg, nil
 }
 
