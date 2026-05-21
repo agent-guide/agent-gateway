@@ -525,8 +525,12 @@ The first shippable MCP gateway scope defined in the original plan is substantia
 
 ### 13.2 Remaining Gaps Before Full MVP Closure
 
-- SSE `Send()`: `pkg/mcp/transport/sse.go` connect/read works but `Send()` is not implemented, blocking SSE as an upstream transport
-- audit logging for `tools/call` is not yet confirmed as a durable log path
+All original MVP gaps are now closed:
+
+- SSE `Send()` is implemented in `pkg/mcp/transport/sse.go` with HTTP POST send and response matching
+- bounded in-memory completed-request history is implemented in `pkg/mcp/runtime/registry.go` and exposed at `GET /admin/mcp/dispatcher/history`
+
+Audit logging and tool policy are planned as the next feature phase. See `docs/audit-metrics-mcp-tool-policy-design.md`.
 
 ## 14. Evolution Path
 
