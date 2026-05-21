@@ -186,15 +186,22 @@ A gateway serving multi-agent workloads must answer questions that span multiple
 - how deep is the recursion, and at what depth did errors appear?
 - did a multi-agent pipeline exceed its allowed call depth or volume?
 
-The gateway extracts agent chain context from inbound HTTP headers on every request:
+The gateway extracts agent chain context from inbound HTTP headers on every request. OpenTelemetry and other standards-based clients should propagate W3C Trace Context headers; the gateway accepts its legacy `X-*` headers as a secondary compatibility path for callers that are not yet using W3C propagation.
 
 | Header | Stored field | Purpose |
 |--------|-------------|---------|
+| `traceparent` / `tracestate` | `trace_id`, `parent_span_id` | Preferred W3C Trace Context carrier; used when present |
 | `X-Trace-ID` | `trace_id` | Caller-supplied correlation ID; gateway generates a UUID if absent |
 | `X-Span-ID` | `parent_span_id` | The caller's span ID; recorded as this event's `parent_span_id` |
 | `X-Agent-Depth` | `agent_depth` | Hop count from the originating caller; stored as-is and returned as `agent_depth + 1` in the response header |
 
-The gateway always generates a new `span_id` (UUID) per request and emits `X-Trace-ID`, `X-Span-ID`, and `X-Agent-Depth` response headers so downstream agents can propagate them.
+Request extraction precedence is:
+
+1. parse `traceparent` and `tracestate` when present
+2. otherwise fall back to `X-Trace-ID` and `X-Span-ID`
+3. if neither is present, generate a new trace context locally
+
+The gateway always generates a new `span_id` for the current request. When a valid `traceparent` is present, the generated IDs must remain compatible with W3C Trace Context so the same request can be exported through OpenTelemetry without ID translation. The gateway emits `traceparent` and `tracestate` response headers for standards-based downstream propagation, and may also emit `X-Trace-ID`, `X-Span-ID`, and `X-Agent-Depth` as compatibility headers for non-OTel callers.
 
 These four fields (`trace_id`, `span_id`, `parent_span_id`, `agent_depth`) are stored on every event from phase 1. Agent depth enforcement — rejecting requests exceeding a configured maximum depth — is a later-phase policy gate, but the data must be present from phase 1 to make that gate possible without schema migration.
 
@@ -217,6 +224,69 @@ Properties of this design:
 - **Graceful shutdown**: the pipeline drains its queue on context cancellation before stopping sinks, ensuring in-flight events are not lost on clean shutdown.
 
 The `EventPipeline` is provisioned once by `caddy/gateway/app.go` at startup. The `InteractionObserver` returned to dispatchers is a thin enqueue wrapper over the pipeline's input channel.
+
+### 5.4 OpenTelemetry Compatibility
+
+This design keeps a gateway-specific internal observability model and Admin API. It does not attempt to make SQLite tables or Admin API payloads identical to OpenTelemetry's wire model. Instead, the internal model must be deliberately mappable to OpenTelemetry traces, metrics, and logs so an `OpenTelemetrySink` can export the same interaction data without lossy translation.
+
+The compatibility goal is therefore:
+
+- keep the internal schema optimized for gateway audit, query, and rollup needs
+- align identity and propagation with OpenTelemetry where practical, especially trace context
+- use OpenTelemetry semantic conventions for exported metrics and attributes where stable enough
+- keep gateway-specific audit fields as explicit custom attributes rather than forcing them into unrelated standard fields
+
+#### 5.4.1 Trace Context Compatibility
+
+Trace propagation should follow W3C Trace Context so OpenTelemetry SDKs, collectors, and backends can correlate gateway activity without custom parsing.
+
+- `traceparent` and `tracestate` are the canonical inbound and outbound trace context carriers
+- `X-Trace-ID` and `X-Span-ID` remain compatibility headers, not the primary propagation format
+- `agent_depth` is gateway-specific chain metadata and is not part of the trace identity itself; it may be emitted as a custom response header and exported as a span or log attribute
+- stored `trace_id`, `span_id`, and `parent_span_id` fields must remain directly representable in OpenTelemetry spans without re-encoding
+
+This means the request path should be able to reconstruct an OpenTelemetry-compatible parent-child span graph from persisted interaction records alone.
+
+#### 5.4.2 Audit Event And Log Compatibility
+
+`LLMUsageEvent` and `MCPUsageEvent` are first-class gateway audit records. They are not constrained to match the OpenTelemetry LogRecord schema field-for-field. However, every persisted event should be exportable as either:
+
+- one OpenTelemetry log record with the interaction fields attached as attributes
+- one span event attached to the request span when the exported backend is trace-centric
+
+At minimum, the following direct mappings must exist:
+
+| Gateway field | OpenTelemetry mapping |
+|---------------|-----------------------|
+| `started_at` / `finished_at` | span start/end timestamps or log timestamp |
+| `trace_id` | trace identity |
+| `span_id` | span identity |
+| `parent_span_id` | parent span relationship |
+| `success`, `status_code`, `error_type` | span status and attributes such as `error.type` |
+| protocol-specific dimensions | span/log attributes |
+| `event_id` | custom attribute such as `agw.event.id` |
+
+Fields without a stable OpenTelemetry semantic convention, such as `presented_tool_name`, `executed_tool_name`, `execution_mode`, `virtual_key_id`, and `agent_depth`, should be exported as custom attributes under a gateway-owned namespace such as `agw.*` rather than overloading unrelated standard names.
+
+#### 5.4.3 Metrics Compatibility
+
+The Admin API metrics responses and SQLite rollup tables are product-facing summary surfaces, not the canonical OpenTelemetry metrics shape. An `OpenTelemetrySink` or `PrometheusSink` should derive standard instruments from the same interaction events.
+
+The exported metrics model should follow these rules:
+
+- request latency exports as histograms, with duration units aligned to OpenTelemetry conventions
+- request and tool-call volume export as counters
+- token usage exports as monotonic counters where the underlying data is cumulative per interaction
+- dimensions already present in the event model become metric attributes when cardinality is acceptable
+- gateway-specific high-cardinality identifiers should be configurable or sampled before export when necessary
+
+For protocol semantics:
+
+- HTTP server attributes should use standard HTTP semantic conventions where the gateway is acting as the server boundary
+- LLM-specific exports should align with OpenTelemetry GenAI semantic conventions when those conventions are sufficiently stable for the instrument being exported
+- MCP-specific exports should align with OpenTelemetry MCP semantic conventions when available
+
+Because GenAI and MCP semantic conventions are still evolving, the internal SQLite schema and Admin API should not be renamed solely to mirror provisional OpenTelemetry field names. The exporter layer owns the translation to current OpenTelemetry semantic conventions.
 
 ## 6. LLM Observability
 
