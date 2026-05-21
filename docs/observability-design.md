@@ -1,23 +1,19 @@
-# Audit, Metrics, And MCP Tool Policy Design
+# Observability Design
 
 ## 1. Scope
 
-This document describes the design for unified audit logging, usage metrics, and MCP tool policy for `agent-gateway`.
+This document describes the design for unified audit logging and usage metrics for `agent-gateway`.
 
-It covers two complementary concerns:
+It covers reliable capture, persistence, and query of request-level events and aggregated usage statistics for all gateway traffic — LLM, MCP, and future protocols such as ACP and A2A.
 
-- **Observability**: reliable capture, persistence, and query of request-level events and aggregated usage statistics for both LLM and MCP traffic
-- **MCP Tool Policy**: gateway-level control over which MCP tools are exposed and how their definitions are presented to clients
+This allows operators and agent builders to:
 
-Together these allow operators and agent builders to:
-
-- audit what tools LLM agents called and which MCP tools were invoked
+- audit what LLM tools agents called and which MCP tools were invoked
 - measure token consumption, request volume, latency, and error rates
-- reduce client-facing token overhead by controlling and rewriting MCP tool definitions
-- enforce tool allowlists or denylists at the gateway edge without modifying upstream MCP servers
-- expose gateway-executed synthetic tools that are more token-efficient or more observable than raw upstream tools
+- reconstruct multi-agent call chains through trace and span correlation
+- govern agent behavior by inspecting depth, frequency, and error patterns across agent chains
 
-This document defines the next feature phase for audit logging, usage metrics, and MCP tool policy. It extends the MCP gateway architecture described in `mcp-gateway-architecture.md` and fills in the currently unimplemented metrics area referenced by `docs/DESIGN.md`.
+This document extends the MCP gateway architecture described in `mcp-gateway-architecture.md` and fills in the currently unimplemented metrics area referenced by `docs/DESIGN.md`. MCP tool policy is a separate concern described in `mcp-tool-policy-design.md`.
 
 The current implementation baseline is:
 
@@ -31,10 +27,10 @@ The current implementation baseline is:
 
 - Capture one structured event per completed LLM request, including request-side tool metadata and response-side tool call summary
 - Capture one structured event per completed MCP tool call or resource access
+- Carry agent chain identity (`trace_id`, `span_id`, `agent_depth`) on every event from phase 1
 - Persist events durably to SQLite so history survives restarts
-- Expose useful summaries and recent-event inspection through the Admin API
+- Expose useful summaries and recent-event inspection through the Admin API, including a unified cross-protocol view
 - Support aggregated rollups for token and request volume trends
-- Allow MCP routes to declare a tool policy that filters and rewrites tool definitions before they reach the client
 - Keep the request critical path impact minimal
 
 ## 3. Non-Goals
@@ -54,6 +50,7 @@ This design does not attempt to:
 
 Every completed LLM request produces one persisted usage event containing:
 
+- agent chain dimensions: trace ID, span ID, parent span ID, agent depth
 - routing dimensions: route, provider, virtual key, logical model, upstream model, credential
 - request shape: API family, streaming flag, request-side declared tools summary
 - execution outcome: success, error type, status code, latency
@@ -71,30 +68,16 @@ LLM request-side tools refer to tool definitions declared by the client in the i
 
 Every completed MCP operation produces one persisted usage event containing:
 
+- agent chain dimensions: trace ID, span ID, parent span ID, agent depth
 - routing dimensions: route, service, virtual key
 - operation: method, tool name (for `tools/call`), resource URI (for `resources/read`)
 - execution outcome: result status, error type, cancelled flag, latency
+- policy attribution: presented tool name, executed tool name, execution mode (see `mcp-tool-policy-design.md`)
 - argument metadata: argument count only; full argument capture is opt-in per service
 
 The existing in-memory ring buffer in `pkg/mcp/runtime/registry.go` is retained for fast real-time inspection. SQLite persistence runs alongside it for durability.
 
-### 4.3 MCP Tool Policy
-
-MCP routes may declare a `tool_policy` that controls what the gateway exposes to downstream clients.
-
-Phase 1 and phase 2 support three policy controls:
-
-- **Tool filtering**: allowlist or denylist of tool names. Applied to `tools/list` responses and enforced on `tools/call` requests.
-- **Description override**: replace upstream tool description with a shorter or more precise gateway-defined description. Reduces per-request token overhead when tool definitions are large.
-- **Tool name alias**: expose a tool under a different name than the upstream provides. The gateway maps back to the upstream name on `tools/call`.
-
-Tool policy lives on the MCP route, not on the MCP service. This allows the same upstream service to be exposed through different routes with different tool sets and descriptions.
-
-Later phases may extend this route-level policy into route-level tool replacement, where the gateway exposes a synthetic tool name to the client and executes gateway-owned logic instead of forwarding the call to the original upstream tool.
-
 ## 5. Architecture
-
-The design introduces two new layers alongside the existing gateway runtime:
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -152,8 +135,6 @@ The design introduces two new layers alongside the existing gateway runtime:
 │   GET /admin/metrics/mcp/...                         │
 └──────────────────────────────────────────────────────┘
 ```
-
-The MCP tool policy layer is route-aware. Policy evaluation is initiated from `pkg/dispatcher/mcp_handler.go`, because the selected `MCPRoute` is the object that owns `tool_policy`. Helper logic may live in `pkg/mcp/service`, but the effective policy input must always include the resolved route.
 
 ### 5.1 Unified Event Model
 
@@ -284,7 +265,7 @@ tool_names          []string   names of tools called by the model; empty if none
 
 ### 6.2 Capture Points
 
-**Request context initialization** happens in `pkg/dispatcher/handler.go` after route resolution and virtual key validation. At this point the stable dimensions are known: route, virtual key, protocol, and the selected API handler. A `UsageObserver` is created and stored in the request context.
+**Request context initialization** happens in `pkg/dispatcher/handler.go` after route resolution and virtual key validation. At this point the stable dimensions are known: route, virtual key, protocol, and the selected API handler. An `InteractionSpan` is created via `InteractionObserver.Begin` and stored in the request context.
 
 **Request-side tool extraction** happens in the protocol handler before provider execution. This is where the incoming wire payload is still available in protocol-native form:
 
@@ -292,9 +273,9 @@ tool_names          []string   names of tools called by the model; empty if none
 - OpenAI Responses API: inspect request `tools`
 - Anthropic messages: inspect request `tools` once the wire model supports it in the gateway
 
-The protocol handler passes the declared tool names and count into the observer before dispatching upstream.
+The protocol handler passes the declared tool names and count into the span via `SetExtension` before dispatching upstream.
 
-**Execution outcome recording** happens at the routed provider boundary after the provider call completes. This layer owns credential selection, upstream model resolution, request-model rewrite, and the final provider call boundary. The observer records provider dimensions, latency, token counts, and success or failure here.
+**Execution outcome recording** happens at the routed provider boundary after the provider call completes. This layer owns credential selection, upstream model resolution, request-model rewrite, and the final provider call boundary. The span records provider dimensions, latency, token counts, and success or failure here.
 
 **Response-side tool call extraction** happens at the protocol handler boundary:
 
@@ -302,7 +283,7 @@ The protocol handler passes the declared tool names and count into the observer 
 - OpenAI Responses API: extract tool call outputs from the provider-level responses payload or responses stream events
 - Anthropic messages: extract tool call names only if the gateway preserves tool identity through conversion; until then the event may record `tool_call_count` without `tool_names`
 
-The observer therefore supports partial finalization: tool counts may be available before tool names are available.
+The span therefore supports partial finalization: tool counts may be available before tool names are available.
 
 ### 6.3 Error Categories
 
@@ -363,8 +344,9 @@ latency_ms          int64
 request_id          string     JSON-RPC request id, not globally unique
 service_id          string
 method              string     tools/call | resources/read | prompts/get | tools/list | ...
-tool_name           string     populated for tools/call (upstream tool name)
+tool_name           string     upstream tool name; populated for tools/call
 presented_tool_name string     client-visible tool name after alias/policy application
+                               (see mcp-tool-policy-design.md for how this is set)
 executed_tool_name  string     actual execution target; differs from tool_name when synthetic
 execution_mode      string     forwarded_tool | wrapped_tool | synthetic_tool
 resource_uri        string     populated for resources/read
@@ -375,6 +357,8 @@ tool_args_json      string     full JSON of arguments; null unless verbose_audit
 ```
 
 `tool_name` and `arg_count` are always captured when the method shape includes them. `tool_args_json` is null by default.
+
+The `presented_tool_name`, `executed_tool_name`, and `execution_mode` fields are populated by the tool policy layer in `pkg/mcp/service/`. See `mcp-tool-policy-design.md` §6.7.7 for audit attribution details.
 
 The existing `CompletedRequest` struct in `pkg/mcp/runtime/registry.go` is extended with the MCP-specific fields above plus the `InteractionEvent` base fields. The in-memory ring buffer continues to serve real-time inspection. The SQLite writer consumes the same event to provide durable history.
 
@@ -410,400 +394,9 @@ When enabled, `tool_args_json` is populated with the serialized argument map. Op
 
 Result content is never stored regardless of this setting.
 
-## 8. MCP Tool Policy
+## 8. Admin API
 
-### 8.1 Policy Model
-
-`tool_policy` is a field on `MCPRouteConfig`. It is absent by default, which means all upstream tools are passed through unchanged.
-
-```json
-{
-  "id": "mcp:fs-service:/mcp/fs",
-  "kind": "mcp",
-  "service_id": "fs-service",
-  "match_policy": {
-    "path_prefix": "/mcp/fs"
-  },
-  "tool_policy": {
-    "mode": "allow",
-    "tools": ["read_file", "list_directory", "search_files"],
-    "overrides": {
-      "read_file": {
-        "description": "Read a file. Path must be absolute.",
-        "name": "read_file"
-      },
-      "list_directory": {
-        "description": "List entries in a directory."
-      },
-      "search_files": {
-        "name": "find_files"
-      }
-    }
-  }
-}
-```
-
-Fields:
-
-- `mode`: `"allow"` or `"deny"`. With `"allow"`, only listed tools are exposed. With `"deny"`, listed tools are hidden.
-- `tools`: list of upstream tool names subject to the mode.
-- `overrides`: per-tool patches applied to the tool definition after filtering. Each entry may contain `name` (alias) and/or `description` (replacement text).
-
-### 8.2 Filtering
-
-Filtering applies to `tools/list` responses from the upstream. The gateway removes tools that do not satisfy the policy before returning the list to the client.
-
-For `tools/call`, the gateway checks the requested tool name against the effective allow set before forwarding. If the tool is not allowed, the gateway returns a JSON-RPC error with code `-32601` rather than forwarding the request.
-
-### 8.3 Description Override
-
-When an override entry contains a `description` field, the gateway replaces the upstream `description` in the tool definition with the provided text. The upstream tool schema (`inputSchema`) is unchanged.
-
-This allows operators to supply shorter descriptions for verbose upstream tools without modifying the upstream server. Shorter descriptions reduce the token cost of carrying tool definitions in every LLM API request.
-
-### 8.4 Tool Name Aliasing
-
-When an override entry contains a `name` field, the gateway exposes the tool under the alias in `tools/list`. When the client calls the alias via `tools/call`, the gateway maps it back to the upstream tool name before forwarding.
-
-The mapping is maintained per-route at runtime. Alias names must be unique within the effective tool set for a route.
-
-Example upstream `tools/list` result:
-
-```json
-{
-  "tools": [
-    {
-      "name": "search_files",
-      "description": "Search files recursively with many options."
-    },
-    {
-      "name": "read_file",
-      "description": "Read a file."
-    }
-  ]
-}
-```
-
-Example route policy:
-
-```json
-{
-  "tool_policy": {
-    "mode": "allow",
-    "tools": ["search_files", "read_file"],
-    "overrides": {
-      "search_files": {
-        "name": "find_files",
-        "description": "Find files by name or content."
-      }
-    }
-  }
-}
-```
-
-Client-visible `tools/list` result after policy application:
-
-```json
-{
-  "tools": [
-    {
-      "name": "find_files",
-      "description": "Find files by name or content."
-    },
-    {
-      "name": "read_file",
-      "description": "Read a file."
-    }
-  ]
-}
-```
-
-If the client later calls:
-
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "find_files",
-    "arguments": {
-      "query": "TODO"
-    }
-  }
-}
-```
-
-the gateway resolves `find_files` back to upstream tool `search_files` and forwards:
-
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "search_files",
-    "arguments": {
-      "query": "TODO"
-    }
-  }
-}
-```
-
-This is still aliasing, not replacement:
-
-- the client sees `find_files`
-- the upstream still executes `search_files`
-- the result comes from the upstream tool's normal execution path
-
-The main use cases are:
-
-- shorten verbose or awkward tool names
-- unify naming across different upstream services
-- improve model-facing clarity without changing execution ownership
-
-### 8.5 Execution Points
-
-Policy ownership is route-level, so the dispatcher must carry the selected route into policy evaluation.
-
-Execution flow:
-
-- `pkg/dispatcher/mcp_handler.go`: resolve the route, then call policy-aware helpers using both `route` and `service_id`
-- `pkg/mcp/service/`: host reusable pure functions for filtering, alias resolution, and override application
-- transport clients remain unchanged
-
-One practical shape is to add route-aware methods such as:
-
-- `ListToolsForRoute(ctx, route, cursor)`
-- `CallToolForRoute(ctx, route, clientToolName, args, progressCh)`
-
-The service manager may internally delegate to lower-level service-only methods after policy resolution. This preserves the design goal that one upstream service may be exposed through multiple routes with different policies.
-
-### 8.6 Future Extension: Tool Replacement
-
-The immediate phase 2 policy is limited to filtering, aliasing, and description rewrite. That is enough to reduce token overhead and improve governance, but it is not yet full tool replacement.
-
-If the gateway later needs to replace an upstream tool with a gateway-implemented or gateway-wrapped tool, that requires a separate execution model:
-
-- a route-visible synthetic tool registry
-- explicit audit attribution of `presented_tool_name` versus `executed_tool_name`
-- optional comparison fields for token savings or alternate implementation path
-
-That work is intentionally out of scope for this document's phase 2 design.
-
-### 8.7 Synthetic Tool Replacement
-
-This section defines the next-step design for gateway-executed synthetic tools. This is the mechanism needed when aliasing is not enough.
-
-Aliasing only changes the presented name and optionally the description. It does not change who executes the tool or what result shape is returned. If the operator wants a code agent to call a more token-efficient `well_git` tool instead of a broad raw `git` tool, the gateway must expose and execute a different tool, not merely rename one.
-
-#### 8.7.1 Problem Shape
-
-Typical motivating case:
-
-- a client or upstream service currently exposes a broad tool such as `git`
-- the raw tool output is verbose, unstable, or difficult to audit
-- the operator wants the agent to call a narrower tool such as `well_git`
-- the narrower tool should be executed by the gateway and should return a shorter, more structured result
-
-The core goal is not just naming control. The goal is execution replacement with better result shaping.
-
-#### 8.7.2 Client Compatibility
-
-Gateway-executed synthetic tools are compatible with code agents as long as the client sees a normal MCP tool lifecycle:
-
-1. the tool appears in `tools/list`
-2. the client calls it through `tools/call`
-3. the gateway returns a valid MCP tool result
-
-From the client's perspective, this is a standard MCP tool. The client does not need to know whether the tool is:
-
-- directly forwarded to an upstream MCP server
-- wrapped around an upstream tool
-- implemented entirely inside the gateway
-
-This means a code agent will generally accept and use a gateway-executed synthetic tool if:
-
-- the presented tool definition is valid
-- the input schema matches the actual supported behavior
-- the returned result is protocol-valid and semantically consistent with the tool definition
-
-#### 8.7.3 Execution Modes
-
-Route-level tool policy may eventually support three execution modes:
-
-- `forwarded_tool`: normal case; the gateway forwards the call to the upstream tool
-- `wrapped_tool`: the gateway executes pre-processing or post-processing around an upstream tool call
-- `synthetic_tool`: the gateway executes gateway-owned logic without forwarding to the original upstream tool
-
-Example interpretation:
-
-- `git` as an upstream tool might be replaced by presented tool `well_git`
-- `well_git` may run a constrained internal implementation that returns a compact repository summary
-- the gateway may choose not to expose raw `git` at all on that route
-
-#### 8.7.4 Presentation And Execution Separation
-
-Synthetic replacement requires two names:
-
-- `presented_tool_name`: the name shown to the client and returned in `tools/list`
-- `executed_tool_name`: the internal execution target, which may be an upstream tool name or a gateway synthetic tool identifier
-
-For pure aliasing:
-
-- `presented_tool_name` differs from the upstream name
-- `executed_tool_name` still resolves to the original upstream tool
-
-For synthetic replacement:
-
-- `presented_tool_name` is what the agent calls, such as `well_git`
-- `executed_tool_name` resolves to a gateway-owned executor, not the original raw tool
-
-This distinction must be reflected in audit records so operators can answer both questions:
-
-- what tool the agent believed it was calling
-- what implementation actually executed
-
-#### 8.7.5 Example Flow
-
-Upstream capability:
-
-```json
-{
-  "tools": [
-    {
-      "name": "git",
-      "description": "Run arbitrary git commands"
-    }
-  ]
-}
-```
-
-Route policy later exposes only a synthetic tool:
-
-```json
-{
-  "tool_policy": {
-    "mode": "deny",
-    "tools": ["git"]
-  },
-  "synthetic_tools": [
-    {
-      "name": "well_git",
-      "description": "Return concise repository summaries for agent use.",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string",
-            "enum": ["status_summary", "changed_files", "diff_summary", "recent_commits"]
-          },
-          "paths": {
-            "type": "array",
-            "items": { "type": "string" }
-          }
-        },
-        "required": ["action"]
-      },
-      "executor": {
-        "kind": "synthetic_tool",
-        "id": "well-git"
-      }
-    }
-  ]
-}
-```
-
-Client-visible `tools/list` result:
-
-```json
-{
-  "tools": [
-    {
-      "name": "well_git",
-      "description": "Return concise repository summaries for agent use."
-    }
-  ]
-}
-```
-
-Client call:
-
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "well_git",
-    "arguments": {
-      "action": "changed_files"
-    }
-  }
-}
-```
-
-Gateway execution:
-
-- resolve `well_git` to synthetic executor `well-git`
-- run gateway-owned logic
-- optionally call local command execution, a bounded adapter, or another internal service
-- return a compact, structured MCP tool result
-
-Example result:
-
-```json
-{
-  "content": [
-    {
-      "type": "text",
-      "text": "{\"action\":\"changed_files\",\"count\":2,\"files\":[\"pkg/dispatcher/mcp_handler.go\",\"docs/audit-metrics-mcp-tool-policy-design.md\"]}"
-    }
-  ]
-}
-```
-
-The client treats this as a normal MCP tool result and can feed it back into the model.
-
-#### 8.7.6 Result Shape Guidance
-
-Synthetic tools should prefer stable, compact, structured outputs over raw command output.
-
-Good result properties:
-
-- bounded size
-- stable field names
-- task-oriented summaries rather than terminal dumps
-- enough detail for follow-up reasoning without replaying the full raw output
-
-For `well_git`, that usually means returning summaries such as:
-
-- changed files
-- diff summary by path
-- recent commits
-- working tree status summary
-
-It should not default to returning unrestricted `git diff` or `git status --verbose` output unless the synthetic tool contract explicitly allows it.
-
-#### 8.7.7 Audit Impact
-
-Synthetic replacement extends the audit model. MCP usage events should eventually support fields such as:
-
-- `presented_tool_name`
-- `executed_tool_name`
-- `execution_mode` (`forwarded_tool` | `wrapped_tool` | `synthetic_tool`)
-- `policy_action` (`forward`, `deny`, `alias`, `replace`)
-
-This preserves observability when the agent-visible tool is not the same as the executed implementation.
-
-#### 8.7.8 Scope And Phasing
-
-Synthetic tool replacement is feasible in this architecture because the gateway already terminates the client-facing MCP session and is allowed to execute protocol-aware logic before returning a result.
-
-Recommended phasing:
-
-- phase 2: filtering, aliasing, description rewrite
-- later phase: synthetic tool registry and gateway-executed tool replacement
-
-That later phase should be treated as an extension of MCP tool policy, not as a small variation of aliasing.
-
-## 9. Admin API
-
-### 9.1 Existing Endpoints Updated
+### 8.1 Existing Endpoints Updated
 
 `GET /admin/metrics` — currently returns `501`. Replaced with a real summary response:
 
@@ -828,7 +421,7 @@ That later phase should be treated as an extension of MCP tool policy, not as a 
 }
 ```
 
-### 9.2 New LLM Metrics Endpoints
+### 8.2 New LLM Metrics Endpoints
 
 `GET /admin/metrics/llm/events`
 
@@ -850,7 +443,7 @@ Returns bucketed request and token counts. Parameters: `from`, `to`, `bucket` (h
 
 Returns grouped totals ranked by request count, token count, or failure count. Parameters: `group_by`, `from`, `to`.
 
-### 9.3 New MCP Metrics Endpoints
+### 8.3 New MCP Metrics Endpoints
 
 `GET /admin/metrics/mcp/events`
 
@@ -882,7 +475,7 @@ Returns per-tool aggregated statistics:
 
 Supports `from`, `to`, `service_id`, `route_id` filters.
 
-### 9.4 Unified Cross-Protocol Interactions Endpoint
+### 8.4 Unified Cross-Protocol Interactions Endpoint
 
 Protocol-specific endpoints are the right tool for protocol-specific drill-downs. Cross-protocol governance queries — "how many interactions did virtual key X have across all protocols?", "which agent chains had the highest error rates?" — require a unified view.
 
@@ -938,11 +531,11 @@ Example response:
 
 Returns aggregated totals grouped by `route_kind`, `route_id`, or `virtual_key_id`. Parameters: `group_by`, `from`, `to`.
 
-## 10. Storage Schema
+## 9. Storage Schema
 
 The usage storage package is introduced as a new concern within the existing SQLite configstore. It does not reuse the generic JSON store used for providers, routes, and services. It uses typed tables suited for time-series and aggregation queries.
 
-### 10.1 LLM Usage Events Table
+### 9.1 LLM Usage Events Table
 
 Table: `llm_usage_events`
 
@@ -993,7 +586,7 @@ CREATE INDEX idx_llm_events_tool_use   ON llm_usage_events (tool_call_count, sta
     WHERE tool_call_count > 0;
 ```
 
-### 10.2 MCP Usage Events Table
+### 9.2 MCP Usage Events Table
 
 Table: `mcp_usage_events`
 
@@ -1038,7 +631,7 @@ CREATE INDEX idx_mcp_events_tool       ON mcp_usage_events (tool_name, started_a
     WHERE tool_name IS NOT NULL;
 ```
 
-### 10.3 LLM Rollups Table
+### 9.3 LLM Rollups Table
 
 Table: `llm_usage_rollups`
 
@@ -1068,7 +661,7 @@ CREATE TABLE llm_usage_rollups (
 CREATE INDEX idx_llm_rollups_bucket ON llm_usage_rollups (bucket_start, bucket_granularity);
 ```
 
-### 10.4 Retention
+### 9.4 Retention
 
 Default retention policy:
 
@@ -1078,7 +671,7 @@ Default retention policy:
 
 A background cleanup job runs periodically to delete expired event rows. The cleanup interval and retention window are configurable in a later phase; phase 1 uses a fixed 30-day window and runs cleanup on gateway startup.
 
-## 11. Package Structure
+## 10. Package Structure
 
 ```
 pkg/metrics/usage/
@@ -1095,22 +688,15 @@ pkg/metrics/pipeline/
 pkg/configstore/sqlite/
     usage_writer.go  low-level SQLite INSERT helpers consumed by sqlite_sink
     usage_query.go   query helpers for Admin API handlers
-
-pkg/gateway/mcproute/
-    tool_policy.go   ToolPolicy, ToolOverride types
-    (tool_policy field added to MCPRouteConfig and MCPRoute)
-
-pkg/mcp/service/
-    tool_policy.go   route-aware filter, alias, and override helpers
 ```
 
 The `InteractionObserver` interface is defined in `pkg/metrics/usage/`. Call sites receive a no-op or pipeline-backed implementation. The pipeline-backed implementation enqueues events into `pkg/metrics/pipeline/EventPipeline`, which fans out to registered sinks asynchronously.
 
 The `UsageService` is provisioned once by `caddy/gateway/app.go` alongside other shared runtime services. It owns the `EventPipeline` lifecycle (start, graceful drain on shutdown) and provides the `InteractionObserver` to the dispatcher and admin handler.
 
-## 12. Integration Points
+## 11. Integration Points
 
-### 12.1 LLM Path
+### 11.1 LLM Path
 
 `pkg/dispatcher/handler.go`:
 - extract `X-Trace-ID`, `X-Span-ID`, and `X-Agent-Depth` from inbound request headers; generate a `trace_id` UUID if `X-Trace-ID` is absent; generate a new `span_id` UUID for this request
@@ -1132,32 +718,27 @@ The `UsageService` is provisioned once by `caddy/gateway/app.go` alongside other
 - extract tool call count
 - populate tool names only when the protocol conversion preserves them end-to-end
 
-### 12.2 MCP Path
+### 11.2 MCP Path
 
 `pkg/dispatcher/mcp_handler.go`:
-- extract `X-Trace-ID`, `X-Span-ID`, and `X-Agent-Depth` from inbound request headers using the same extraction logic as §12.1; emit corresponding response headers
+- extract `X-Trace-ID`, `X-Span-ID`, and `X-Agent-Depth` from inbound request headers using the same extraction logic as §11.1; emit corresponding response headers
 - the existing `beginRequest` / cleanup func pattern already wraps each request; extend the cleanup func to also call `span.Finish(outcome)` via the observer
-- pass the resolved route into policy-aware tool listing and tool execution helpers
+- pass the resolved route into policy-aware tool listing and tool execution helpers (see `mcp-tool-policy-design.md` §9)
 
 `pkg/mcp/runtime/registry.go`:
-- extend `CompletedRequest` with `EventID`, `ServiceID`, `VirtualKeyID`, `ToolName`, `PresentedToolName`, `ExecutedToolName`, `ExecutionMode`, `ResourceURI`, `PromptName`, `ArgCount`, and `ToolArgsJSON`
+- extend `CompletedRequest` with `EventID`, `TraceID`, `SpanID`, `ParentSpanID`, `AgentDepth`, `ServiceID`, `VirtualKeyID`, `ToolName`, `PresentedToolName`, `ExecutedToolName`, `ExecutionMode`, `ResourceURI`, `PromptName`, `ArgCount`, and `ToolArgsJSON`
 - populate these fields in `BeginRequest` from the method-specific context
-
-`pkg/mcp/service/manager.go`:
-- keep service-only RPC methods unchanged
-- add route-aware wrappers or helper entrypoints that apply `ToolPolicy` before calling service-only methods
-- later synthetic-tool phase: resolve presented tool names to forwarded, wrapped, or synthetic executors
 
 `pkg/mcp/service/types.go`:
 - add optional `AuditConfig` to `MCPServiceConfig` so `audit.capture_tool_args` is part of the actual persisted shape
 
-### 12.3 Admin Handler
+### 11.3 Admin Handler
 
 `pkg/admin/handler.go`:
 - accept `UsageService` as a dependency alongside the existing `MCPServiceManager` and `AgentGateway`
 - wire new metrics endpoints to query helpers in `pkg/configstore/sqlite/usage_query.go`
 
-## 13. Security And Privacy
+## 12. Security And Privacy
 
 The metrics layer must not persist sensitive request content by default.
 
@@ -1177,7 +758,7 @@ Fields that are stored as stable identifiers only:
 
 MCP tool argument storage is off by default and must be explicitly enabled per service via `audit.capture_tool_args`. Because this is persisted configuration, the field must be part of `pkg/mcp/service.MCPServiceConfig` rather than an undocumented sidecar shape. Operators enabling this are responsible for ensuring arguments do not contain secrets or PII that should not be written to the SQLite database.
 
-## 14. Implementation Order
+## 13. Implementation Order
 
 ### Phase 1: Observability Foundation (target scope)
 
@@ -1195,17 +776,6 @@ Goal: durable event capture for both LLM and MCP traffic, real `/admin/metrics` 
 10. Instrument MCP dispatch in `pkg/dispatcher/mcp_handler.go` (add trace header handling to `beginRequest`)
 11. Replace `GET /admin/metrics` `501` with real summary from SQLite
 12. Add `GET /admin/metrics/mcp/events`, `GET /admin/metrics/llm/events`, and `GET /admin/metrics/interactions`
-
-### Phase 2: MCP Tool Policy
-
-Goal: route-level tool filtering and description overrides.
-
-1. Add `ToolPolicy` and `ToolOverride` types to `pkg/gateway/mcproute/`
-2. Parse and store `tool_policy` in `MCPRouteConfig` and `MCPRoute`
-3. Implement route-aware filter logic for `tools/list`
-4. Implement route-aware alias mapping and `tools/call` allow check
-5. Add `tool_policy` to Admin CRUD for MCP routes
-6. Add `tool_policy` to bundle schema, validation, and export
 
 ### Phase 3: Aggregated Statistics
 
@@ -1228,23 +798,17 @@ Goal: better streaming coverage, Prometheus export, and agent chain analytics.
 4. Add configurable retention window
 5. Add agent depth enforcement policy (configurable max `agent_depth` per route; reject at dispatch)
 
-### Phase 5: Synthetic MCP Tools
-
-Goal: allow the gateway to expose and execute synthetic tools such as `well_git`.
-
-1. Define route-visible synthetic tool config and validation
-2. Implement synthetic tool registry and executor interface
-3. Merge synthetic tools into `tools/list` output
-4. Resolve `tools/call` to forwarded, wrapped, or synthetic execution
-5. Audit events already contain `presented_tool_name`, `executed_tool_name`, and `execution_mode` from phase 1; populate them for synthetic execution paths
-
-## 15. Relationship To Existing Documents
+## 14. Relationship To Existing Documents
 
 `docs/DESIGN.md`:
 - this document fills in the currently unimplemented metrics area referenced there
 - once implementation lands, `docs/DESIGN.md` should be updated so metrics no longer appear as future work
 
+`mcp-tool-policy-design.md`:
+- tool policy populates `presented_tool_name`, `executed_tool_name`, and `execution_mode` on MCP events
+- the `InteractionObserver` interface defined here is used by the tool policy dispatch path to record policy-attributed events
+
 `mcp-gateway-architecture.md`:
-- §11 Security And Policy and §14 Evolution Path in that document describe tool allow/deny lists and audit logging as future work
+- §11 Security And Policy and §14 Evolution Path in that document describe audit logging as future work
 - those items are now defined concretely in this document
 - `mcp-gateway-architecture.md` remains the primary reference for MCP gateway architecture and transport design
