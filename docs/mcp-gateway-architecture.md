@@ -94,71 +94,57 @@ The recommended answer is:
 - in-flight request tracking
 - request cancellation tracking
 - progress state capture
+- bounded in-memory completed-request history
 - Admin runtime inspection endpoints:
   - `GET /admin/mcp/dispatcher/runtime`
   - `GET /admin/mcp/dispatcher/inflight`
   - `GET /admin/mcp/dispatcher/progress`
+  - `GET /admin/mcp/dispatcher/history`
+
+#### Session Model
+
+- initialized upstream sessions for Streamable HTTP, stdio, and SSE
+- session cache for initialized upstream MCP services
+- Admin session inspection endpoint:
+  - `GET /admin/mcp/services/{id}/sessions`
 
 #### Transport Packages
 
 - `pkg/mcp/transport/streamablehttp.go`: fully integrated as the primary upstream transport
-- `pkg/mcp/transport/stdio.go`: transport-layer implementation complete (Connect, Send, Receive, Close), not yet wired as a gateway upstream service type
-- `pkg/mcp/transport/sse.go`: SSE read loop implemented, `Send()` not yet implemented
-
-### 2.2 Implemented But Not Yet Complete
-
-These areas exist in the codebase, but should not be treated as fully complete MCP gateway product surfaces yet.
-
-#### stdio Upstream Transport Integration
-
-- `pkg/mcp/transport/stdio.go` exists with a working Connect/Send/Receive/Close implementation
-- no service config type or session manager in `pkg/mcp/service` wires stdio as an upstream client
-- stdio is a transport-layer implementation only and cannot yet be selected as a gateway upstream in `mcp_services`
-
-#### SSE Transport Send
-
-- `pkg/mcp/transport/sse.go` handles SSE stream reading via `Connect()` and `readLoop()`
-- `Send()` is not implemented and returns an error
-- the SSE transport cannot be used for bidirectional upstream communication until `Send()` is implemented
-
-#### Runtime Registry Depth
-
-- the runtime registry captures in-flight requests and progress state
-- it does not yet provide durable history
-- it does not yet relay upstream progress events back to clients as a complete end-to-end flow
-
-#### Session Model
-
-- current behavior supports initialized upstream sessions for Streamable HTTP
-- richer long-lived stateful session handling is not yet complete
+- `pkg/mcp/transport/stdio.go`: fully integrated; Connect/Send/Receive/Close implemented and wired as a gateway upstream service type with session management and tests
+- `pkg/mcp/transport/sse.go`: legacy SSE transport implemented with stream connect, POST send, response matching, progress capture, and gateway service integration
 
 #### MCP Bundle / Export / Apply Flows
 
-- MCP config objects are persisted and manageable through Admin APIs
-- MCP objects are not yet fully integrated into broader bundle export / apply workflows
+- MCP services are included in gateway bundle schema, validation, export, and apply flows
+- MCP routes are included in gateway bundle schema, validation, export, and apply flows
 
-### 2.3 Not Yet Implemented
+### 2.2 Not Yet Implemented
 
-#### stdio As Gateway Upstream Type
+#### Admin-Initiated Runtime Control
 
-- service config and session manager support for `transport_type: stdio`
-- spawning and managing local MCP processes as upstream clients from gateway service definitions
+- Admin API endpoints that can cancel a specific in-flight MCP request by route and request ID
+- richer runtime mutation controls beyond read-only inspection snapshots
 
-#### Legacy SSE Upstream Transport
+#### Richer Runtime Introspection
 
-- first-class non-compatibility SSE upstream support, if retained as a normal configured transport
-- this requires completing `SSETransport.Send()` and wiring SSE as a selectable service type
+- deeper capability inspection derived from live upstream sessions and cached initialize state
+- richer runtime debugging views beyond the current in-flight, progress, session, and completed-request snapshots
+- persisted request or event history rather than the current bounded in-memory history
 
-#### Richer Runtime Control
+#### End-To-End Upstream Event Relay
 
-- admin-triggered cancellation endpoints for in-flight MCP requests
-- richer capability inspection and runtime debugging endpoints beyond the current runtime snapshots
-- durable request or event history
+- relaying upstream `notifications/progress` back to the downstream MCP client as part of the same request flow
+- relaying additional upstream notifications instead of only recording selected notifications in gateway runtime state
 
-#### More Complete Upstream Event Relay
+#### Fuller Notification Semantics
 
-- end-to-end relay of upstream progress events back to clients
-- fuller notification semantics beyond the currently handled notification set
+- broader inbound notification handling beyond the currently recognized set
+- fuller gateway behavior for notifications such as `notifications/message` instead of treating them as accepted-but-no-op
+
+#### Richer Session Lifecycle Management
+
+- richer long-lived stateful session handling beyond the current initialized-session cache model
 
 ## 3. Decision
 
@@ -317,8 +303,7 @@ Current transport direction:
 
 - first-class integrated
   - `streamablehttp`: fully integrated as the upstream transport for `mcp_services`
-- transport-layer complete but not yet integrated as upstream service type
-  - `stdio`: Connect/Send/Receive/Close implemented; no gateway service wiring yet
+  - `stdio`: fully integrated; spawns local MCP processes via `exec.CommandContext`, manages sessions, tested end-to-end
 - transport-layer incomplete
   - `sse`: read path implemented; `Send()` not yet implemented
 
@@ -531,6 +516,7 @@ The first shippable MCP gateway scope defined in the original plan is substantia
 
 - inbound HTTP MCP endpoint via `agent_route_dispatcher` with `mcp` enabled
 - remote Streamable HTTP upstream transport (fully integrated)
+- stdio upstream transport (fully integrated: spawns local MCP processes, manages sessions, tested end-to-end)
 - config-store-backed MCP service definitions and routes
 - gateway VirtualKey validation for MCP routes
 - pass-through JSON-RPC method handling for all standard MCP methods
@@ -539,7 +525,6 @@ The first shippable MCP gateway scope defined in the original plan is substantia
 
 ### 13.2 Remaining Gaps Before Full MVP Closure
 
-- stdio upstream wiring: `pkg/mcp/transport/stdio.go` exists but `pkg/mcp/service` does not yet create or manage stdio-backed clients
 - SSE `Send()`: `pkg/mcp/transport/sse.go` connect/read works but `Send()` is not implemented, blocking SSE as an upstream transport
 - audit logging for `tools/call` is not yet confirmed as a durable log path
 
@@ -547,12 +532,11 @@ The first shippable MCP gateway scope defined in the original plan is substantia
 
 After the remaining MVP gaps are closed, the recommended expansion order is:
 
-1. wire stdio upstream: add service config support and session manager for `transport_type: stdio`
-2. complete SSE upstream: implement `SSETransport.Send()` and wire SSE as a selectable service type
-3. add tool, resource, and prompt policy controls (allow/deny lists on routes)
-4. add admin-triggered cancellation for in-flight MCP requests
-5. add richer session inspection and debugging endpoints
-6. add durable request and event history
+1. complete SSE upstream: implement `SSETransport.Send()` and wire SSE as a selectable service type
+2. add tool, resource, and prompt policy controls (allow/deny lists on routes)
+3. add admin-triggered cancellation for in-flight MCP requests
+4. add richer session inspection and debugging endpoints
+5. add durable request and event history
 
 ## 15. Final Recommendation
 

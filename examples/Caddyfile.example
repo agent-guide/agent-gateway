@@ -1,0 +1,42 @@
+# Caddy Agent Gateway
+# Caddy App module ID: "agent_gateway"
+# HTTP handler module IDs:
+# - "http.handlers.agent_gateway_admin" (Caddyfile directive: "agent_gateway_admin")
+# - "http.handlers.agent_route_dispatcher" (Caddyfile directive: "agent_route_dispatcher")
+# Dispatcher LLM API module IDs:
+# - "agent_route_dispatcher.llm_apis.openai"
+# - "agent_route_dispatcher.llm_apis.anthropic"
+
+{
+	admin localhost:2019
+
+	agent_gateway {
+		config_store sqlite {
+			path ./data/configstore.db
+		}
+	}
+}
+
+http://localhost:8019 {
+	# Admin routes
+	route /admin/* {
+		agent_gateway_admin {
+			admin_user default
+			admin_password_hash $2a$14$Qxwz94t//fcaF.lyVzsIee0ZZuSNgS841WmLUo/NKGN5LlQzNg5Me # dummy
+		}
+	}
+}
+
+http://127.0.0.1:8080 {
+	log {
+		output stderr
+		format console
+	}
+
+	# LLM API routes
+	agent_route_dispatcher {
+		llm_api openai
+		llm_api anthropic
+		mcp
+	}
+}

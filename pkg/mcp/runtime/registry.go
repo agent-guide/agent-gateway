@@ -8,10 +8,15 @@ import (
 	"time"
 )
 
+const historyCapacity = 1000
+
 type Registry struct {
 	mu         sync.Mutex
 	inFlight   map[string]*InFlightRequest
 	progresses map[string]ProgressNotification
+	history    []CompletedRequest
+	historyHead int
+	historyLen  int
 }
 
 type InFlightRequest struct {
@@ -40,6 +45,19 @@ type ProgressNotification struct {
 	UpdatedAt        time.Time `json:"updated_at"`
 }
 
+// CompletedRequest is a durable record of a finished in-flight request.
+type CompletedRequest struct {
+	RouteID      string    `json:"route_id"`
+	RequestID    any       `json:"request_id"`
+	RequestKey   string    `json:"request_key"`
+	Method       string    `json:"method"`
+	StartedAt    time.Time `json:"started_at"`
+	CompletedAt  time.Time `json:"completed_at"`
+	Cancelled    bool      `json:"cancelled,omitempty"`
+	CancelReason string    `json:"cancel_reason,omitempty"`
+	Error        string    `json:"error,omitempty"`
+}
+
 func NewRegistry() *Registry {
 	return &Registry{
 		inFlight:   make(map[string]*InFlightRequest),
@@ -47,9 +65,13 @@ func NewRegistry() *Registry {
 	}
 }
 
-func (r *Registry) BeginRequest(parent context.Context, routeID string, requestID any, method string, progressToken any) (context.Context, func()) {
+// BeginRequest registers a new in-flight request. The returned context is
+// cancelled when the cleanup func is called or when Cancel is invoked.
+// The cleanup func accepts an optional upstream error; pass nil on success.
+// It appends a CompletedRequest to the durable history ring buffer.
+func (r *Registry) BeginRequest(parent context.Context, routeID string, requestID any, method string, progressToken any) (context.Context, func(error)) {
 	if requestID == nil {
-		return parent, func() {}
+		return parent, func(error) {}
 	}
 	ctx, cancel := context.WithCancel(parent)
 	requestKey := RouteRequestKey(routeID, requestID)
@@ -73,10 +95,25 @@ func (r *Registry) BeginRequest(parent context.Context, routeID string, requestI
 	r.inFlight[requestKey] = entry
 	r.mu.Unlock()
 
-	return ctx, func() {
+	return ctx, func(err error) {
 		cancel()
 		r.mu.Lock()
+		completed := CompletedRequest{
+			RouteID:     routeID,
+			RequestID:   requestID,
+			RequestKey:  requestKey,
+			Method:      method,
+			StartedAt:   entry.StartedAt,
+			CompletedAt: time.Now().UTC(),
+		}
+		if !entry.CancelledAt.IsZero() {
+			completed.Cancelled = true
+			completed.CancelReason = entry.CancelReason
+		} else if err != nil {
+			completed.Error = err.Error()
+		}
 		delete(r.inFlight, requestKey)
+		r.appendHistoryLocked(completed)
 		r.mu.Unlock()
 	}
 }
@@ -164,6 +201,35 @@ func (r *Registry) ListProgress() []ProgressNotification {
 		out = append(out, record)
 	}
 	return out
+}
+
+// ListHistory returns completed requests in chronological order (oldest first).
+// An optional routeID filter limits results to a single route.
+func (r *Registry) ListHistory(routeID string) []CompletedRequest {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]CompletedRequest, 0, r.historyLen)
+	for i := 0; i < r.historyLen; i++ {
+		entry := r.history[(r.historyHead+i)%historyCapacity]
+		if routeID == "" || entry.RouteID == routeID {
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
+// appendHistoryLocked appends to the ring buffer. Must be called with r.mu held.
+func (r *Registry) appendHistoryLocked(entry CompletedRequest) {
+	if r.history == nil {
+		r.history = make([]CompletedRequest, historyCapacity)
+	}
+	if r.historyLen < historyCapacity {
+		r.history[(r.historyHead+r.historyLen)%historyCapacity] = entry
+		r.historyLen++
+	} else {
+		r.history[r.historyHead] = entry
+		r.historyHead = (r.historyHead + 1) % historyCapacity
+	}
 }
 
 func RouteRequestKey(routeID string, requestID any) string {

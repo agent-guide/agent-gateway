@@ -26,6 +26,7 @@ type MCPServiceConfig struct {
 	Command     string            `json:"command,omitempty"` // stdio only
 	Args        []string          `json:"args,omitempty"`    // stdio only
 	URL         string            `json:"url,omitempty"`     // remote transports
+	PostURL     string            `json:"post_url,omitempty"` // SSE only; if empty, derived from url
 	Env         map[string]string `json:"env,omitempty"`
 	AutoAuth    bool              `json:"auto_auth,omitempty"`
 	AuthConfig  *AuthConfig       `json:"auth,omitempty"`

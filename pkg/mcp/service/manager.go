@@ -18,12 +18,16 @@ type Manager struct {
 
 	mu               sync.Mutex
 	discoverySession map[string]*discoverySession
+
+	sessionsMu sync.RWMutex
+	sessions   map[string]*GatewaySession
 }
 
 func NewManager(store configstore.ConfigStore) *Manager {
 	return &Manager{
 		store:            store,
 		discoverySession: make(map[string]*discoverySession),
+		sessions:         make(map[string]*GatewaySession),
 	}
 }
 
@@ -119,7 +123,7 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 }
 
 type discoverySession struct {
-	transport       *transport.StreamableHTTPTransport
+	transport       transport.Caller
 	configSignature string
 	protocolVersion string
 	initialize      initializeResult

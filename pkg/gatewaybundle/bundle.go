@@ -11,10 +11,12 @@ import (
 
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 	"gopkg.in/yaml.v3"
 )
 
@@ -26,14 +28,16 @@ const (
 var envVarPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 type GatewayBundle struct {
-	APIVersion            string                       `json:"apiVersion"`
-	Kind                  string                       `json:"kind"`
-	ProviderTypes         []ProviderTypeSetting        `json:"providerTypes,omitempty"`
-	Providers             []provider.ProviderConfig    `json:"providers,omitempty"`
-	ManagedModels         []modelcatalog.ManagedModel  `json:"managedModels,omitempty"`
-	LLMRoutes             []routecore.AgentRouteConfig `json:"llmRoutes,omitempty"`
-	VirtualKeys           []BundleVirtualKey           `json:"virtualKeys,omitempty"`
-	CLIAuthAuthenticators []CLIAuthAuthenticator       `json:"cliAuthAuthenticators,omitempty"`
+	APIVersion            string                        `json:"apiVersion"`
+	Kind                  string                        `json:"kind"`
+	ProviderTypes         []ProviderTypeSetting         `json:"providerTypes,omitempty"`
+	Providers             []provider.ProviderConfig     `json:"providers,omitempty"`
+	ManagedModels         []modelcatalog.ManagedModel   `json:"managedModels,omitempty"`
+	LLMRoutes             []routecore.AgentRouteConfig  `json:"llmRoutes,omitempty"`
+	VirtualKeys           []BundleVirtualKey            `json:"virtualKeys,omitempty"`
+	CLIAuthAuthenticators []CLIAuthAuthenticator        `json:"cliAuthAuthenticators,omitempty"`
+	MCPServices           []mcpservice.MCPServiceConfig `json:"mcpServices,omitempty"`
+	MCPRoutes             []mcproute.MCPRouteConfig     `json:"mcpRoutes,omitempty"`
 }
 
 type BundleVirtualKey struct {
@@ -266,6 +270,43 @@ func (b *GatewayBundle) validate(_ bool) error {
 		}
 		if _, err := cliauth.NewAuthenticator(name); err != nil {
 			errs.Append(fmt.Errorf("cliAuthAuthenticators[%q]: unknown authenticator", name))
+		}
+	}
+	mcpServiceIDs := map[string]struct{}{}
+	for i := range b.MCPServices {
+		b.MCPServices[i].Normalize()
+		id := b.MCPServices[i].ID
+		if id == "" {
+			errs.Append(fmt.Errorf("mcpServices[%d].id is required", i))
+			continue
+		}
+		if _, exists := mcpServiceIDs[id]; exists {
+			errs.Append(fmt.Errorf("mcpServices[%q]: duplicate id", id))
+		} else {
+			mcpServiceIDs[id] = struct{}{}
+		}
+		if err := b.MCPServices[i].Validate(); err != nil {
+			errs.Append(fmt.Errorf("mcpServices[%q]: %w", id, err))
+		}
+	}
+	mcpRouteIDs := map[string]struct{}{}
+	for i := range b.MCPRoutes {
+		b.MCPRoutes[i].Normalize()
+		id := b.MCPRoutes[i].ID
+		if id == "" {
+			errs.Append(fmt.Errorf("mcpRoutes[%d].id is required", i))
+			continue
+		}
+		if _, exists := mcpRouteIDs[id]; exists {
+			errs.Append(fmt.Errorf("mcpRoutes[%q]: duplicate id", id))
+		} else {
+			mcpRouteIDs[id] = struct{}{}
+		}
+		if b.MCPRoutes[i].Kind != mcproute.RouteKindMCP {
+			errs.Append(fmt.Errorf("mcpRoutes[%q]: kind must be %q", id, mcproute.RouteKindMCP))
+		}
+		if b.MCPRoutes[i].ServiceID == "" {
+			errs.Append(fmt.Errorf("mcpRoutes[%q]: service_id is required", id))
 		}
 	}
 

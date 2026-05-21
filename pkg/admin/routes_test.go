@@ -990,7 +990,7 @@ func TestGetMCPDispatcherRuntime(t *testing.T) {
 	registry := agentGateway.MCPRuntimeRegistry()
 	routeID := "mcp:test"
 	_, finish := registry.BeginRequest(context.Background(), routeID, "req-1", "tools/call", "progress-1")
-	defer finish()
+	defer finish(nil)
 	total := float64(10)
 	registry.StoreProgress(routeID, "progress-1", 3, &total, "working")
 
@@ -1014,6 +1014,61 @@ func TestGetMCPDispatcherRuntime(t *testing.T) {
 	}
 	if len(resp.Progress) != 1 || resp.Progress[0].Progress != 3 {
 		t.Fatalf("unexpected progress payload: %#v", resp.Progress)
+	}
+}
+
+func TestListMCPDispatcherHistory(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	agentGateway := newTestAgentGateway(&testConfigStore{}, nil, nil, nil, nil)
+	registry := agentGateway.MCPRuntimeRegistry()
+
+	// add two completed requests on different routes
+	_, finishA := registry.BeginRequest(context.Background(), "route-a", "req-1", "tools/call", nil)
+	finishA(nil)
+	_, finishB := registry.BeginRequest(context.Background(), "route-b", "req-2", "ping", nil)
+	finishB(nil)
+
+	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	// no filter: both entries
+	req := httptest.NewRequest(http.MethodGet, "/admin/mcp/dispatcher/history", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusOK)
+	}
+	var resp struct {
+		Items []mcpruntime.CompletedRequest `json:"items"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode history response: %v", err)
+	}
+	if len(resp.Items) != 2 {
+		t.Fatalf("expected 2 history items, got %d", len(resp.Items))
+	}
+
+	// route_id filter: only route-a
+	req2 := httptest.NewRequest(http.MethodGet, "/admin/mcp/dispatcher/history?route_id=route-a", nil)
+	req2.Header.Set("Authorization", "Bearer "+token)
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d", rec2.Code, http.StatusOK)
+	}
+	var resp2 struct {
+		Items []mcpruntime.CompletedRequest `json:"items"`
+	}
+	if err := json.NewDecoder(rec2.Body).Decode(&resp2); err != nil {
+		t.Fatalf("decode filtered history response: %v", err)
+	}
+	if len(resp2.Items) != 1 || resp2.Items[0].RouteID != "route-a" {
+		t.Fatalf("expected 1 item for route-a, got %#v", resp2.Items)
 	}
 }
 

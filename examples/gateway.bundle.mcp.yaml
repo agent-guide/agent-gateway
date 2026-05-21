@@ -1,0 +1,74 @@
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+
+# MCP bundle example — three upstream transport types
+#
+# Apply with:
+#   agwctl gateway apply -f examples/gateway.bundle.mcp.yaml
+#
+# Required env vars (set before apply):
+#   MCP_HTTP_URL   — base URL of a Streamable HTTP MCP server
+#   MCP_HTTP_KEY   — API key for the Streamable HTTP server (omit auth block if not needed)
+#   MCP_SSE_URL    — SSE stream URL of a legacy SSE MCP server
+
+mcpServices:
+
+  # ── Streamable HTTP upstream ────────────────────────────────────────────────
+  - id: mcp-http
+    name: HTTP MCP Service
+    transport: streamable_http
+    url: ${MCP_HTTP_URL}
+    auth:
+      type: api_key
+      api_key: ${MCP_HTTP_KEY}
+
+  # ── Legacy SSE upstream ─────────────────────────────────────────────────────
+  # post_url defaults to <url with /sse replaced by /message> when omitted
+  - id: mcp-sse
+    name: SSE MCP Service
+    transport: sse
+    url: ${MCP_SSE_URL}
+
+  # ── stdio subprocess upstream ───────────────────────────────────────────────
+  # Runs a local MCP server as a child process.
+  # Requires @modelcontextprotocol/server-filesystem to be installed:
+  #   npm install -g @modelcontextprotocol/server-filesystem
+  - id: mcp-filesystem
+    name: Filesystem MCP Service (stdio)
+    transport: stdio
+    command: npx
+    args:
+      - -y
+      - "@modelcontextprotocol/server-filesystem"
+      - /private/tmp
+      - /Users/simpcl/github/agent-guide/agent-gateway
+    env:
+      NODE_ENV: production
+
+mcpRoutes:
+
+  - service_id: mcp-http
+    match_policy:
+      path_prefix: /mcp/http
+    auth_policy:
+      require_virtual_key: true
+
+  - service_id: mcp-sse
+    match_policy:
+      path_prefix: /mcp/sse
+    auth_policy:
+      require_virtual_key: true
+
+  - service_id: mcp-filesystem
+    match_policy:
+      path_prefix: /mcp/fs
+    auth_policy:
+      require_virtual_key: true
+
+virtualKeys:
+  - id: vk-mcp-test
+    tag: mcp-test
+    allowed_route_ids:
+      - mcp:mcp-http:/mcp/http
+      - mcp:mcp-sse:/mcp/sse
+      - mcp:mcp-filesystem:/mcp/fs

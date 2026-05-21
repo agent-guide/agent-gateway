@@ -151,7 +151,7 @@ func TestCancelRequestCancelsInFlightRequest(t *testing.T) {
 		},
 	}
 	ctx, finish := handler.beginRequest(context.Background(), route, msg)
-	defer finish()
+	defer finish(nil)
 
 	cancelled, err := handler.cancelRequest(route, "req-1", "user requested")
 	if err != nil {
@@ -178,7 +178,7 @@ func TestCancelRequestRejectsInitialize(t *testing.T) {
 		ID:      "init-1",
 		Method:  "initialize",
 	})
-	defer finish()
+	defer finish(nil)
 
 	cancelled, err := handler.cancelRequest(route, "init-1", "bad client")
 	if err == nil {
@@ -202,7 +202,7 @@ func TestHandleProgressNotificationStoresState(t *testing.T) {
 			"_meta": map[string]any{"progressToken": "progress-1"},
 		},
 	})
-	defer finish()
+	defer finish(nil)
 
 	if err := handler.handleProgressNotification(route, map[string]any{
 		"progressToken": "progress-1",

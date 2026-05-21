@@ -121,6 +121,11 @@ func (t *StreamableHTTPTransport) Do(ctx context.Context, msg *Message) (*Messag
 	return &reply, nil
 }
 
+// Call implements Caller by delegating to Do.
+func (t *StreamableHTTPTransport) Call(ctx context.Context, msg *Message) (*Message, error) {
+	return t.Do(ctx, msg)
+}
+
 func (t *StreamableHTTPTransport) Receive() <-chan *Message {
 	if t == nil {
 		return nil

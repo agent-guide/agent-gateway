@@ -26,3 +26,22 @@ type Transport interface {
 	Send(ctx context.Context, msg *Message) error
 	Receive() <-chan *Message
 }
+
+// Caller is a synchronous request-response abstraction over any MCP transport.
+// Call sends msg and waits for the matching response. For notifications (no ID),
+// it sends and returns immediately with (nil, nil).
+type Caller interface {
+	Call(ctx context.Context, msg *Message) (*Message, error)
+	Close() error
+}
+
+// ProgressHandler is called for each notifications/progress message received from
+// an upstream while waiting for a request response.
+type ProgressHandler func(notification *Message)
+
+// ProgressCaller extends Caller with the ability to relay upstream progress
+// notifications while a request is in flight.
+type ProgressCaller interface {
+	Caller
+	CallWithProgress(ctx context.Context, msg *Message, handler ProgressHandler) (*Message, error)
+}

@@ -23,25 +23,26 @@ import (
 
 // Handler handles Admin API requests under /admin/.
 type Handler struct {
-	cliauthManager         *cliauth.Manager
-	cliauthRefresher       *cliauth.AutoRefresher
-	credentialManager      *credentialmgr.Manager
-	configStoreBackend     configstore.ConfigStoreBackend
-	routeConfigManager     *routecore.AgentRouteConfigManager
-	sharedLLMRouteResolver *llmroute.LLMRouteResolver
-	sharedMCPRouteResolver *mcproute.MCPRouteResolver
-	virtualKeyManager      *virtualkeypkg.VirtualKeyManager
-	providerManager        *gateway.ProviderManager
-	modelCatalog           modelcatalog.Service
-	mcpRuntimeRegistry     *mcpruntime.Registry
-	mux                    *http.ServeMux
-	logger                 *zap.Logger
-	cliAuthMu              sync.RWMutex
-	cliAuthSessions        map[string]cliAuthStatus // login_id -> cliAuthStatus
-	cliAuthActive          map[string]string        // cliname -> login_id
-	sessions               *sessionStore
-	adminUsername          string
-	adminPasswordHash      string
+	cliauthManager           *cliauth.Manager
+	cliauthRefresher         *cliauth.AutoRefresher
+	credentialManager        *credentialmgr.Manager
+	configStoreBackend       configstore.ConfigStoreBackend
+	routeConfigManager       *routecore.AgentRouteConfigManager
+	sharedLLMRouteResolver   *llmroute.LLMRouteResolver
+	sharedMCPRouteResolver   *mcproute.MCPRouteResolver
+	sharedMCPServiceManager  *mcpservice.Manager
+	virtualKeyManager        *virtualkeypkg.VirtualKeyManager
+	providerManager          *gateway.ProviderManager
+	modelCatalog             modelcatalog.Service
+	mcpRuntimeRegistry       *mcpruntime.Registry
+	mux                      *http.ServeMux
+	logger                   *zap.Logger
+	cliAuthMu                sync.RWMutex
+	cliAuthSessions          map[string]cliAuthStatus // login_id -> cliAuthStatus
+	cliAuthActive            map[string]string        // cliname -> login_id
+	sessions                 *sessionStore
+	adminUsername            string
+	adminPasswordHash        string
 }
 
 // NewHandler constructs an admin Handler.
@@ -58,6 +59,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 	var routeConfigManager *routecore.AgentRouteConfigManager
 	var sharedLLMRouteResolver *llmroute.LLMRouteResolver
 	var sharedMCPRouteResolver *mcproute.MCPRouteResolver
+	var sharedMCPServiceManager *mcpservice.Manager
 	var virtualKeyManager *virtualkeypkg.VirtualKeyManager
 	var providerManager *gateway.ProviderManager
 	var modelCatalogSvc modelcatalog.Service
@@ -70,6 +72,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 		routeConfigManager = agentGateway.AgentRouteConfigManager()
 		sharedLLMRouteResolver = agentGateway.LLMRouteResolver()
 		sharedMCPRouteResolver = agentGateway.MCPRouteResolver()
+		sharedMCPServiceManager = agentGateway.MCPServiceManager()
 		virtualKeyManager = agentGateway.VirtualKeyManager()
 		providerManager = agentGateway.ProviderManager()
 		modelCatalogSvc = agentGateway.ModelCatalog()
@@ -77,23 +80,24 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 	}
 
 	h := &Handler{
-		cliauthManager:         cliauthMgr,
-		cliauthRefresher:       cliauthRefresher,
-		credentialManager:      credentialMgr,
-		configStoreBackend:     configStoreBackend,
-		routeConfigManager:     routeConfigManager,
-		sharedLLMRouteResolver: sharedLLMRouteResolver,
-		sharedMCPRouteResolver: sharedMCPRouteResolver,
-		virtualKeyManager:      virtualKeyManager,
-		providerManager:        providerManager,
-		modelCatalog:           modelCatalogSvc,
-		mcpRuntimeRegistry:     mcpRuntimeRegistry,
-		logger:                 logger,
-		cliAuthSessions:        map[string]cliAuthStatus{},
-		cliAuthActive:          map[string]string{},
-		sessions:               newSessionStore(),
-		adminUsername:          adminUser,
-		adminPasswordHash:      adminPasswordHash,
+		cliauthManager:          cliauthMgr,
+		cliauthRefresher:        cliauthRefresher,
+		credentialManager:       credentialMgr,
+		configStoreBackend:      configStoreBackend,
+		routeConfigManager:      routeConfigManager,
+		sharedLLMRouteResolver:  sharedLLMRouteResolver,
+		sharedMCPRouteResolver:  sharedMCPRouteResolver,
+		sharedMCPServiceManager: sharedMCPServiceManager,
+		virtualKeyManager:       virtualKeyManager,
+		providerManager:         providerManager,
+		modelCatalog:            modelCatalogSvc,
+		mcpRuntimeRegistry:      mcpRuntimeRegistry,
+		logger:                  logger,
+		cliAuthSessions:         map[string]cliAuthStatus{},
+		cliAuthActive:           map[string]string{},
+		sessions:                newSessionStore(),
+		adminUsername:           adminUser,
+		adminPasswordHash:       adminPasswordHash,
 	}
 	h.mux = http.NewServeMux()
 	for _, route := range h.Routes() {

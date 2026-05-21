@@ -9,6 +9,20 @@ import (
 	"os/exec"
 )
 
+// matchID compares two JSON-RPC ID values after normalising through JSON
+// so that int(1) and float64(1) compare equal.
+func matchID(a, b any) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	aj, _ := json.Marshal(a)
+	bj, _ := json.Marshal(b)
+	return string(aj) == string(bj)
+}
+
 // StdioTransport implements MCP transport over stdio (local process).
 type StdioTransport struct {
 	command string
@@ -86,4 +100,41 @@ func (t *StdioTransport) Send(ctx context.Context, msg *Message) error {
 
 func (t *StdioTransport) Receive() <-chan *Message {
 	return t.out
+}
+
+// Call implements Caller. For notifications (msg.ID == nil) it sends and
+// returns immediately. For requests it sends and waits for the reply whose
+// ID matches the request, skipping any intervening notifications.
+func (t *StdioTransport) Call(ctx context.Context, msg *Message) (*Message, error) {
+	return t.CallWithProgress(ctx, msg, nil)
+}
+
+// CallWithProgress implements ProgressCaller. It behaves like Call but
+// invokes handler for each notifications/progress message received while waiting.
+func (t *StdioTransport) CallWithProgress(ctx context.Context, msg *Message, handler ProgressHandler) (*Message, error) {
+	if msg.ID == nil {
+		return nil, t.Send(ctx, msg)
+	}
+	if err := t.Send(ctx, msg); err != nil {
+		return nil, err
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case reply, ok := <-t.out:
+			if !ok {
+				return nil, fmt.Errorf("stdio: connection closed while waiting for response")
+			}
+			if reply.ID == nil {
+				if handler != nil && reply.Method == "notifications/progress" {
+					handler(reply)
+				}
+				continue
+			}
+			if matchID(msg.ID, reply.ID) {
+				return reply, nil
+			}
+		}
+	}
 }

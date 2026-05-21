@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
@@ -359,6 +360,17 @@ func (h *Handler) handleListMCPDispatcherProgress(w http.ResponseWriter, r *http
 	})
 }
 
+func (h *Handler) handleListMCPDispatcherHistory(w http.ResponseWriter, r *http.Request) {
+	if h.mcpRuntimeRegistry == nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "mcp dispatcher runtime is not configured")
+		return
+	}
+	routeID := strings.TrimSpace(r.URL.Query().Get("route_id"))
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{
+		"items": h.mcpRuntimeRegistry.ListHistory(routeID),
+	})
+}
+
 func (h *Handler) handleListMCPTools(w http.ResponseWriter, r *http.Request) {
 	manager, err := h.mcpServiceManager()
 	if err != nil {
@@ -388,7 +400,7 @@ func (h *Handler) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}
-	result, err := manager.CallTool(r.Context(), strings.TrimSpace(r.PathValue("id")), strings.TrimSpace(req.Name), req.Arguments)
+	result, err := manager.CallTool(r.Context(), strings.TrimSpace(r.PathValue("id")), strings.TrimSpace(req.Name), req.Arguments, nil)
 	if err != nil {
 		if errors.Is(err, mcpservice.ErrServiceNotConfigured) {
 			_ = httpjson.Error(w, http.StatusNotFound, "mcp service not found")
@@ -429,7 +441,7 @@ func (h *Handler) handleReadMCPResource(w http.ResponseWriter, r *http.Request) 
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}
-	result, err := manager.ReadResource(r.Context(), strings.TrimSpace(r.PathValue("id")), strings.TrimSpace(req.URI))
+	result, err := manager.ReadResource(r.Context(), strings.TrimSpace(r.PathValue("id")), strings.TrimSpace(req.URI), nil)
 	if err != nil {
 		if errors.Is(err, mcpservice.ErrServiceNotConfigured) {
 			_ = httpjson.Error(w, http.StatusNotFound, "mcp service not found")
@@ -470,7 +482,7 @@ func (h *Handler) handleGetMCPPrompt(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}
-	result, err := manager.GetPrompt(r.Context(), strings.TrimSpace(r.PathValue("id")), strings.TrimSpace(req.Name), req.Arguments)
+	result, err := manager.GetPrompt(r.Context(), strings.TrimSpace(r.PathValue("id")), strings.TrimSpace(req.Name), req.Arguments, nil)
 	if err != nil {
 		if errors.Is(err, mcpservice.ErrServiceNotConfigured) {
 			_ = httpjson.Error(w, http.StatusNotFound, "mcp service not found")
@@ -480,6 +492,47 @@ func (h *Handler) handleGetMCPPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = httpjson.Write(w, http.StatusOK, result)
+}
+
+// GatewaySessionView is the Admin API representation of a GatewaySession.
+// The upstream_session_id field is masked to hide transport-internal identifiers.
+type GatewaySessionView struct {
+	ID                string                   `json:"id"`
+	ServiceID         string                   `json:"service_id"`
+	UpstreamSessionID string                   `json:"upstream_session_id,omitempty"`
+	Transport         mcpservice.TransportType `json:"transport"`
+	State             mcpservice.SessionState  `json:"state"`
+	CreatedAt         time.Time                `json:"created_at"`
+	LastUsedAt        time.Time                `json:"last_used_at"`
+}
+
+func gatewaySessionView(s mcpservice.GatewaySession) GatewaySessionView {
+	masked := s.UpstreamSessionID
+	if len(masked) > 8 {
+		masked = masked[:8] + "****"
+	}
+	return GatewaySessionView{
+		ID:                s.ID,
+		ServiceID:         s.ServiceID,
+		UpstreamSessionID: masked,
+		Transport:         s.Transport,
+		State:             s.State,
+		CreatedAt:         s.CreatedAt,
+		LastUsedAt:        s.LastUsedAt,
+	}
+}
+
+func (h *Handler) handleListMCPServiceSessions(w http.ResponseWriter, r *http.Request) {
+	manager := h.sharedMCPServiceManager
+	id := strings.TrimSpace(r.PathValue("id"))
+	var view *GatewaySessionView
+	if manager != nil {
+		if s := manager.GetGatewaySession(id); s != nil {
+			v := gatewaySessionView(*s)
+			view = &v
+		}
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"session": view})
 }
 
 func mcpRouteViewFromConfig(resolver *mcproute.MCPRouteResolver, cfg mcproute.AgentRouteConfig) MCPRouteView {

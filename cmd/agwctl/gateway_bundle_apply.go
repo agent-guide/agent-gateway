@@ -10,10 +10,12 @@ import (
 
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 )
 
 type gatewayApplySummary struct {
@@ -92,6 +94,12 @@ func runGatewayApply(ctx context.Context, path string) error {
 		return err
 	}
 	if err := applyCLIAuthAuthenticators(ctx, client, bundle, record); err != nil {
+		return err
+	}
+	if err := applyMCPServices(ctx, client, bundle, record); err != nil {
+		return err
+	}
+	if err := applyMCPRoutes(ctx, client, bundle, record); err != nil {
 		return err
 	}
 
@@ -389,6 +397,101 @@ func bundleVirtualKeyConfig(key gatewaybundle.BundleVirtualKey) adminclient.Virt
 		StatusMessage:   key.StatusMessage,
 		ExpiresAt:       key.ExpiresAt,
 	}
+}
+
+func applyMCPServices(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+	items, err := client.ListMCPServices(ctx)
+	if err != nil {
+		return err
+	}
+	current := map[string]adminclient.MCPServiceView{}
+	for _, item := range items {
+		current[item.ID] = item
+	}
+	for _, desired := range bundle.MCPServices {
+		desired.Normalize()
+		id := desired.ID
+		item, ok := current[id]
+		if !ok {
+			if _, err := client.CreateMCPService(ctx, desired); err != nil {
+				record("mcp_service", id, "error", fmt.Errorf("mcp_service %q create: %w", id, err))
+			} else {
+				record("mcp_service", id, "create", nil)
+			}
+			continue
+		}
+		if item.ReadOnly {
+			record("mcp_service", id, "error", fmt.Errorf("mcp_service %q is read-only", id))
+			continue
+		}
+		current := normalizeComparableMCPService(item.MCPServiceConfig)
+		desiredNorm := normalizeComparableMCPService(desired)
+		if reflect.DeepEqual(current, desiredNorm) {
+			record("mcp_service", id, "skip", nil)
+			continue
+		}
+		if _, err := client.UpdateMCPService(ctx, id, desired); err != nil {
+			record("mcp_service", id, "error", fmt.Errorf("mcp_service %q update: %w", id, err))
+		} else {
+			record("mcp_service", id, "update", nil)
+		}
+	}
+	return nil
+}
+
+func applyMCPRoutes(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+	items, err := client.ListMCPRoutes(ctx)
+	if err != nil {
+		return err
+	}
+	current := map[string]adminclient.MCPRouteView{}
+	for _, item := range items {
+		current[item.ID] = item
+	}
+	for _, desired := range bundle.MCPRoutes {
+		desired.Normalize()
+		id := desired.ID
+		item, ok := current[id]
+		if !ok {
+			if _, err := client.CreateMCPRoute(ctx, desired); err != nil {
+				record("mcp_route", id, "error", fmt.Errorf("mcp_route %q create: %w", id, err))
+			} else {
+				record("mcp_route", id, "create", nil)
+			}
+			continue
+		}
+		if item.ReadOnly {
+			record("mcp_route", id, "error", fmt.Errorf("mcp_route %q is read-only", id))
+			continue
+		}
+		currentNorm := normalizeComparableMCPRoute(item.MCPRouteConfig)
+		desiredNorm := normalizeComparableMCPRoute(desired)
+		if reflect.DeepEqual(currentNorm, desiredNorm) {
+			record("mcp_route", id, "skip", nil)
+			continue
+		}
+		if _, err := client.UpdateMCPRoute(ctx, id, desired); err != nil {
+			record("mcp_route", id, "error", fmt.Errorf("mcp_route %q update: %w", id, err))
+		} else {
+			record("mcp_route", id, "update", nil)
+		}
+	}
+	return nil
+}
+
+func normalizeComparableMCPService(cfg mcpservice.MCPServiceConfig) mcpservice.MCPServiceConfig {
+	cfg.Normalize()
+	cfg.CreatedAt = time.Time{}
+	cfg.UpdatedAt = time.Time{}
+	return cfg
+}
+
+func normalizeComparableMCPRoute(cfg mcproute.MCPRouteConfig) mcproute.MCPRouteConfig {
+	cfg.Normalize()
+	cfg.CreatedAt = time.Time{}
+	cfg.UpdatedAt = time.Time{}
+	cfg.TargetPolicy = nil
+	return cfg
 }
 
 func managedModelKey(providerID, upstreamModel string) string {

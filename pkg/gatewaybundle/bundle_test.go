@@ -382,6 +382,96 @@ llmRoutes:
 	}
 }
 
+func TestDecodeYAMLWithMCPServicesAndRoutes(t *testing.T) {
+	t.Setenv("MY_MCP_API_KEY", "secret-key")
+
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+mcpServices:
+  - id: my-mcp-svc
+    name: My MCP Service
+    transport: streamable_http
+    url: https://example.com/mcp
+    auth:
+      type: api_key
+      api_key: ${MY_MCP_API_KEY}
+mcpRoutes:
+  - service_id: my-mcp-svc
+    match_policy:
+      path_prefix: /mcp
+    auth_policy:
+      require_virtual_key: true
+`))
+	if err != nil {
+		t.Fatalf("DecodeYAML() error = %v", err)
+	}
+
+	if len(bundle.MCPServices) != 1 {
+		t.Fatalf("len(MCPServices) = %d, want 1", len(bundle.MCPServices))
+	}
+	if bundle.MCPServices[0].ID != "my-mcp-svc" {
+		t.Fatalf("MCPServices[0].ID = %q, want my-mcp-svc", bundle.MCPServices[0].ID)
+	}
+	if bundle.MCPServices[0].AuthConfig == nil || bundle.MCPServices[0].AuthConfig.APIKey != "secret-key" {
+		t.Fatalf("MCPServices[0].AuthConfig = %#v, want api_key=secret-key", bundle.MCPServices[0].AuthConfig)
+	}
+	if len(bundle.MCPRoutes) != 1 {
+		t.Fatalf("len(MCPRoutes) = %d, want 1", len(bundle.MCPRoutes))
+	}
+	if bundle.MCPRoutes[0].ServiceID != "my-mcp-svc" {
+		t.Fatalf("MCPRoutes[0].ServiceID = %q, want my-mcp-svc", bundle.MCPRoutes[0].ServiceID)
+	}
+	if err := bundle.ValidateForConfigStore(); err != nil {
+		t.Fatalf("ValidateForConfigStore() error = %v", err)
+	}
+}
+
+func TestValidateMCPServiceRequiresID(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+mcpServices:
+  - name: Missing ID Service
+    transport: streamable_http
+    url: https://example.com/mcp
+`))
+	if err != nil {
+		t.Fatalf("DecodeYAML() error = %v", err)
+	}
+
+	err = bundle.ValidateForConfigStore()
+	if err == nil {
+		t.Fatal("ValidateForConfigStore() error = nil, want missing id error")
+	}
+	if !strings.Contains(err.Error(), "mcpServices[0].id is required") {
+		t.Fatalf("ValidateForConfigStore() error = %v, want id required", err)
+	}
+}
+
+func TestValidateMCPRouteRequiresServiceID(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+mcpRoutes:
+  - id: mcp:svc:/
+    kind: mcp
+    match_policy:
+      path_prefix: /
+`))
+	if err != nil {
+		t.Fatalf("DecodeYAML() error = %v", err)
+	}
+
+	err = bundle.ValidateForConfigStore()
+	if err == nil {
+		t.Fatal("ValidateForConfigStore() error = nil, want service_id required error")
+	}
+	if !strings.Contains(err.Error(), "service_id is required") {
+		t.Fatalf("ValidateForConfigStore() error = %v, want service_id required", err)
+	}
+}
+
 func TestValidateForStaticConfigRejectsLogicalModelRoutes(t *testing.T) {
 	bundle, err := DecodeYAML([]byte(`
 apiVersion: gateway.agw/v1alpha1

@@ -125,6 +125,8 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodGet, Path: "/admin/mcp/dispatcher/runtime", Handler: h.handleGetMCPDispatcherRuntime, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/mcp/dispatcher/inflight", Handler: h.handleListMCPDispatcherInFlight, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/mcp/dispatcher/progress", Handler: h.handleListMCPDispatcherProgress, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/mcp/dispatcher/history", Handler: h.handleListMCPDispatcherHistory, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/sessions", Handler: h.handleListMCPServiceSessions, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/tools", Handler: h.handleListMCPTools, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/mcp/services/{id}/tools/call", Handler: h.handleCallMCPTool, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/resources", Handler: h.handleListMCPResources, RequireAuth: true},

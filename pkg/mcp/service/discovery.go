@@ -9,6 +9,9 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/mcp/transport"
 )
 
+// applyServiceAuth injects authentication headers into HTTP-based transports.
+// It is a no-op for non-HTTP transports (e.g. stdio), which handle auth via env vars.
+
 const latestProtocolVersion = "2025-11-25"
 
 type initializeResult struct {
@@ -48,7 +51,7 @@ func (m *Manager) ListTools(ctx context.Context, id string) ([]basemcp.Tool, err
 
 func (m *Manager) ListToolsPage(ctx context.Context, id string, cursor string) (*basemcp.ToolListResult, error) {
 	var result listToolsResult
-	if err := m.callMethodWithRetry(ctx, id, "tools/list", paginationParams(cursor), &result); err != nil {
+	if err := m.callMethodWithRetry(ctx, id, "tools/list", paginationParams(cursor), &result, nil); err != nil {
 		return nil, err
 	}
 	return &basemcp.ToolListResult{Tools: result.Tools, NextCursor: result.NextCursor}, nil
@@ -64,7 +67,7 @@ func (m *Manager) ListResources(ctx context.Context, id string) ([]basemcp.Resou
 
 func (m *Manager) ListResourcesPage(ctx context.Context, id string, cursor string) (*basemcp.ResourceListResult, error) {
 	var result listResourcesResult
-	if err := m.callMethodWithRetry(ctx, id, "resources/list", paginationParams(cursor), &result); err != nil {
+	if err := m.callMethodWithRetry(ctx, id, "resources/list", paginationParams(cursor), &result, nil); err != nil {
 		return nil, err
 	}
 	return &basemcp.ResourceListResult{Resources: result.Resources, NextCursor: result.NextCursor}, nil
@@ -80,7 +83,7 @@ func (m *Manager) ListResourceTemplates(ctx context.Context, id string) ([]basem
 
 func (m *Manager) ListResourceTemplatesPage(ctx context.Context, id string, cursor string) (*basemcp.ResourceTemplateListResult, error) {
 	var result listResourceTemplatesResult
-	if err := m.callMethodWithRetry(ctx, id, "resources/templates/list", paginationParams(cursor), &result); err != nil {
+	if err := m.callMethodWithRetry(ctx, id, "resources/templates/list", paginationParams(cursor), &result, nil); err != nil {
 		return nil, err
 	}
 	return &basemcp.ResourceTemplateListResult{
@@ -99,14 +102,14 @@ func (m *Manager) ListPrompts(ctx context.Context, id string) ([]basemcp.Prompt,
 
 func (m *Manager) ListPromptsPage(ctx context.Context, id string, cursor string) (*basemcp.PromptListResult, error) {
 	var result listPromptsResult
-	if err := m.callMethodWithRetry(ctx, id, "prompts/list", paginationParams(cursor), &result); err != nil {
+	if err := m.callMethodWithRetry(ctx, id, "prompts/list", paginationParams(cursor), &result, nil); err != nil {
 		return nil, err
 	}
 	return &basemcp.PromptListResult{Prompts: result.Prompts, NextCursor: result.NextCursor}, nil
 }
 
-func initializeService(ctx context.Context, client *transport.StreamableHTTPTransport) (initializeResult, error) {
-	reply, err := client.Do(ctx, &transport.Message{
+func initializeService(ctx context.Context, client transport.Caller) (initializeResult, error) {
+	reply, err := client.Call(ctx, &transport.Message{
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "initialize",
@@ -138,9 +141,14 @@ func initializeService(ctx context.Context, client *transport.StreamableHTTPTran
 		negotiated = latestProtocolVersion
 		result.ProtocolVersion = negotiated
 	}
-	client.SetHeader("MCP-Protocol-Version", negotiated)
+	// Set the negotiated protocol version as a persistent header on transports
+	// that support HTTP header injection (e.g. StreamableHTTPTransport).
+	type headerSetter interface{ SetHeader(key, value string) }
+	if hs, ok := client.(headerSetter); ok {
+		hs.SetHeader("MCP-Protocol-Version", negotiated)
+	}
 
-	if _, err := client.Do(ctx, &transport.Message{
+	if _, err := client.Call(ctx, &transport.Message{
 		JSONRPC: "2.0",
 		Method:  "notifications/initialized",
 	}); err != nil {
@@ -157,7 +165,11 @@ func decodeResult(src any, dest any) error {
 	return basemcp.UnmarshalAny(data, dest)
 }
 
-func applyServiceAuth(client *transport.StreamableHTTPTransport, auth *AuthConfig) {
+type headerSetter interface {
+	SetHeader(key, value string)
+}
+
+func applyServiceAuth(client headerSetter, auth *AuthConfig) {
 	if client == nil || auth == nil {
 		return
 	}

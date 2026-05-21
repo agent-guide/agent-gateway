@@ -438,6 +438,10 @@ cliAuthAuthenticators:
 			})
 		case r.URL.Path == "/admin/cliauth/authenticators" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/mcp/services" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/mcp/routes" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/cliauth/authenticators/claudecode" && r.Method == http.MethodPut:
 			authenticatorUpdated.Store(true)
 			var req map[string]any
@@ -586,6 +590,10 @@ cliAuthAuthenticators:
 		case r.URL.Path == "/admin/cliauth/authenticators/codex" && r.Method == http.MethodPut:
 			authenticatorWriteCount.Add(1)
 			t.Fatalf("unexpected cliauth authenticator update request for unchanged object")
+		case r.URL.Path == "/admin/mcp/services" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/mcp/routes" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		default:
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 		}
@@ -655,6 +663,10 @@ providers:
 		case r.URL.Path == "/admin/virtual_keys" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/cliauth/authenticators" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/mcp/services" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/mcp/routes" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		default:
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
@@ -770,6 +782,10 @@ func TestGatewayExportCommand(t *testing.T) {
 					},
 				},
 			})
+		case "/admin/mcp/services":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case "/admin/mcp/routes":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -887,6 +903,10 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 					},
 				},
 			})
+		case "/admin/mcp/services":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case "/admin/mcp/routes":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -915,6 +935,181 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGatewayExportCommandIncludesMCPServicesAndRoutes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]string{"token": "test-token", "username": "admin"})
+		case "/admin/provider_types":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case "/admin/providers":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case "/admin/models/managed":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case "/admin/llm/routes":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case "/admin/virtual_keys":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case "/admin/cliauth/authenticators":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case "/admin/mcp/services":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"id":        "my-mcp-svc",
+						"name":      "My MCP Service",
+						"transport": "streamable_http",
+						"url":       "https://example.com/mcp",
+						"source":    "config_store",
+						"read_only": false,
+					},
+				},
+			})
+		case "/admin/mcp/routes":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"id":         "mcp:my-mcp-svc:/mcp",
+						"kind":       "mcp",
+						"protocol":   "mcp",
+						"service_id": "my-mcp-svc",
+						"match_policy": map[string]any{
+							"path_prefix": "/mcp",
+						},
+						"auth_policy": map[string]any{
+							"require_virtual_key": true,
+						},
+						"source":    "store",
+						"read_only": false,
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := executeAGWCTL(
+		t,
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"export",
+	)
+	if err != nil {
+		t.Fatalf("gateway export: %v\nstderr=%s", err, stderr)
+	}
+	for _, want := range []string{
+		"mcpServices:",
+		"id: my-mcp-svc",
+		"name: My MCP Service",
+		"mcpRoutes:",
+		"service_id: my-mcp-svc",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestGatewayApplyCommandCreatesMCPServiceAndRoute(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gateway.yaml")
+	if err := os.WriteFile(path, []byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+mcpServices:
+  - id: my-mcp-svc
+    name: My MCP Service
+    transport: streamable_http
+    url: https://example.com/mcp
+mcpRoutes:
+  - service_id: my-mcp-svc
+    match_policy:
+      path_prefix: /mcp
+    auth_policy:
+      require_virtual_key: true
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	var mcpServiceCreated atomic.Bool
+	var mcpRouteCreated atomic.Bool
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/admin/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]string{"token": "test-token", "username": "admin"})
+		case r.URL.Path == "/admin/provider_types":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/providers" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/models/managed":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/llm/routes":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/virtual_keys" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/cliauth/authenticators" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/mcp/services" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/mcp/services" && r.Method == http.MethodPost:
+			mcpServiceCreated.Store(true)
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode mcp service create request: %v", err)
+			}
+			if req["id"] != "my-mcp-svc" {
+				t.Fatalf("mcp service create id = %#v, want my-mcp-svc", req["id"])
+			}
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(req)
+		case r.URL.Path == "/admin/mcp/routes" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/mcp/routes" && r.Method == http.MethodPost:
+			mcpRouteCreated.Store(true)
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode mcp route create request: %v", err)
+			}
+			if req["service_id"] != "my-mcp-svc" {
+				t.Fatalf("mcp route create service_id = %#v, want my-mcp-svc", req["service_id"])
+			}
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(req)
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := executeAGWCTL(
+		t,
+		"--output", "json",
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"apply",
+		"-f", path,
+	)
+	if err != nil {
+		t.Fatalf("gateway apply: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+	if !mcpServiceCreated.Load() {
+		t.Fatal("expected mcp service create request")
+	}
+	if !mcpRouteCreated.Load() {
+		t.Fatal("expected mcp route create request")
+	}
+	if !strings.Contains(stdout, `"status": "ok"`) {
+		t.Fatalf("stdout missing ok status:\n%s", stdout)
+	}
+}
+
 func executeAGWCTL(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
 
@@ -922,11 +1117,15 @@ func executeAGWCTL(t *testing.T, args ...string) (string, string, error) {
 	oldStdout := os.Stdout
 	oldStderr := os.Stderr
 	oldOutputFormat := outputFormat
+	oldGatewayExportFile := gatewayExportFile
+	oldGatewayBundleFile := gatewayBundleFile
 	defer func() {
 		os.Args = oldArgs
 		os.Stdout = oldStdout
 		os.Stderr = oldStderr
 		outputFormat = oldOutputFormat
+		gatewayExportFile = oldGatewayExportFile
+		gatewayBundleFile = oldGatewayBundleFile
 		rootCmd.SetArgs(nil)
 		rootCmd.SetOut(oldStdout)
 		rootCmd.SetErr(oldStderr)

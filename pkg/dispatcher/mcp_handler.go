@@ -13,6 +13,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
+	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 	"github.com/agent-guide/agent-gateway/pkg/mcp/transport"
 )
 
@@ -71,13 +72,15 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 	if isNotification(msg) {
 		return h.dispatchNotification(w, r, route, msg)
 	}
+	var upstreamErr error
 	requestCtx, finishRequest := h.beginRequest(r.Context(), route, msg)
-	defer finishRequest()
+	defer func() { finishRequest(upstreamErr) }()
 
 	switch msg.Method {
 	case "initialize":
 		result, err := serviceManager.Initialize(requestCtx, route.ServiceID)
 		if err != nil {
+			upstreamErr = err
 			return h.writeRequestError(w, route, msg, err)
 		}
 		return writeMCPResult(w, msg.ID, result)
@@ -92,6 +95,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		}
 		result, err := serviceManager.ListToolsPage(requestCtx, route.ServiceID, cursor)
 		if err != nil {
+			upstreamErr = err
 			return h.writeRequestError(w, route, msg, err)
 		}
 		return writeMCPResult(w, msg.ID, result)
@@ -102,6 +106,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		}
 		result, err := serviceManager.ListResourcesPage(requestCtx, route.ServiceID, cursor)
 		if err != nil {
+			upstreamErr = err
 			return h.writeRequestError(w, route, msg, err)
 		}
 		return writeMCPResult(w, msg.ID, result)
@@ -112,6 +117,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		}
 		result, err := serviceManager.ListResourceTemplatesPage(requestCtx, route.ServiceID, cursor)
 		if err != nil {
+			upstreamErr = err
 			return h.writeRequestError(w, route, msg, err)
 		}
 		return writeMCPResult(w, msg.ID, result)
@@ -122,6 +128,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		}
 		result, err := serviceManager.ListPromptsPage(requestCtx, route.ServiceID, cursor)
 		if err != nil {
+			upstreamErr = err
 			return h.writeRequestError(w, route, msg, err)
 		}
 		return writeMCPResult(w, msg.ID, result)
@@ -138,8 +145,12 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		if err != nil {
 			return writeMCPError(w, msg.ID, http.StatusBadRequest, -32602, err.Error())
 		}
-		result, err := serviceManager.CallTool(requestCtx, route.ServiceID, strings.TrimSpace(name), args)
+		progressCh := make(chan mcpservice.UpstreamProgress, 64)
+		result, err := serviceManager.CallTool(requestCtx, route.ServiceID, strings.TrimSpace(name), args, progressCh)
+		close(progressCh)
+		h.drainUpstreamProgress(route, progressCh)
 		if err != nil {
+			upstreamErr = err
 			return h.writeRequestError(w, route, msg, err)
 		}
 		return writeMCPResult(w, msg.ID, result)
@@ -152,8 +163,12 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		if err != nil {
 			return writeMCPError(w, msg.ID, http.StatusBadRequest, -32602, err.Error())
 		}
-		result, err := serviceManager.ReadResource(requestCtx, route.ServiceID, strings.TrimSpace(uri))
+		progressCh := make(chan mcpservice.UpstreamProgress, 64)
+		result, err := serviceManager.ReadResource(requestCtx, route.ServiceID, strings.TrimSpace(uri), progressCh)
+		close(progressCh)
+		h.drainUpstreamProgress(route, progressCh)
 		if err != nil {
+			upstreamErr = err
 			return h.writeRequestError(w, route, msg, err)
 		}
 		return writeMCPResult(w, msg.ID, result)
@@ -170,8 +185,12 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		if err != nil {
 			return writeMCPError(w, msg.ID, http.StatusBadRequest, -32602, err.Error())
 		}
-		result, err := serviceManager.GetPrompt(requestCtx, route.ServiceID, strings.TrimSpace(name), args)
+		progressCh := make(chan mcpservice.UpstreamProgress, 64)
+		result, err := serviceManager.GetPrompt(requestCtx, route.ServiceID, strings.TrimSpace(name), args, progressCh)
+		close(progressCh)
+		h.drainUpstreamProgress(route, progressCh)
 		if err != nil {
+			upstreamErr = err
 			return h.writeRequestError(w, route, msg, err)
 		}
 		return writeMCPResult(w, msg.ID, result)
@@ -186,6 +205,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		}
 		result, err := serviceManager.Complete(requestCtx, route.ServiceID, ref, argument, args)
 		if err != nil {
+			upstreamErr = err
 			return h.writeRequestError(w, route, msg, err)
 		}
 		return writeMCPResult(w, msg.ID, result)
@@ -224,10 +244,10 @@ func (h *Handler) dispatchNotification(w http.ResponseWriter, r *http.Request, r
 	return nil
 }
 
-func (h *Handler) beginRequest(parent context.Context, route *mcproute.MCPRoute, msg transport.Message) (context.Context, func()) {
+func (h *Handler) beginRequest(parent context.Context, route *mcproute.MCPRoute, msg transport.Message) (context.Context, func(error)) {
 	registry := h.mcpRuntimeRegistry()
 	if registry == nil || route == nil || msg.ID == nil {
-		return parent, func() {}
+		return parent, func(error) {}
 	}
 	return registry.BeginRequest(
 		parent,
@@ -236,6 +256,19 @@ func (h *Handler) beginRequest(parent context.Context, route *mcproute.MCPRoute,
 		strings.TrimSpace(msg.Method),
 		extractProgressToken(msg.Params),
 	)
+}
+
+// drainUpstreamProgress reads all buffered upstream progress notifications and
+// stores them in the runtime registry so they are visible via the admin API.
+func (h *Handler) drainUpstreamProgress(route *mcproute.MCPRoute, ch <-chan mcpservice.UpstreamProgress) {
+	registry := h.mcpRuntimeRegistry()
+	if registry == nil || route == nil {
+		return
+	}
+	routeID := resolvedRouteID(route)
+	for n := range ch {
+		registry.StoreProgress(routeID, n.ProgressToken, n.Progress, n.Total, n.Message)
+	}
 }
 
 func (h *Handler) handleCancelledNotification(route *mcproute.MCPRoute, params any) (bool, error) {

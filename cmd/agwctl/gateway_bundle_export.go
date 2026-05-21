@@ -37,6 +37,14 @@ func runGatewayExport(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
+	mcpServices, err := client.ListMCPServices(ctx)
+	if err != nil {
+		return err
+	}
+	mcpRoutes, err := client.ListMCPRoutes(ctx)
+	if err != nil {
+		return err
+	}
 
 	bundle := &gatewaybundle.GatewayBundle{
 		APIVersion: gatewaybundle.APIVersionV1Alpha1,
@@ -74,6 +82,12 @@ func runGatewayExport(ctx context.Context, path string) error {
 			Enabled: item.Enabled,
 			Config:  item.Config,
 		})
+	}
+	for _, item := range mcpServices {
+		bundle.MCPServices = append(bundle.MCPServices, item.MCPServiceConfig)
+	}
+	for _, item := range mcpRoutes {
+		bundle.MCPRoutes = append(bundle.MCPRoutes, item.MCPRouteConfig)
 	}
 
 	sortGatewayBundle(bundle)
@@ -119,6 +133,12 @@ func sortGatewayBundle(bundle *gatewaybundle.GatewayBundle) {
 	})
 	sort.Slice(bundle.CLIAuthAuthenticators, func(i, j int) bool {
 		return bundle.CLIAuthAuthenticators[i].Name < bundle.CLIAuthAuthenticators[j].Name
+	})
+	sort.Slice(bundle.MCPServices, func(i, j int) bool {
+		return bundle.MCPServices[i].ID < bundle.MCPServices[j].ID
+	})
+	sort.Slice(bundle.MCPRoutes, func(i, j int) bool {
+		return bundle.MCPRoutes[i].ID < bundle.MCPRoutes[j].ID
 	})
 }
 
