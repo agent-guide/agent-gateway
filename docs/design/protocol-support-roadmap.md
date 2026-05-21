@@ -28,9 +28,9 @@ Current implemented protocol-facing behavior:
 
 Current non-LLM protocol status:
 
-- `pkg/mcp` contains transport and client scaffolding
-- MCP is not integrated into the main request path
-- MCP Admin API routes are placeholders
+- MCP is integrated into the main request path through `agent_route_dispatcher` when `mcp` is enabled
+- MCP route config, dispatch, discovery, execution, and runtime inspection are active
+- memory, agents, and metrics remain earlier-stage or stubbed admin areas
 - no ACP gateway runtime is implemented
 
 ## 3. Design Principle

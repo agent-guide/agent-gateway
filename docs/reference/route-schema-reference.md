@@ -1,0 +1,118 @@
+# Route Schema Reference
+
+This page summarizes the current LLM route shape used by static config, Admin API objects, and runtime resolution.
+
+## Core Route Fields
+
+The current route object includes:
+
+- `id`
+- `kind`
+- `protocol`
+- `description`
+- `disabled`
+- `match_policy`
+- `auth_policy`
+- `target_policy`
+- `created_at`
+- `updated_at`
+
+Current route kinds:
+
+- `llm`
+- `mcp`
+
+Current LLM route protocols:
+
+- `openai`
+- `anthropic`
+
+## `match_policy`
+
+Current fields:
+
+- `host`
+- `path_prefix`
+- `methods`
+
+These fields control request matching only.
+
+## `auth_policy`
+
+Current fields:
+
+- `require_virtual_key`
+
+If enabled, the gateway accepts a VirtualKey from:
+
+- `Authorization: Bearer <key>`
+- `x-api-key: <key>`
+
+## `target_policy`
+
+LLM routes support two valid target modes:
+
+- direct-provider mode
+- logical-model mode
+
+### Direct-Provider Mode
+
+Current shape:
+
+```json
+{
+  "provider_target": {
+    "provider_id": "openai-main"
+  }
+}
+```
+
+Behavior:
+
+- request `model` is treated as the upstream model name
+- supported in dynamic routes, Caddyfile routes, and `agwd --static-config`
+
+### Logical-Model Mode
+
+Current shape includes concepts such as:
+
+- `default_model`
+- `model_selector_strategy`
+- `fallback`
+- `model_targets`
+
+Each `model_target` can contain:
+
+- `name`
+- `strategy`
+- `default_candidate`
+- `candidates`
+
+Each candidate can contain:
+
+- `provider_id`
+- `upstream_model`
+- `weight`
+- `priority`
+- `default`
+
+Behavior:
+
+- request `model` is treated as the route model name
+- the gateway resolves it to one concrete provider and upstream model binding
+- supported through dynamic route management and bundle workflows
+- rejected in Caddyfile routes and `agwd --static-config`
+
+## Static Config Restrictions
+
+Current static restrictions:
+
+- Caddyfile LLM routes only support direct-provider mode
+- `agwd --static-config` `llmRoutes` only support direct-provider mode
+- `agwd --static-config` does not support `managedModels`
+
+## Related Docs
+
+- [../guides/routes.md](../guides/routes.md)
+- [../design/model-first-routing.md](../design/model-first-routing.md)
+- [../design/route-target-policy.md](../design/route-target-policy.md)

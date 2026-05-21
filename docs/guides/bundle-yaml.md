@@ -1,0 +1,160 @@
+# Bundle YAML
+
+This guide covers the gateway bundle YAML workflow used by `agwctl` and `agwd`.
+
+## What Bundle YAML Is
+
+Bundle YAML is the declarative configuration format for gateway objects such as:
+
+- provider types
+- providers
+- managed models
+- LLM routes
+- VirtualKeys
+- MCP services
+- MCP routes
+
+It is intentionally for configuration objects, not every runtime operation.
+
+## Main Workflows
+
+### Dynamic Remote Workflow With `agwctl`
+
+Use this when you want to validate, export, and apply configuration against a running gateway:
+
+```bash
+./agwctl gateway export -f ./gateway.bundle.yaml
+./agwctl gateway validate -f ./gateway.bundle.yaml
+./agwctl gateway apply -f ./gateway.bundle.yaml
+```
+
+Behavior:
+
+- `export` reads current remote config objects and serializes them as bundle YAML
+- `validate` parses and validates the bundle locally
+- `apply` creates or updates remote config through the Admin API
+
+### Static Startup Workflow With `agwd`
+
+Use this when you want startup-only read-only static config:
+
+```bash
+./agwd --config-store ./data/configstore.db \
+  --static-config ./examples/gateway.static.minimal.yaml
+```
+
+Behavior:
+
+- `--static-config` loads the bundle at startup
+- loaded objects are treated as static read-only runtime objects
+- static bundle objects are not pre-seeded into SQLite as writable rows
+
+## Minimal Bundle Example
+
+```yaml
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+
+providers:
+  - id: openai-main
+    provider_type: openai
+    api_key: ${OPENAI_API_KEY}
+    default_model: gpt-4.1
+
+llmRoutes:
+  - id: chat-prod
+    protocol: openai
+    match_policy:
+      path_prefix: /
+      methods:
+        - POST
+    auth_policy:
+      require_virtual_key: true
+    target_policy:
+      provider_target:
+        provider_id: openai-main
+```
+
+See:
+
+- [examples/gateway.static.minimal.yaml](/Users/simpcl/github/agent-guide/agent-gateway/examples/gateway.static.minimal.yaml)
+- [examples/gateway.bundle.direct-provider.test.yaml](/Users/simpcl/github/agent-guide/agent-gateway/examples/gateway.bundle.direct-provider.test.yaml)
+
+## Logical-Model Bundle Example
+
+```yaml
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+
+providers:
+  - id: openai-main
+    provider_type: openai
+    api_key: ${OPENAI_API_KEY}
+
+managedModels:
+  - provider_id: openai-main
+    upstream_model: gpt-4.1
+    enabled: true
+
+llmRoutes:
+  - id: chat-prod
+    protocol: openai
+    match_policy:
+      path_prefix: /
+      methods:
+        - POST
+    auth_policy:
+      require_virtual_key: true
+    target_policy:
+      default_model: chat-default
+      model_targets:
+        - name: chat-default
+          candidates:
+            - provider_id: openai-main
+              upstream_model: gpt-4.1
+              weight: 100
+```
+
+See [examples/gateway.bundle.logical-model.test.yaml](/Users/simpcl/github/agent-guide/agent-gateway/examples/gateway.bundle.logical-model.test.yaml).
+
+## Static Versus Dynamic Restrictions
+
+Current static restrictions:
+
+- `agwd --static-config` `llmRoutes` only support direct-provider mode
+- `agwd --static-config` does not support `managedModels`
+- `agwd --static-config` does not support `virtualKeys`
+
+Current dynamic workflow behavior:
+
+- `agwctl gateway apply` supports logical-model routes
+- `agwctl gateway apply` supports managed models
+- VirtualKeys are valid in config-store-backed bundle workflows
+
+## Schema Notes
+
+Top-level metadata:
+
+- `apiVersion: gateway.agw/v1alpha1`
+- `kind: GatewayBundle`
+
+Common top-level sections:
+
+- `providerTypes`
+- `providers`
+- `managedModels`
+- `llmRoutes`
+- `virtualKeys`
+- `cliAuthAuthenticators`
+- `mcpServices`
+- `mcpRoutes`
+
+## Current Caveat
+
+Some older example files in the repository still use older field names in parts of the bundle examples. For new bundle authoring, follow the current runtime route schema documented here and in the test-backed examples that use `protocol`.
+
+## Related Docs
+
+- [../reference/agwctl-reference.md](../reference/agwctl-reference.md)
+- [../design/gateway-bundle-yaml.md](../design/gateway-bundle-yaml.md)
+- [logical-model-routing.md](logical-model-routing.md)

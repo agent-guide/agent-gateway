@@ -1,4 +1,4 @@
-# agent-gateway Design
+# Architecture Overview
 
 ## 1. Scope
 
@@ -17,7 +17,7 @@ The project is built around four practical goals:
 
 The current Go module path is `github.com/agent-guide/agent-gateway`.
 
-Related extension design notes live in `docs/` when a topic needs more detail than this architecture overview. The ConfigStore architecture and technical specification is documented in [docs/configstore-design.md](configstore-design.md). The gateway bundle YAML proposal is documented in [docs/gateway-bundle-yaml-design.md](gateway-bundle-yaml-design.md).
+Related extension design notes live in `docs/` when a topic needs more detail than this architecture overview. The ConfigStore architecture and technical specification is documented in [configstore-architecture.md](configstore-architecture.md). The gateway bundle YAML proposal is documented in [../design/gateway-bundle-yaml.md](../design/gateway-bundle-yaml.md).
 
 ## 3. Top-Level Architecture
 

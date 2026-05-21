@@ -18,7 +18,7 @@ MCP is also active now through `agent_route_dispatcher` with MCP enabled, `pkg/g
 
 - by default, changes in this repository do not preserve backward compatibility
 - do not keep legacy aliases, deprecated field names, old route shapes, old module IDs, old CLI flags, or old API-visible IDs unless the change request explicitly requires compatibility
-- when renaming or reshaping behavior, update the code, tests, `README.md`, `DESIGN.md`, `Caddyfile.example`, and this file to describe only the current behavior unless compatibility is explicitly required
+- when renaming or reshaping behavior, update the code, tests, `README.md`, `docs/architecture/architecture-overview.md`, `Caddyfile.example`, and this file to describe only the current behavior unless compatibility is explicitly required
 
 ## Build & Run
 
@@ -394,7 +394,7 @@ Stubbed families currently return `501 Not Implemented`:
 ## Files To Check Before Large Changes
 
 - `README.md`: user-facing setup and API examples
-- `DESIGN.md`: broader architecture and roadmap
+- `docs/architecture/architecture-overview.md`: broader architecture and roadmap
 - `Caddyfile.example`: working reference config
 - `cmd/agw/main.go`: the definitive list of linked modules
 

@@ -1,4 +1,4 @@
-# ConfigStore Architecture and Technical Specification
+# Config Store Architecture
 
 ## 1. Scope
 
