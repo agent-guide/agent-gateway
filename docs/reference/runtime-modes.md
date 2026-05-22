@@ -46,6 +46,6 @@ Bundle YAML examples used by current workflows:
 
 ## Related Docs
 
-- [../getting-started/quickstart-agw.md](../getting-started/quickstart-agw.md)
+- [../getting-started/quickstart-llm.md](../getting-started/quickstart-llm.md)
 - [agwctl-reference.md](agwctl-reference.md)
 - [caddyfile-reference.md](caddyfile-reference.md)

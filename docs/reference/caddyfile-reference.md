@@ -164,7 +164,7 @@ If a route sets `require_virtual_key`, create VirtualKeys through the Admin API 
 
 ## Related Docs
 
-- [../getting-started/quickstart-agw.md](../getting-started/quickstart-agw.md)
+- [../getting-started/quickstart-llm.md](../getting-started/quickstart-llm.md)
 - [../guides/admin-auth.md](../guides/admin-auth.md)
 - [runtime-modes.md](runtime-modes.md)
 - [admin-api-reference.md](admin-api-reference.md)

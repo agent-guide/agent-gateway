@@ -89,5 +89,5 @@ The `id` is the management identifier. The `key` is the bearer value that client
 
 ## Related Docs
 
-- [../getting-started/quickstart-agw.md](../getting-started/quickstart-agw.md)
+- [../getting-started/quickstart-llm.md](../getting-started/quickstart-llm.md)
 - [../reference/admin-api-reference.md](../reference/admin-api-reference.md)
