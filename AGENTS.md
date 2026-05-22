@@ -383,7 +383,7 @@ Implemented MCP families:
 
 - `/admin/mcp/services/...`
 - `/admin/mcp/routes/...`
-- `/admin/mcp/dispatcher/...`
+- `/admin/mcp/runtime/...`
 
 Stubbed families currently return `501 Not Implemented`:
 

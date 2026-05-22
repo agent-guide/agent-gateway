@@ -96,10 +96,10 @@ The recommended answer is:
 - progress state capture
 - bounded in-memory completed-request history
 - Admin runtime inspection endpoints:
-  - `GET /admin/mcp/dispatcher/runtime`
-  - `GET /admin/mcp/dispatcher/inflight`
-  - `GET /admin/mcp/dispatcher/progress`
-  - `GET /admin/mcp/dispatcher/history`
+  - `GET /admin/mcp/runtime`
+  - `GET /admin/mcp/runtime/inflight`
+  - `GET /admin/mcp/runtime/progress`
+  - `GET /admin/mcp/runtime/history`
 
 #### Session Model
 
@@ -401,13 +401,13 @@ The current implemented admin surface is:
 - `GET /admin/mcp/routes/{id}`
 - `PUT /admin/mcp/routes/{id}`
 - `DELETE /admin/mcp/routes/{id}`
-- `GET /admin/mcp/dispatcher/runtime`
-- `GET /admin/mcp/dispatcher/inflight`
-- `GET /admin/mcp/dispatcher/progress`
+- `GET /admin/mcp/runtime`
+- `GET /admin/mcp/runtime/inflight`
+- `GET /admin/mcp/runtime/progress`
 
 Recommended near-term additions:
 
-- `POST /admin/mcp/dispatcher/inflight/{route_id}/{request_id}/cancel`
+- `POST /admin/mcp/runtime/inflight/{route_id}/{request_id}/cancel`
 - capability cache inspection
 - upstream session connect/disconnect actions if session lifecycle needs to be externally managed
 - richer filter/policy editing for `mcp_services` and MCP routes

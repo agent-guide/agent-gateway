@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"fmt"
 	"net/http"
 	"sync"
 
@@ -8,7 +9,6 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/httplog"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
-	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
 	llmroute "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
@@ -23,26 +23,26 @@ import (
 
 // Handler handles Admin API requests under /admin/.
 type Handler struct {
-	cliauthManager           *cliauth.Manager
-	cliauthRefresher         *cliauth.AutoRefresher
-	credentialManager        *credentialmgr.Manager
-	configStoreBackend       configstore.ConfigStoreBackend
-	routeConfigManager       *routecore.AgentRouteConfigManager
-	sharedLLMRouteResolver   *llmroute.LLMRouteResolver
-	sharedMCPRouteResolver   *mcproute.MCPRouteResolver
-	sharedMCPServiceManager  *mcpservice.Manager
-	virtualKeyManager        *virtualkeypkg.VirtualKeyManager
-	providerManager          *gateway.ProviderManager
-	modelCatalog             modelcatalog.Service
-	mcpRuntimeRegistry       *mcpruntime.Registry
-	mux                      *http.ServeMux
-	logger                   *zap.Logger
-	cliAuthMu                sync.RWMutex
-	cliAuthSessions          map[string]cliAuthStatus // login_id -> cliAuthStatus
-	cliAuthActive            map[string]string        // cliname -> login_id
-	sessions                 *sessionStore
-	adminUsername            string
-	adminPasswordHash        string
+	cliauthManager          *cliauth.Manager
+	cliauthRefresher        *cliauth.AutoRefresher
+	credentialManager       *credentialmgr.Manager
+	configStoreBackend      configstore.ConfigStoreBackend
+	routeConfigManager      *routecore.AgentRouteConfigManager
+	sharedLLMRouteResolver  *llmroute.LLMRouteResolver
+	sharedMCPRouteResolver  *mcproute.MCPRouteResolver
+	sharedMCPServiceManager *mcpservice.Manager
+	virtualKeyManager       *virtualkeypkg.VirtualKeyManager
+	providerManager         *gateway.ProviderManager
+	modelCatalog            modelcatalog.Service
+	mcpRuntimeRegistry      *mcpruntime.Registry
+	mux                     *http.ServeMux
+	logger                  *zap.Logger
+	cliAuthMu               sync.RWMutex
+	cliAuthSessions         map[string]cliAuthStatus // login_id -> cliAuthStatus
+	cliAuthActive           map[string]string        // cliname -> login_id
+	sessions                *sessionStore
+	adminUsername           string
+	adminPasswordHash       string
 }
 
 // NewHandler constructs an admin Handler.
@@ -135,14 +135,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) mcpServiceManager() (*mcpservice.Manager, error) {
-	if h.configStoreBackend == nil {
-		return nil, configstore.ErrUnknownStoreName
+	if h.sharedMCPServiceManager == nil {
+		return nil, fmt.Errorf("mcp service manager is not configured")
 	}
-	store, err := h.configStoreBackend.Get(schema.StoreMCPServices)
-	if err != nil {
-		return nil, err
-	}
-	return mcpservice.NewManager(store), nil
+	return h.sharedMCPServiceManager, nil
 }
 
 func (h *Handler) mcpRouteResolver() (*mcproute.MCPRouteResolver, error) {

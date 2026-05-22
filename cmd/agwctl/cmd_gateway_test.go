@@ -215,6 +215,662 @@ func TestGatewayCLIAuthAuthenticatorsListCommand(t *testing.T) {
 	}
 }
 
+func TestGatewayMCPServiceListCommand(t *testing.T) {
+	var gotAuthHeader string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"token":    "test-token",
+				"username": "admin",
+			})
+		case "/admin/mcp/services":
+			gotAuthHeader = r.Header.Get("Authorization")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"id":        "svc-1",
+						"name":      "My MCP Service",
+						"transport": "streamable_http",
+						"url":       "https://example.com/mcp",
+						"disabled":  false,
+						"source":    "config_store",
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := executeAGWCTL(
+		t,
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-service", "list",
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-service list: %v\nstderr=%s", err, stderr)
+	}
+	if gotAuthHeader != "Bearer test-token" {
+		t.Fatalf("Authorization = %q, want Bearer test-token", gotAuthHeader)
+	}
+	if !strings.Contains(stdout, "TRANSPORT") || !strings.Contains(stdout, "My MCP Service") {
+		t.Fatalf("stdout missing mcp service table data:\n%s", stdout)
+	}
+}
+
+func TestGatewayMCPServiceGetAndDeleteCommands(t *testing.T) {
+	var deleteCalled atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"token":    "test-token",
+				"username": "admin",
+			})
+		case "/admin/mcp/services/svc-1":
+			switch r.Method {
+			case http.MethodGet:
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"id":        "svc-1",
+					"name":      "My MCP Service",
+					"transport": "stdio",
+					"command":   "npx",
+					"source":    "config_store",
+				})
+			case http.MethodDelete:
+				deleteCalled.Store(true)
+				_ = json.NewEncoder(w).Encode(map[string]any{"status": "deleted"})
+			default:
+				t.Fatalf("unexpected method: %s", r.Method)
+			}
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := executeAGWCTL(
+		t,
+		"--output", "json",
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-service", "get", "svc-1",
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-service get: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"id": "svc-1"`) {
+		t.Fatalf("stdout missing mcp service id:\n%s", stdout)
+	}
+
+	stdout, stderr, err = executeAGWCTL(
+		t,
+		"--output", "json",
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-service", "delete", "svc-1",
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-service delete: %v\nstderr=%s", err, stderr)
+	}
+	if !deleteCalled.Load() {
+		t.Fatal("expected mcp service delete request")
+	}
+	if !strings.Contains(stdout, `"status": "deleted"`) {
+		t.Fatalf("stdout missing deleted status:\n%s", stdout)
+	}
+}
+
+func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
+	var toolCallBody []byte
+	var promptGetBody []byte
+	var resourceReadBody []byte
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"token":    "test-token",
+				"username": "admin",
+			})
+		case "/admin/mcp/services/svc-1/sessions":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"session": map[string]any{
+					"id":                  "sess-1",
+					"service_id":          "svc-1",
+					"upstream_session_id": "abcdef12****",
+					"transport":           "streamable_http",
+					"state":               "ready",
+					"created_at":          "2026-05-22T10:00:00Z",
+					"last_used_at":        "2026-05-22T10:05:00Z",
+				},
+			})
+		case "/admin/mcp/services/svc-1/capabilities":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"protocolVersion": "2025-11-25",
+				"capabilities": map[string]any{
+					"tools": map[string]any{
+						"listChanged": true,
+					},
+				},
+				"serverInfo": map[string]any{
+					"name":    "filesystem",
+					"version": "1.0.0",
+				},
+				"instructions": "Use tools for filesystem access.",
+			})
+		case "/admin/mcp/services/svc-1/tools":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"name":        "echo",
+						"description": "Echo input",
+						"input_schema": map[string]any{
+							"type": "object",
+						},
+					},
+				},
+			})
+		case "/admin/mcp/services/svc-1/tools/call":
+			var err error
+			toolCallBody, err = io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("ReadAll(tool call body) error = %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"structured_content": map[string]any{
+					"message": "ok",
+				},
+				"is_error": false,
+			})
+		case "/admin/mcp/services/svc-1/resources":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"uri":         "file:///tmp/example.txt",
+						"name":        "example.txt",
+						"mime_type":   "text/plain",
+						"description": "Example file",
+					},
+				},
+			})
+		case "/admin/mcp/services/svc-1/resource-templates":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"name":        "by-path",
+						"title":       "Path Reader",
+						"uriTemplate": "file:///{path}",
+						"mimeType":    "text/plain",
+						"description": "Read a file by path",
+					},
+				},
+			})
+		case "/admin/mcp/services/svc-1/resources/read":
+			var err error
+			resourceReadBody, err = io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("ReadAll(resource read body) error = %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"contents": []map[string]any{
+					{
+						"uri":       "file:///tmp/example.txt",
+						"mime_type": "text/plain",
+						"text":      "hello",
+					},
+				},
+			})
+		case "/admin/mcp/services/svc-1/prompts":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"name":        "summarize",
+						"description": "Summarize content",
+					},
+				},
+			})
+		case "/admin/mcp/services/svc-1/prompts/get":
+			var err error
+			promptGetBody, err = io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("ReadAll(prompt get body) error = %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"description": "Prompt",
+				"messages": []map[string]any{
+					{
+						"role":    "user",
+						"content": "hello",
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := executeAGWCTL(
+		t,
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-service", "session", "svc-1",
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-service session: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "SESSION-ID") || !strings.Contains(stdout, "sess-1") {
+		t.Fatalf("stdout missing mcp session table data:\n%s", stdout)
+	}
+
+	stdout, stderr, err = executeAGWCTL(
+		t,
+		"--output", "json",
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-service", "capabilities", "svc-1",
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-service capabilities: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"protocolVersion": "2025-11-25"`) || !strings.Contains(stdout, `"name": "filesystem"`) {
+		t.Fatalf("stdout missing mcp capabilities payload:\n%s", stdout)
+	}
+
+	stdout, stderr, err = executeAGWCTL(
+		t,
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-service", "tools", "svc-1",
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-service tools: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "NAME") || !strings.Contains(stdout, "echo") {
+		t.Fatalf("stdout missing mcp tools table data:\n%s", stdout)
+	}
+
+	stdout, stderr, err = executeAGWCTL(
+		t,
+		"--output", "json",
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-service", "tool-call", "svc-1", "echo",
+		"--arguments", `{"input":"hello"}`,
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-service tool-call: %v\nstderr=%s", err, stderr)
+	}
+	if got := strings.TrimSpace(string(toolCallBody)); got != `{"name":"echo","arguments":{"input":"hello"}}` {
+		t.Fatalf("tool call body = %s", got)
+	}
+	if !strings.Contains(stdout, `"message": "ok"`) {
+		t.Fatalf("stdout missing tool call result:\n%s", stdout)
+	}
+
+	stdout, stderr, err = executeAGWCTL(
+		t,
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-service", "resources", "svc-1",
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-service resources: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "URI") || !strings.Contains(stdout, "example.txt") {
+		t.Fatalf("stdout missing mcp resources table data:\n%s", stdout)
+	}
+
+	stdout, stderr, err = executeAGWCTL(
+		t,
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-service", "resource-templates", "svc-1",
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-service resource-templates: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "URI-TEMPLATE") || !strings.Contains(stdout, "file:///{path}") {
+		t.Fatalf("stdout missing mcp resource template table data:\n%s", stdout)
+	}
+
+	stdout, stderr, err = executeAGWCTL(
+		t,
+		"--output", "json",
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-service", "resource-read", "svc-1", "file:///tmp/example.txt",
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-service resource-read: %v\nstderr=%s", err, stderr)
+	}
+	if got := strings.TrimSpace(string(resourceReadBody)); got != `{"uri":"file:///tmp/example.txt"}` {
+		t.Fatalf("resource read body = %s", got)
+	}
+	if !strings.Contains(stdout, `"text": "hello"`) {
+		t.Fatalf("stdout missing resource read result:\n%s", stdout)
+	}
+
+	stdout, stderr, err = executeAGWCTL(
+		t,
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-service", "prompts", "svc-1",
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-service prompts: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "NAME") || !strings.Contains(stdout, "summarize") {
+		t.Fatalf("stdout missing mcp prompts table data:\n%s", stdout)
+	}
+
+	stdout, stderr, err = executeAGWCTL(
+		t,
+		"--output", "json",
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-service", "prompt-get", "svc-1", "summarize",
+		"--arguments", `{"topic":"logs"}`,
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-service prompt-get: %v\nstderr=%s", err, stderr)
+	}
+	if got := strings.TrimSpace(string(promptGetBody)); got != `{"name":"summarize","arguments":{"topic":"logs"}}` {
+		t.Fatalf("prompt get body = %s", got)
+	}
+	if !strings.Contains(stdout, `"description": "Prompt"`) {
+		t.Fatalf("stdout missing prompt get result:\n%s", stdout)
+	}
+}
+
+func TestGatewayMCPRouteListGetAndDeleteCommands(t *testing.T) {
+	var deleteCalled atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"token":    "test-token",
+				"username": "admin",
+			})
+		case "/admin/mcp/routes":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"id":         "mcp:svc-1:/mcp",
+						"kind":       "mcp",
+						"protocol":   "mcp",
+						"service_id": "svc-1",
+						"match_policy": map[string]any{
+							"path_prefix": "/mcp",
+						},
+						"auth_policy": map[string]any{
+							"require_virtual_key": true,
+						},
+						"source": "store",
+					},
+				},
+			})
+		case "/admin/mcp/routes/mcp:svc-1:/mcp":
+			switch r.Method {
+			case http.MethodGet:
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"id":         "mcp:svc-1:/mcp",
+					"kind":       "mcp",
+					"protocol":   "mcp",
+					"service_id": "svc-1",
+					"match_policy": map[string]any{
+						"path_prefix": "/mcp",
+					},
+					"auth_policy": map[string]any{
+						"require_virtual_key": true,
+					},
+					"source": "store",
+				})
+			case http.MethodDelete:
+				deleteCalled.Store(true)
+				_ = json.NewEncoder(w).Encode(map[string]any{"status": "deleted"})
+			default:
+				t.Fatalf("unexpected method: %s", r.Method)
+			}
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := executeAGWCTL(
+		t,
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-route", "list",
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-route list: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "SERVICE-ID") || !strings.Contains(stdout, "/mcp") {
+		t.Fatalf("stdout missing mcp route table data:\n%s", stdout)
+	}
+
+	stdout, stderr, err = executeAGWCTL(
+		t,
+		"--output", "json",
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-route", "get", "mcp:svc-1:/mcp",
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-route get: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"service_id": "svc-1"`) {
+		t.Fatalf("stdout missing mcp route service_id:\n%s", stdout)
+	}
+
+	stdout, stderr, err = executeAGWCTL(
+		t,
+		"--output", "json",
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-route", "delete", "mcp:svc-1:/mcp",
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-route delete: %v\nstderr=%s", err, stderr)
+	}
+	if !deleteCalled.Load() {
+		t.Fatal("expected mcp route delete request")
+	}
+	if !strings.Contains(stdout, `"status": "deleted"`) {
+		t.Fatalf("stdout missing deleted status:\n%s", stdout)
+	}
+}
+
+func TestGatewayMCPRuntimeCommands(t *testing.T) {
+	var gotHistoryQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"token":    "test-token",
+				"username": "admin",
+			})
+		case "/admin/mcp/runtime":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"in_flight": []map[string]any{
+					{
+						"route_id":       "route-a",
+						"request_id":     "req-1",
+						"request_key":    "route-a\u0000\"req-1\"",
+						"method":         "tools/call",
+						"progress_token": "progress-1",
+						"started_at":     "2026-05-22T10:00:00Z",
+					},
+				},
+				"progress": []map[string]any{
+					{
+						"route_id":           "route-a",
+						"progress_token":     "progress-1",
+						"progress_token_key": "route-a\u0000\"progress-1\"",
+						"request_id":         "req-1",
+						"request_key":        "route-a\u0000\"req-1\"",
+						"progress":           3,
+						"total":              10,
+						"message":            "working",
+						"last_method":        "tools/call",
+						"updated_at":         "2026-05-22T10:00:01Z",
+					},
+				},
+			})
+		case "/admin/mcp/runtime/inflight":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"route_id":       "route-a",
+						"request_id":     "req-1",
+						"request_key":    "route-a\u0000\"req-1\"",
+						"method":         "tools/call",
+						"progress_token": "progress-1",
+						"started_at":     "2026-05-22T10:00:00Z",
+					},
+				},
+			})
+		case "/admin/mcp/runtime/progress":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"route_id":           "route-a",
+						"progress_token":     "progress-1",
+						"progress_token_key": "route-a\u0000\"progress-1\"",
+						"request_id":         "req-1",
+						"request_key":        "route-a\u0000\"req-1\"",
+						"progress":           3,
+						"total":              10,
+						"message":            "working",
+						"last_method":        "tools/call",
+						"updated_at":         "2026-05-22T10:00:01Z",
+					},
+				},
+			})
+		case "/admin/mcp/runtime/history":
+			gotHistoryQuery = r.URL.RawQuery
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"route_id":      "route-a",
+						"request_id":    "req-1",
+						"request_key":   "route-a\u0000\"req-1\"",
+						"method":        "tools/call",
+						"started_at":    "2026-05-22T10:00:00Z",
+						"completed_at":  "2026-05-22T10:00:03Z",
+						"cancelled":     false,
+						"cancel_reason": "",
+						"error":         "",
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := executeAGWCTL(
+		t,
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-runtime", "get",
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-runtime get: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "ROUTE-ID") || !strings.Contains(stdout, "working") {
+		t.Fatalf("stdout missing runtime overview data:\n%s", stdout)
+	}
+
+	stdout, stderr, err = executeAGWCTL(
+		t,
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-runtime", "inflight",
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-runtime inflight: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "tools/call") {
+		t.Fatalf("stdout missing inflight data:\n%s", stdout)
+	}
+
+	stdout, stderr, err = executeAGWCTL(
+		t,
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-runtime", "progress",
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-runtime progress: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "PROGRESS") || !strings.Contains(stdout, "working") {
+		t.Fatalf("stdout missing progress data:\n%s", stdout)
+	}
+
+	stdout, stderr, err = executeAGWCTL(
+		t,
+		"gateway",
+		"--admin-addr", srv.URL,
+		"--admin-user", "admin",
+		"--admin-password", "secret",
+		"mcp-runtime", "history",
+		"--route-id", "route-a",
+	)
+	if err != nil {
+		t.Fatalf("gateway mcp-runtime history: %v\nstderr=%s", err, stderr)
+	}
+	if gotHistoryQuery != "route_id=route-a" {
+		t.Fatalf("history query = %q, want route_id=route-a", gotHistoryQuery)
+	}
+	if !strings.Contains(stdout, "COMPLETED-AT") || !strings.Contains(stdout, "route-a") {
+		t.Fatalf("stdout missing history data:\n%s", stdout)
+	}
+}
+
 func TestCLIAuthLoginRequiresAuthenticatorWithClearUsage(t *testing.T) {
 	stdout, stderr, err := executeAGWCTL(t, "cliauth", "login")
 	if err == nil {

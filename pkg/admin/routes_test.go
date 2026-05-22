@@ -997,7 +997,7 @@ func TestGetMCPDispatcherRuntime(t *testing.T) {
 	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/mcp/dispatcher/runtime", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/mcp/runtime", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -1036,7 +1036,7 @@ func TestListMCPDispatcherHistory(t *testing.T) {
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	// no filter: both entries
-	req := httptest.NewRequest(http.MethodGet, "/admin/mcp/dispatcher/history", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/mcp/runtime/history", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -1054,7 +1054,7 @@ func TestListMCPDispatcherHistory(t *testing.T) {
 	}
 
 	// route_id filter: only route-a
-	req2 := httptest.NewRequest(http.MethodGet, "/admin/mcp/dispatcher/history?route_id=route-a", nil)
+	req2 := httptest.NewRequest(http.MethodGet, "/admin/mcp/runtime/history?route_id=route-a", nil)
 	req2.Header.Set("Authorization", "Bearer "+token)
 	rec2 := httptest.NewRecorder()
 	handler.ServeHTTP(rec2, req2)
@@ -1069,6 +1069,38 @@ func TestListMCPDispatcherHistory(t *testing.T) {
 	}
 	if len(resp2.Items) != 1 || resp2.Items[0].RouteID != "route-a" {
 		t.Fatalf("expected 1 item for route-a, got %#v", resp2.Items)
+	}
+}
+
+func TestMCPServiceEndpointsRequireSharedManager(t *testing.T) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("generate password hash: %v", err)
+	}
+
+	handler := NewHandler(nil, nil, "admin", string(passwordHash))
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/mcp/services", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+	if !strings.Contains(rec.Body.String(), "mcp service manager is not configured") {
+		t.Fatalf("unexpected body: %s", rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/admin/mcp/services/svc-1/capabilities", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+	if !strings.Contains(rec.Body.String(), "mcp service manager is not configured") {
+		t.Fatalf("unexpected body: %s", rec.Body.String())
 	}
 }
 

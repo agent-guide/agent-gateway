@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
 	_ "github.com/agent-guide/agent-gateway/pkg/cliauth/authenticator"
@@ -33,6 +35,9 @@ var (
 	gatewayCredentialType         string
 	gatewayCredentialProviderType string
 	gatewayCredentialProviderID   string
+	gatewayMCPRuntimeRouteID      string
+	gatewayMCPToolArguments       string
+	gatewayMCPPromptArguments     string
 )
 
 // ── gateway ───────────────────────────────────────────────────────────────────
@@ -240,6 +245,328 @@ var gatewayLLMRouteDisableCmd = &cobra.Command{
 			return err
 		}
 		return printJSON(item)
+	},
+}
+
+// ── gateway mcp service ──────────────────────────────────────────────────────
+
+var gatewayMCPServiceCmd = &cobra.Command{
+	Use:   "mcp-service",
+	Short: "Manage gateway MCP services",
+}
+
+var gatewayMCPServiceListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all MCP services",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		items, err := newGatewayClient().ListMCPServices(context.Background())
+		if err != nil {
+			return err
+		}
+		if outputFormat == "json" {
+			return printJSON(items)
+		}
+		printGatewayMCPServicesTable(items)
+		return nil
+	},
+}
+
+var gatewayMCPServiceGetCmd = &cobra.Command{
+	Use:   "get <mcp-service-id>",
+	Short: "Get one MCP service",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		item, err := newGatewayClient().GetMCPService(context.Background(), args[0])
+		if err != nil {
+			return err
+		}
+		return printJSON(item)
+	},
+}
+
+var gatewayMCPServiceDeleteCmd = &cobra.Command{
+	Use:   "delete <mcp-service-id>",
+	Short: "Delete an MCP service",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		resp, err := newGatewayClient().DeleteMCPService(context.Background(), args[0])
+		if err != nil {
+			return err
+		}
+		return printJSON(resp)
+	},
+}
+
+var gatewayMCPServiceSessionCmd = &cobra.Command{
+	Use:   "session <mcp-service-id>",
+	Short: "Get the active gateway session for an MCP service",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		item, err := newGatewayClient().GetMCPServiceSession(context.Background(), args[0])
+		if err != nil {
+			return err
+		}
+		if outputFormat == "json" {
+			return printJSON(item)
+		}
+		printGatewayMCPSessionTable(item)
+		return nil
+	},
+}
+
+var gatewayMCPServiceCapabilitiesCmd = &cobra.Command{
+	Use:   "capabilities <mcp-service-id>",
+	Short: "Get the upstream initialize payload for an MCP service",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		item, err := newGatewayClient().GetMCPServiceCapabilities(context.Background(), args[0])
+		if err != nil {
+			return err
+		}
+		return printJSON(item)
+	},
+}
+
+var gatewayMCPServiceToolsCmd = &cobra.Command{
+	Use:   "tools <mcp-service-id>",
+	Short: "List tools exposed by an MCP service",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		items, err := newGatewayClient().ListMCPServiceTools(context.Background(), args[0])
+		if err != nil {
+			return err
+		}
+		if outputFormat == "json" {
+			return printJSON(items)
+		}
+		printGatewayMCPToolsTable(items)
+		return nil
+	},
+}
+
+var gatewayMCPServiceToolCallCmd = &cobra.Command{
+	Use:   "tool-call <mcp-service-id> <tool-name>",
+	Short: "Call a tool exposed by an MCP service",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		arguments, err := parseOptionalJSONObjectFlag(gatewayMCPToolArguments, "--arguments")
+		if err != nil {
+			return err
+		}
+		item, err := newGatewayClient().CallMCPServiceTool(context.Background(), args[0], adminclient.MCPToolCallRequest{
+			Name:      args[1],
+			Arguments: arguments,
+		})
+		if err != nil {
+			return err
+		}
+		return printJSON(item)
+	},
+}
+
+var gatewayMCPServiceResourcesCmd = &cobra.Command{
+	Use:   "resources <mcp-service-id>",
+	Short: "List resources exposed by an MCP service",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		items, err := newGatewayClient().ListMCPServiceResources(context.Background(), args[0])
+		if err != nil {
+			return err
+		}
+		if outputFormat == "json" {
+			return printJSON(items)
+		}
+		printGatewayMCPResourcesTable(items)
+		return nil
+	},
+}
+
+var gatewayMCPServiceResourceTemplatesCmd = &cobra.Command{
+	Use:   "resource-templates <mcp-service-id>",
+	Short: "List resource templates exposed by an MCP service",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		items, err := newGatewayClient().ListMCPServiceResourceTemplates(context.Background(), args[0])
+		if err != nil {
+			return err
+		}
+		if outputFormat == "json" {
+			return printJSON(items)
+		}
+		printGatewayMCPResourceTemplatesTable(items)
+		return nil
+	},
+}
+
+var gatewayMCPServiceResourceReadCmd = &cobra.Command{
+	Use:   "resource-read <mcp-service-id> <resource-uri>",
+	Short: "Read one resource exposed by an MCP service",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		item, err := newGatewayClient().ReadMCPServiceResource(context.Background(), args[0], adminclient.MCPResourceReadRequest{
+			URI: args[1],
+		})
+		if err != nil {
+			return err
+		}
+		return printJSON(item)
+	},
+}
+
+var gatewayMCPServicePromptsCmd = &cobra.Command{
+	Use:   "prompts <mcp-service-id>",
+	Short: "List prompts exposed by an MCP service",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		items, err := newGatewayClient().ListMCPServicePrompts(context.Background(), args[0])
+		if err != nil {
+			return err
+		}
+		if outputFormat == "json" {
+			return printJSON(items)
+		}
+		printGatewayMCPPromptsTable(items)
+		return nil
+	},
+}
+
+var gatewayMCPServicePromptGetCmd = &cobra.Command{
+	Use:   "prompt-get <mcp-service-id> <prompt-name>",
+	Short: "Get one prompt from an MCP service",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		arguments, err := parseOptionalJSONObjectFlag(gatewayMCPPromptArguments, "--arguments")
+		if err != nil {
+			return err
+		}
+		item, err := newGatewayClient().GetMCPServicePrompt(context.Background(), args[0], adminclient.MCPPromptGetRequest{
+			Name:      args[1],
+			Arguments: arguments,
+		})
+		if err != nil {
+			return err
+		}
+		return printJSON(item)
+	},
+}
+
+// ── gateway mcp route ────────────────────────────────────────────────────────
+
+var gatewayMCPRouteCmd = &cobra.Command{
+	Use:   "mcp-route",
+	Short: "Manage gateway MCP routes",
+}
+
+var gatewayMCPRouteListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all MCP routes",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		items, err := newGatewayClient().ListMCPRoutes(context.Background())
+		if err != nil {
+			return err
+		}
+		if outputFormat == "json" {
+			return printJSON(items)
+		}
+		printGatewayMCPRoutesTable(items)
+		return nil
+	},
+}
+
+var gatewayMCPRouteGetCmd = &cobra.Command{
+	Use:   "get <mcp-route-id>",
+	Short: "Get one MCP route",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		item, err := newGatewayClient().GetMCPRoute(context.Background(), args[0])
+		if err != nil {
+			return err
+		}
+		return printJSON(item)
+	},
+}
+
+var gatewayMCPRouteDeleteCmd = &cobra.Command{
+	Use:   "delete <mcp-route-id>",
+	Short: "Delete an MCP route",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		resp, err := newGatewayClient().DeleteMCPRoute(context.Background(), args[0])
+		if err != nil {
+			return err
+		}
+		return printJSON(resp)
+	},
+}
+
+// ── gateway mcp runtime ──────────────────────────────────────────────────────
+
+var gatewayMCPRuntimeCmd = &cobra.Command{
+	Use:   "mcp-runtime",
+	Short: "Inspect gateway MCP runtime state",
+}
+
+var gatewayMCPRuntimeGetCmd = &cobra.Command{
+	Use:   "get",
+	Short: "Get the MCP runtime overview",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		item, err := newGatewayClient().GetMCPRuntime(context.Background())
+		if err != nil {
+			return err
+		}
+		if outputFormat == "json" {
+			return printJSON(item)
+		}
+		printGatewayMCPRuntimeOverview(item)
+		return nil
+	},
+}
+
+var gatewayMCPRuntimeInFlightCmd = &cobra.Command{
+	Use:   "inflight",
+	Short: "List in-flight MCP requests",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		items, err := newGatewayClient().ListMCPRuntimeInFlight(context.Background())
+		if err != nil {
+			return err
+		}
+		if outputFormat == "json" {
+			return printJSON(items)
+		}
+		printGatewayMCPRuntimeInFlightTable(items)
+		return nil
+	},
+}
+
+var gatewayMCPRuntimeProgressCmd = &cobra.Command{
+	Use:   "progress",
+	Short: "List MCP progress notifications",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		items, err := newGatewayClient().ListMCPRuntimeProgress(context.Background())
+		if err != nil {
+			return err
+		}
+		if outputFormat == "json" {
+			return printJSON(items)
+		}
+		printGatewayMCPRuntimeProgressTable(items)
+		return nil
+	},
+}
+
+var gatewayMCPRuntimeHistoryCmd = &cobra.Command{
+	Use:   "history",
+	Short: "List completed MCP request history",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		items, err := newGatewayClient().ListMCPRuntimeHistory(context.Background(), gatewayMCPRuntimeRouteID)
+		if err != nil {
+			return err
+		}
+		if outputFormat == "json" {
+			return printJSON(items)
+		}
+		printGatewayMCPRuntimeHistoryTable(items)
+		return nil
 	},
 }
 
@@ -628,6 +955,21 @@ func newGatewayClient() *adminclient.Client {
 	})
 }
 
+func parseOptionalJSONObjectFlag(raw string, flagName string) (map[string]any, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return nil, fmt.Errorf("%s must be a JSON object: %w", flagName, err)
+	}
+	if payload == nil {
+		return nil, fmt.Errorf("%s must be a JSON object", flagName)
+	}
+	return payload, nil
+}
+
 func init() {
 	gatewayCmd.PersistentFlags().StringVar(&globalGatewayAddr, "admin-addr", envOr("AGW_ADMIN_ADDR", "http://localhost:8019"), "agent-gateway admin API address")
 	gatewayCmd.PersistentFlags().StringVar(&gwUser, "admin-user", envOr("AGW_ADMIN_USER", ""), "gateway admin username")
@@ -637,6 +979,9 @@ func init() {
 	gatewayCredentialListCmd.Flags().StringVar(&gatewayCredentialType, "type", "", "filter credentials by type (api_key or cliauth_token)")
 	gatewayCredentialListCmd.Flags().StringVar(&gatewayCredentialProviderType, "provider-type", "", "filter credentials by provider type")
 	gatewayCredentialListCmd.Flags().StringVar(&gatewayCredentialProviderID, "provider-id", "", "filter credentials by provider ID")
+	gatewayMCPRuntimeHistoryCmd.Flags().StringVar(&gatewayMCPRuntimeRouteID, "route-id", "", "filter completed MCP requests by route ID")
+	gatewayMCPServiceToolCallCmd.Flags().StringVar(&gatewayMCPToolArguments, "arguments", "", "JSON object passed as tool arguments")
+	gatewayMCPServicePromptGetCmd.Flags().StringVar(&gatewayMCPPromptArguments, "arguments", "", "JSON object passed as prompt arguments")
 	gatewayValidateCmd.Flags().StringVarP(&gatewayBundleFile, "file", "f", "", "path to gateway bundle YAML file")
 	gatewayApplyCmd.Flags().StringVarP(&gatewayBundleFile, "file", "f", "", "path to gateway bundle YAML file")
 	gatewayExportCmd.Flags().StringVarP(&gatewayExportFile, "file", "f", "", "write bundle YAML to this file instead of stdout")
@@ -654,6 +999,31 @@ func init() {
 		gatewayLLMRouteDeleteCmd,
 		gatewayLLMRouteEnableCmd,
 		gatewayLLMRouteDisableCmd,
+	)
+	gatewayMCPServiceCmd.AddCommand(
+		gatewayMCPServiceListCmd,
+		gatewayMCPServiceGetCmd,
+		gatewayMCPServiceDeleteCmd,
+		gatewayMCPServiceSessionCmd,
+		gatewayMCPServiceCapabilitiesCmd,
+		gatewayMCPServiceToolsCmd,
+		gatewayMCPServiceToolCallCmd,
+		gatewayMCPServiceResourcesCmd,
+		gatewayMCPServiceResourceTemplatesCmd,
+		gatewayMCPServiceResourceReadCmd,
+		gatewayMCPServicePromptsCmd,
+		gatewayMCPServicePromptGetCmd,
+	)
+	gatewayMCPRouteCmd.AddCommand(
+		gatewayMCPRouteListCmd,
+		gatewayMCPRouteGetCmd,
+		gatewayMCPRouteDeleteCmd,
+	)
+	gatewayMCPRuntimeCmd.AddCommand(
+		gatewayMCPRuntimeGetCmd,
+		gatewayMCPRuntimeInFlightCmd,
+		gatewayMCPRuntimeProgressCmd,
+		gatewayMCPRuntimeHistoryCmd,
 	)
 	gatewayVirtualKeyCmd.AddCommand(
 		gatewayVirtualKeyListCmd,
@@ -702,6 +1072,9 @@ func init() {
 		gatewayExportCmd,
 		gatewayProviderCmd,
 		gatewayLLMRouteCmd,
+		gatewayMCPServiceCmd,
+		gatewayMCPRouteCmd,
+		gatewayMCPRuntimeCmd,
 		gatewayVirtualKeyCmd,
 		gatewayCredentialCmd,
 		gatewayProviderTypesCmd,

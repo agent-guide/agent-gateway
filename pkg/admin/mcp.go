@@ -45,6 +45,25 @@ type MCPPromptGetRequest struct {
 	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
+func (h *Handler) handleGetMCPServiceCapabilities(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	manager, err := h.mcpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	item, err := manager.Initialize(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, mcpservice.ErrServiceNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "mcp service not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, item)
+}
+
 func (h *Handler) handlerListMCPServices(w http.ResponseWriter, r *http.Request) {
 	manager, err := h.mcpServiceManager()
 	if err != nil {
@@ -424,7 +443,25 @@ func (h *Handler) handleListMCPResources(w http.ResponseWriter, r *http.Request)
 			_ = httpjson.Error(w, http.StatusNotFound, "mcp service not found")
 			return
 		}
-		_ = httpjson.Error(w, http.StatusBadGateway, err.Error())
+		_ = httpjson.Error(w, http.StatusBadGateway, rewriteMCPDiscoveryError(err, "resources"))
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (h *Handler) handleListMCPResourceTemplates(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.mcpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	items, err := manager.ListResourceTemplates(r.Context(), strings.TrimSpace(r.PathValue("id")))
+	if err != nil {
+		if errors.Is(err, mcpservice.ErrServiceNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "mcp service not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusBadGateway, rewriteMCPDiscoveryError(err, "resource_templates"))
 		return
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": items})
@@ -549,4 +586,20 @@ func mcpRouteViewFromConfig(resolver *mcproute.MCPRouteResolver, cfg mcproute.Ag
 		}
 	}
 	return view
+}
+
+func rewriteMCPDiscoveryError(err error, family string) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "Method not found") {
+		return msg
+	}
+	switch family {
+	case "resources", "resource_templates":
+		return msg + "; upstream MCP service does not expose resource discovery methods, try tools/list instead"
+	default:
+		return msg
+	}
 }

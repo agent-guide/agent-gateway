@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/agwctl/caddyadminclient"
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
@@ -162,6 +163,178 @@ func printGatewayLLMRoutesTable(items []adminclient.LLMRoute) {
 	printTable(headers, rows)
 }
 
+func printGatewayMCPServicesTable(items []adminclient.MCPServiceView) {
+	headers := []string{"ID", "NAME", "TRANSPORT", "ENDPOINT", "DISABLED", "SOURCE"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		endpoint := item.URL
+		if item.Transport == "stdio" {
+			endpoint = item.Command
+		}
+		rows = append(rows, []string{
+			dash(item.ID),
+			dash(item.Name),
+			dash(string(item.Transport)),
+			dash(endpoint),
+			boolStr(item.Disabled),
+			dash(item.Source),
+		})
+	}
+	printTable(headers, rows)
+}
+
+func printGatewayMCPSessionTable(item *adminclient.MCPServiceSessionView) {
+	headers := []string{"SERVICE-ID", "SESSION-ID", "UPSTREAM-SESSION-ID", "TRANSPORT", "STATE", "CREATED-AT", "LAST-USED-AT"}
+	rows := [][]string{}
+	if item != nil {
+		rows = append(rows, []string{
+			dash(item.ServiceID),
+			dash(item.ID),
+			dash(item.UpstreamSessionID),
+			dash(string(item.Transport)),
+			dash(string(item.State)),
+			dash(formatTimestamp(item.CreatedAt)),
+			dash(formatTimestamp(item.LastUsedAt)),
+		})
+	}
+	printTable(headers, rows)
+}
+
+func printGatewayMCPToolsTable(items []adminclient.MCPTool) {
+	headers := []string{"NAME", "DESCRIPTION"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			dash(item.Name),
+			dash(item.Description),
+		})
+	}
+	printTable(headers, rows)
+}
+
+func printGatewayMCPResourcesTable(items []adminclient.MCPResource) {
+	headers := []string{"URI", "NAME", "MIME-TYPE", "DESCRIPTION"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			dash(item.URI),
+			dash(item.Name),
+			dash(item.MimeType),
+			dash(item.Description),
+		})
+	}
+	printTable(headers, rows)
+}
+
+func printGatewayMCPResourceTemplatesTable(items []adminclient.MCPResourceTemplate) {
+	headers := []string{"NAME", "TITLE", "URI-TEMPLATE", "MIME-TYPE", "DESCRIPTION"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			dash(item.Name),
+			dash(item.Title),
+			dash(item.URITemplate),
+			dash(item.MimeType),
+			dash(item.Description),
+		})
+	}
+	printTable(headers, rows)
+}
+
+func printGatewayMCPPromptsTable(items []adminclient.MCPPrompt) {
+	headers := []string{"NAME", "DESCRIPTION"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			dash(item.Name),
+			dash(item.Description),
+		})
+	}
+	printTable(headers, rows)
+}
+
+func printGatewayMCPRoutesTable(items []adminclient.MCPRouteView) {
+	headers := []string{"ID", "PATH-PREFIX", "SERVICE-ID", "VIRTUALKEY", "DISABLED", "SOURCE"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			dash(item.ID),
+			dash(item.MatchPolicy.PathPrefix),
+			dash(item.ServiceID),
+			boolStr(item.AuthPolicy.RequireVirtualKey),
+			boolStr(item.Disabled),
+			dash(item.Source),
+		})
+	}
+	printTable(headers, rows)
+}
+
+func printGatewayMCPRuntimeOverview(runtime *adminclient.MCPRuntimeView) {
+	if runtime == nil {
+		printGatewayMCPRuntimeInFlightTable(nil)
+		fmt.Fprintln(os.Stdout)
+		printGatewayMCPRuntimeProgressTable(nil)
+		return
+	}
+	printGatewayMCPRuntimeInFlightTable(runtime.InFlight)
+	fmt.Fprintln(os.Stdout)
+	printGatewayMCPRuntimeProgressTable(runtime.Progress)
+}
+
+func printGatewayMCPRuntimeInFlightTable(items []adminclient.MCPRuntimeInFlightRequest) {
+	headers := []string{"ROUTE-ID", "REQUEST-ID", "METHOD", "STARTED-AT", "PROGRESS-TOKEN", "CANCELLED"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			dash(item.RouteID),
+			dash(fmt.Sprint(item.RequestID)),
+			dash(item.Method),
+			dash(formatTimestamp(item.StartedAt)),
+			dash(fmt.Sprint(item.ProgressToken)),
+			boolStr(!item.CancelledAt.IsZero()),
+		})
+	}
+	printTable(headers, rows)
+}
+
+func printGatewayMCPRuntimeProgressTable(items []adminclient.MCPRuntimeProgressNotification) {
+	headers := []string{"ROUTE-ID", "REQUEST-ID", "METHOD", "PROGRESS", "TOTAL", "MESSAGE", "UPDATED-AT"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		total := "-"
+		if item.Total != nil {
+			total = fmt.Sprintf("%g", *item.Total)
+		}
+		rows = append(rows, []string{
+			dash(item.RouteID),
+			dash(fmt.Sprint(item.RequestID)),
+			dash(item.LastMethod),
+			fmt.Sprintf("%g", item.Progress),
+			total,
+			dash(item.Message),
+			dash(formatTimestamp(item.UpdatedAt)),
+		})
+	}
+	printTable(headers, rows)
+}
+
+func printGatewayMCPRuntimeHistoryTable(items []adminclient.MCPRuntimeCompletedRequest) {
+	headers := []string{"ROUTE-ID", "REQUEST-ID", "METHOD", "STARTED-AT", "COMPLETED-AT", "CANCELLED", "ERROR"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			dash(item.RouteID),
+			dash(fmt.Sprint(item.RequestID)),
+			dash(item.Method),
+			dash(formatTimestamp(item.StartedAt)),
+			dash(formatTimestamp(item.CompletedAt)),
+			boolStr(item.Cancelled),
+			dash(item.Error),
+		})
+	}
+	printTable(headers, rows)
+}
+
 // printGatewayVirtualKeysTable renders a list of VirtualKeyView items.
 // Fields: id, key (truncated), tag, disabled, allowed_route_ids, source.
 func printGatewayVirtualKeysTable(items []adminclient.VirtualKey) {
@@ -271,6 +444,13 @@ func printGatewayLLMAPIHandlerTypesTable(items []adminclient.LLMAPIHandlerType) 
 		})
 	}
 	printTable(headers, rows)
+}
+
+func formatTimestamp(ts time.Time) string {
+	if ts.IsZero() {
+		return ""
+	}
+	return ts.UTC().Format(time.RFC3339)
 }
 
 func extractLLMRouteTargetID(item adminclient.LLMRoute) string {
