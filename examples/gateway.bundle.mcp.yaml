@@ -20,14 +20,14 @@ mcpServices:
     url: ${MCP_HTTP_URL}
     auth:
       type: api_key
-      api_key: ${MCP_HTTP_KEY}
+      # api_key: ${MCP_HTTP_KEY}
 
   # ── Legacy SSE upstream ─────────────────────────────────────────────────────
   # post_url defaults to <url with /sse replaced by /message> when omitted
-  - id: mcp-sse
-    name: SSE MCP Service
-    transport: sse
-    url: ${MCP_SSE_URL}
+  # - id: mcp-sse
+  #   name: SSE MCP Service
+  #   transport: sse
+  #   url: ${MCP_SSE_URL}
 
   # ── stdio subprocess upstream ───────────────────────────────────────────────
   # Runs a local MCP server as a child process.
@@ -53,11 +53,11 @@ mcpRoutes:
     auth_policy:
       require_virtual_key: true
 
-  - service_id: mcp-sse
-    match_policy:
-      path_prefix: /mcp/sse
-    auth_policy:
-      require_virtual_key: true
+  # - service_id: mcp-sse
+  #   match_policy:
+  #     path_prefix: /mcp/sse
+  #   auth_policy:
+  #     require_virtual_key: true
 
   - service_id: mcp-filesystem
     match_policy:
@@ -67,7 +67,7 @@ mcpRoutes:
 
 virtualKeys:
   - id: vk-mcp-test
-    tag: mcp-test
+    tag: local-test
     allowed_route_ids:
       - mcp:mcp-http:/mcp/http
       - mcp:mcp-sse:/mcp/sse

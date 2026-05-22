@@ -840,6 +840,84 @@ func TestServeLLMApiReturnsNotImplementedWhenProviderDoesNotExposeResponses(t *t
 	}
 }
 
+func TestServeLLMApiWritesOpenAIErrorShape(t *testing.T) {
+	handler := newHandler()
+	req := httptest.NewRequest(http.MethodGet, "/v1/chat/completions", nil)
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, nil, nil); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+
+	var payload struct {
+		Error struct {
+			Message string `json:"message"`
+			Type    string `json:"type"`
+			Param   any    `json:"param"`
+			Code    any    `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal error body: %v", err)
+	}
+	if payload.Error.Message != "method not allowed" {
+		t.Fatalf("unexpected error message: %q", payload.Error.Message)
+	}
+	if payload.Error.Type != "invalid_request_error" {
+		t.Fatalf("unexpected error type: %q", payload.Error.Type)
+	}
+}
+
+func TestServeLLMApiProviderErrorsUseOpenAIErrorShape(t *testing.T) {
+	prov := &testProvider{
+		generateErr: testStatusError{msg: "quota exceeded", status: http.StatusTooManyRequests},
+	}
+	handler := newHandler()
+
+	body, err := json.Marshal(ChatCompletionRequest{
+		Model: "gpt-4.1",
+		Messages: []ChatMessage{{
+			Role:    "user",
+			Content: "hello",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusTooManyRequests)
+	}
+
+	var payload struct {
+		Error struct {
+			Message string `json:"message"`
+			Type    string `json:"type"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal error body: %v", err)
+	}
+	if payload.Error.Message != "quota exceeded" {
+		t.Fatalf("unexpected error message: %q", payload.Error.Message)
+	}
+	if payload.Error.Type != "rate_limit_error" {
+		t.Fatalf("unexpected error type: %q", payload.Error.Type)
+	}
+}
+
 func firstDataLine(body string) string {
 	for _, line := range strings.Split(body, "\n") {
 		if strings.HasPrefix(line, "data: ") && line != "data: [DONE]" {

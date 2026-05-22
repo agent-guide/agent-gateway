@@ -66,6 +66,12 @@ func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLM
 		if err := json.Unmarshal(body, &req); err != nil {
 			return nil, llmroutepkg.RequestRequirements{}, fmt.Errorf("invalid request: %s", err)
 		}
+		h.logger.Debug("openai: request prepared",
+			zap.String("request_type", string(provider.LLMApiRequestTypeResponses)),
+			zap.String("model", req.Model),
+			zap.Bool("stream", req.Stream),
+			zap.Bool("has_input", req.Input != nil),
+		)
 		prepared := &dispatcher.PreparedLLMApiRequest{
 			Type:             provider.LLMApiRequestTypeResponses,
 			ResponsesRequest: &req,
@@ -83,6 +89,13 @@ func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLM
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, llmroutepkg.RequestRequirements{}, fmt.Errorf("invalid request: %s", err)
 	}
+	h.logger.Debug("openai: request prepared",
+		zap.String("request_type", string(provider.LLMApiRequestTypeChat)),
+		zap.String("model", req.Model),
+		zap.Bool("stream", req.Stream),
+		zap.Int("message_count", len(req.Messages)),
+		zap.Int("max_tokens", req.MaxTokens),
+	)
 
 	conv := &Converter{}
 	prepared := &dispatcher.PreparedLLMApiRequest{
@@ -101,7 +114,7 @@ func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLM
 // ServeLLMApi handles OpenAI-compatible API requests.
 func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provider.Provider, prepared *dispatcher.PreparedLLMApiRequest) error {
 	if r.Method != http.MethodPost {
-		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "openai"}, w, r, http.StatusMethodNotAllowed, "method not allowed", fmt.Errorf("method %s not allowed", r.Method))
+		h.writeError(w, r, http.StatusMethodNotAllowed, "method not allowed", fmt.Errorf("method %s not allowed", r.Method))
 		return nil
 	}
 
@@ -115,13 +128,13 @@ func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provi
 		req, ok = prepared.RawRequest.(*ChatCompletionRequest)
 	}
 	if !ok || req == nil || prepared == nil || prepared.Type != provider.LLMApiRequestTypeChat || prepared.ChatRequest == nil {
-		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "openai"}, w, r, http.StatusBadRequest, "invalid request", fmt.Errorf("prepare request returned invalid openai payload"))
+		h.writeError(w, r, http.StatusBadRequest, "invalid request", fmt.Errorf("prepare request returned invalid openai payload"))
 		return nil
 	}
 
 	chatReq := prepared.ChatRequest
 	if prov == nil {
-		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: chatReq.Model}, w, r, http.StatusServiceUnavailable, "provider is not configured", fmt.Errorf("provider is not configured"))
+		h.writeError(w, r, http.StatusServiceUnavailable, "provider is not configured", fmt.Errorf("provider is not configured"), zap.String("model", chatReq.Model))
 		return nil
 	}
 
@@ -130,11 +143,29 @@ func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provi
 		return nil
 	}
 
+	h.logger.Debug("openai: calling provider",
+		zap.String("request_type", string(provider.LLMApiRequestTypeChat)),
+		zap.String("model", chatReq.Model),
+		zap.Int("message_count", len(chatReq.Messages)),
+		zap.String("provider_type", prov.Config().ProviderType),
+	)
 	resp, err := prov.Chat(r.Context(), chatReq)
 	if err != nil {
-		_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: chatReq.Model}, w, r, err, "generate response")
+		_ = writeProviderError(h.logger, w, r, chatReq.Model, "chat response", err)
 		return nil
 	}
+	contentLen := 0
+	finishReason := ""
+	if resp != nil && resp.Message != nil {
+		contentLen = len(resp.Message.Content)
+		finishReason = provider.FinishReason(resp.Message)
+	}
+	h.logger.Debug("openai: provider response received",
+		zap.String("request_type", string(provider.LLMApiRequestTypeChat)),
+		zap.String("model", chatReq.Model),
+		zap.Int("content_length", contentLen),
+		zap.String("finish_reason", finishReason),
+	)
 	conv := &Converter{}
 	_ = httpjson.Write(w, http.StatusOK, conv.FromInternal(resp, chatReq.Model))
 	return nil
@@ -142,30 +173,35 @@ func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provi
 
 func (h *Handler) serveResponses(w http.ResponseWriter, r *http.Request, prov provider.Provider, prepared *dispatcher.PreparedLLMApiRequest) error {
 	if prepared == nil || prepared.Type != provider.LLMApiRequestTypeResponses || prepared.ResponsesRequest == nil {
-		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "openai"}, w, r, http.StatusBadRequest, "invalid request", fmt.Errorf("prepare request returned invalid responses payload"))
+		h.writeError(w, r, http.StatusBadRequest, "invalid request", fmt.Errorf("prepare request returned invalid responses payload"))
 		return nil
 	}
 	req, ok := prepared.RawRequest.(*ResponsesRequest)
 	if !ok || req == nil {
-		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "openai"}, w, r, http.StatusBadRequest, "invalid request", fmt.Errorf("prepare request returned invalid responses payload"))
+		h.writeError(w, r, http.StatusBadRequest, "invalid request", fmt.Errorf("prepare request returned invalid responses payload"))
 		return nil
 	}
 
 	respReq := prepared.ResponsesRequest
 	if prov == nil {
-		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: respReq.Model}, w, r, http.StatusServiceUnavailable, "provider is not configured", fmt.Errorf("provider is not configured"))
+		h.writeError(w, r, http.StatusServiceUnavailable, "provider is not configured", fmt.Errorf("provider is not configured"), zap.String("model", respReq.Model))
 		return nil
 	}
 
 	if prepared.Stream() {
 		responsesProv, ok := prov.(provider.ResponsesProvider)
 		if !ok {
-			_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: respReq.Model}, w, r, http.StatusNotImplemented, "responses api is not supported", fmt.Errorf("provider %q does not implement responses api", prov.Config().ProviderType))
+			h.writeError(w, r, http.StatusNotImplemented, "responses api is not supported", fmt.Errorf("provider %q does not implement responses api", prov.Config().ProviderType), zap.String("model", respReq.Model))
 			return nil
 		}
+		h.logger.Debug("openai: starting responses stream",
+			zap.String("request_type", string(provider.LLMApiRequestTypeResponses)),
+			zap.String("model", respReq.Model),
+			zap.String("provider_type", prov.Config().ProviderType),
+		)
 		stream, err := responsesProv.StreamResponses(r.Context(), respReq)
 		if err != nil {
-			_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: respReq.Model}, w, r, err, "start response stream")
+			_ = writeProviderError(h.logger, w, r, respReq.Model, "stream responses response", err)
 			return nil
 		}
 		h.writeProviderResponsesStream(w, r, stream, respReq.Model)
@@ -174,23 +210,38 @@ func (h *Handler) serveResponses(w http.ResponseWriter, r *http.Request, prov pr
 
 	responsesProv, ok := prov.(provider.ResponsesProvider)
 	if !ok {
-		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: respReq.Model}, w, r, http.StatusNotImplemented, "responses api is not supported", fmt.Errorf("provider %q does not implement responses api", prov.Config().ProviderType))
+		h.writeError(w, r, http.StatusNotImplemented, "responses api is not supported", fmt.Errorf("provider %q does not implement responses api", prov.Config().ProviderType), zap.String("model", respReq.Model))
 		return nil
 	}
+	h.logger.Debug("openai: calling provider",
+		zap.String("request_type", string(provider.LLMApiRequestTypeResponses)),
+		zap.String("model", respReq.Model),
+		zap.String("provider_type", prov.Config().ProviderType),
+	)
 	resp, err := responsesProv.CreateResponses(r.Context(), respReq)
 	if err != nil {
-		_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: respReq.Model}, w, r, err, "create response")
+		_ = writeProviderError(h.logger, w, r, respReq.Model, "create responses", err)
 		return nil
 	}
+	h.logger.Debug("openai: provider response received",
+		zap.String("request_type", string(provider.LLMApiRequestTypeResponses)),
+		zap.String("model", respReq.Model),
+	)
 	_ = httpjson.Write(w, http.StatusOK, resp)
 	return nil
 }
 
 func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provider.Provider, chatReq *provider.ChatRequest) {
 	ctx := r.Context()
+	h.logger.Debug("openai: starting stream",
+		zap.String("request_type", string(provider.LLMApiRequestTypeChat)),
+		zap.String("model", chatReq.Model),
+		zap.Int("message_count", len(chatReq.Messages)),
+		zap.String("provider_type", prov.Config().ProviderType),
+	)
 	stream, err := prov.StreamChat(ctx, chatReq)
 	if err != nil {
-		_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "openai", Model: chatReq.Model}, w, r, err, "start stream")
+		_ = writeProviderError(h.logger, w, r, chatReq.Model, "stream chat response", err)
 		return
 	}
 	defer stream.Close()
@@ -201,6 +252,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 	w.WriteHeader(http.StatusOK)
 
 	flusher, canFlush := w.(http.Flusher)
+	chunkCount := 0
 	for {
 		chunk, err := stream.Recv()
 		if err == io.EOF {
@@ -213,6 +265,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 			)
 			break
 		}
+		chunkCount++
 
 		payload, err := json.Marshal(toStreamChunk(chatReq.Model, chunk))
 		if err != nil {
@@ -227,6 +280,11 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 			flusher.Flush()
 		}
 	}
+	h.logger.Debug("openai: stream completed",
+		zap.String("request_type", string(provider.LLMApiRequestTypeChat)),
+		zap.String("model", chatReq.Model),
+		zap.Int("chunks", chunkCount),
+	)
 	fmt.Fprint(w, "data: [DONE]\n\n")
 	if canFlush {
 		flusher.Flush()
@@ -242,6 +300,7 @@ func (h *Handler) writeProviderResponsesStream(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusOK)
 
 	flusher, canFlush := w.(http.Flusher)
+	eventCount := 0
 	for {
 		event, err := stream.Recv()
 		if err == io.EOF {
@@ -257,6 +316,7 @@ func (h *Handler) writeProviderResponsesStream(w http.ResponseWriter, r *http.Re
 		if event == nil {
 			continue
 		}
+		eventCount++
 		if err := writeResponsesEvent(w, event); err != nil {
 			httplog.Error(h.logger, "http request failed", r, http.StatusOK, fmt.Errorf("marshal provider responses stream chunk: %w", err),
 				zap.String("protocol", "openai"),
@@ -268,6 +328,11 @@ func (h *Handler) writeProviderResponsesStream(w http.ResponseWriter, r *http.Re
 			flusher.Flush()
 		}
 	}
+	h.logger.Debug("openai: responses stream completed",
+		zap.String("request_type", string(provider.LLMApiRequestTypeResponses)),
+		zap.String("model", model),
+		zap.Int("events", eventCount),
+	)
 }
 
 func writeResponsesEvent(w http.ResponseWriter, event *provider.ResponsesStreamEvent) error {
@@ -277,6 +342,62 @@ func writeResponsesEvent(w http.ResponseWriter, event *provider.ResponsesStreamE
 	}
 	_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, payload)
 	return err
+}
+
+func writeProviderError(logger *zap.Logger, w http.ResponseWriter, r *http.Request, model string, phase string, err error) error {
+	status, clientMessage := dispatcher.WriteProviderErrorLog(logger, w, r, "openai", model, phase, err)
+	return httpjson.Write(w, status, openAIErrorResponse{
+		Error: openAIErrorBody{
+			Message: clientMessage,
+			Type:    openAIErrorTypeForStatus(status),
+			Param:   nil,
+			Code:    nil,
+		},
+	})
+}
+
+func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, status int, clientMessage string, cause error, fields ...zap.Field) {
+	if r != nil {
+		logFields := []zap.Field{zap.String("protocol", "openai")}
+		logFields = append(logFields, fields...)
+		dispatcher.WriteHttpErrorLog(h.logger, w, r, status, "serve openai request", cause, logFields...)
+	}
+	_ = httpjson.Write(w, status, openAIErrorResponse{
+		Error: openAIErrorBody{
+			Message: clientMessage,
+			Type:    openAIErrorTypeForStatus(status),
+			Param:   nil,
+			Code:    nil,
+		},
+	})
+}
+
+type openAIErrorResponse struct {
+	Error openAIErrorBody `json:"error"`
+}
+
+type openAIErrorBody struct {
+	Message string `json:"message"`
+	Type    string `json:"type"`
+	Param   any    `json:"param"`
+	Code    any    `json:"code"`
+}
+
+func openAIErrorTypeForStatus(status int) string {
+	switch {
+	case status == http.StatusUnauthorized:
+		return "authentication_error"
+	case status == http.StatusForbidden:
+		return "permission_error"
+	case status == http.StatusNotFound:
+		return "not_found_error"
+	case status == http.StatusTooManyRequests:
+		return "rate_limit_error"
+	case status >= 400 && status < 500:
+		return "invalid_request_error"
+	default:
+		return "api_error"
+	}
 }
 
 type chatCompletionChunk struct {

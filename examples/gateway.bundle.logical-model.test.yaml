@@ -22,7 +22,7 @@ managedModels:
 llmRoutes:
   - id: chat-test-logical-model
     llm_api: openai
-    match:
+    match_policy:
       path_prefix: /chattestlogicalmodel
       methods:
         - POST

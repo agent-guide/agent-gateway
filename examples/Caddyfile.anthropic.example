@@ -10,6 +10,12 @@
 {
 	admin localhost:2019
 
+	log {
+		output stderr
+		format console
+		level INFO
+	}
+
 	agent_gateway {
 		config_store sqlite {
 			path ./data/configstore.db

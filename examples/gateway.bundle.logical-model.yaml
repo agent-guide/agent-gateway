@@ -28,7 +28,7 @@ managedModels:
 llmRoutes:
   - id: chat-prod
     llm_api: openai
-    match:
+    match_policy:
       path_prefix: /
       methods:
         - POST

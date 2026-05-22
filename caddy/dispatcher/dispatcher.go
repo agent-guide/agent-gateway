@@ -67,7 +67,7 @@ func (h *AgentRouteDispatcher) Validate() error {
 
 func (h AgentRouteDispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	if h.handler == nil {
-		return dispatcherpkg.WriteLoggedError(nil, dispatcherpkg.ErrorContext{}, w, r, http.StatusServiceUnavailable, "agent gateway is not configured", fmt.Errorf("agent gateway is not configured"))
+		return fmt.Errorf("agent gateway is not configured")
 	}
 	return h.handler.Dispatch(w, r, next)
 }

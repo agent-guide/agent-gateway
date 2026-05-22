@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
+	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/internal/httplog"
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
@@ -94,32 +96,31 @@ func (r *PreparedLLMApiRequest) SetModel(model string) {
 	}
 }
 
-type ErrorContext struct {
-	Protocol string
-	RouteID  string
-	Model    string
-}
-
 const StatusClientClosedRequest = 499
 
-func WriteError(logger *zap.Logger, apiName, routeID, model string, w http.ResponseWriter, r *http.Request, err error, message string) error {
-	status := statuserr.StatusCode(err, http.StatusBadGateway)
-	return WriteLoggedError(logger, ErrorContext{
-		Protocol: apiName,
-		RouteID:  routeID,
-		Model:    model,
-	}, w, r, status, err.Error(), fmt.Errorf("%s: %w", message, err))
+func WriteDispatchError(logger *zap.Logger, protocol, routeID, model string, status int, w http.ResponseWriter, r *http.Request, phase string, clientMessage string, err error, fields ...zap.Field) error {
+	if status <= 0 {
+		status = statuserr.StatusCode(err, http.StatusBadGateway)
+	}
+	logFields := []zap.Field{
+		zap.String("protocol", protocol),
+		zap.String("route_id", routeID),
+		zap.String("model", model),
+	}
+	logFields = append(logFields, fields...)
+
+	WriteHttpErrorLog(logger, w, r, status, phase, err, logFields...)
+	if clientMessage == "" && err != nil {
+		clientMessage = err.Error()
+	}
+	return httpjson.Error(w, status, clientMessage)
 }
 
-func WriteProviderError(logger *zap.Logger, ctx ErrorContext, w http.ResponseWriter, r *http.Request, err error, phase string) error {
-	status := statuserr.StatusCode(err, http.StatusBadGateway)
-	clientMessage := err.Error()
-	if IsClientCanceled(err) {
-		status = StatusClientClosedRequest
-		clientMessage = "client canceled request"
-	}
-	fields := upstreamErrorFields(err)
-	return WriteLoggedError(logger, ctx, w, r, status, clientMessage, fmt.Errorf("%s: %w", phase, err), fields...)
+func WriteHttpErrorLog(logger *zap.Logger, w http.ResponseWriter, r *http.Request, status int, phase string, err error, fields ...zap.Field) {
+	httplog.Error(logger, "http request failed", r, status,
+		fmt.Errorf("%s error: %w", phase, err),
+		fields...,
+	)
 }
 
 func IsClientCanceled(err error) bool {
@@ -132,19 +133,55 @@ func IsClientCanceled(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "context canceled")
 }
 
-func WriteLoggedError(logger *zap.Logger, ctx ErrorContext, w http.ResponseWriter, r *http.Request, status int, clientMessage string, cause error, fields ...zap.Field) error {
-	logFields := []zap.Field{
-		zap.String("protocol", ctx.Protocol),
-		zap.String("route_id", ctx.RouteID),
-		zap.String("model", ctx.Model),
+func WriteProviderErrorLog(logger *zap.Logger, w http.ResponseWriter, r *http.Request, protocol string, model string, phase string, err error) (int, string) {
+	status := statuserr.StatusCode(err, http.StatusBadGateway)
+	errmsg := err.Error()
+	if IsClientCanceled(err) {
+		status = StatusClientClosedRequest
+		errmsg = "client canceled request"
 	}
-	logFields = append(logFields, fields...)
-	return httplog.WriteError(logger, w, r, status, clientMessage, cause, logFields...)
+	fields := provider.UpstreamErrorFields(err)
+	fields = append(fields, zap.String("protocol", protocol))
+	fields = append(fields, zap.String("model", model))
+	httplog.Error(logger, "http request failed", r, status,
+		fmt.Errorf("%s error: %w", phase, err),
+		fields...,
+	)
+	return status, errmsg
 }
 
-func upstreamErrorFields(err error) []zap.Field {
-	if err == nil {
+func requestLogFields(r *http.Request) []zap.Field {
+	if r == nil {
 		return nil
 	}
-	return provider.UpstreamErrorFields(err)
+
+	headerNames := make([]string, 0, len(r.Header))
+	for name := range r.Header {
+		headerNames = append(headerNames, strings.ToLower(name))
+	}
+	slices.Sort(headerNames)
+
+	fields := []zap.Field{
+		zap.String("http_method", r.Method),
+		zap.String("request_path", r.URL.Path),
+		zap.Bool("auth_header_present", strings.TrimSpace(r.Header.Get("Authorization")) != ""),
+		zap.Bool("x_api_key_present", strings.TrimSpace(r.Header.Get("x-api-key")) != ""),
+		zap.Strings("request_header_names", headerNames),
+	}
+	if r.URL.RawQuery != "" {
+		fields = append(fields, zap.String("request_query", r.URL.RawQuery))
+	}
+	if sessionID := strings.TrimSpace(r.Header.Get("MCP-Session-Id")); sessionID != "" {
+		fields = append(fields, zap.Bool("mcp_session_id_present", true))
+	}
+	return fields
+}
+
+func logRequestPhase(logger *zap.Logger, message string, r *http.Request, fields ...zap.Field) {
+	if logger == nil {
+		return
+	}
+	logFields := requestLogFields(r)
+	logFields = append(logFields, fields...)
+	logger.Debug(message, logFields...)
 }

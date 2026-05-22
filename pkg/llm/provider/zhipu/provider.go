@@ -8,6 +8,7 @@ import (
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+	"go.uber.org/zap"
 
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	"github.com/agent-guide/agent-gateway/pkg/httpclient"
@@ -36,29 +37,60 @@ func New(config provider.ProviderConfig) (provider.Provider, error) {
 
 func (p *Provider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
 	p.ensureBase()
-	return provider.RetryProviderCall(p.ProviderConfig.Network, func() (*provider.ChatResponse, error) {
+	zap.L().Info("zhipu: chat request",
+		zap.String("model", req.Model),
+		zap.Int("message_count", len(req.Messages)),
+	)
+	resp, err := provider.RetryProviderCall(p.ProviderConfig.Network, func() (*provider.ChatResponse, error) {
 		chatModel, messages, opts, err := p.newChatModel(ctx, req)
 		if err != nil {
 			return nil, err
 		}
+		zap.L().Info("zhipu: calling upstream generate",
+			zap.String("model", req.Model),
+			zap.String("base_url", p.ProviderConfig.BaseURL),
+		)
 		msg, err := chatModel.Generate(ctx, messages, opts...)
 		if err != nil {
 			return nil, statuserr.Wrap(openaibase.NormalizeError(err), 502)
 		}
 		return provider.ChatResponseFromEinoMessage(msg), nil
 	})
+	if err != nil {
+		zap.L().Info("zhipu: chat failed", zap.String("model", req.Model), zap.Error(err))
+		return nil, err
+	}
+	contentLen := 0
+	finishReason := ""
+	if resp != nil && resp.Message != nil {
+		contentLen = len(resp.Message.Content)
+		finishReason = provider.FinishReason(resp.Message)
+	}
+	zap.L().Info("zhipu: chat response received",
+		zap.String("model", req.Model),
+		zap.Int("content_length", contentLen),
+		zap.String("finish_reason", finishReason),
+	)
+	return resp, nil
 }
 
 func (p *Provider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*schema.StreamReader[*schema.Message], error) {
 	p.ensureBase()
+	zap.L().Info("zhipu: stream request",
+		zap.String("model", req.Model),
+		zap.Int("message_count", len(req.Messages)),
+		zap.String("base_url", p.ProviderConfig.BaseURL),
+	)
 	chatModel, messages, opts, err := p.newChatModel(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	stream, err := chatModel.Stream(ctx, messages, opts...)
 	if err != nil {
+		zap.L().Info("zhipu: stream failed", zap.String("model", req.Model), zap.Error(err))
 		return nil, statuserr.Wrap(openaibase.NormalizeError(err), 502)
 	}
+	zap.L().Info("zhipu: stream started", zap.String("model", req.Model))
 	return stream, nil
 }
 

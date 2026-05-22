@@ -10,6 +10,14 @@
 {
 	admin localhost:2019
 
+	# Global error/module log — controls where h.logger.Info/Debug/Error calls go.
+	# This is separate from the per-site HTTP access log below.
+	log {
+		output stderr
+		format console
+		level INFO
+	}
+
 	agent_gateway {
 		config_store sqlite {
 			path ./data/configstore.db

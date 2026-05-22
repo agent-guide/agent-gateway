@@ -61,6 +61,13 @@ func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLM
 		return nil, llmroutepkg.RequestRequirements{}, fmt.Errorf("invalid request: %s", err)
 	}
 
+	h.logger.Debug("anthropic: request prepared",
+		zap.String("model", req.Model),
+		zap.Bool("stream", req.Stream),
+		zap.Int("message_count", len(req.Messages)),
+		zap.Int("max_tokens", req.MaxTokens),
+	)
+
 	conv := &Converter{}
 	prepared := &dispatcher.PreparedLLMApiRequest{
 		Type:            provider.LLMApiRequestTypeChat,
@@ -78,7 +85,7 @@ func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLM
 // ServeLLMApi handles Anthropic-compatible API requests.
 func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provider.Provider, prepared *dispatcher.PreparedLLMApiRequest) error {
 	if r.Method != http.MethodPost {
-		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic"}, w, r, http.StatusMethodNotAllowed, "method not allowed", fmt.Errorf("method %s not allowed", r.Method))
+		h.writeError(w, r, http.StatusMethodNotAllowed, fmt.Errorf("method %s not allowed", r.Method))
 		return nil
 	}
 
@@ -100,20 +107,20 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request, prov pr
 		var err error
 		prepared, _, err = h.PrepareLLMApiRequest(r)
 		if err != nil {
-			_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic"}, w, r, statuserr.StatusCode(err, http.StatusBadGateway), err.Error(), fmt.Errorf("prepare request: %w", err))
+			h.writeError(w, r, statuserr.StatusCode(err, http.StatusBadRequest), fmt.Errorf("prepare request: %w", err))
 			return
 		}
 		var castOK bool
 		req, castOK = prepared.RawRequest.(*MessagesRequest)
 		if !castOK || req == nil || prepared.Type != provider.LLMApiRequestTypeChat || prepared.ChatRequest == nil {
-			_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic"}, w, r, http.StatusBadRequest, "invalid request", fmt.Errorf("prepare request returned invalid anthropic payload"))
+			h.writeError(w, r, http.StatusBadRequest, fmt.Errorf("invalid request"))
 			return
 		}
 	}
 
 	chatReq := prepared.ChatRequest
 	if prov == nil {
-		_ = dispatcher.WriteLoggedError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic", Model: chatReq.Model}, w, r, http.StatusServiceUnavailable, "provider is not configured", fmt.Errorf("provider is not configured"))
+		h.writeError(w, r, http.StatusServiceUnavailable, fmt.Errorf("provider is not configured"))
 		return
 	}
 
@@ -122,20 +129,41 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request, prov pr
 		return
 	}
 
+	h.logger.Debug("anthropic: calling provider",
+		zap.String("model", chatReq.Model),
+		zap.Int("message_count", len(chatReq.Messages)),
+		zap.String("provider_type", prov.Config().ProviderType),
+	)
 	resp, err := prov.Chat(r.Context(), chatReq)
 	if err != nil {
-		_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic", Model: chatReq.Model}, w, r, err, "generate response")
+		h.writeProviderError(w, r, chatReq.Model, err)
 		return
 	}
+	contentLen := 0
+	finishReason := ""
+	if resp != nil && resp.Message != nil {
+		contentLen = len(resp.Message.Content)
+		finishReason = provider.FinishReason(resp.Message)
+	}
+	h.logger.Debug("anthropic: provider response received",
+		zap.String("model", chatReq.Model),
+		zap.Int("content_length", contentLen),
+		zap.String("finish_reason", finishReason),
+	)
 	conv := &Converter{}
 	_ = httpjson.Write(w, http.StatusOK, conv.FromInternal(resp, req.Model))
 }
 
 func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provider.Provider, chatReq *provider.ChatRequest, model string) {
 	ctx := r.Context()
+	h.logger.Debug("anthropic: starting stream",
+		zap.String("model", chatReq.Model),
+		zap.Int("message_count", len(chatReq.Messages)),
+		zap.String("provider_type", prov.Config().ProviderType),
+	)
 	stream, err := prov.StreamChat(ctx, chatReq)
 	if err != nil {
-		_ = dispatcher.WriteProviderError(h.logger, dispatcher.ErrorContext{Protocol: "anthropic", Model: chatReq.Model}, w, r, err, "start stream")
+		h.writeProviderError(w, r, chatReq.Model, err)
 		return
 	}
 	defer stream.Close()
@@ -165,6 +193,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 		flusher.Flush()
 	}
 
+	chunkCount := 0
 	for {
 		chunk, err := stream.Recv()
 		if err == io.EOF {
@@ -174,9 +203,11 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 			httplog.Error(h.logger, "http request failed", r, http.StatusOK, fmt.Errorf("receive stream chunk: %w", err),
 				zap.String("protocol", "anthropic"),
 				zap.String("model", chatReq.Model),
+				zap.Int("chunks_received", chunkCount),
 			)
 			break
 		}
+		chunkCount++
 		if text := extractText(chunk); text != "" {
 			writeSSEEvent(w, "content_block_delta", map[string]any{
 				"type": "content_block_delta", "index": 0,
@@ -188,6 +219,10 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 		}
 	}
 
+	h.logger.Debug("anthropic: stream completed",
+		zap.String("model", model),
+		zap.Int("chunks", chunkCount),
+	)
 	writeSSEEvent(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
 	writeSSEEvent(w, "message_delta", map[string]any{
 		"type":  "message_delta",
@@ -200,8 +235,67 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 	}
 }
 
-func (h *Handler) handleCountTokens(w http.ResponseWriter, r *http.Request) {
-	_ = httpjson.Error(w, http.StatusNotImplemented, "count_tokens is not supported")
+func (h *Handler) handleCountTokens(w http.ResponseWriter, _ *http.Request) {
+	h.writeError(w, nil, http.StatusNotImplemented, fmt.Errorf("count_tokens is not supported"))
+}
+
+// writeError logs and writes an Anthropic-format error response.
+func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, status int, cause error) {
+	msg := ""
+	if cause != nil {
+		msg = cause.Error()
+	}
+	if r != nil {
+		logFields := []zap.Field{zap.String("protocol", "anthropic")}
+		dispatcher.WriteHttpErrorLog(h.logger, w, r, status, "", cause, logFields...)
+	}
+	_ = httpjson.Write(w, status, anthropicErrorResponse{
+		Type: "error",
+		Error: anthropicErrorBody{
+			Type:    errTypeForStatus(status),
+			Message: msg,
+		},
+	})
+}
+
+// writeProviderError logs and writes an Anthropic-format error response for upstream errors.
+func (h *Handler) writeProviderError(w http.ResponseWriter, r *http.Request, model string, err error) {
+	status, msg := dispatcher.WriteProviderErrorLog(h.logger, w, r, "anthropic", model, "generate response", err)
+	_ = httpjson.Write(w, status, anthropicErrorResponse{
+		Type: "error",
+		Error: anthropicErrorBody{
+			Type:    errTypeForStatus(status),
+			Message: msg,
+		},
+	})
+}
+
+// anthropicErrorResponse is the error format the Anthropic SDK expects.
+type anthropicErrorResponse struct {
+	Type  string             `json:"type"`
+	Error anthropicErrorBody `json:"error"`
+}
+
+type anthropicErrorBody struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
+func errTypeForStatus(status int) string {
+	switch {
+	case status == http.StatusUnauthorized:
+		return "authentication_error"
+	case status == http.StatusForbidden:
+		return "permission_error"
+	case status == http.StatusNotFound:
+		return "not_found_error"
+	case status == http.StatusTooManyRequests:
+		return "rate_limit_error"
+	case status >= 400 && status < 500:
+		return "invalid_request_error"
+	default:
+		return "api_error"
+	}
 }
 
 // extractText returns the text content from a streaming message chunk.

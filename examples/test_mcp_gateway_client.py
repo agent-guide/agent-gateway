@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""MCP stdio gateway client example.
+"""MCP gateway client example.
 
-Sends MCP JSON-RPC requests to the agent-gateway over HTTP, routing them to a
-stdio-backed upstream MCP process (e.g. @modelcontextprotocol/server-filesystem).
+Sends MCP JSON-RPC requests to the agent-gateway over HTTP, routing them to an
+upstream MCP process (e.g. @modelcontextprotocol/server-filesystem via stdio).
 
 Prerequisites
 -------------
@@ -20,25 +20,25 @@ Prerequisites
 
 Usage
 -----
-    export AGW_API_KEY=<virtual-key-value>
-    python3 examples/test_mcp_stdio_client.py
+    export AGW_MCP_API_KEY=<virtual-key-value>
+    python3 examples/test_mcp_gateway_client.py
 
     # List available tools only
-    python3 examples/test_mcp_stdio_client.py --list-tools
+    python3 examples/test_mcp_gateway_client.py --list-tools
 
     # Call a specific tool
-    python3 examples/test_mcp_stdio_client.py --call-tool list_directory --params '{"path": "/tmp"}'
+    python3 examples/test_mcp_gateway_client.py --call-tool list_directory --params '{"path": "/tmp"}'
 
     # Target a different gateway or path prefix
-    python3 examples/test_mcp_stdio_client.py --base-url http://127.0.0.1:8080 --path-prefix /mcp/fs
+    python3 examples/test_mcp_gateway_client.py --base-url http://127.0.0.1:8080 --path-prefix /mcp/fs
 """
 
 import argparse
+import http.client
 import json
 import os
 import sys
-import urllib.error
-import urllib.request
+import urllib.parse
 from typing import Any
 
 
@@ -58,7 +58,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--api-key",
-        default=os.getenv("AGW_API_KEY", ""),
+        default=os.getenv("AGW_MCP_API_KEY", ""),
         help="Virtual key value. Sent as Authorization: Bearer <key>.",
     )
     parser.add_argument(
@@ -95,6 +95,33 @@ def next_id() -> int:
     return _request_id
 
 
+def post_json(url: str, body: bytes, headers: dict[str, str], timeout: float) -> tuple[int, bytes]:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        print(f"Unsupported URL scheme: {parsed.scheme}", file=sys.stderr)
+        raise SystemExit(1)
+
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+
+    port = parsed.port
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+
+    conn_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+    conn = conn_cls(parsed.hostname, port, timeout=timeout)
+    try:
+        conn.request("POST", path, body=body, headers=headers)
+        resp = conn.getresponse()
+        return resp.status, resp.read()
+    except OSError as exc:
+        print(f"Connection error: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    finally:
+        conn.close()
+
+
 def send(url: str, api_key: str, timeout: float, method: str, params: Any = None) -> Any:
     """Send a single MCP JSON-RPC request and return the result field."""
     payload = {
@@ -109,20 +136,17 @@ def send(url: str, api_key: str, timeout: float, method: str, params: Any = None
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
+        headers["x-api-key"] = api_key
 
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    print(
+        f"MCP request {method}: auth={'Authorization' in headers} x-api-key={'x-api-key' in headers}",
+        file=sys.stderr,
+    )
+    status, raw = post_json(url, body, headers, timeout)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read())
-    except urllib.error.HTTPError as exc:
-        raw = exc.read()
-        try:
-            data = json.loads(raw)
-        except Exception:
-            print(f"HTTP {exc.code}: {raw.decode(errors='replace')}", file=sys.stderr)
-            raise SystemExit(1)
-    except urllib.error.URLError as exc:
-        print(f"Connection error: {exc.reason}", file=sys.stderr)
+        data = json.loads(raw)
+    except Exception:
+        print(f"HTTP {status}: {raw.decode(errors='replace')}", file=sys.stderr)
         raise SystemExit(1)
 
     if "error" in data:
@@ -136,7 +160,7 @@ def send(url: str, api_key: str, timeout: float, method: str, params: Any = None
 def do_initialize(url: str, api_key: str, timeout: float) -> dict:
     result = send(url, api_key, timeout, "initialize", {
         "protocolVersion": "2024-11-05",
-        "clientInfo": {"name": "test_mcp_stdio_client", "version": "0.1"},
+        "clientInfo": {"name": "test_mcp_gateway_client", "version": "0.1"},
         "capabilities": {},
     })
     # Fire notifications/initialized (no response expected — gateway handles it)
@@ -149,10 +173,9 @@ def do_initialize(url: str, api_key: str, timeout: float) -> dict:
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        headers["x-api-key"] = api_key
     try:
-        with urllib.request.urlopen(req, timeout=timeout):
-            pass
+        _, _ = post_json(url, body, headers, timeout)
     except Exception:
         pass  # notifications return 204 or are silently accepted
     return result or {}
@@ -171,11 +194,11 @@ def main() -> int:
     args = parse_args()
     if not args.api_key:
         print(
-            "AGW_API_KEY is required. Retrieve the virtual key value with:\n"
+            "Warning: no AGW_MCP_API_KEY set. Requests will be unauthenticated.\n"
+            "  If the gateway requires a virtual key, retrieve it with:\n"
             "  agwctl gateway list virtual-keys",
             file=sys.stderr,
         )
-        return 1
 
     url = args.base_url.rstrip("/") + args.path_prefix
 

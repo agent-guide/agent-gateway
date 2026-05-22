@@ -1,0 +1,87 @@
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+
+providers:
+  - id: zhipu-test
+    provider_type: zhipu
+    api_key: ${ZHIPU_API_KEY}
+    default_model: glm-5.1
+
+  - id: deepseek-test
+    provider_type: deepseek
+    api_key: ${DEEPSEEK_API_KEY}
+    default_model: deepseek-v4-pro
+
+  - id: codex-test
+    provider_type: codex
+    default_model: gpt-5.4
+    network:
+      proxy_url: http://127.0.0.1:7890
+
+  - id: claudecode-test
+    provider_type: claudecode
+    default_model: claude-sonnet-4-6
+    network:
+      proxy_url: http://127.0.0.1:7890
+
+llmRoutes:
+  - id: chat-zhipu
+    protocol: anthropic
+    match_policy:
+      path_prefix: /chatzhipu
+      methods:
+        - POST
+    auth_policy:
+      require_virtual_key: true
+    target_policy:
+      provider_target:
+        provider_id: zhipu-test
+
+  - id: chat-deepseek
+    protocol: openai
+    match_policy:
+      path_prefix: /chatdeepseek
+      methods:
+        - POST
+    auth_policy:
+      require_virtual_key: true
+    target_policy:
+      provider_target:
+        provider_id: deepseek-test
+
+  - id: chat-codex
+    protocol: openai
+    match_policy:
+      path_prefix: /chatcodex
+      methods:
+        - POST
+    auth_policy:
+      require_virtual_key: true
+    target_policy:
+      provider_target:
+        provider_id: codex-test
+      credential_type_order:
+        - cliauth_token
+
+  - id: chat-claudecode
+    protocol: anthropic
+    match_policy:
+      path_prefix: /chatclaudecode
+      methods:
+        - POST
+    auth_policy:
+      require_virtual_key: true
+    target_policy:
+      provider_target:
+        provider_id: claudecode-test
+      credential_type_order:
+        - cliauth_token
+
+virtualKeys:
+  - id: vk-llm-test
+    tag: local-test
+    allowed_route_ids:
+      - chat-zhipu
+      - chat-deepseek
+      - chat-codex
+      - chat-claudecode

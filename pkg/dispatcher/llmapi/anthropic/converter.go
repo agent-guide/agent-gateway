@@ -56,11 +56,32 @@ func (c *Converter) FromInternal(resp *provider.ChatResponse, model string) *Mes
 		Role:       "assistant",
 		Model:      model,
 		Content:    content,
-		StopReason: provider.FinishReason(resp.Message),
+		StopReason: mapFinishReason(provider.FinishReason(resp.Message)),
 		Usage: UsageResponse{
 			InputTokens:  usage.InputTokens,
 			OutputTokens: usage.OutputTokens,
 		},
+	}
+}
+
+// mapFinishReason maps OpenAI-style finish reasons to Anthropic stop reasons.
+func mapFinishReason(reason string) string {
+	switch reason {
+	case "stop":
+		return "end_turn"
+	case "length":
+		return "max_tokens"
+	case "tool_calls", "function_call":
+		return "tool_use"
+	case "content_filter":
+		return "end_turn"
+	case "end_turn", "max_tokens", "stop_sequence", "tool_use":
+		return reason
+	default:
+		if reason == "" {
+			return ""
+		}
+		return "end_turn"
 	}
 }
 
@@ -69,11 +90,10 @@ func convertResponseContent(resp *provider.ChatResponse) []ContentBlockResponse 
 }
 
 func contentFromMessage(msg *schema.Message) []ContentBlockResponse {
+	content := make([]ContentBlockResponse, 0)
 	if msg == nil {
-		return nil
+		return content
 	}
-
-	content := make([]ContentBlockResponse, 0, 1+len(msg.ToolCalls))
 	if msg.Content != "" {
 		content = append(content, ContentBlockResponse{Type: "text", Text: msg.Content})
 	}

@@ -65,24 +65,49 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // Dispatch handles a request and optionally delegates unmatched requests to next.
 func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request, next NextHandler) error {
 	if h == nil || h.gateway == nil {
-		return WriteLoggedError(loggerOrNop(h), ErrorContext{}, w, r, http.StatusServiceUnavailable, "agent gateway is not configured", fmt.Errorf("agent gateway is not configured"))
+		return WriteDispatchError(loggerOrNop(h), "", "", "", http.StatusServiceUnavailable, w, r, "dispatch request", "agent gateway is not configured", fmt.Errorf("agent gateway is not configured"))
 	}
+
+	logRequestPhase(h.logger, "dispatcher: received request", r)
 
 	cfg, err := h.gateway.Match(r.Context(), r)
 	if err != nil {
 		status := statuserr.StatusCode(err, http.StatusBadGateway)
-		return WriteLoggedError(h.logger, ErrorContext{}, w, r, status, "failed to resolve matched route", err)
+		return WriteDispatchError(h.logger, "", "", "", status, w, r, "resolve matched route", "failed to resolve matched route", err)
 	}
 	if cfg.ID == "" {
+		h.logger.Debug("no route matched",
+			zap.String("method", r.Method),
+			zap.String("path", r.URL.Path),
+		)
 		return serveNextOrNotFound(next, w, r)
 	}
 	if cfg.Disabled {
 		return httpjson.Error(w, http.StatusForbidden, fmt.Sprintf("route %q is disabled", cfg.ID))
 	}
 
+	logRequestPhase(h.logger, "dispatcher: matched route", r,
+		zap.String("route_id", cfg.ID),
+		zap.String("route_kind", string(cfg.Kind)),
+		zap.String("route_protocol", string(cfg.Protocol)),
+		zap.String("path_prefix", cfg.MatchPolicy.PathPrefix),
+		zap.Bool("require_virtual_key", cfg.AuthPolicy.RequireVirtualKey),
+	)
+
 	if _, err := h.gateway.ResolveVirtualKey(r.Context(), r, cfg); err != nil {
-		return WriteError(h.logger, "", cfg.ID, "", w, r, err, "resolve virtual key")
+		return WriteDispatchError(h.logger, "", cfg.ID, "", 0, w, r, "resolve virtual key", "", err,
+			zap.Bool("require_virtual_key", cfg.AuthPolicy.RequireVirtualKey),
+			zap.Bool("auth_header_present", strings.TrimSpace(r.Header.Get("Authorization")) != ""),
+			zap.Bool("x_api_key_present", strings.TrimSpace(r.Header.Get("x-api-key")) != ""),
+			zap.String("route_kind", string(cfg.Kind)),
+			zap.String("route_protocol", string(cfg.Protocol)),
+		)
 	}
+	logRequestPhase(h.logger, "dispatcher: virtual key accepted", r,
+		zap.String("route_id", cfg.ID),
+		zap.String("route_kind", string(cfg.Kind)),
+		zap.String("route_protocol", string(cfg.Protocol)),
+	)
 
 	switch cfg.Kind {
 	case routecore.RouteKindLLM:
@@ -90,31 +115,41 @@ func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request, next NextHand
 	case routecore.RouteKindMCP:
 		return h.dispatchMCP(w, r, next, cfg)
 	default:
-		return WriteLoggedError(h.logger, ErrorContext{RouteID: cfg.ID, Protocol: string(cfg.Protocol)}, w, r, http.StatusServiceUnavailable, "route kind is not configured", fmt.Errorf("route %q kind %q is not configured", cfg.ID, cfg.Kind))
+		return WriteDispatchError(h.logger, string(cfg.Protocol), cfg.ID, "", http.StatusServiceUnavailable, w, r, "dispatch route", "route kind is not configured", fmt.Errorf("route %q kind %q is not configured", cfg.ID, cfg.Kind))
 	}
 }
 
 func (h *Handler) dispatchLLM(w http.ResponseWriter, r *http.Request, next NextHandler, cfg routecore.AgentRouteConfig) error {
 	routeResolver := h.gateway.LLMRouteResolver()
 	if routeResolver == nil {
-		return WriteLoggedError(h.logger, ErrorContext{RouteID: cfg.ID, Protocol: string(cfg.Protocol)}, w, r, http.StatusServiceUnavailable, "llm route resolver is not configured", fmt.Errorf("llm route resolver is not configured"))
+		return WriteDispatchError(h.logger, string(cfg.Protocol), cfg.ID, "", http.StatusServiceUnavailable, w, r, "resolve llm route", "llm route resolver is not configured", fmt.Errorf("llm route resolver is not configured"))
 	}
 	route, err := routeResolver.Resolve(r.Context(), cfg)
 	if err != nil {
 		status := statuserr.StatusCode(err, http.StatusBadGateway)
-		return WriteLoggedError(h.logger, ErrorContext{RouteID: cfg.ID, Protocol: string(cfg.Protocol)}, w, r, status, "failed to resolve llm route", err)
+		return WriteDispatchError(h.logger, string(cfg.Protocol), cfg.ID, "", status, w, r, "resolve llm route", "failed to resolve llm route", err)
 	}
+	logRequestPhase(h.logger, "dispatcher: llm route resolved", r,
+		zap.String("route_id", route.ID),
+		zap.String("route_protocol", string(route.Protocol)),
+		zap.String("path_prefix", route.MatchPolicy.PathPrefix),
+		zap.Bool("uses_logical_model", route.UsesLogicalModel()),
+	)
 
 	apiName := strings.TrimSpace(string(route.Protocol))
 	apiHandler := h.apiHandlers[apiName]
 	if apiHandler == nil {
-		return WriteLoggedError(h.logger, ErrorContext{RouteID: route.ID, Protocol: apiName}, w, r, http.StatusServiceUnavailable, "llm route protocol is not configured", fmt.Errorf("llm route %q protocol %q is not configured", route.ID, apiName))
+		return WriteDispatchError(h.logger, apiName, route.ID, "", http.StatusServiceUnavailable, w, r, "dispatch llm route", "llm route protocol is not configured", fmt.Errorf("llm route %q protocol %q is not configured", route.ID, apiName))
 	}
 
 	rewritten := RewriteLLMRoutePath(r, route.MatchPolicy.PathPrefix)
 	if !apiHandler.MatchLLMApi(rewritten) {
 		return serveNextOrNotFound(next, w, r)
 	}
+	logRequestPhase(h.logger, "dispatcher: llm api matched", rewritten,
+		zap.String("route_id", route.ID),
+		zap.String("llm_api", apiHandler.Name()),
+	)
 
 	prepared, requestRequirements, err := apiHandler.PrepareLLMApiRequest(rewritten)
 	if err != nil {
@@ -122,16 +157,29 @@ func (h *Handler) dispatchLLM(w http.ResponseWriter, r *http.Request, next NextH
 		if prepared != nil {
 			model = prepared.Model()
 		}
-		return WriteError(h.logger, apiHandler.Name(), route.ID, model, w, rewritten, err, "prepare request")
+		return WriteDispatchError(h.logger, apiHandler.Name(), route.ID, model, 0, w, rewritten, "prepare request", "", err)
 	}
 	if !prepared.IsValid() {
-		return WriteError(h.logger, apiHandler.Name(), route.ID, "", w, rewritten, fmt.Errorf("llm api handler returned invalid prepared request"), "prepare request")
+		return WriteDispatchError(h.logger, apiHandler.Name(), route.ID, "", 0, w, rewritten, "prepare request", "", fmt.Errorf("llm api handler returned invalid prepared request"))
 	}
+	logRequestPhase(h.logger, "dispatcher: llm request prepared", rewritten,
+		zap.String("route_id", route.ID),
+		zap.String("llm_api", apiHandler.Name()),
+		zap.String("request_type", string(prepared.Type)),
+		zap.String("requested_model", prepared.Model()),
+		zap.Bool("stream", prepared.Stream()),
+		zap.Bool("require_streaming", requestRequirements.RequireStreaming),
+	)
 
 	routedProvider, err := h.gateway.NewRoutedProvider(route, requestRequirements)
 	if err != nil {
-		return WriteError(h.logger, apiHandler.Name(), route.ID, prepared.Model(), w, rewritten, err, "resolve provider")
+		return WriteDispatchError(h.logger, apiHandler.Name(), route.ID, prepared.Model(), 0, w, rewritten, "resolve provider", "", err)
 	}
+	logRequestPhase(h.logger, "dispatcher: llm provider resolved", rewritten,
+		zap.String("route_id", route.ID),
+		zap.String("llm_api", apiHandler.Name()),
+		zap.String("requested_model", prepared.Model()),
+	)
 
 	return apiHandler.ServeLLMApi(w, rewritten, routedProvider, prepared)
 }
