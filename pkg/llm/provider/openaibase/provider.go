@@ -142,10 +142,15 @@ func (b *Base) DoCreateResponses(ctx context.Context, req *provider.ResponsesReq
 			return nil, err
 		}
 
+		rawBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("openaibase: read responses response: %w", err)
+		}
 		var out provider.ResponsesResponse
-		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		if err := json.Unmarshal(rawBody, &out); err != nil {
 			return nil, fmt.Errorf("openaibase: decode responses response: %w", err)
 		}
+		out.RawJSON = append(json.RawMessage(nil), bytes.TrimSpace(rawBody)...)
 		return &out, nil
 	})
 }
@@ -248,6 +253,18 @@ func decodeResponsesStreamEvent(eventName string, payload string) (*provider.Res
 		ItemID:       raw.ItemID,
 		OutputIndex:  raw.OutputIndex,
 		ContentIndex: raw.ContentIndex,
+		RawJSON:      normalizeResponsesStreamPayload([]byte(payload), typ),
+	}
+	if raw.Item != nil {
+		buf, err := json.Marshal(raw.Item)
+		if err != nil {
+			return nil, fmt.Errorf("openaibase: re-marshal item event payload: %w", err)
+		}
+		var item provider.ResponsesResponseOutput
+		if err := json.Unmarshal(buf, &item); err != nil {
+			return nil, fmt.Errorf("openaibase: decode item event body: %w", err)
+		}
+		out.Item = &item
 	}
 	if raw.Response != nil {
 		buf, err := json.Marshal(raw.Response)
@@ -261,6 +278,27 @@ func decodeResponsesStreamEvent(eventName string, payload string) (*provider.Res
 		out.Response = &resp
 	}
 	return out, nil
+}
+
+func normalizeResponsesStreamPayload(payload []byte, typ string) json.RawMessage {
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) == 0 {
+		return nil
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &obj); err != nil {
+		return append(json.RawMessage(nil), trimmed...)
+	}
+	if _, ok := obj["type"]; !ok && strings.TrimSpace(typ) != "" {
+		typeValue, err := json.Marshal(typ)
+		if err == nil {
+			obj["type"] = typeValue
+			if normalized, err := json.Marshal(obj); err == nil {
+				return normalized
+			}
+		}
+	}
+	return append(json.RawMessage(nil), trimmed...)
 }
 
 func (b *Base) setHeaders(req *http.Request) {

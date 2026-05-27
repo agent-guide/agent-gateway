@@ -348,6 +348,46 @@ func TestChatBuildsClaudeCodeStyleBody(t *testing.T) {
 	}
 }
 
+func TestChatPreservesToolChoiceNone(t *testing.T) {
+	var reqBody messagesRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"hello"}],"stop_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":34}}`))
+	}))
+	defer server.Close()
+
+	prov, err := New(provider.ProviderConfig{
+		BaseURL: server.URL,
+		APIKey:  "sk-ant-api-fallback",
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	_, err = prov.Chat(context.Background(), &provider.ChatRequest{
+		Model: "upstream-model",
+		Messages: []*schema.Message{
+			schema.UserMessage("hello"),
+		},
+		Options: []model.Option{
+			model.WithTools([]*schema.ToolInfo{{Name: "lookup"}}),
+			model.WithToolChoice(schema.ToolChoiceForbidden),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+
+	if string(reqBody.ToolChoice) != `{"type":"none"}` {
+		t.Fatalf("tool_choice = %s, want {\"type\":\"none\"}", string(reqBody.ToolChoice))
+	}
+}
+
 func TestStreamChatParsesAnthropicSSE(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Accept"); got != "text/event-stream" {

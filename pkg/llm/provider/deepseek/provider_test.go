@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	einodeepseek "github.com/cloudwego/eino-ext/components/model/deepseek"
+	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
@@ -113,10 +113,90 @@ func TestNewDefaults(t *testing.T) {
 	}
 }
 
+func TestGenerateCarriesResponsesContextToDeepSeekPayload(t *testing.T) {
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id": "chatcmpl-test",
+			"object": "chat.completion",
+			"created": 1710000000,
+			"model": "deepseek-chat",
+			"choices": [{
+				"index": 0,
+				"message": {"role": "assistant", "content": "四"},
+				"finish_reason": "stop"
+			}],
+			"usage": {"prompt_tokens": 4, "completion_tokens": 1, "total_tokens": 5}
+		}`))
+	}))
+	defer server.Close()
+
+	prov, err := New(provider.ProviderConfig{
+		ProviderType: "deepseek",
+		APIKey:       "test-key",
+		BaseURL:      server.URL,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	p := prov.(*Provider)
+
+	chatReq, err := provider.ResponsesToChatRequest(&provider.ResponsesRequest{
+		Model: "deepseek-chat",
+		Input: "2 + 2 等于几？",
+		Text: map[string]any{
+			"format": map[string]any{"type": "json_schema"},
+		},
+		User: "user-1",
+		Metadata: map[string]any{
+			"trace_id": "abc123",
+		},
+		Reasoning: map[string]any{
+			"effort": "high",
+		},
+		ParallelToolCalls: boolPtr(true),
+		Store:             boolPtr(false),
+	})
+	if err != nil {
+		t.Fatalf("ResponsesToChatRequest returned error: %v", err)
+	}
+
+	ctx := provider.WithCredential(context.Background(), &credentialmgr.Credential{
+		Attributes: map[string]string{"api_key": "test-key"},
+	})
+	if _, err := p.Chat(ctx, chatReq); err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+
+	responseFormat, ok := captured["response_format"].(map[string]any)
+	if !ok {
+		t.Fatalf("response_format = %#v, want object", captured["response_format"])
+	}
+	if responseFormat["type"] != "json_schema" {
+		t.Fatalf("response_format.type = %#v, want json_schema", responseFormat["type"])
+	}
+	if captured["user"] != "user-1" {
+		t.Fatalf("user = %#v, want user-1", captured["user"])
+	}
+	metadata, ok := captured["metadata"].(map[string]any)
+	if !ok || metadata["trace_id"] != "abc123" {
+		t.Fatalf("metadata = %#v, want trace_id", captured["metadata"])
+	}
+	if captured["reasoning_effort"] != "high" {
+		t.Fatalf("reasoning_effort = %#v, want high", captured["reasoning_effort"])
+	}
+	if captured["parallel_tool_calls"] != true || captured["store"] != false {
+		t.Fatalf("captured = %+v, want parallel_tool_calls/store preserved", captured)
+	}
+}
+
 func TestApplyOptions(t *testing.T) {
-	cfg := &einodeepseek.ChatModelConfig{}
-	applyOptions(cfg, map[string]any{
-		"path":                 "beta/chat/completions",
+	cfg := &einoopenai.ChatModelConfig{}
+	extraFields := applyOptions(cfg, map[string]any{
 		"response_format_type": "json_object",
 		"max_tokens":           "256",
 		"temperature":          "0.3",
@@ -127,19 +207,20 @@ func TestApplyOptions(t *testing.T) {
 		"top_log_probs":        float64(2),
 	})
 
-	if cfg.Path != "beta/chat/completions" {
-		t.Fatalf("Path = %q", cfg.Path)
+	if cfg.ResponseFormat == nil || cfg.ResponseFormat.Type != einoopenai.ChatCompletionResponseFormatTypeJSONObject {
+		t.Fatalf("ResponseFormat = %#v, want json_object", cfg.ResponseFormat)
 	}
-	if cfg.ResponseFormatType != einodeepseek.ResponseFormatTypeJSONObject {
-		t.Fatalf("ResponseFormatType = %q", cfg.ResponseFormatType)
-	}
-	if cfg.MaxTokens != 256 || cfg.Temperature != 0.3 || cfg.TopP != 0.9 {
+	if cfg.MaxTokens == nil || *cfg.MaxTokens != 256 || cfg.Temperature == nil || *cfg.Temperature != 0.3 || cfg.TopP == nil || *cfg.TopP != 0.9 {
 		t.Fatalf("common options not applied: %+v", cfg)
 	}
-	if cfg.PresencePenalty != 0.1 || cfg.FrequencyPenalty != -0.2 {
+	if cfg.PresencePenalty == nil || *cfg.PresencePenalty != 0.1 || cfg.FrequencyPenalty == nil || *cfg.FrequencyPenalty != -0.2 {
 		t.Fatalf("penalties not applied: %+v", cfg)
 	}
-	if !cfg.LogProbs || cfg.TopLogProbs != 2 {
-		t.Fatalf("logprobs not applied: %+v", cfg)
+	if extraFields["logprobs"] != true || extraFields["top_logprobs"] != 2 {
+		t.Fatalf("logprobs not applied: %+v", extraFields)
 	}
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }

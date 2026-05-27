@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
@@ -37,6 +39,38 @@ func (p *testProvider) Capabilities() provider.ProviderCapabilities {
 }
 
 func (p *testProvider) Config() provider.ProviderConfig {
+	return p.cfg
+}
+
+type testStreamingProvider struct {
+	cfg    provider.ProviderConfig
+	chunks []*schema.Message
+}
+
+func (p *testStreamingProvider) Chat(context.Context, *provider.ChatRequest) (*provider.ChatResponse, error) {
+	return nil, nil
+}
+
+func (p *testStreamingProvider) StreamChat(context.Context, *provider.ChatRequest) (*schema.StreamReader[*schema.Message], error) {
+	sr, sw := schema.Pipe[*schema.Message](8)
+	go func() {
+		defer sw.Close()
+		for _, chunk := range p.chunks {
+			sw.Send(chunk, nil)
+		}
+	}()
+	return sr, nil
+}
+
+func (p *testStreamingProvider) ListModels(context.Context) ([]provider.ModelInfo, error) {
+	return nil, nil
+}
+
+func (p *testStreamingProvider) Capabilities() provider.ProviderCapabilities {
+	return provider.ProviderCapabilities{Streaming: true}
+}
+
+func (p *testStreamingProvider) Config() provider.ProviderConfig {
 	return p.cfg
 }
 
@@ -255,5 +289,98 @@ func TestPrepareLLMApiRequestAcceptsStringSystemPrompt(t *testing.T) {
 	}
 	if prepared.ChatRequest.Messages[0].Content != "You are a helpful assistant." {
 		t.Fatalf("system content = %q", prepared.ChatRequest.Messages[0].Content)
+	}
+}
+
+func TestPrepareLLMApiRequestPreservesToolResultOrder(t *testing.T) {
+	handler := NewHandler(nil)
+
+	body := []byte(`{
+		"model":"claude-sonnet-4-6",
+		"max_tokens":16,
+		"messages":[
+			{"role":"user","content":[
+				{"type":"text","text":"before"},
+				{"type":"tool_result","tool_use_id":"call_1","content":[{"type":"text","text":"tool output"}]},
+				{"type":"text","text":"after"}
+			]}
+		]
+	}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	got := prepared.ChatRequest.Messages
+	if len(got) != 3 {
+		t.Fatalf("message count = %d, want 3", len(got))
+	}
+	if got[0].Role != schema.User || got[0].Content != "before" {
+		t.Fatalf("first message = %+v, want user before", got[0])
+	}
+	if got[1].Role != schema.Tool || got[1].ToolCallID != "call_1" || got[1].Content != "tool output" {
+		t.Fatalf("second message = %+v, want tool_result for call_1", got[1])
+	}
+	if got[2].Role != schema.User || got[2].Content != "after" {
+		t.Fatalf("third message = %+v, want user after", got[2])
+	}
+}
+
+func TestServeLLMApiStreamToolOnlyOmitsEmptyTextBlock(t *testing.T) {
+	handler := NewHandler(nil)
+	prov := &testStreamingProvider{
+		cfg: provider.ProviderConfig{Id: "claudecode", ProviderType: "claudecode"},
+		chunks: []*schema.Message{{
+			Role: schema.Assistant,
+			ToolCalls: []schema.ToolCall{{
+				ID:   "call_1",
+				Type: "function",
+				Function: schema.FunctionCall{
+					Name:      "lookup",
+					Arguments: `{"q":"hello"}`,
+				},
+			}},
+			ResponseMeta: &schema.ResponseMeta{FinishReason: "tool_use"},
+		}},
+	}
+
+	body, err := json.Marshal(MessagesRequest{
+		Model:     "claude-sonnet-4-5",
+		MaxTokens: 16,
+		Stream:    true,
+		Messages: []MessageItem{{
+			Role:    "user",
+			Content: MessageContent{{Type: "text", Text: "hello"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+
+	payload, err := io.ReadAll(rec.Result().Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	bodyText := string(payload)
+	if strings.Contains(bodyText, `"content_block":{"type":"text","text":""}`) {
+		t.Fatalf("unexpected empty text block in stream: %s", bodyText)
+	}
+	if !strings.Contains(bodyText, `"content_block":{"id":"call_1","input":{},"name":"lookup","type":"tool_use"}`) {
+		t.Fatalf("missing tool_use block in stream: %s", bodyText)
+	}
+	if !strings.Contains(bodyText, `"stop_reason":"tool_use"`) {
+		t.Fatalf("missing tool_use stop_reason in stream: %s", bodyText)
 	}
 }

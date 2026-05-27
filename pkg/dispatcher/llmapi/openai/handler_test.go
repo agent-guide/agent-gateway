@@ -15,6 +15,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	sched "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
@@ -447,6 +448,199 @@ func TestServeLLMApiReturnsChatCompletionResponse(t *testing.T) {
 	}
 }
 
+func TestPrepareLLMApiRequestPreservesChatCompletionToolingAndMultimodal(t *testing.T) {
+	handler := newHandler()
+	body := []byte(`{
+		"model":"gpt-4o-mini",
+		"messages":[
+			{"role":"system","content":"follow policy"},
+			{"role":"user","content":[
+				{"type":"text","text":"what is in this image?"},
+				{"type":"image_url","image_url":{"url":"https://example.com/cat.png","detail":"high"}}
+			]},
+			{"role":"assistant","content":"calling tool","tool_calls":[
+				{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"q\":\"cat\"}"}}
+			]},
+			{"role":"tool","tool_call_id":"call_1","content":"tool result"}
+		],
+		"tools":[
+			{"type":"function","function":{
+				"name":"lookup",
+				"description":"Look up a fact",
+				"parameters":{"type":"object","properties":{"q":{"type":"string"}},"required":["q"]}
+			}}
+		],
+		"tool_choice":{"type":"function","function":{"name":"lookup"}},
+		"max_tokens":128,
+		"temperature":0.2,
+		"top_p":0.9,
+		"stop":["END"]
+	}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	if prepared == nil || prepared.ChatRequest == nil {
+		t.Fatal("prepared chat request is nil")
+	}
+	chatReq := prepared.ChatRequest
+	if len(chatReq.Messages) != 4 {
+		t.Fatalf("message count = %d, want 4", len(chatReq.Messages))
+	}
+	if chatReq.Messages[1].Role != schema.User || len(chatReq.Messages[1].UserInputMultiContent) != 2 {
+		t.Fatalf("user message = %+v, want multimodal content", chatReq.Messages[1])
+	}
+	if got := chatReq.Messages[1].UserInputMultiContent[1].Image.URL; got == nil || *got != "https://example.com/cat.png" {
+		t.Fatalf("user image url = %#v, want https://example.com/cat.png", got)
+	}
+	if chatReq.Messages[2].Role != schema.Assistant || len(chatReq.Messages[2].ToolCalls) != 1 {
+		t.Fatalf("assistant message = %+v, want tool call history", chatReq.Messages[2])
+	}
+	if chatReq.Messages[2].ToolCalls[0].Function.Name != "lookup" {
+		t.Fatalf("assistant tool call = %+v, want lookup", chatReq.Messages[2].ToolCalls[0])
+	}
+	if chatReq.Messages[3].Role != schema.Tool || chatReq.Messages[3].ToolCallID != "call_1" || chatReq.Messages[3].Content != "tool result" {
+		t.Fatalf("tool message = %+v, want tool_call_id + content", chatReq.Messages[3])
+	}
+
+	opts := einomodel.GetCommonOptions(nil, chatReq.Options...)
+	if opts.MaxTokens == nil || *opts.MaxTokens != 128 {
+		t.Fatalf("max_tokens = %#v, want 128", opts.MaxTokens)
+	}
+	if opts.Temperature == nil || *opts.Temperature != 0.2 {
+		t.Fatalf("temperature = %#v, want 0.2", opts.Temperature)
+	}
+	if opts.TopP == nil || *opts.TopP != 0.9 {
+		t.Fatalf("top_p = %#v, want 0.9", opts.TopP)
+	}
+	if len(opts.Stop) != 1 || opts.Stop[0] != "END" {
+		t.Fatalf("stop = %#v, want END", opts.Stop)
+	}
+	if len(opts.Tools) != 1 || opts.Tools[0].Name != "lookup" {
+		t.Fatalf("tools = %+v, want lookup", opts.Tools)
+	}
+	if opts.ToolChoice == nil || *opts.ToolChoice != schema.ToolChoiceForced {
+		t.Fatalf("tool_choice = %#v, want forced", opts.ToolChoice)
+	}
+	if len(opts.AllowedToolNames) != 1 || opts.AllowedToolNames[0] != "lookup" {
+		t.Fatalf("allowed tool names = %#v, want [lookup]", opts.AllowedToolNames)
+	}
+}
+
+func TestPrepareLLMApiRequestPreservesChatCompletionResponseFormatAndReasoning(t *testing.T) {
+	handler := newHandler()
+	body := []byte(`{
+		"model":"gpt-4o-mini",
+		"messages":[{"role":"user","content":"hi"}],
+		"user":"user-1",
+		"metadata":{"trace_id":"abc123"},
+		"parallel_tool_calls":false,
+		"store":true,
+		"reasoning":{"effort":"medium"},
+		"reasoning_effort":"high",
+		"response_format":{"type":"json_schema","json_schema":{"name":"weather","schema":{"type":"object"},"strict":true}}
+	}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	if prepared == nil || prepared.ChatRequest == nil {
+		t.Fatal("prepared chat request is nil")
+	}
+
+	fields := provider.ChatCompletionsExtraFieldsFromOptions(provider.ReasoningEffortField, prepared.ChatRequest.Options...)
+	if fields["reasoning_effort"] != "high" {
+		t.Fatalf("reasoning_effort = %#v, want high", fields["reasoning_effort"])
+	}
+	if fields["user"] != "user-1" {
+		t.Fatalf("user = %#v, want user-1", fields["user"])
+	}
+	metadata, _ := fields["metadata"].(map[string]any)
+	if metadata["trace_id"] != "abc123" {
+		t.Fatalf("metadata = %#v, want trace_id", fields["metadata"])
+	}
+	if fields["parallel_tool_calls"] != false {
+		t.Fatalf("parallel_tool_calls = %#v, want false", fields["parallel_tool_calls"])
+	}
+	if fields["store"] != true {
+		t.Fatalf("store = %#v, want true", fields["store"])
+	}
+	format, ok := fields["response_format"].(map[string]any)
+	if !ok || format["type"] != "json_schema" {
+		t.Fatalf("response_format = %#v, want chat-shaped json_schema passthrough", fields["response_format"])
+	}
+	jsonSchema, ok := format["json_schema"].(map[string]any)
+	if !ok || jsonSchema["name"] != "weather" {
+		t.Fatalf("response_format json_schema = %#v, want nested name", format["json_schema"])
+	}
+}
+
+func TestServeLLMApiReturnsChatCompletionToolCalls(t *testing.T) {
+	prov := &testProvider{
+		chatResp: &provider.ChatResponse{
+			Message: &schema.Message{
+				Role:    schema.Assistant,
+				Content: "I will call a tool",
+				ToolCalls: []schema.ToolCall{{
+					ID:   "call_1",
+					Type: "function",
+					Function: schema.FunctionCall{
+						Name:      "lookup",
+						Arguments: `{"q":"cat"}`,
+					},
+				}},
+				ResponseMeta: &schema.ResponseMeta{
+					FinishReason: "tool_calls",
+				},
+			},
+		},
+	}
+	handler := newHandler()
+
+	body, err := json.Marshal(ChatCompletionRequest{
+		Model: "gpt-4o-mini",
+		Messages: []ChatMessage{{
+			Role:    "user",
+			Content: "hello",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusOK)
+	}
+
+	var resp ChatCompletionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(resp.Choices) != 1 || len(resp.Choices[0].Message.ToolCalls) != 1 {
+		t.Fatalf("unexpected tool call response: %+v", resp.Choices)
+	}
+	if resp.Choices[0].Message.ToolCalls[0].Function.Name != "lookup" {
+		t.Fatalf("tool call function = %+v, want lookup", resp.Choices[0].Message.ToolCalls[0])
+	}
+	if resp.Choices[0].FinishReason != "tool_calls" {
+		t.Fatalf("finish reason = %q, want tool_calls", resp.Choices[0].FinishReason)
+	}
+}
+
 func TestServeLLMApiStreamsOpenAIChunks(t *testing.T) {
 	prov := &testProvider{
 		streamResp: schema.StreamReaderFromArray([]*schema.Message{{
@@ -575,6 +769,68 @@ func TestServeLLMApiAllowsProviderResponsesRequestsThatFallbackCannotExpress(t *
 	}
 }
 
+func TestServeLLMApiPreservesResponsesFieldsForProviderLevelHandling(t *testing.T) {
+	prov := &testResponsesProvider{
+		testProvider: &testProvider{},
+		responseResp: &provider.ResponsesResponse{
+			ID:        "resp_provider",
+			Object:    "response",
+			CreatedAt: 1,
+			Model:     "gpt-4.1",
+			Output:    []provider.ResponsesResponseOutput{},
+		},
+	}
+	handler := newHandler()
+
+	body := `{
+		"model":"gpt-4.1",
+		"input":[{"role":"user","content":[{"type":"input_text","text":"hello"}]}],
+		"tools":[{"type":"function","function":{"name":"lookup","description":"Look up facts","parameters":{"type":"object","properties":{"q":{"type":"string"}}}}}],
+		"tool_choice":{"type":"function","name":"lookup"},
+		"metadata":{"trace_id":"abc123"},
+		"user":"user-1",
+		"reasoning":{"effort":"medium"},
+		"parallel_tool_calls":true
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusOK)
+	}
+	if prov.lastResponseReq == nil {
+		t.Fatal("expected provider-level responses request")
+	}
+	if len(prov.lastResponseReq.Tools) != 1 {
+		t.Fatalf("tools = %+v, want one tool", prov.lastResponseReq.Tools)
+	}
+	if prov.lastResponseReq.Tools[0].Function == nil || prov.lastResponseReq.Tools[0].Function.Name != "lookup" {
+		t.Fatalf("tool = %+v, want function lookup", prov.lastResponseReq.Tools[0])
+	}
+	if string(prov.lastResponseReq.ToolChoice) != `{"type":"function","name":"lookup"}` {
+		t.Fatalf("tool_choice = %s, want function lookup", string(prov.lastResponseReq.ToolChoice))
+	}
+	if prov.lastResponseReq.Metadata["trace_id"] != "abc123" {
+		t.Fatalf("metadata = %+v, want trace_id", prov.lastResponseReq.Metadata)
+	}
+	if prov.lastResponseReq.User != "user-1" {
+		t.Fatalf("user = %q, want user-1", prov.lastResponseReq.User)
+	}
+	if prov.lastResponseReq.Reasoning["effort"] != "medium" {
+		t.Fatalf("reasoning = %+v, want effort=medium", prov.lastResponseReq.Reasoning)
+	}
+	if prov.lastResponseReq.ParallelToolCalls == nil || !*prov.lastResponseReq.ParallelToolCalls {
+		t.Fatalf("parallel_tool_calls = %#v, want true", prov.lastResponseReq.ParallelToolCalls)
+	}
+}
+
 func TestServeLLMApiReturnsResponsesResponse(t *testing.T) {
 	prov := &testCompatResponsesProvider{testProvider: &testProvider{
 		chatResp: &provider.ChatResponse{
@@ -627,6 +883,266 @@ func TestServeLLMApiReturnsResponsesResponse(t *testing.T) {
 	}
 	if len(resp.Output) != 1 || len(resp.Output[0].Content) != 1 || resp.Output[0].Content[0].Text != "hello response" {
 		t.Fatalf("unexpected output: %+v", resp.Output)
+	}
+}
+
+func TestServeLLMApiUsesProviderResponsesCompatibilityForToolsAndImages(t *testing.T) {
+	prov := &testCompatResponsesProvider{testProvider: &testProvider{
+		chatResp: &provider.ChatResponse{
+			Message: &schema.Message{
+				Role:    schema.Assistant,
+				Content: "handled compat",
+			},
+		},
+	}}
+	handler := newHandler()
+
+	body := `{
+		"model":"gpt-4.1",
+		"input":[{"role":"user","content":[
+			{"type":"input_text","text":"hello"},
+			{"type":"input_image","image_url":{"url":"https://example.com/cat.png","detail":"high"}}
+		]}],
+		"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object","properties":{"q":{"type":"string"}}}}}],
+		"tool_choice":"required"
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusOK)
+	}
+	if prov.lastChatReq == nil || len(prov.lastChatReq.Messages) != 1 {
+		t.Fatalf("chat fallback request = %+v, want one message", prov.lastChatReq)
+	}
+	msg := prov.lastChatReq.Messages[0]
+	if len(msg.UserInputMultiContent) != 2 {
+		t.Fatalf("user multimodal content = %+v, want text+image", msg.UserInputMultiContent)
+	}
+	opts := einomodel.GetCommonOptions(nil, prov.lastChatReq.Options...)
+	if len(opts.Tools) != 1 || opts.Tools[0].Name != "lookup" {
+		t.Fatalf("tools = %+v, want lookup", opts.Tools)
+	}
+	if opts.ToolChoice == nil || *opts.ToolChoice != schema.ToolChoiceForced {
+		t.Fatalf("tool choice = %#v, want forced", opts.ToolChoice)
+	}
+	respCtx := provider.ResponsesRequestContextFromOptions(prov.lastChatReq.Options...)
+	if respCtx != nil {
+		t.Fatalf("responses context = %+v, want nil for request without extra fields", respCtx)
+	}
+}
+
+func TestServeLLMApiUsesProviderResponsesCompatibilityPreservesResponsesContext(t *testing.T) {
+	prov := &testCompatResponsesProvider{testProvider: &testProvider{
+		chatResp: &provider.ChatResponse{
+			Message: &schema.Message{Role: schema.Assistant, Content: "ok"},
+		},
+	}}
+	handler := newHandler()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{
+		"model":"gpt-4.1",
+		"input":"hello",
+		"previous_response_id":"resp_prev",
+		"store":true,
+		"metadata":{"trace_id":"abc123"},
+		"user":"user-1",
+		"reasoning":{"effort":"medium"},
+		"text":{"verbosity":"high"},
+		"parallel_tool_calls":true,
+		"truncation":"auto"
+	}`))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	if prov.lastChatReq == nil {
+		t.Fatal("expected compatibility path to call chat provider")
+	}
+	respCtx := provider.ResponsesRequestContextFromOptions(prov.lastChatReq.Options...)
+	if respCtx == nil || respCtx.User != "user-1" {
+		t.Fatalf("responses context = %+v, want user-1", respCtx)
+	}
+	if respCtx.PreviousResponseID != "resp_prev" {
+		t.Fatalf("previous_response_id = %q, want resp_prev", respCtx.PreviousResponseID)
+	}
+	if respCtx.Store == nil || !*respCtx.Store {
+		t.Fatalf("store = %#v, want true", respCtx.Store)
+	}
+	if respCtx.Metadata["trace_id"] != "abc123" || respCtx.Reasoning["effort"] != "medium" {
+		t.Fatalf("responses context = %+v, want metadata/reasoning preserved", respCtx)
+	}
+	if respCtx.Text["verbosity"] != "high" || respCtx.Truncation != "auto" {
+		t.Fatalf("responses context = %+v, want text/truncation preserved", respCtx)
+	}
+	if respCtx.ParallelToolCalls == nil || !*respCtx.ParallelToolCalls {
+		t.Fatalf("parallel_tool_calls = %#v, want true", respCtx.ParallelToolCalls)
+	}
+}
+
+func TestServeLLMApiResponsesCompatibilityPreservesFunctionCallOutput(t *testing.T) {
+	prov := &testCompatResponsesProvider{testProvider: &testProvider{
+		chatResp: &provider.ChatResponse{
+			Message: &schema.Message{
+				Role:    schema.Assistant,
+				Content: "calling tool",
+				ToolCalls: []schema.ToolCall{{
+					ID:   "call_1",
+					Type: "function",
+					Function: schema.FunctionCall{
+						Name:      "lookup",
+						Arguments: `{"q":"cat"}`,
+					},
+				}},
+			},
+		},
+	}}
+	handler := newHandler()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-4.1","input":"hello"}`))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+
+	var resp provider.ResponsesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(resp.Output) != 2 {
+		t.Fatalf("output count = %d, want 2", len(resp.Output))
+	}
+	if resp.Output[1].Type != "function_call" || resp.Output[1].Name != "lookup" {
+		t.Fatalf("function call output = %+v, want lookup", resp.Output[1])
+	}
+}
+
+func TestServeLLMApiResponsesCompatibilityStreamsFunctionCallEvents(t *testing.T) {
+	prov := &testCompatResponsesProvider{testProvider: &testProvider{
+		streamResp: schema.StreamReaderFromArray([]*schema.Message{{
+			Role: schema.Assistant,
+			ToolCalls: []schema.ToolCall{{
+				ID:   "call_1",
+				Type: "function",
+				Function: schema.FunctionCall{
+					Name:      "lookup",
+					Arguments: `{"q":"cat"}`,
+				},
+			}},
+			ResponseMeta: &schema.ResponseMeta{FinishReason: "tool_calls"},
+		}}),
+	}}
+	handler := newHandler()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-4.1","input":"hello","stream":true}`))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+
+	bodyText := rec.Body.String()
+	for _, want := range []string{
+		"event: response.created",
+		"event: response.output_item.added",
+		"event: response.function_call_arguments.delta",
+		"event: response.output_item.done",
+		"event: response.completed",
+		`"name":"lookup"`,
+		`"delta":"{\"q\":\"cat\"}"`,
+	} {
+		if !strings.Contains(bodyText, want) {
+			t.Fatalf("expected %q in stream body, got %q", want, bodyText)
+		}
+	}
+}
+
+func TestServeLLMApiResponsesStreamPreservesRawProviderPayload(t *testing.T) {
+	prov := &testResponsesProvider{
+		testProvider: &testProvider{},
+		responseStream: schema.StreamReaderFromArray([]*provider.ResponsesStreamEvent{{
+			Type:    "response.output_text.delta",
+			RawJSON: json.RawMessage(`{"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"hello","logprobs":{"tokens":[1]}}`),
+		}}),
+	}
+	handler := newHandler()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-4.1","input":"hello","stream":true}`))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+
+	bodyText := rec.Body.String()
+	for _, want := range []string{
+		"event: response.output_text.delta",
+		`"delta":"hello"`,
+		`"logprobs":{"tokens":[1]}`,
+	} {
+		if !strings.Contains(bodyText, want) {
+			t.Fatalf("expected %q in stream body, got %q", want, bodyText)
+		}
+	}
+}
+
+func TestServeLLMApiResponsesPreservesRawProviderPayload(t *testing.T) {
+	prov := &testResponsesProvider{
+		testProvider: &testProvider{},
+		responseResp: &provider.ResponsesResponse{
+			ID:      "resp_1",
+			Object:  "response",
+			Model:   "gpt-4.1",
+			RawJSON: json.RawMessage(`{"id":"resp_1","object":"response","created_at":1,"model":"gpt-4.1","output":[{"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"refusal","refusal":"no","severity":"high"}]}]}`),
+		},
+	}
+	handler := newHandler()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-4.1","input":"hello"}`))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+
+	bodyText := rec.Body.String()
+	for _, want := range []string{
+		`"type":"refusal"`,
+		`"severity":"high"`,
+		`"refusal":"no"`,
+	} {
+		if !strings.Contains(bodyText, want) {
+			t.Fatalf("expected %q in response body, got %q", want, bodyText)
+		}
 	}
 }
 
@@ -794,11 +1310,11 @@ func TestServeLLMApiPrefersProviderResponsesInterface(t *testing.T) {
 	}
 }
 
-func TestServeLLMApiRejectsUnsupportedResponsesStateInProviderCompatibility(t *testing.T) {
+func TestServeLLMApiPreservesResponsesStateInProviderCompatibility(t *testing.T) {
 	prov := &testCompatResponsesProvider{testProvider: &testProvider{}}
 	handler := newHandler()
 
-	body := `{"model":"gpt-4.1","input":"hello","previous_response_id":"resp_123"}` + "\n"
+	body := `{"model":"gpt-4.1","input":"hello","previous_response_id":"resp_123","store":false}` + "\n"
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
 	prepared, _, err := handler.PrepareLLMApiRequest(req)
 	if err != nil {
@@ -809,11 +1325,18 @@ func TestServeLLMApiRejectsUnsupportedResponsesStateInProviderCompatibility(t *t
 	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
 		t.Fatalf("ServeLLMApi returned error: %v", err)
 	}
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusBadRequest)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusOK)
 	}
-	if !strings.Contains(rec.Body.String(), "previous_response_id is not supported") {
-		t.Fatalf("unexpected body: %q", rec.Body.String())
+	if prov.lastChatReq == nil {
+		t.Fatal("expected compatibility path to call chat provider")
+	}
+	respCtx := provider.ResponsesRequestContextFromOptions(prov.lastChatReq.Options...)
+	if respCtx == nil || respCtx.PreviousResponseID != "resp_123" {
+		t.Fatalf("responses context = %+v, want previous_response_id preserved", respCtx)
+	}
+	if respCtx.Store == nil || *respCtx.Store {
+		t.Fatalf("store = %#v, want false", respCtx.Store)
 	}
 }
 

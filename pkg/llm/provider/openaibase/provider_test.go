@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/agent-guide/agent-gateway/pkg/httpclient"
@@ -128,6 +129,44 @@ func TestBaseCreateResponseCallsResponsesEndpoint(t *testing.T) {
 	}
 }
 
+func TestBaseCreateResponsePreservesRawStructuredContent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			t.Fatalf("request path = %q, want /responses", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp_1","object":"response","created_at":1,"model":"gpt-4.1","output":[{"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"refusal","refusal":"no","severity":"high"}]}]}`))
+	}))
+	defer server.Close()
+
+	base := NewBase(provider.ProviderConfig{
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
+	})
+
+	resp, err := base.DoCreateResponses(context.Background(), &provider.ResponsesRequest{
+		Model: "gpt-4.1",
+		Input: "hello",
+	})
+	if err != nil {
+		t.Fatalf("CreateResponse() error = %v", err)
+	}
+	if resp == nil || len(resp.Output) != 1 || len(resp.Output[0].Content) != 1 {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	part := resp.Output[0].Content[0]
+	if part.Type != "refusal" || part.Refusal != "no" {
+		t.Fatalf("content part = %+v, want refusal=no", part)
+	}
+	raw := string(resp.RawJSON)
+	for _, want := range []string{`"type":"refusal"`, `"severity":"high"`} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("expected %q in raw response, got %q", want, raw)
+		}
+	}
+}
+
 func TestBaseStreamResponseParsesSSEEvents(t *testing.T) {
 	var authHeader string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -187,6 +226,102 @@ func TestBaseStreamResponseParsesSSEEvents(t *testing.T) {
 	}
 	if authHeader != "Bearer managed-key" {
 		t.Fatalf("authorization = %q, want Bearer managed-key", authHeader)
+	}
+}
+
+func TestBaseStreamResponseParsesStructuredFunctionCallEvents(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			t.Fatalf("request path = %q, want /responses", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: response.output_item.added\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.output_item.added\",\"item_id\":\"fc_1\",\"output_index\":1,\"item\":{\"id\":\"fc_1\",\"type\":\"function_call\",\"status\":\"completed\",\"call_id\":\"call_1\",\"name\":\"lookup\",\"arguments\":\"{\\\"q\\\":\\\"cat\\\"}\"}}\n\n"))
+		_, _ = w.Write([]byte("event: response.function_call_arguments.delta\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"fc_1\",\"output_index\":1,\"delta\":\"{\\\"q\\\":\\\"cat\\\"}\"}\n\n"))
+		_, _ = w.Write([]byte("event: response.output_item.done\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.output_item.done\",\"item_id\":\"fc_1\",\"output_index\":1,\"item\":{\"id\":\"fc_1\",\"type\":\"function_call\",\"status\":\"completed\",\"call_id\":\"call_1\",\"name\":\"lookup\",\"arguments\":\"{\\\"q\\\":\\\"cat\\\"}\"}}\n\n"))
+	}))
+	defer server.Close()
+
+	base := NewBase(provider.ProviderConfig{
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
+	})
+
+	stream, err := base.DoStreamResponses(context.Background(), &provider.ResponsesRequest{
+		Model:  "gpt-4.1",
+		Input:  "hello",
+		Stream: true,
+	})
+	if err != nil {
+		t.Fatalf("StreamResponse() error = %v", err)
+	}
+	defer stream.Close()
+
+	first, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("first event: %v", err)
+	}
+	if first.Type != "response.output_item.added" || first.Item == nil || first.Item.Type != "function_call" || first.Item.Name != "lookup" {
+		t.Fatalf("unexpected first event: %+v", first)
+	}
+	second, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("second event: %v", err)
+	}
+	if second.Type != "response.function_call_arguments.delta" || second.Delta != `{"q":"cat"}` {
+		t.Fatalf("unexpected second event: %+v", second)
+	}
+	third, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("third event: %v", err)
+	}
+	if third.Type != "response.output_item.done" || third.Item == nil || third.Item.CallID != "call_1" {
+		t.Fatalf("unexpected third event: %+v", third)
+	}
+}
+
+func TestBaseStreamResponsePreservesRawStructuredPayload(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			t.Fatalf("request path = %q, want /responses", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: response.output_item.added\n"))
+		_, _ = w.Write([]byte("data: {\"item_id\":\"msg_1\",\"output_index\":0,\"item\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"refusal\",\"refusal\":\"no\"}]},\"sequence_number\":7}\n\n"))
+	}))
+	defer server.Close()
+
+	base := NewBase(provider.ProviderConfig{
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
+	})
+
+	stream, err := base.DoStreamResponses(context.Background(), &provider.ResponsesRequest{
+		Model:  "gpt-4.1",
+		Input:  "hello",
+		Stream: true,
+	})
+	if err != nil {
+		t.Fatalf("StreamResponse() error = %v", err)
+	}
+	defer stream.Close()
+
+	ev, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("event: %v", err)
+	}
+	if ev.Type != "response.output_item.added" {
+		t.Fatalf("type = %q, want response.output_item.added", ev.Type)
+	}
+	raw := string(ev.RawJSON)
+	for _, want := range []string{`"type":"response.output_item.added"`, `"sequence_number":7`, `"refusal":"no"`} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("expected %q in raw payload, got %q", want, raw)
+		}
 	}
 }
 

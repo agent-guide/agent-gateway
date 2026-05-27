@@ -120,12 +120,16 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) 
 		return nil, nil, nil, err
 	}
 	opts := append([]einomodel.Option(nil), state.Options...)
+	extraFields := provider.ChatCompletionsExtraFieldsFromOptions(provider.ReasoningEffortField, state.Options...)
 	if thinkingType := p.thinkingType(); thinkingType != "" {
-		opts = append(opts, einoopenai.WithExtraFields(map[string]any{
+		extraFields = provider.MergeExtraFields(extraFields, map[string]any{
 			"thinking": map[string]any{
 				"type": thinkingType,
 			},
-		}))
+		})
+	}
+	if len(extraFields) > 0 {
+		opts = append(opts, einoopenai.WithExtraFields(extraFields))
 	}
 
 	return chatModel, state.Messages, opts, nil

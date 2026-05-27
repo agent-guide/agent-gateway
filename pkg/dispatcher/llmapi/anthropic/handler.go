@@ -185,15 +185,15 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 			"usage":       map[string]int{"input_tokens": 0, "output_tokens": 0},
 		},
 	})
-	writeSSEEvent(w, "content_block_start", map[string]any{
-		"type": "content_block_start", "index": 0,
-		"content_block": map[string]string{"type": "text", "text": ""},
-	})
 	if canFlush {
 		flusher.Flush()
 	}
 
 	chunkCount := 0
+	textBlockStarted := false
+	finalStopReason := "end_turn"
+	finalOutputTokens := 0
+	nextBlockIndex := 0
 	for {
 		chunk, err := stream.Recv()
 		if err == io.EOF {
@@ -208,7 +208,16 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 			break
 		}
 		chunkCount++
+
 		if text := extractText(chunk); text != "" {
+			if !textBlockStarted {
+				writeSSEEvent(w, "content_block_start", map[string]any{
+					"type": "content_block_start", "index": nextBlockIndex,
+					"content_block": map[string]string{"type": "text", "text": ""},
+				})
+				textBlockStarted = true
+				nextBlockIndex++
+			}
 			writeSSEEvent(w, "content_block_delta", map[string]any{
 				"type": "content_block_delta", "index": 0,
 				"delta": map[string]string{"type": "text_delta", "text": text},
@@ -217,17 +226,54 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 				flusher.Flush()
 			}
 		}
+
+		// Emit tool_use blocks as a complete content block per tool call.
+		for _, tc := range chunk.ToolCalls {
+			idx := nextBlockIndex
+			writeSSEEvent(w, "content_block_start", map[string]any{
+				"type": "content_block_start", "index": idx,
+				"content_block": map[string]any{
+					"type": "tool_use", "id": tc.ID, "name": tc.Function.Name, "input": map[string]any{},
+				},
+			})
+			if tc.Function.Arguments != "" {
+				writeSSEEvent(w, "content_block_delta", map[string]any{
+					"type": "content_block_delta", "index": idx,
+					"delta": map[string]any{"type": "input_json_delta", "partial_json": tc.Function.Arguments},
+				})
+			}
+			writeSSEEvent(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": idx})
+			nextBlockIndex++
+			finalStopReason = "tool_use"
+			if canFlush {
+				flusher.Flush()
+			}
+		}
+
+		if chunk != nil && chunk.ResponseMeta != nil {
+			if chunk.ResponseMeta.FinishReason != "" {
+				reason := mapAnthropicStopReason(chunk.ResponseMeta.FinishReason)
+				if reason != "" {
+					finalStopReason = reason
+				}
+			}
+			if chunk.ResponseMeta.Usage != nil && chunk.ResponseMeta.Usage.CompletionTokens > 0 {
+				finalOutputTokens = chunk.ResponseMeta.Usage.CompletionTokens
+			}
+		}
 	}
 
 	h.logger.Debug("anthropic: stream completed",
 		zap.String("model", model),
 		zap.Int("chunks", chunkCount),
 	)
-	writeSSEEvent(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
+	if textBlockStarted {
+		writeSSEEvent(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
+	}
 	writeSSEEvent(w, "message_delta", map[string]any{
 		"type":  "message_delta",
-		"delta": map[string]any{"stop_reason": "end_turn", "stop_sequence": nil},
-		"usage": map[string]int{"output_tokens": 0},
+		"delta": map[string]any{"stop_reason": finalStopReason, "stop_sequence": nil},
+		"usage": map[string]int{"output_tokens": finalOutputTokens},
 	})
 	writeSSEEvent(w, "message_stop", map[string]any{"type": "message_stop"})
 	if canFlush {
@@ -304,6 +350,22 @@ func extractText(msg *schema.Message) string {
 		return ""
 	}
 	return msg.Content
+}
+
+// mapAnthropicStopReason converts provider finish reasons to Anthropic stop reasons.
+func mapAnthropicStopReason(reason string) string {
+	switch reason {
+	case "stop", "end_turn":
+		return "end_turn"
+	case "length", "max_tokens":
+		return "max_tokens"
+	case "tool_calls", "tool_use":
+		return "tool_use"
+	case "stop_sequence":
+		return "stop_sequence"
+	default:
+		return ""
+	}
 }
 
 func writeSSEEvent(w http.ResponseWriter, event string, data any) {

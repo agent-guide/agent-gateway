@@ -1,0 +1,43 @@
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+
+providers:
+  - id: claudecode-test
+    provider_type: claudecode
+    base_url: https://us-api.ccodezh.com
+    api_key: ${ANTHROPIC_API_KEY}
+    default_model: claude-sonnet-4-6
+    network:
+      proxy_url: http://127.0.0.1:7890
+    options:
+      auth_mode: bearer_only
+
+providers:
+  - id: codex-test
+    provider_type: codex
+    base_url: https://us-api.codexzh.com/v1
+    api_key: ${OPENAI_API_KEY}
+    default_model: gpt-5.5
+    network:
+      proxy_url: http://127.0.0.1:7890
+
+llmRoutes:
+  - id: chat
+    protocol: anthropic
+    match_policy:
+      path_prefix: /
+      methods:
+        - POST
+    auth_policy:
+      require_virtual_key: true
+    target_policy:
+      provider_target:
+        provider_id: claudecode-test
+      credential_type_order:
+        - api_key
+
+virtualKeys:
+  - id: vk-llm-test
+    tag: local-test
+    allowed_route_ids:
+      - chat

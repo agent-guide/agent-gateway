@@ -227,7 +227,7 @@ func (h *Handler) serveResponses(w http.ResponseWriter, r *http.Request, prov pr
 		zap.String("request_type", string(provider.LLMApiRequestTypeResponses)),
 		zap.String("model", respReq.Model),
 	)
-	_ = httpjson.Write(w, http.StatusOK, resp)
+	writeResponsesJSON(w, http.StatusOK, resp)
 	return nil
 }
 
@@ -336,12 +336,26 @@ func (h *Handler) writeProviderResponsesStream(w http.ResponseWriter, r *http.Re
 }
 
 func writeResponsesEvent(w http.ResponseWriter, event *provider.ResponsesStreamEvent) error {
-	payload, err := json.Marshal(event)
-	if err != nil {
+	payload := event.RawJSON
+	if len(payload) == 0 {
+		var err error
+		payload, err = json.Marshal(event)
+		if err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, payload)
+	return err
+}
+
+func writeResponsesJSON(w http.ResponseWriter, status int, resp *provider.ResponsesResponse) error {
+	if resp != nil && len(resp.RawJSON) > 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, err := w.Write(resp.RawJSON)
 		return err
 	}
-	_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, payload)
-	return err
+	return httpjson.Write(w, status, resp)
 }
 
 func writeProviderError(logger *zap.Logger, w http.ResponseWriter, r *http.Request, model string, phase string, err error) error {

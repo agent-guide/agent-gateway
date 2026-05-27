@@ -66,6 +66,47 @@ func TestGenerateOmitsThinkingWhenConfiguredNone(t *testing.T) {
 	}
 }
 
+func TestGenerateCarriesResponsesContextToOpenAICompatiblePayload(t *testing.T) {
+	req, err := provider.ResponsesToChatRequest(&provider.ResponsesRequest{
+		Model: "glm-4.7",
+		Input: "2 + 2 等于几？",
+		Text: map[string]any{
+			"format": map[string]any{"type": "json_object"},
+		},
+		Metadata:          map[string]any{"trace_id": "abc123"},
+		User:              "user-1",
+		Reasoning:         map[string]any{"effort": "high"},
+		ParallelToolCalls: boolPtr(true),
+		Store:             boolPtr(false),
+	})
+	if err != nil {
+		t.Fatalf("ResponsesToChatRequest returned error: %v", err)
+	}
+
+	_, captured := generateAndCaptureRequest(t, nil, req)
+	if captured["user"] != "user-1" {
+		t.Fatalf("user = %#v, want user-1", captured["user"])
+	}
+	if captured["parallel_tool_calls"] != true || captured["store"] != false {
+		t.Fatalf("captured = %+v, want parallel_tool_calls/store", captured)
+	}
+	if captured["reasoning_effort"] != "high" {
+		t.Fatalf("reasoning_effort = %#v, want high", captured["reasoning_effort"])
+	}
+	metadata, _ := captured["metadata"].(map[string]any)
+	if metadata["trace_id"] != "abc123" {
+		t.Fatalf("metadata = %+v, want trace_id", metadata)
+	}
+	responseFormat, _ := captured["response_format"].(map[string]any)
+	if responseFormat["type"] != "json_object" {
+		t.Fatalf("response_format = %+v, want json_object", responseFormat)
+	}
+	thinking, ok := captured["thinking"].(map[string]any)
+	if !ok || thinking["type"] != "disabled" {
+		t.Fatalf("thinking = %#v, want disabled", captured["thinking"])
+	}
+}
+
 func TestNewDefaults(t *testing.T) {
 	prov, err := New(provider.ProviderConfig{})
 	if err != nil {
@@ -84,6 +125,21 @@ func TestNewDefaults(t *testing.T) {
 }
 
 func generateAndCapture(t *testing.T, options map[string]any) (*provider.ChatResponse, map[string]any) {
+	t.Helper()
+	return generateAndCaptureRequest(t, options, &provider.ChatRequest{
+		Model: "glm-4.7",
+		Messages: []*schema.Message{
+			{Role: schema.System, Content: "用中文回答"},
+			{Role: schema.User, Content: "2 + 2 等于几？"},
+		},
+		Options: []einomodel.Option{
+			einomodel.WithMaxTokens(128),
+			einomodel.WithTemperature(0.2),
+		},
+	})
+}
+
+func generateAndCaptureRequest(t *testing.T, options map[string]any, req *provider.ChatRequest) (*provider.ChatResponse, map[string]any) {
 	t.Helper()
 
 	var captured map[string]any
@@ -134,19 +190,13 @@ func generateAndCapture(t *testing.T, options map[string]any) (*provider.ChatRes
 	ctx := provider.WithCredential(context.Background(), &credentialmgr.Credential{
 		Attributes: map[string]string{"api_key": "test-key"},
 	})
-	resp, err := p.Chat(ctx, &provider.ChatRequest{
-		Model: "glm-4.7",
-		Messages: []*schema.Message{
-			{Role: schema.System, Content: "用中文回答"},
-			{Role: schema.User, Content: "2 + 2 等于几？"},
-		},
-		Options: []einomodel.Option{
-			einomodel.WithMaxTokens(128),
-			einomodel.WithTemperature(0.2),
-		},
-	})
+	resp, err := p.Chat(ctx, req)
 	if err != nil {
 		t.Fatalf("Generate returned error: %v", err)
 	}
 	return resp, captured
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }

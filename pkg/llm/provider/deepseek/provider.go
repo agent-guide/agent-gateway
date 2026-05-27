@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	einodeepseek "github.com/cloudwego/eino-ext/components/model/deepseek"
+	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
@@ -24,7 +24,7 @@ type Provider struct {
 	*openaibase.Base
 }
 
-// New creates a new DeepSeek provider using eino-ext's DeepSeek model.
+// New creates a new DeepSeek provider using DeepSeek's OpenAI-compatible API.
 func New(config provider.ProviderConfig) (provider.Provider, error) {
 	if config.BaseURL == "" {
 		config.BaseURL = "https://api.deepseek.com"
@@ -77,20 +77,31 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) 
 		return nil, nil, nil, err
 	}
 
-	cfg := &einodeepseek.ChatModelConfig{
+	cfg := &einoopenai.ChatModelConfig{
 		BaseURL:    p.ProviderConfig.BaseURL,
 		Model:      state.ModelName,
 		Timeout:    p.ProviderConfig.Network.RequestTimeout(),
 		HTTPClient: httpclient.BuildHTTPClient(p.ProviderConfig.Network),
 	}
 	cfg.APIKey = provider.APIKeyFromContextOrConfig(ctx, p.ProviderConfig.APIKey)
-	applyOptions(cfg, p.ProviderConfig.Options)
+	configExtra := applyOptions(cfg, p.ProviderConfig.Options)
+	requestExtra := provider.ChatCompletionsExtraFieldsFromOptions(provider.ReasoningEffortField, state.Options...)
+	if _, ok := requestExtra["response_format"]; ok {
+		// A per-request response_format wins over the provider-config default
+		// so the request body carries a single response_format value.
+		cfg.ResponseFormat = nil
+	}
 
-	chatModel, err := einodeepseek.NewChatModel(ctx, cfg)
+	chatModel, err := einoopenai.NewChatModel(ctx, cfg)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return chatModel, state.Messages, state.Options, nil
+	opts := append([]einomodel.Option(nil), state.Options...)
+	extraFields := provider.MergeExtraFields(configExtra, requestExtra)
+	if len(extraFields) > 0 {
+		opts = append(opts, einoopenai.WithExtraFields(extraFields))
+	}
+	return chatModel, state.Messages, opts, nil
 }
 
 func (p *Provider) Capabilities() provider.ProviderCapabilities {
@@ -113,36 +124,51 @@ func (p *Provider) ensureBase() {
 	}
 }
 
-func applyOptions(cfg *einodeepseek.ChatModelConfig, opts map[string]any) {
+func applyOptions(cfg *einoopenai.ChatModelConfig, opts map[string]any) map[string]any {
 	if len(opts) == 0 {
-		return
-	}
-	if v := stringOption(opts, "path"); v != "" {
-		cfg.Path = v
+		return nil
 	}
 	if v := stringOption(opts, "response_format_type"); v != "" {
-		cfg.ResponseFormatType = einodeepseek.ResponseFormatType(v)
+		cfg.ResponseFormat = openAIResponseFormat(v)
 	}
 	if v, ok := intOption(opts, "max_tokens"); ok {
-		cfg.MaxTokens = v
+		cfg.MaxTokens = &v
 	}
 	if v, ok := float32Option(opts, "temperature"); ok {
-		cfg.Temperature = v
+		cfg.Temperature = &v
 	}
 	if v, ok := float32Option(opts, "top_p"); ok {
-		cfg.TopP = v
+		cfg.TopP = &v
 	}
 	if v, ok := float32Option(opts, "presence_penalty"); ok {
-		cfg.PresencePenalty = v
+		cfg.PresencePenalty = &v
 	}
 	if v, ok := float32Option(opts, "frequency_penalty"); ok {
-		cfg.FrequencyPenalty = v
+		cfg.FrequencyPenalty = &v
 	}
+	extraFields := map[string]any{}
 	if v, ok := boolOption(opts, "log_probs"); ok {
-		cfg.LogProbs = v
+		extraFields["logprobs"] = v
 	}
 	if v, ok := intOption(opts, "top_log_probs"); ok {
-		cfg.TopLogProbs = v
+		extraFields["top_logprobs"] = v
+	}
+	if len(extraFields) == 0 {
+		return nil
+	}
+	return extraFields
+}
+
+func openAIResponseFormat(formatType string) *einoopenai.ChatCompletionResponseFormat {
+	switch strings.TrimSpace(formatType) {
+	case string(einoopenai.ChatCompletionResponseFormatTypeText):
+		return &einoopenai.ChatCompletionResponseFormat{Type: einoopenai.ChatCompletionResponseFormatTypeText}
+	case string(einoopenai.ChatCompletionResponseFormatTypeJSONObject):
+		return &einoopenai.ChatCompletionResponseFormat{Type: einoopenai.ChatCompletionResponseFormatTypeJSONObject}
+	case string(einoopenai.ChatCompletionResponseFormatTypeJSONSchema):
+		return &einoopenai.ChatCompletionResponseFormat{Type: einoopenai.ChatCompletionResponseFormatTypeJSONSchema}
+	default:
+		return nil
 	}
 }
 

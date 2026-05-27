@@ -156,8 +156,8 @@ func (p *Provider) ListModels(ctx context.Context) ([]provider.ModelInfo, error)
 func (p *Provider) Capabilities() provider.ProviderCapabilities {
 	return provider.ProviderCapabilities{
 		Streaming:       true,
-		Tools:           false,
-		Vision:          false,
+		Tools:           true,
+		Vision:          true,
 		ContextWindow:   200000,
 		MaxOutputTokens: 8192,
 	}
@@ -306,13 +306,13 @@ func buildMessagesRequest(state *provider.ChatRequestState, stream bool, session
 		MaxTokens:         maxTokens,
 		Messages:          make([]messageItem, 0, len(state.Messages)),
 		System:            buildSystemBlocks(session),
-		Tools:             []toolDefinition{},
 		Metadata:          buildRequestMetadata(session),
 		Thinking:          &thinkingConfig{Type: "adaptive"},
 		ContextManagement: &contextManagement{Edits: []contextManagementEdit{{Type: "clear_thinking_20251015", Keep: "all"}}},
 		OutputConfig:      &outputConfig{Effort: "high"},
 		Stream:            stream,
 	}
+
 	if state.CommonOptions != nil {
 		if state.CommonOptions.Temperature != nil {
 			req.Temperature = float64(*state.CommonOptions.Temperature)
@@ -320,28 +320,179 @@ func buildMessagesRequest(state *provider.ChatRequestState, stream bool, session
 		if state.CommonOptions.TopP != nil {
 			req.TopP = float64(*state.CommonOptions.TopP)
 		}
+		if len(state.CommonOptions.Stop) > 0 {
+			req.StopSequences = state.CommonOptions.Stop
+		}
+		req.Tools = toolInfosToToolDefs(state.CommonOptions.Tools)
+		if state.CommonOptions.ToolChoice != nil {
+			req.ToolChoice = buildAnthropicToolChoice(state.CommonOptions.ToolChoice, state.CommonOptions.AllowedToolNames)
+		}
+	} else {
+		req.Tools = []toolDef{}
 	}
 
-	for _, msg := range state.Messages {
-		if msg == nil {
+	if chatOpts := provider.GetChatOptions(state.Options...); chatOpts.TopK > 0 {
+		req.TopK = chatOpts.TopK
+	}
+
+	req.Messages = convertMessages(state.Messages, req)
+	return req
+}
+
+func toolInfosToToolDefs(tools []*schema.ToolInfo) []toolDef {
+	out := make([]toolDef, 0, len(tools))
+	for _, ti := range tools {
+		if ti == nil {
 			continue
 		}
-		text := strings.TrimSpace(msg.Content)
-		if text == "" {
+		js, err := ti.ToJSONSchema()
+		if err != nil {
+			continue
+		}
+		raw, err := json.Marshal(js)
+		if err != nil {
+			continue
+		}
+		out = append(out, toolDef{Name: ti.Name, Description: ti.Desc, InputSchema: raw})
+	}
+	return out
+}
+
+func buildAnthropicToolChoice(tc *schema.ToolChoice, allowedNames []string) json.RawMessage {
+	if tc == nil {
+		return nil
+	}
+	switch *tc {
+	case schema.ToolChoiceForbidden:
+		return json.RawMessage(`{"type":"none"}`)
+	case schema.ToolChoiceForced:
+		if len(allowedNames) > 0 {
+			b, _ := json.Marshal(map[string]string{"type": "tool", "name": allowedNames[0]})
+			return b
+		}
+		return json.RawMessage(`{"type":"any"}`)
+	default: // ToolChoiceAllowed
+		return json.RawMessage(`{"type":"auto"}`)
+	}
+}
+
+// convertMessages converts eino schema messages to Anthropic messageItems,
+// appending user system prompt blocks and grouping consecutive Tool messages.
+func convertMessages(msgs []*schema.Message, req *messagesRequest) []messageItem {
+	var out []messageItem
+	i := 0
+	for i < len(msgs) {
+		msg := msgs[i]
+		if msg == nil {
+			i++
 			continue
 		}
 		switch msg.Role {
 		case schema.System:
-			req.System = append(req.System, systemBlock{Type: "text", Text: text})
+			req.System = append(req.System, systemBlock{Type: "text", Text: strings.TrimSpace(msg.Content)})
+			i++
 		case schema.Assistant:
-			req.Messages = append(req.Messages, newMessageItem("assistant", text, false))
-		case schema.User:
-			req.Messages = append(req.Messages, newMessageItem("user", text, true))
+			out = append(out, convertAssistantMessage(msg))
+			i++
+		case schema.Tool:
+			// Group consecutive Tool messages into one user message with tool_result blocks.
+			j := i
+			for j < len(msgs) && msgs[j] != nil && msgs[j].Role == schema.Tool {
+				j++
+			}
+			out = append(out, convertToolResultMessages(msgs[i:j]))
+			i = j
 		default:
-			req.Messages = append(req.Messages, newMessageItem("user", text, true))
+			item := convertUserMessage(msg)
+			if len(item.Content) > 0 {
+				out = append(out, item)
+			}
+			i++
 		}
 	}
-	return req
+	return out
+}
+
+func convertAssistantMessage(msg *schema.Message) messageItem {
+	var blocks []contentBlock
+	text := strings.TrimSpace(msg.Content)
+	if text != "" {
+		blocks = append(blocks, contentBlock{Type: "text", Text: text})
+	}
+	for _, tc := range msg.ToolCalls {
+		input := json.RawMessage(tc.Function.Arguments)
+		if len(input) == 0 {
+			input = json.RawMessage("{}")
+		}
+		blocks = append(blocks, contentBlock{
+			Type:  "tool_use",
+			ID:    tc.ID,
+			Name:  tc.Function.Name,
+			Input: input,
+		})
+	}
+	return messageItem{Role: "assistant", Content: blocks}
+}
+
+func convertToolResultMessages(msgs []*schema.Message) messageItem {
+	var blocks []contentBlock
+	for _, msg := range msgs {
+		if msg == nil {
+			continue
+		}
+		block := contentBlock{
+			Type:      "tool_result",
+			ToolUseID: msg.ToolCallID,
+			Content:   msg.Content,
+		}
+		blocks = append(blocks, block)
+	}
+	return messageItem{Role: "user", Content: blocks}
+}
+
+func convertUserMessage(msg *schema.Message) messageItem {
+	var blocks []contentBlock
+
+	// Handle multimodal content.
+	if len(msg.UserInputMultiContent) > 0 {
+		for _, part := range msg.UserInputMultiContent {
+			switch part.Type {
+			case schema.ChatMessagePartTypeText:
+				if strings.TrimSpace(part.Text) != "" {
+					blocks = append(blocks, contentBlock{
+						Type:         "text",
+						Text:         part.Text,
+						CacheControl: &cacheControl{Type: "ephemeral"},
+					})
+				}
+			case schema.ChatMessagePartTypeImageURL:
+				if part.Image != nil {
+					src := &imageSource{}
+					if part.Image.Base64Data != nil {
+						src.Type = "base64"
+						src.Data = *part.Image.Base64Data
+						src.MediaType = part.Image.MIMEType
+					} else if part.Image.URL != nil {
+						src.Type = "url"
+						src.URL = *part.Image.URL
+					}
+					blocks = append(blocks, contentBlock{Type: "image", Source: src})
+				}
+			}
+		}
+		return messageItem{Role: "user", Content: blocks}
+	}
+
+	// Plain text content.
+	text := strings.TrimSpace(msg.Content)
+	if text != "" {
+		blocks = append(blocks, contentBlock{
+			Type:         "text",
+			Text:         text,
+			CacheControl: &cacheControl{Type: "ephemeral"},
+		})
+	}
+	return messageItem{Role: "user", Content: blocks}
 }
 
 func buildRequestMetadata(session requestSession) requestMetadata {
@@ -373,32 +524,23 @@ func buildSystemBlocks(session requestSession) []systemBlock {
 	}
 }
 
-func newMessageItem(role string, text string, ephemeral bool) messageItem {
-	block := contentBlock{
-		Type: "text",
-		Text: text,
-	}
-	if ephemeral {
-		block.CacheControl = &cacheControl{Type: "ephemeral"}
-	}
-	return messageItem{
-		Role:    role,
-		Content: []contentBlock{block},
-	}
-}
+// --- Wire types ---
 
 type messagesRequest struct {
 	Model             string             `json:"model"`
 	MaxTokens         int                `json:"max_tokens"`
 	Messages          []messageItem      `json:"messages"`
 	System            []systemBlock      `json:"system,omitempty"`
-	Tools             []toolDefinition   `json:"tools"`
+	Tools             []toolDef          `json:"tools"`
+	ToolChoice        json.RawMessage    `json:"tool_choice,omitempty"`
 	Metadata          requestMetadata    `json:"metadata"`
 	Thinking          *thinkingConfig    `json:"thinking,omitempty"`
 	ContextManagement *contextManagement `json:"context_management,omitempty"`
 	OutputConfig      *outputConfig      `json:"output_config,omitempty"`
 	Temperature       float64            `json:"temperature,omitempty"`
 	TopP              float64            `json:"top_p,omitempty"`
+	TopK              int                `json:"top_k,omitempty"`
+	StopSequences     []string           `json:"stop_sequences,omitempty"`
 	Stream            bool               `json:"stream,omitempty"`
 }
 
@@ -411,6 +553,22 @@ type contentBlock struct {
 	Type         string        `json:"type"`
 	Text         string        `json:"text,omitempty"`
 	CacheControl *cacheControl `json:"cache_control,omitempty"`
+	// image
+	Source *imageSource `json:"source,omitempty"`
+	// tool_use
+	ID    string          `json:"id,omitempty"`
+	Name  string          `json:"name,omitempty"`
+	Input json.RawMessage `json:"input,omitempty"`
+	// tool_result
+	ToolUseID string `json:"tool_use_id,omitempty"`
+	Content   string `json:"content,omitempty"`
+}
+
+type imageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type,omitempty"`
+	Data      string `json:"data,omitempty"`
+	URL       string `json:"url,omitempty"`
 }
 
 type systemBlock struct {
@@ -423,7 +581,11 @@ type cacheControl struct {
 	Type string `json:"type"`
 }
 
-type toolDefinition struct{}
+type toolDef struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	InputSchema json.RawMessage `json:"input_schema"`
+}
 
 type requestMetadata struct {
 	UserID string `json:"user_id"`
@@ -446,16 +608,78 @@ type outputConfig struct {
 	Effort string `json:"effort"`
 }
 
+type responseBlock struct {
+	Type  string          `json:"type"`
+	Text  string          `json:"text,omitempty"`
+	ID    string          `json:"id,omitempty"`
+	Name  string          `json:"name,omitempty"`
+	Input json.RawMessage `json:"input,omitempty"`
+}
+
 type messagesResponse struct {
-	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text,omitempty"`
-	} `json:"content"`
-	StopReason string `json:"stop_reason"`
+	Content    []responseBlock `json:"content"`
+	StopReason string          `json:"stop_reason"`
 	Usage      struct {
 		InputTokens  int `json:"input_tokens"`
 		OutputTokens int `json:"output_tokens"`
 	} `json:"usage"`
+}
+
+func (r *messagesResponse) toChatResponse() *provider.ChatResponse {
+	if r == nil {
+		return &provider.ChatResponse{}
+	}
+
+	var textParts []string
+	var toolCalls []schema.ToolCall
+	for _, b := range r.Content {
+		switch b.Type {
+		case "text":
+			if b.Text != "" {
+				textParts = append(textParts, b.Text)
+			}
+		case "tool_use":
+			inputStr := string(b.Input)
+			if inputStr == "" {
+				inputStr = "{}"
+			}
+			toolCalls = append(toolCalls, schema.ToolCall{
+				ID:   b.ID,
+				Type: "function",
+				Function: schema.FunctionCall{
+					Name:      b.Name,
+					Arguments: inputStr,
+				},
+			})
+		}
+	}
+
+	return &provider.ChatResponse{
+		Message: &schema.Message{
+			Role:      schema.Assistant,
+			Content:   strings.Join(textParts, "\n"),
+			ToolCalls: toolCalls,
+			ResponseMeta: &schema.ResponseMeta{
+				FinishReason: r.StopReason,
+				Usage: &schema.TokenUsage{
+					PromptTokens:     r.Usage.InputTokens,
+					CompletionTokens: r.Usage.OutputTokens,
+				},
+			},
+		},
+	}
+}
+
+// streamState tracks in-progress tool_use blocks during SSE streaming.
+type streamState struct {
+	pendingToolCalls map[int]*pendingToolCall
+}
+
+type pendingToolCall struct {
+	index int
+	id    string
+	name  string
+	input strings.Builder
 }
 
 func readMessageStream(body io.ReadCloser, sw *schema.StreamWriter[*schema.Message]) {
@@ -465,6 +689,7 @@ func readMessageStream(body io.ReadCloser, sw *schema.StreamWriter[*schema.Messa
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
+	state := &streamState{pendingToolCalls: make(map[int]*pendingToolCall)}
 	var eventName string
 	var data strings.Builder
 	for scanner.Scan() {
@@ -475,7 +700,7 @@ func readMessageStream(body io.ReadCloser, sw *schema.StreamWriter[*schema.Messa
 		case strings.HasPrefix(line, "data: "):
 			data.WriteString(strings.TrimPrefix(line, "data: "))
 		case line == "":
-			if err := emitStreamEvent(eventName, data.String(), sw); err != nil {
+			if err := emitStreamEvent(eventName, data.String(), sw, state); err != nil {
 				sw.Send(nil, err)
 				return
 			}
@@ -488,41 +713,100 @@ func readMessageStream(body io.ReadCloser, sw *schema.StreamWriter[*schema.Messa
 	}
 }
 
-func emitStreamEvent(eventName string, payload string, sw *schema.StreamWriter[*schema.Message]) error {
+func emitStreamEvent(eventName string, payload string, sw *schema.StreamWriter[*schema.Message], state *streamState) error {
 	payload = strings.TrimSpace(payload)
 	if payload == "" {
 		return nil
 	}
 
 	switch eventName {
+	case "content_block_start":
+		var event struct {
+			Index        int `json:"index"`
+			ContentBlock struct {
+				Type string `json:"type"`
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"content_block"`
+		}
+		if err := json.Unmarshal([]byte(payload), &event); err != nil {
+			return fmt.Errorf("claudecode: decode content_block_start: %w", err)
+		}
+		if event.ContentBlock.Type == "tool_use" {
+			state.pendingToolCalls[event.Index] = &pendingToolCall{
+				index: event.Index,
+				id:    event.ContentBlock.ID,
+				name:  event.ContentBlock.Name,
+			}
+		}
+
 	case "content_block_delta":
 		var event struct {
+			Index int `json:"index"`
 			Delta struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
+				Type        string `json:"type"`
+				Text        string `json:"text"`
+				PartialJSON string `json:"partial_json"`
 			} `json:"delta"`
 		}
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			return fmt.Errorf("claudecode: decode stream delta: %w", err)
 		}
-		if event.Delta.Type == "text_delta" && event.Delta.Text != "" {
-			sw.Send(&schema.Message{Role: schema.Assistant, Content: event.Delta.Text}, nil)
+		switch event.Delta.Type {
+		case "text_delta":
+			if event.Delta.Text != "" {
+				sw.Send(&schema.Message{Role: schema.Assistant, Content: event.Delta.Text}, nil)
+			}
+		case "input_json_delta":
+			if ptc, ok := state.pendingToolCalls[event.Index]; ok {
+				ptc.input.WriteString(event.Delta.PartialJSON)
+			}
 		}
+
+	case "content_block_stop":
+		var event struct {
+			Index int `json:"index"`
+		}
+		if err := json.Unmarshal([]byte(payload), &event); err != nil {
+			return fmt.Errorf("claudecode: decode content_block_stop: %w", err)
+		}
+		if ptc, ok := state.pendingToolCalls[event.Index]; ok {
+			inputStr := ptc.input.String()
+			if inputStr == "" {
+				inputStr = "{}"
+			}
+			sw.Send(&schema.Message{
+				Role: schema.Assistant,
+				ToolCalls: []schema.ToolCall{{
+					ID:   ptc.id,
+					Type: "function",
+					Function: schema.FunctionCall{
+						Name:      ptc.name,
+						Arguments: inputStr,
+					},
+				}},
+			}, nil)
+			delete(state.pendingToolCalls, event.Index)
+		}
+
 	case "message_delta":
 		var event struct {
 			Usage struct {
 				OutputTokens int `json:"output_tokens"`
 			} `json:"usage"`
+			Delta struct {
+				StopReason string `json:"stop_reason"`
+			} `json:"delta"`
 		}
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			return fmt.Errorf("claudecode: decode message delta: %w", err)
 		}
-		if event.Usage.OutputTokens > 0 {
+		if event.Usage.OutputTokens > 0 || event.Delta.StopReason != "" {
 			sw.Send(&schema.Message{
 				Role:    schema.Assistant,
 				Content: "",
 				ResponseMeta: &schema.ResponseMeta{
-					FinishReason: "stop",
+					FinishReason: event.Delta.StopReason,
 					Usage: &schema.TokenUsage{
 						CompletionTokens: event.Usage.OutputTokens,
 					},
@@ -531,33 +815,6 @@ func emitStreamEvent(eventName string, payload string, sw *schema.StreamWriter[*
 		}
 	}
 	return nil
-}
-
-func (r *messagesResponse) toChatResponse() *provider.ChatResponse {
-	if r == nil {
-		return &provider.ChatResponse{}
-	}
-
-	var parts []string
-	for _, block := range r.Content {
-		if block.Type == "text" && block.Text != "" {
-			parts = append(parts, block.Text)
-		}
-	}
-
-	return &provider.ChatResponse{
-		Message: &schema.Message{
-			Role:    schema.Assistant,
-			Content: strings.Join(parts, "\n"),
-			ResponseMeta: &schema.ResponseMeta{
-				FinishReason: r.StopReason,
-				Usage: &schema.TokenUsage{
-					PromptTokens:     r.Usage.InputTokens,
-					CompletionTokens: r.Usage.OutputTokens,
-				},
-			},
-		},
-	}
 }
 
 var _ provider.Provider = (*Provider)(nil)

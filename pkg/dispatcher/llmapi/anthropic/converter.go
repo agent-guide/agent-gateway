@@ -2,6 +2,9 @@ package anthropic
 
 import (
 	"encoding/json"
+	"strings"
+
+	einojsonschema "github.com/eino-contrib/jsonschema"
 
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
@@ -19,11 +22,9 @@ func (c *Converter) ToInternal(req *MessagesRequest) *provider.ChatRequest {
 		msgs = append(msgs, schema.SystemMessage(systemText))
 	}
 	for _, m := range req.Messages {
-		msgs = append(msgs, &schema.Message{
-			Role:    schema.RoleType(m.Role),
-			Content: contentText(m.Content),
-		})
+		msgs = append(msgs, convertMessageItem(m)...)
 	}
+
 	var opts []einomodel.Option
 	if req.Temperature != 0 {
 		opts = append(opts, einomodel.WithTemperature(float32(req.Temperature)))
@@ -38,25 +39,183 @@ func (c *Converter) ToInternal(req *MessagesRequest) *provider.ChatRequest {
 		opts = append(opts, einomodel.WithStop(req.StopSequences))
 	}
 
-	chatReq := &provider.ChatRequest{
+	if len(req.Tools) > 0 {
+		opts = append(opts, einomodel.WithTools(toolDefsToToolInfos(req.Tools)))
+	}
+	if len(req.ToolChoice) > 0 {
+		if tc, names, ok := parseAnthropicToolChoice(req.ToolChoice); ok {
+			opts = append(opts, einomodel.WithToolChoice(tc, names...))
+		}
+	}
+
+	if req.TopK > 0 {
+		opts = append(opts, provider.WithTopK(req.TopK))
+	}
+
+	return &provider.ChatRequest{
 		Model:    req.Model,
 		Messages: msgs,
 		Options:  opts,
 	}
-	return chatReq
+}
+
+func toolDefsToToolInfos(defs []ToolDefinition) []*schema.ToolInfo {
+	tools := make([]*schema.ToolInfo, 0, len(defs))
+	for _, td := range defs {
+		var js einojsonschema.Schema
+		if err := json.Unmarshal(td.InputSchema, &js); err != nil {
+			tools = append(tools, &schema.ToolInfo{Name: td.Name, Desc: td.Description})
+			continue
+		}
+		tools = append(tools, &schema.ToolInfo{
+			Name:        td.Name,
+			Desc:        td.Description,
+			ParamsOneOf: schema.NewParamsOneOfByJSONSchema(&js),
+		})
+	}
+	return tools
+}
+
+func parseAnthropicToolChoice(raw json.RawMessage) (schema.ToolChoice, []string, bool) {
+	var tc struct {
+		Type string `json:"type"`
+		Name string `json:"name,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &tc); err != nil {
+		return "", nil, false
+	}
+	switch tc.Type {
+	case "auto":
+		return schema.ToolChoiceAllowed, nil, true
+	case "any":
+		return schema.ToolChoiceForced, nil, true
+	case "tool":
+		return schema.ToolChoiceForced, []string{tc.Name}, true
+	case "none":
+		return schema.ToolChoiceForbidden, nil, true
+	default:
+		return "", nil, false
+	}
+}
+
+// convertMessageItem converts one Anthropic MessageItem to one or more schema.Messages.
+func convertMessageItem(m MessageItem) []*schema.Message {
+	switch m.Role {
+	case "assistant":
+		return convertAssistantItem(m.Content)
+	case "user":
+		return convertUserItem(m.Content)
+	default:
+		// Treat unknown roles as user.
+		return convertUserItem(m.Content)
+	}
+}
+
+func convertAssistantItem(content MessageContent) []*schema.Message {
+	var textParts []string
+	var toolCalls []schema.ToolCall
+	for _, block := range content {
+		switch block.Type {
+		case "text":
+			if block.Text != "" {
+				textParts = append(textParts, block.Text)
+			}
+		case "tool_use":
+			inputStr := ""
+			if len(block.Input) > 0 {
+				inputStr = string(block.Input)
+			}
+			toolCalls = append(toolCalls, schema.ToolCall{
+				ID:   block.ID,
+				Type: "function",
+				Function: schema.FunctionCall{
+					Name:      block.Name,
+					Arguments: inputStr,
+				},
+			})
+		}
+	}
+
+	if len(textParts) == 0 && len(toolCalls) == 0 {
+		return nil
+	}
+	return []*schema.Message{{
+		Role:      schema.Assistant,
+		Content:   strings.Join(textParts, "\n"),
+		ToolCalls: toolCalls,
+	}}
+}
+
+func convertUserItem(content MessageContent) []*schema.Message {
+	var inputParts []schema.MessageInputPart
+	var result []*schema.Message
+
+	flushInputParts := func() {
+		if len(inputParts) == 0 {
+			return
+		}
+		msg := &schema.Message{Role: schema.User}
+		if len(inputParts) == 1 && inputParts[0].Type == schema.ChatMessagePartTypeText {
+			msg.Content = inputParts[0].Text
+		} else {
+			msg.UserInputMultiContent = inputParts
+		}
+		result = append(result, msg)
+		inputParts = nil
+	}
+
+	for _, block := range content {
+		switch block.Type {
+		case "text":
+			if block.Text != "" {
+				inputParts = append(inputParts, schema.MessageInputPart{
+					Type: schema.ChatMessagePartTypeText,
+					Text: block.Text,
+				})
+			}
+		case "image":
+			if block.Source != nil {
+				part := schema.MessageInputPart{
+					Type:  schema.ChatMessagePartTypeImageURL,
+					Image: &schema.MessageInputImage{},
+				}
+				switch block.Source.Type {
+				case "base64":
+					part.Image.Base64Data = &block.Source.Data
+					part.Image.MIMEType = block.Source.MediaType
+				case "url":
+					part.Image.URL = &block.Source.URL
+				}
+				inputParts = append(inputParts, part)
+			}
+		case "tool_result":
+			flushInputParts()
+			result = append(result, &schema.Message{
+				Role:       schema.Tool,
+				Content:    block.Content.Text(),
+				ToolCallID: block.ToolUseID,
+			})
+		}
+	}
+	flushInputParts()
+	return result
 }
 
 // FromInternal converts an internal ChatResponse to an Anthropic MessagesResponse.
 func (c *Converter) FromInternal(resp *provider.ChatResponse, model string) *MessagesResponse {
-	content := convertResponseContent(resp)
+	content := contentFromMessage(resp.Message)
 	usage := provider.UsageFromMessage(resp.Message)
+	stopReason := mapFinishReason(provider.FinishReason(resp.Message))
+	if stopReason == "" && resp.Message != nil && len(resp.Message.ToolCalls) > 0 {
+		stopReason = "tool_use"
+	}
 	return &MessagesResponse{
 		ID:         "",
 		Type:       "message",
 		Role:       "assistant",
 		Model:      model,
 		Content:    content,
-		StopReason: mapFinishReason(provider.FinishReason(resp.Message)),
+		StopReason: stopReason,
 		Usage: UsageResponse{
 			InputTokens:  usage.InputTokens,
 			OutputTokens: usage.OutputTokens,
@@ -71,11 +230,11 @@ func mapFinishReason(reason string) string {
 		return "end_turn"
 	case "length":
 		return "max_tokens"
-	case "tool_calls", "function_call":
+	case "tool_calls", "function_call", "tool_use":
 		return "tool_use"
 	case "content_filter":
 		return "end_turn"
-	case "end_turn", "max_tokens", "stop_sequence", "tool_use":
+	case "end_turn", "max_tokens", "stop_sequence":
 		return reason
 	default:
 		if reason == "" {
@@ -85,46 +244,57 @@ func mapFinishReason(reason string) string {
 	}
 }
 
-func convertResponseContent(resp *provider.ChatResponse) []ContentBlockResponse {
-	return contentFromMessage(resp.Message)
-}
-
 func contentFromMessage(msg *schema.Message) []ContentBlockResponse {
-	content := make([]ContentBlockResponse, 0)
 	if msg == nil {
-		return content
+		return []ContentBlockResponse{}
 	}
+	var blocks []ContentBlockResponse
 	if msg.Content != "" {
-		content = append(content, ContentBlockResponse{Type: "text", Text: msg.Content})
+		blocks = append(blocks, ContentBlockResponse{Type: "text", Text: msg.Content})
 	}
-	for range msg.ToolCalls {
-		content = append(content, ContentBlockResponse{Type: "tool_use"})
+	for _, tc := range msg.ToolCalls {
+		// Arguments is already a JSON string; pass it through as raw JSON.
+		var inputRaw json.RawMessage
+		if tc.Function.Arguments != "" {
+			inputRaw = json.RawMessage(tc.Function.Arguments)
+		} else {
+			inputRaw = json.RawMessage("{}")
+		}
+		blocks = append(blocks, ContentBlockResponse{
+			Type:  "tool_use",
+			ID:    tc.ID,
+			Name:  tc.Function.Name,
+			Input: inputRaw,
+		})
 	}
-	return content
+	return blocks
 }
 
 func contentText(blocks []ContentBlock) string {
-	var out string
-	for i, b := range blocks {
-		if i > 0 && out != "" && b.Text != "" {
-			out += "\n"
+	var parts []string
+	for _, b := range blocks {
+		if b.Type == "text" && b.Text != "" {
+			parts = append(parts, b.Text)
 		}
-		out += b.Text
 	}
-	return out
+	return strings.Join(parts, "\n")
 }
 
 // --- Anthropic API types ---
 
 type MessagesRequest struct {
-	Model         string         `json:"model"`
-	MaxTokens     int            `json:"max_tokens"`
-	Messages      []MessageItem  `json:"messages"`
-	System        MessageContent `json:"system,omitempty"`
-	Temperature   float64        `json:"temperature,omitempty"`
-	TopP          float64        `json:"top_p,omitempty"`
-	Stream        bool           `json:"stream,omitempty"`
-	StopSequences []string       `json:"stop_sequences,omitempty"`
+	Model         string           `json:"model"`
+	MaxTokens     int              `json:"max_tokens"`
+	Messages      []MessageItem    `json:"messages"`
+	System        MessageContent   `json:"system,omitempty"`
+	Temperature   float64          `json:"temperature,omitempty"`
+	TopP          float64          `json:"top_p,omitempty"`
+	TopK          int              `json:"top_k,omitempty"`
+	Stream        bool             `json:"stream,omitempty"`
+	StopSequences []string         `json:"stop_sequences,omitempty"`
+	Tools         []ToolDefinition `json:"tools,omitempty"`
+	ToolChoice    json.RawMessage  `json:"tool_choice,omitempty"`
+	Metadata      json.RawMessage  `json:"metadata,omitempty"`
 }
 
 type MessageItem struct {
@@ -138,13 +308,11 @@ type MessageContent []ContentBlock
 
 // UnmarshalJSON accepts both a JSON string and a JSON array of content blocks.
 func (mc *MessageContent) UnmarshalJSON(data []byte) error {
-	// Try array first (most common from SDK >= 0.20).
 	var blocks []ContentBlock
 	if err := json.Unmarshal(data, &blocks); err == nil {
 		*mc = blocks
 		return nil
 	}
-	// Fall back to plain string (SDK may send this for simple user messages).
 	var s string
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
@@ -155,15 +323,44 @@ func (mc *MessageContent) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Text joins all text blocks into a single string for the current internal
-// provider abstraction, which still accepts plain-text message content.
+// Text joins all text blocks into a single string.
 func (mc MessageContent) Text() string {
 	return contentText(mc)
 }
 
 type ContentBlock struct {
 	Type string `json:"type"`
+	// type=text
 	Text string `json:"text,omitempty"`
+	// type=image
+	Source *ImageSource `json:"source,omitempty"`
+	// type=tool_use (assistant messages)
+	ID    string          `json:"id,omitempty"`
+	Name  string          `json:"name,omitempty"`
+	Input json.RawMessage `json:"input,omitempty"`
+	// type=tool_result (user messages)
+	ToolUseID string         `json:"tool_use_id,omitempty"`
+	Content   MessageContent `json:"content,omitempty"`
+	IsError   bool           `json:"is_error,omitempty"`
+	// shared
+	CacheControl *CacheControl `json:"cache_control,omitempty"`
+}
+
+type ImageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type,omitempty"`
+	Data      string `json:"data,omitempty"`
+	URL       string `json:"url,omitempty"`
+}
+
+type CacheControl struct {
+	Type string `json:"type"`
+}
+
+type ToolDefinition struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	InputSchema json.RawMessage `json:"input_schema"`
 }
 
 type MessagesResponse struct {
@@ -178,7 +375,12 @@ type MessagesResponse struct {
 
 type ContentBlockResponse struct {
 	Type string `json:"type"`
+	// type=text
 	Text string `json:"text,omitempty"`
+	// type=tool_use
+	ID    string          `json:"id,omitempty"`
+	Name  string          `json:"name,omitempty"`
+	Input json.RawMessage `json:"input,omitempty"`
 }
 
 type UsageResponse struct {

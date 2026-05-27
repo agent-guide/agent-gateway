@@ -97,6 +97,9 @@ func (p *Provider) StreamResponses(ctx context.Context, req *provider.ResponsesR
 }
 
 func sanitizeResponsesRequest(req *provider.ResponsesRequest) *provider.ResponsesRequest {
+	// The Codex CLI backend is not a standard OpenAI Responses endpoint. The
+	// real CLI omits max_output_tokens and always disables storage; preserve
+	// that wire shape to avoid backend 400s from otherwise valid gateway fields.
 	req.MaxOutputTokens = 0
 	storeFalse := false
 	req.Store = &storeFalse
@@ -152,38 +155,7 @@ func extractAccountID(ctx context.Context) string {
 }
 
 func chatStateToResponsesRequest(state *provider.ChatRequestState, stream bool) *provider.ResponsesRequest {
-	req := &provider.ResponsesRequest{
-		Model:  state.ModelName,
-		Input:  messagesToResponsesInput(state.Messages),
-		Stream: stream,
-	}
-	if state.CommonOptions != nil {
-		if state.CommonOptions.Temperature != nil {
-			req.Temperature = float64(*state.CommonOptions.Temperature)
-		}
-		if state.CommonOptions.TopP != nil {
-			req.TopP = float64(*state.CommonOptions.TopP)
-		}
-		if state.CommonOptions.MaxTokens != nil {
-			req.MaxOutputTokens = *state.CommonOptions.MaxTokens
-		}
-	}
-	return req
-}
-
-func messagesToResponsesInput(messages []*schema.Message) []any {
-	items := make([]any, 0, len(messages))
-	for _, msg := range messages {
-		if msg == nil {
-			continue
-		}
-		items = append(items, map[string]any{
-			"type":    "message",
-			"role":    string(msg.Role),
-			"content": []any{map[string]any{"type": "input_text", "text": msg.Content}},
-		})
-	}
-	return items
+	return provider.ResponsesRequestFromChatState(state, stream)
 }
 
 func responsesToChatResponse(resp *provider.ResponsesResponse) *provider.ChatResponse {

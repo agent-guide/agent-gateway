@@ -108,7 +108,11 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) 
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return chatModel, state.Messages, state.Options, nil
+	opts := append([]einomodel.Option(nil), state.Options...)
+	if extraFields := provider.ChatCompletionsExtraFieldsFromOptions(provider.ReasoningEffortField, state.Options...); len(extraFields) > 0 {
+		opts = append(opts, einoopenai.WithExtraFields(extraFields))
+	}
+	return chatModel, state.Messages, opts, nil
 }
 
 func (p *Provider) Capabilities() provider.ProviderCapabilities {

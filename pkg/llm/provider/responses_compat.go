@@ -2,15 +2,18 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+	einojsonschema "github.com/eino-contrib/jsonschema"
 )
 
 // CreateResponsesViaChat adapts a Responses API request onto the provider Chat API.
@@ -48,10 +51,18 @@ func StreamResponsesViaChat(ctx context.Context, prov Provider, req *ResponsesRe
 		resp := ResponsesFromChatResponse(&ChatResponse{}, chatReq.Model)
 		sw.Send(ResponsesCreatedEvent(resp), nil)
 
+		toolOutputIndexByKey := map[string]int{}
+		var toolOutputIndexes []int
+		fallbackToolCallKey := ""
+
 		for {
 			chunk, err := stream.Recv()
 			if err != nil {
 				if err == io.EOF {
+					for _, outputIndex := range toolOutputIndexes {
+						item := resp.Output[outputIndex]
+						sw.Send(ResponsesOutputItemDoneEvent(outputIndex, &item), nil)
+					}
 					sw.Send(ResponsesCompletedEvent(resp), nil)
 					return
 				}
@@ -63,8 +74,27 @@ func StreamResponsesViaChat(ctx context.Context, prov Provider, req *ResponsesRe
 				continue
 			}
 			if text := messageText(chunk); text != "" {
-				resp.Output[0].Content[0].Text += text
-				sw.Send(ResponsesDeltaEvent(resp.Output[0].ID, text), nil)
+				ensureTextOutput(resp)
+				textIndex := firstTextOutputIndex(resp)
+				resp.Output[textIndex].Content[0].Text += text
+				sw.Send(ResponsesDeltaEvent(resp.Output[textIndex].ID, textIndex, text), nil)
+			}
+			for _, tc := range chunk.ToolCalls {
+				key := toolCallKey(tc, &fallbackToolCallKey)
+				outputIndex, seen := toolOutputIndexByKey[key]
+				if !seen {
+					item := functionCallOutputFromToolCall(tc)
+					resp.Output = append(resp.Output, item)
+					outputIndex = len(resp.Output) - 1
+					toolOutputIndexByKey[key] = outputIndex
+					toolOutputIndexes = append(toolOutputIndexes, outputIndex)
+					sw.Send(ResponsesOutputItemAddedEvent(outputIndex, &item), nil)
+				} else {
+					mergeToolCallInto(&resp.Output[outputIndex], tc)
+				}
+				if tc.Function.Arguments != "" {
+					sw.Send(ResponsesFunctionCallArgumentsDeltaEvent(resp.Output[outputIndex].ID, outputIndex, tc.Function.Arguments), nil)
+				}
 			}
 			resp.Usage = responsesUsageFromMessage(chunk)
 		}
@@ -72,16 +102,40 @@ func StreamResponsesViaChat(ctx context.Context, prov Provider, req *ResponsesRe
 	return sr, nil
 }
 
+// toolCallKey returns a key that is stable across streamed tool-call deltas.
+// eino sets Index in stream mode; ID is the next-best correlator, and a
+// single pending fallback call is the last resort for fragments that carry
+// neither. Multiple concurrent tool calls without either Index or ID cannot be
+// safely disambiguated, so preserving one merged call is less lossy than
+// emitting every argument fragment as a separate output item.
+func toolCallKey(tc schema.ToolCall, fallback *string) string {
+	if tc.Index != nil {
+		return "idx:" + strconv.Itoa(*tc.Index)
+	}
+	if tc.ID != "" {
+		return "id:" + tc.ID
+	}
+	if *fallback == "" {
+		*fallback = "seq:0"
+	}
+	return *fallback
+}
+
+func mergeToolCallInto(item *ResponsesResponseOutput, tc schema.ToolCall) {
+	if item.ID == "" && tc.ID != "" {
+		item.ID = tc.ID
+		item.CallID = tc.ID
+	}
+	if item.Name == "" && tc.Function.Name != "" {
+		item.Name = tc.Function.Name
+	}
+	item.Arguments += tc.Function.Arguments
+}
+
 // ResponsesToChatRequest converts a minimal Responses API request into ChatRequest.
 func ResponsesToChatRequest(req *ResponsesRequest) (*ChatRequest, error) {
 	if req == nil {
 		return nil, statuserr.New(http.StatusBadRequest, "invalid request")
-	}
-	if strings.TrimSpace(req.PreviousResponseID) != "" {
-		return nil, statuserr.New(http.StatusBadRequest, "previous_response_id is not supported")
-	}
-	if req.Store != nil && *req.Store {
-		return nil, statuserr.New(http.StatusBadRequest, "store=true is not supported")
 	}
 
 	messages, err := responsesInputToMessages(req.Input)
@@ -110,8 +164,95 @@ func ResponsesToChatRequest(req *ResponsesRequest) (*ChatRequest, error) {
 	if req.MaxOutputTokens > 0 {
 		opts = append(opts, einomodel.WithMaxTokens(req.MaxOutputTokens))
 	}
+	if len(req.Tools) > 0 {
+		opts = append(opts, einomodel.WithTools(responsesToolDefsToToolInfos(req.Tools)))
+	}
+	if len(req.ToolChoice) > 0 {
+		if tc, names, ok := parseResponsesToolChoice(req.ToolChoice); ok {
+			opts = append(opts, einomodel.WithToolChoice(tc, names...))
+		}
+	}
+	if ctx := responsesRequestContextFromRequest(req); ctx != nil {
+		opts = append(opts, WithResponsesRequestContext(ctx))
+	}
 	chatReq.Options = opts
 	return chatReq, nil
+}
+
+// ResponsesRequestFromChatState rebuilds a provider-level Responses request from
+// a resolved ChatRequestState. This is the generic inverse of the
+// ResponsesToChatRequest compatibility path and is intended for providers that
+// bridge chat calls onto an upstream Responses API.
+func ResponsesRequestFromChatState(state *ChatRequestState, stream bool) *ResponsesRequest {
+	instructions, input := splitInstructionsAndInput(state.Messages)
+	req := &ResponsesRequest{
+		Model:        state.ModelName,
+		Input:        input,
+		Instructions: instructions,
+		Stream:       stream,
+	}
+	if state.CommonOptions != nil {
+		if state.CommonOptions.Temperature != nil {
+			req.Temperature = float64(*state.CommonOptions.Temperature)
+		}
+		if state.CommonOptions.TopP != nil {
+			req.TopP = float64(*state.CommonOptions.TopP)
+		}
+		if state.CommonOptions.MaxTokens != nil {
+			req.MaxOutputTokens = *state.CommonOptions.MaxTokens
+		}
+		if len(state.CommonOptions.Tools) > 0 {
+			req.Tools = toolInfosToResponsesToolDefs(state.CommonOptions.Tools)
+		}
+		if state.CommonOptions.ToolChoice != nil {
+			req.ToolChoice = buildResponsesToolChoice(state.CommonOptions.ToolChoice, state.CommonOptions.AllowedToolNames)
+		}
+	}
+	if ctx := ResponsesRequestContextFromOptions(state.Options...); ctx != nil {
+		req.PreviousResponseID = ctx.PreviousResponseID
+		req.Store = cloneBoolPtr(ctx.Store)
+		req.Text = cloneMap(ctx.Text)
+		req.Metadata = cloneMap(ctx.Metadata)
+		req.User = ctx.User
+		req.Reasoning = cloneMap(ctx.Reasoning)
+		req.Truncation = ctx.Truncation
+		if ctx.ParallelToolCalls != nil {
+			v := *ctx.ParallelToolCalls
+			req.ParallelToolCalls = &v
+		}
+	}
+	if extra := ChatExtraFieldsFromOptions(state.Options...); extra != nil {
+		// ChatExtraFields are the protocol-level chat fields captured from the
+		// original request, so they intentionally override overlapping context
+		// that may have been produced by a prior Responses compatibility hop.
+		if extra.ResponseFormat != nil {
+			req.Text = responseTextFromChatResponseFormat(extra.ResponseFormat)
+		}
+		if len(extra.Reasoning) > 0 {
+			req.Reasoning = cloneMap(extra.Reasoning)
+		}
+		if effort := strings.TrimSpace(extra.ReasoningEffort); effort != "" {
+			if req.Reasoning == nil {
+				req.Reasoning = map[string]any{}
+			}
+			req.Reasoning["effort"] = effort
+		}
+		if user := strings.TrimSpace(extra.User); user != "" {
+			req.User = user
+		}
+		if len(extra.Metadata) > 0 {
+			req.Metadata = cloneMap(extra.Metadata)
+		}
+		if extra.ParallelToolCalls != nil {
+			v := *extra.ParallelToolCalls
+			req.ParallelToolCalls = &v
+		}
+		if extra.Store != nil {
+			v := *extra.Store
+			req.Store = &v
+		}
+	}
+	return req
 }
 
 // ResponsesFromChatResponse converts a Chat response into a minimal Responses envelope.
@@ -121,24 +262,33 @@ func ResponsesFromChatResponse(resp *ChatResponse, model string) *ResponsesRespo
 		msg = resp.Message
 	}
 	now := time.Now()
-	return &ResponsesResponse{
+	out := &ResponsesResponse{
 		ID:        fmt.Sprintf("resp_%d", now.UnixNano()),
 		Object:    "response",
 		CreatedAt: now.Unix(),
 		Model:     model,
-		Output: []ResponsesResponseOutput{{
+		Usage:     responsesUsageFromMessage(msg),
+	}
+	if text := messageText(msg); text != "" {
+		out.Output = append(out.Output, ResponsesResponseOutput{
 			ID:     fmt.Sprintf("msg_%d", now.UnixNano()),
 			Type:   "message",
 			Role:   "assistant",
 			Status: "completed",
 			Content: []ResponsesResponseContentPart{{
 				Type:        "output_text",
-				Text:        messageText(msg),
+				Text:        text,
 				Annotations: []any{},
 			}},
-		}},
-		Usage: responsesUsageFromMessage(msg),
+		})
 	}
+	for _, tc := range toolCallsOrEmpty(msg) {
+		out.Output = append(out.Output, functionCallOutputFromToolCall(tc))
+	}
+	if len(out.Output) == 0 {
+		out.Output = []ResponsesResponseOutput{emptyTextOutput()}
+	}
+	return out
 }
 
 func ResponsesCreatedEvent(resp *ResponsesResponse) *ResponsesStreamEvent {
@@ -148,13 +298,40 @@ func ResponsesCreatedEvent(resp *ResponsesResponse) *ResponsesStreamEvent {
 	}
 }
 
-func ResponsesDeltaEvent(itemID string, delta string) *ResponsesStreamEvent {
+func ResponsesDeltaEvent(itemID string, outputIndex int, delta string) *ResponsesStreamEvent {
 	return &ResponsesStreamEvent{
 		Type:         "response.output_text.delta",
 		ItemID:       itemID,
-		OutputIndex:  0,
+		OutputIndex:  outputIndex,
 		ContentIndex: 0,
 		Delta:        delta,
+	}
+}
+
+func ResponsesOutputItemAddedEvent(outputIndex int, item *ResponsesResponseOutput) *ResponsesStreamEvent {
+	return &ResponsesStreamEvent{
+		Type:        "response.output_item.added",
+		ItemID:      item.ID,
+		OutputIndex: outputIndex,
+		Item:        item,
+	}
+}
+
+func ResponsesOutputItemDoneEvent(outputIndex int, item *ResponsesResponseOutput) *ResponsesStreamEvent {
+	return &ResponsesStreamEvent{
+		Type:        "response.output_item.done",
+		ItemID:      item.ID,
+		OutputIndex: outputIndex,
+		Item:        item,
+	}
+}
+
+func ResponsesFunctionCallArgumentsDeltaEvent(itemID string, outputIndex int, delta string) *ResponsesStreamEvent {
+	return &ResponsesStreamEvent{
+		Type:        "response.function_call_arguments.delta",
+		ItemID:      itemID,
+		OutputIndex: outputIndex,
+		Delta:       delta,
 	}
 }
 
@@ -195,6 +372,53 @@ func responsesInputToMessages(input any) ([]*schema.Message, error) {
 	}
 }
 
+func splitInstructionsAndInput(messages []*schema.Message) (string, []any) {
+	var instructions []string
+	items := make([]any, 0, len(messages))
+	for _, msg := range messages {
+		if msg == nil {
+			continue
+		}
+		if msg.Role == schema.System {
+			if text := strings.TrimSpace(msg.Content); text != "" {
+				instructions = append(instructions, text)
+			}
+			continue
+		}
+		items = append(items, map[string]any{
+			"type":    "message",
+			"role":    string(msg.Role),
+			"content": responsesContentPartsFromMessage(msg),
+		})
+	}
+	return strings.Join(instructions, "\n"), items
+}
+
+func responsesContentPartsFromMessage(msg *schema.Message) []any {
+	if len(msg.UserInputMultiContent) > 0 {
+		parts := make([]any, 0, len(msg.UserInputMultiContent))
+		for _, part := range msg.UserInputMultiContent {
+			switch part.Type {
+			case schema.ChatMessagePartTypeText:
+				parts = append(parts, map[string]any{"type": "input_text", "text": part.Text})
+			case schema.ChatMessagePartTypeImageURL:
+				if part.Image == nil || part.Image.URL == nil {
+					continue
+				}
+				image := map[string]any{"type": "input_image", "image_url": *part.Image.URL}
+				if detail := string(part.Image.Detail); detail != "" {
+					image["detail"] = detail
+				}
+				parts = append(parts, image)
+			}
+		}
+		if len(parts) > 0 {
+			return parts
+		}
+	}
+	return []any{map[string]any{"type": "input_text", "text": msg.Content}}
+}
+
 func responseInputItemToMessage(item any) (*schema.Message, error) {
 	obj, ok := item.(map[string]any)
 	if !ok {
@@ -210,25 +434,259 @@ func responseInputItemToMessage(item any) (*schema.Message, error) {
 	case string:
 		return &schema.Message{Role: schema.RoleType(role), Content: content}, nil
 	case []any:
-		var parts []string
+		var textParts []string
+		var inputParts []schema.MessageInputPart
 		for _, raw := range content {
 			part, ok := raw.(map[string]any)
 			if !ok {
 				return nil, statuserr.New(http.StatusBadRequest, "unsupported input content part for responses api")
 			}
 			partType, _ := part["type"].(string)
-			if partType != "" && partType != "input_text" && partType != "text" {
+			switch partType {
+			case "", "input_text", "text":
+				text, _ := part["text"].(string)
+				if strings.TrimSpace(text) != "" {
+					textParts = append(textParts, text)
+					inputParts = append(inputParts, schema.MessageInputPart{
+						Type: schema.ChatMessagePartTypeText,
+						Text: text,
+					})
+				}
+			case "input_image", "image_url":
+				url, detail, err := imageURLFromInputPart(part)
+				if err != nil {
+					return nil, err
+				}
+				inputParts = append(inputParts, schema.MessageInputPart{
+					Type: schema.ChatMessagePartTypeImageURL,
+					Image: &schema.MessageInputImage{
+						MessagePartCommon: schema.MessagePartCommon{URL: &url},
+						Detail:            schema.ImageURLDetail(detail),
+					},
+				})
+			default:
 				return nil, statuserr.New(http.StatusBadRequest, fmt.Sprintf("unsupported input content type %q for responses api", partType))
 			}
-			text, _ := part["text"].(string)
-			if strings.TrimSpace(text) != "" {
-				parts = append(parts, text)
-			}
 		}
-		return &schema.Message{Role: schema.RoleType(role), Content: strings.Join(parts, "\n")}, nil
+		msg := &schema.Message{Role: schema.RoleType(role)}
+		if len(inputParts) == 1 && inputParts[0].Type == schema.ChatMessagePartTypeText {
+			msg.Content = inputParts[0].Text
+			return msg, nil
+		}
+		if len(inputParts) > 0 {
+			msg.UserInputMultiContent = inputParts
+			if len(textParts) > 0 {
+				msg.Content = strings.Join(textParts, "\n")
+			}
+			return msg, nil
+		}
+		return &schema.Message{Role: schema.RoleType(role), Content: strings.Join(textParts, "\n")}, nil
 	default:
 		return nil, statuserr.New(http.StatusBadRequest, "unsupported input content for responses api")
 	}
+}
+
+func responseTextFromChatResponseFormat(responseFormat any) map[string]any {
+	if responseFormat == nil {
+		return nil
+	}
+	format, ok := responseFormat.(map[string]any)
+	if !ok {
+		return map[string]any{"format": responseFormat}
+	}
+	if formatType, _ := format["type"].(string); formatType != "json_schema" {
+		return map[string]any{"format": cloneMap(format)}
+	}
+	out := map[string]any{"type": "json_schema"}
+	if nested, _ := format["json_schema"].(map[string]any); len(nested) > 0 {
+		for k, v := range nested {
+			out[k] = v
+		}
+	} else {
+		for k, v := range format {
+			if k != "json_schema" {
+				out[k] = v
+			}
+		}
+	}
+	return map[string]any{"format": out}
+}
+
+// imageURLFromInputPart extracts an image URL and optional detail from a
+// Responses input_image content part. It accepts both the canonical Responses
+// shape (image_url as a string with a sibling detail) and the chat-style object
+// shape (image_url as {url, detail}).
+func imageURLFromInputPart(part map[string]any) (string, string, error) {
+	switch v := part["image_url"].(type) {
+	case string:
+		url := strings.TrimSpace(v)
+		if url == "" {
+			return "", "", statuserr.New(http.StatusBadRequest, "input_image requires image_url")
+		}
+		detail, _ := part["detail"].(string)
+		return url, detail, nil
+	case map[string]any:
+		url, _ := v["url"].(string)
+		if strings.TrimSpace(url) == "" {
+			return "", "", statuserr.New(http.StatusBadRequest, "input_image requires image_url.url")
+		}
+		detail, _ := v["detail"].(string)
+		return url, detail, nil
+	default:
+		return "", "", statuserr.New(http.StatusBadRequest, "input_image requires image_url")
+	}
+}
+
+func responsesToolDefsToToolInfos(defs []ResponsesToolDefinition) []*schema.ToolInfo {
+	tools := make([]*schema.ToolInfo, 0, len(defs))
+	for _, td := range defs {
+		name := strings.TrimSpace(td.Name)
+		desc := td.Description
+		params := td.Parameters
+		if td.Function != nil {
+			name = strings.TrimSpace(td.Function.Name)
+			desc = td.Function.Description
+			params = td.Function.Parameters
+		}
+		if td.Type != "" && td.Type != "function" {
+			continue
+		}
+		if name == "" {
+			continue
+		}
+		if len(params) == 0 {
+			tools = append(tools, &schema.ToolInfo{Name: name, Desc: desc})
+			continue
+		}
+		var js einojsonschema.Schema
+		if err := json.Unmarshal(params, &js); err != nil {
+			tools = append(tools, &schema.ToolInfo{Name: name, Desc: desc})
+			continue
+		}
+		tools = append(tools, &schema.ToolInfo{
+			Name:        name,
+			Desc:        desc,
+			ParamsOneOf: schema.NewParamsOneOfByJSONSchema(&js),
+		})
+	}
+	return tools
+}
+
+func toolInfosToResponsesToolDefs(defs []*schema.ToolInfo) []ResponsesToolDefinition {
+	tools := make([]ResponsesToolDefinition, 0, len(defs))
+	for _, td := range defs {
+		if td == nil {
+			continue
+		}
+		var params json.RawMessage
+		if td.ParamsOneOf != nil {
+			js, err := td.ParamsOneOf.ToJSONSchema()
+			if err == nil && js != nil {
+				raw, err := json.Marshal(js)
+				if err == nil {
+					params = raw
+				}
+			}
+		}
+		tools = append(tools, ResponsesToolDefinition{
+			Type: "function",
+			Function: &ResponsesToolFunction{
+				Name:        td.Name,
+				Description: td.Desc,
+				Parameters:  params,
+			},
+		})
+	}
+	return tools
+}
+
+func parseResponsesToolChoice(raw json.RawMessage) (schema.ToolChoice, []string, bool) {
+	var asString string
+	if err := json.Unmarshal(raw, &asString); err == nil {
+		switch asString {
+		case "auto":
+			return schema.ToolChoiceAllowed, nil, true
+		case "required":
+			return schema.ToolChoiceForced, nil, true
+		case "none":
+			return schema.ToolChoiceForbidden, nil, true
+		default:
+			return "", nil, false
+		}
+	}
+
+	var tc struct {
+		Type     string `json:"type"`
+		Name     string `json:"name,omitempty"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &tc); err != nil {
+		return "", nil, false
+	}
+	name := strings.TrimSpace(tc.Name)
+	if name == "" {
+		name = strings.TrimSpace(tc.Function.Name)
+	}
+	if (tc.Type == "function" || tc.Type == "tool") && name != "" {
+		return schema.ToolChoiceForced, []string{name}, true
+	}
+	return "", nil, false
+}
+
+func buildResponsesToolChoice(choice *schema.ToolChoice, allowed []string) json.RawMessage {
+	if choice == nil {
+		return nil
+	}
+	payload := map[string]any{}
+	switch *choice {
+	case schema.ToolChoiceForced:
+		if len(allowed) == 1 && strings.TrimSpace(allowed[0]) != "" {
+			payload["type"] = "function"
+			payload["name"] = allowed[0]
+		} else {
+			payload["type"] = "required"
+		}
+	case schema.ToolChoiceForbidden:
+		payload["type"] = "none"
+	default:
+		payload["type"] = "auto"
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+func responsesRequestContextFromRequest(req *ResponsesRequest) *ResponsesRequestContext {
+	if req == nil {
+		return nil
+	}
+	if strings.TrimSpace(req.PreviousResponseID) == "" && req.Store == nil &&
+		len(req.Text) == 0 && len(req.Metadata) == 0 && strings.TrimSpace(req.User) == "" &&
+		len(req.Reasoning) == 0 && req.ParallelToolCalls == nil && req.Truncation == nil {
+		return nil
+	}
+	return &ResponsesRequestContext{
+		PreviousResponseID: strings.TrimSpace(req.PreviousResponseID),
+		Store:              cloneBoolPtr(req.Store),
+		Text:               cloneMap(req.Text),
+		Metadata:           cloneMap(req.Metadata),
+		User:               req.User,
+		Reasoning:          cloneMap(req.Reasoning),
+		ParallelToolCalls:  req.ParallelToolCalls,
+		Truncation:         req.Truncation,
+	}
+}
+
+func cloneBoolPtr(src *bool) *bool {
+	if src == nil {
+		return nil
+	}
+	v := *src
+	return &v
 }
 
 func responsesUsageFromMessage(msg *schema.Message) *ResponsesResponseUsage {
@@ -245,4 +703,57 @@ func messageText(msg *schema.Message) string {
 		return ""
 	}
 	return msg.Content
+}
+
+func toolCallsOrEmpty(msg *schema.Message) []schema.ToolCall {
+	if msg == nil || len(msg.ToolCalls) == 0 {
+		return nil
+	}
+	return msg.ToolCalls
+}
+
+func functionCallOutputFromToolCall(tc schema.ToolCall) ResponsesResponseOutput {
+	return ResponsesResponseOutput{
+		ID:        tc.ID,
+		Type:      "function_call",
+		Status:    "completed",
+		CallID:    tc.ID,
+		Name:      tc.Function.Name,
+		Arguments: tc.Function.Arguments,
+	}
+}
+
+func emptyTextOutput() ResponsesResponseOutput {
+	return ResponsesResponseOutput{
+		ID:     fmt.Sprintf("msg_%d", time.Now().UnixNano()),
+		Type:   "message",
+		Role:   "assistant",
+		Status: "completed",
+		Content: []ResponsesResponseContentPart{{
+			Type:        "output_text",
+			Text:        "",
+			Annotations: []any{},
+		}},
+	}
+}
+
+func ensureTextOutput(resp *ResponsesResponse) {
+	if resp == nil {
+		return
+	}
+	for _, item := range resp.Output {
+		if item.Type == "message" && item.Role == "assistant" && len(item.Content) > 0 && item.Content[0].Type == "output_text" {
+			return
+		}
+	}
+	resp.Output = append([]ResponsesResponseOutput{emptyTextOutput()}, resp.Output...)
+}
+
+func firstTextOutputIndex(resp *ResponsesResponse) int {
+	for i, item := range resp.Output {
+		if item.Type == "message" && item.Role == "assistant" && len(item.Content) > 0 && item.Content[0].Type == "output_text" {
+			return i
+		}
+	}
+	return 0
 }

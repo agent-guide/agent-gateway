@@ -60,11 +60,17 @@ Extra outbound request shaping:
 
 - `openai`: `https://api.openai.com/v1`
 - `anthropic`: `https://api.anthropic.com`
+- `codex`: `https://chatgpt.com/backend-api/codex`
 - `openrouter`: `https://openrouter.ai/api/v1`
 - `deepseek`: `https://api.deepseek.com`
 - `zhipu`: `https://open.bigmodel.cn/api/paas/v4`
 
 ## Notable Provider-Specific Options
+
+`codex`
+
+- uses OpenAI-compatible `POST /responses`
+- custom `base_url` must match the upstream codex-compatible deployment
 
 `deepseek`
 
@@ -80,6 +86,7 @@ Extra outbound request shaping:
 
 - `openai`
 - `anthropic`
+- `codex`
 - `claudecode`
 - `gemini`
 - `ollama`

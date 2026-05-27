@@ -8,6 +8,7 @@ type responseStreamEventEnvelope struct {
 	ItemID       string `json:"item_id,omitempty"`
 	OutputIndex  int    `json:"output_index,omitempty"`
 	ContentIndex int    `json:"content_index,omitempty"`
+	Item         any    `json:"item,omitempty"`
 	Response     any    `json:"response,omitempty"`
 }
 
