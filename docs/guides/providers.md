@@ -79,6 +79,7 @@ Use managed credentials when you need:
 
 - `openai` defaults to `https://api.openai.com/v1`
 - `anthropic` defaults to `https://api.anthropic.com`
+- `claudecode` accepts either an Anthropic-style `api_key` or a managed `cliauth_token`; `api_key` uses `x-api-key`, while `cliauth_token` uses `Authorization: Bearer`
 - `openrouter` defaults to `https://openrouter.ai/api/v1`
 - `deepseek` defaults to `https://api.deepseek.com`
 - `zhipu` defaults to `https://open.bigmodel.cn/api/paas/v4`

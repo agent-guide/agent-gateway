@@ -189,3 +189,71 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 		t.Fatalf("expected 429 scheduler error, got %v", err)
 	}
 }
+
+func TestPrepareLLMApiRequestAcceptsSystemBlockArray(t *testing.T) {
+	handler := NewHandler(nil)
+
+	body := []byte(`{
+		"model":"claude-sonnet-4-6",
+		"max_tokens":16,
+		"stream":false,
+		"system":[
+			{"type":"text","text":"You are Claude Code."},
+			{"type":"text","text":"Follow the user's instructions."}
+		],
+		"messages":[
+			{"role":"user","content":[{"type":"text","text":"hello"}]}
+		]
+	}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages?beta=true", bytes.NewReader(body))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	if prepared == nil || prepared.ChatRequest == nil {
+		t.Fatal("prepared chat request is nil")
+	}
+	if len(prepared.ChatRequest.Messages) != 2 {
+		t.Fatalf("message count = %d, want 2", len(prepared.ChatRequest.Messages))
+	}
+	if prepared.ChatRequest.Messages[0].Role != schema.System {
+		t.Fatalf("first role = %q, want %q", prepared.ChatRequest.Messages[0].Role, schema.System)
+	}
+	wantSystem := "You are Claude Code.\nFollow the user's instructions."
+	if prepared.ChatRequest.Messages[0].Content != wantSystem {
+		t.Fatalf("system content = %q, want %q", prepared.ChatRequest.Messages[0].Content, wantSystem)
+	}
+}
+
+func TestPrepareLLMApiRequestAcceptsStringSystemPrompt(t *testing.T) {
+	handler := NewHandler(nil)
+
+	body := []byte(`{
+		"model":"claude-sonnet-4-6",
+		"max_tokens":16,
+		"stream":false,
+		"system":"You are a helpful assistant.",
+		"messages":[
+			{"role":"user","content":"hello"}
+		]
+	}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	if prepared == nil || prepared.ChatRequest == nil {
+		t.Fatal("prepared chat request is nil")
+	}
+	if len(prepared.ChatRequest.Messages) != 2 {
+		t.Fatalf("message count = %d, want 2", len(prepared.ChatRequest.Messages))
+	}
+	if prepared.ChatRequest.Messages[0].Role != schema.System {
+		t.Fatalf("first role = %q, want %q", prepared.ChatRequest.Messages[0].Role, schema.System)
+	}
+	if prepared.ChatRequest.Messages[0].Content != "You are a helpful assistant." {
+		t.Fatalf("system content = %q", prepared.ChatRequest.Messages[0].Content)
+	}
+}

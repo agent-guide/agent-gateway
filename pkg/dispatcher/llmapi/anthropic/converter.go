@@ -15,8 +15,8 @@ type Converter struct{}
 // ToInternal converts an Anthropic MessagesRequest to the internal ChatRequest.
 func (c *Converter) ToInternal(req *MessagesRequest) *provider.ChatRequest {
 	msgs := make([]*schema.Message, 0, len(req.Messages)+1)
-	if req.System != "" {
-		msgs = append(msgs, schema.SystemMessage(req.System))
+	if systemText := req.System.Text(); systemText != "" {
+		msgs = append(msgs, schema.SystemMessage(systemText))
 	}
 	for _, m := range req.Messages {
 		msgs = append(msgs, &schema.Message{
@@ -117,14 +117,14 @@ func contentText(blocks []ContentBlock) string {
 // --- Anthropic API types ---
 
 type MessagesRequest struct {
-	Model         string        `json:"model"`
-	MaxTokens     int           `json:"max_tokens"`
-	Messages      []MessageItem `json:"messages"`
-	System        string        `json:"system,omitempty"`
-	Temperature   float64       `json:"temperature,omitempty"`
-	TopP          float64       `json:"top_p,omitempty"`
-	Stream        bool          `json:"stream,omitempty"`
-	StopSequences []string      `json:"stop_sequences,omitempty"`
+	Model         string         `json:"model"`
+	MaxTokens     int            `json:"max_tokens"`
+	Messages      []MessageItem  `json:"messages"`
+	System        MessageContent `json:"system,omitempty"`
+	Temperature   float64        `json:"temperature,omitempty"`
+	TopP          float64        `json:"top_p,omitempty"`
+	Stream        bool           `json:"stream,omitempty"`
+	StopSequences []string       `json:"stop_sequences,omitempty"`
 }
 
 type MessageItem struct {
@@ -153,6 +153,12 @@ func (mc *MessageContent) UnmarshalJSON(data []byte) error {
 		*mc = []ContentBlock{{Type: "text", Text: s}}
 	}
 	return nil
+}
+
+// Text joins all text blocks into a single string for the current internal
+// provider abstraction, which still accepts plain-text message content.
+func (mc MessageContent) Text() string {
+	return contentText(mc)
 }
 
 type ContentBlock struct {

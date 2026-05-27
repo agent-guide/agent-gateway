@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/cloudwego/eino/schema"
+	"github.com/google/uuid"
 
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	"github.com/agent-guide/agent-gateway/pkg/httpclient"
@@ -19,11 +21,18 @@ import (
 )
 
 const (
-	defaultBaseURL   = "https://api.anthropic.com"
-	anthropicVersion = "2023-06-01"
-	anthropicBeta    = "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14"
-	userAgent        = "claude-cli/2.1.63 (external, cli)"
+	defaultBaseURL                       = "https://api.anthropic.com"
+	anthropicVersion                     = "2023-06-01"
+	anthropicBeta                        = "claude-code-20250219,interleaved-thinking-2025-05-14,redact-thinking-2026-02-12,context-management-2025-06-27,prompt-caching-scope-2026-01-05,effort-2025-11-24"
+	oauthTokenPrefix                     = "sk-ant-oat-"
+	authModeBearer                       = "bearer_only"
+	authModeAPIKey                       = "api_key"
+	defaultClaudeCodeMaxTokens           = 32000
+	defaultClaudeCodeUserAgent           = "claude-cli/2.1.150 (external, sdk-cli)"
+	defaultClaudeCodeBillingHeaderPrefix = "x-anthropic-billing-header: cc_version=2.1.150.4c2; cc_entrypoint=sdk-cli; cch="
 )
+
+const defaultClaudeCodeSystemPrompt = "\nYou are an interactive agent that helps users with software engineering tasks.\n"
 
 func init() {
 	provider.RegisterProviderFactory("claudecode", New)
@@ -108,7 +117,7 @@ func (p *Provider) ListModels(ctx context.Context) ([]provider.ModelInfo, error)
 	if err != nil {
 		return nil, fmt.Errorf("claudecode: build request: %w", err)
 	}
-	if err := p.setHeaders(ctx, httpReq); err != nil {
+	if err := p.setHeaders(ctx, httpReq, newRequestSession()); err != nil {
 		return nil, err
 	}
 
@@ -159,55 +168,133 @@ func (p *Provider) Config() provider.ProviderConfig {
 }
 
 func (p *Provider) newMessagesRequest(ctx context.Context, state *provider.ChatRequestState, stream bool) (*http.Request, error) {
-	msgReq := buildMessagesRequest(state, stream)
-	body, err := json.Marshal(msgReq)
+	session := newRequestSession()
+	body, err := p.buildRequestPayload(state, stream, session)
 	if err != nil {
-		return nil, fmt.Errorf("claudecode: marshal request: %w", err)
+		return nil, err
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.ProviderConfig.BaseURL+"/v1/messages?beta=true", bytes.NewReader(body))
+	url := p.ProviderConfig.BaseURL + "/v1/messages?beta=true"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("claudecode: build request: %w", err)
 	}
-	if err := p.setHeaders(ctx, httpReq); err != nil {
+	if err := p.setHeaders(ctx, httpReq, session); err != nil {
 		return nil, err
 	}
 	return httpReq, nil
 }
 
-func (p *Provider) setHeaders(ctx context.Context, req *http.Request) error {
-	token := accessTokenFromContextOrConfig(ctx, p.ProviderConfig.APIKey)
-	if token == "" {
-		return fmt.Errorf("claudecode: missing OAuth access token")
+func (p *Provider) setHeaders(ctx context.Context, req *http.Request, session requestSession) error {
+	auth := authFromContextOrConfig(ctx, p.ProviderConfig.APIKey, p.authMode())
+	if auth.authorization == "" && auth.apiKey == "" {
+		return fmt.Errorf("claudecode: missing upstream credential")
 	}
 
-	req.Header.Set("Authorization", "Bearer "+token)
+	if auth.authorization != "" {
+		req.Header.Set("Authorization", auth.authorization)
+	}
+	if auth.apiKey != "" {
+		req.Header.Set("x-api-key", auth.apiKey)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("anthropic-version", anthropicVersion)
 	req.Header.Set("anthropic-beta", anthropicBeta)
-	req.Header.Set("x-app", "cli")
-	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("User-Agent", defaultClaudeCodeUserAgent)
+	req.Header.Set("x-claude-code-session-id", session.SessionID)
 	for k, v := range p.ProviderConfig.Network.ExtraHeaders {
 		req.Header.Set(k, v)
 	}
 	return nil
 }
 
-func accessTokenFromContextOrConfig(ctx context.Context, fallback string) string {
+func (p *Provider) buildRequestPayload(state *provider.ChatRequestState, stream bool, session requestSession) ([]byte, error) {
+	msgReq := buildMessagesRequest(state, stream, session)
+	body, err := json.Marshal(msgReq)
+	if err != nil {
+		return nil, fmt.Errorf("claudecode: marshal request: %w", err)
+	}
+	return body, nil
+}
+
+type authHeader struct {
+	authorization string
+	apiKey        string
+}
+
+func authFromContextOrConfig(ctx context.Context, fallback string, authMode string) authHeader {
+	mode := strings.TrimSpace(strings.ToLower(authMode))
+	if mode == "" {
+		mode = authModeBearer
+	}
+
 	if cred, ok := provider.CredentialFromContext(ctx); ok && cred != nil {
 		if cred.Type == credentialmgr.TypeCLIAuthToken && cred.Metadata != nil {
 			if token, _ := cred.Metadata["access_token"].(string); strings.TrimSpace(token) != "" {
-				return strings.TrimSpace(token)
+				return authHeader{
+					authorization: "Bearer " + strings.TrimSpace(token),
+				}
+			}
+		}
+		if cred.Type == credentialmgr.TypeAPIKey && strings.TrimSpace(cred.APIKey()) != "" {
+			if mode == authModeAPIKey {
+				return authHeader{
+					apiKey: strings.TrimSpace(cred.APIKey()),
+				}
+			}
+			return authHeader{
+				authorization: "Bearer " + strings.TrimSpace(cred.APIKey()),
 			}
 		}
 	}
-	return strings.TrimSpace(fallback)
+
+	fallback = strings.TrimSpace(fallback)
+	if fallback == "" {
+		return authHeader{}
+	}
+	if strings.HasPrefix(fallback, oauthTokenPrefix) {
+		return authHeader{
+			authorization: "Bearer " + fallback,
+		}
+	}
+	if mode == authModeAPIKey {
+		return authHeader{
+			apiKey: fallback,
+		}
+	}
+	return authHeader{
+		authorization: "Bearer " + fallback,
+	}
 }
 
-func buildMessagesRequest(state *provider.ChatRequestState, stream bool) *messagesRequest {
+func (p *Provider) authMode() string {
+	if p == nil || p.ProviderConfig.Options == nil {
+		return ""
+	}
+	mode, _ := p.ProviderConfig.Options["auth_mode"].(string)
+	return strings.ToLower(strings.TrimSpace(mode))
+}
+
+type requestSession struct {
+	SessionID   string
+	DeviceID    string
+	BillingCode string
+}
+
+func newRequestSession() requestSession {
+	sessionID := uuid.NewString()
+	sum := sha256.Sum256([]byte(sessionID))
+	return requestSession{
+		SessionID:   sessionID,
+		DeviceID:    fmt.Sprintf("%x", sum[:]),
+		BillingCode: fmt.Sprintf("%x", sum[:])[:5],
+	}
+}
+
+func buildMessagesRequest(state *provider.ChatRequestState, stream bool, session requestSession) *messagesRequest {
 	model := state.ModelName
-	maxTokens := 4096
+	maxTokens := defaultClaudeCodeMaxTokens
 	if state.CommonOptions != nil {
 		if state.CommonOptions.MaxTokens != nil && *state.CommonOptions.MaxTokens > 0 {
 			maxTokens = *state.CommonOptions.MaxTokens
@@ -215,10 +302,16 @@ func buildMessagesRequest(state *provider.ChatRequestState, stream bool) *messag
 	}
 
 	req := &messagesRequest{
-		Model:     model,
-		MaxTokens: maxTokens,
-		Messages:  make([]messageItem, 0, len(state.Messages)),
-		Stream:    stream,
+		Model:             model,
+		MaxTokens:         maxTokens,
+		Messages:          make([]messageItem, 0, len(state.Messages)),
+		System:            buildSystemBlocks(session),
+		Tools:             []toolDefinition{},
+		Metadata:          buildRequestMetadata(session),
+		Thinking:          &thinkingConfig{Type: "adaptive"},
+		ContextManagement: &contextManagement{Edits: []contextManagementEdit{{Type: "clear_thinking_20251015", Keep: "all"}}},
+		OutputConfig:      &outputConfig{Effort: "high"},
+		Stream:            stream,
 	}
 	if state.CommonOptions != nil {
 		if state.CommonOptions.Temperature != nil {
@@ -229,7 +322,6 @@ func buildMessagesRequest(state *provider.ChatRequestState, stream bool) *messag
 		}
 	}
 
-	var systemParts []string
 	for _, msg := range state.Messages {
 		if msg == nil {
 			continue
@@ -240,17 +332,130 @@ func buildMessagesRequest(state *provider.ChatRequestState, stream bool) *messag
 		}
 		switch msg.Role {
 		case schema.System:
-			systemParts = append(systemParts, text)
+			req.System = append(req.System, systemBlock{Type: "text", Text: text})
 		case schema.Assistant:
-			req.Messages = append(req.Messages, messageItem{Role: "assistant", Content: text})
+			req.Messages = append(req.Messages, newMessageItem("assistant", text, false))
 		case schema.User:
-			req.Messages = append(req.Messages, messageItem{Role: "user", Content: text})
+			req.Messages = append(req.Messages, newMessageItem("user", text, true))
 		default:
-			req.Messages = append(req.Messages, messageItem{Role: "user", Content: text})
+			req.Messages = append(req.Messages, newMessageItem("user", text, true))
 		}
 	}
-	req.System = strings.Join(systemParts, "\n\n")
 	return req
+}
+
+func buildRequestMetadata(session requestSession) requestMetadata {
+	userIDPayload, _ := json.Marshal(map[string]string{
+		"device_id":    session.DeviceID,
+		"account_uuid": "",
+		"session_id":   session.SessionID,
+	})
+	return requestMetadata{
+		UserID: string(userIDPayload),
+	}
+}
+
+func buildSystemBlocks(session requestSession) []systemBlock {
+	return []systemBlock{
+		{
+			Type: "text",
+			Text: defaultClaudeCodeBillingHeaderPrefix + session.BillingCode + ";",
+		},
+		{
+			Type:         "text",
+			Text:         "You are a Claude agent, built on Anthropic's Claude Agent SDK.",
+			CacheControl: &cacheControl{Type: "ephemeral"},
+		},
+		{
+			Type: "text",
+			Text: defaultClaudeCodeSystemPrompt,
+		},
+	}
+}
+
+func newMessageItem(role string, text string, ephemeral bool) messageItem {
+	block := contentBlock{
+		Type: "text",
+		Text: text,
+	}
+	if ephemeral {
+		block.CacheControl = &cacheControl{Type: "ephemeral"}
+	}
+	return messageItem{
+		Role:    role,
+		Content: []contentBlock{block},
+	}
+}
+
+type messagesRequest struct {
+	Model             string             `json:"model"`
+	MaxTokens         int                `json:"max_tokens"`
+	Messages          []messageItem      `json:"messages"`
+	System            []systemBlock      `json:"system,omitempty"`
+	Tools             []toolDefinition   `json:"tools"`
+	Metadata          requestMetadata    `json:"metadata"`
+	Thinking          *thinkingConfig    `json:"thinking,omitempty"`
+	ContextManagement *contextManagement `json:"context_management,omitempty"`
+	OutputConfig      *outputConfig      `json:"output_config,omitempty"`
+	Temperature       float64            `json:"temperature,omitempty"`
+	TopP              float64            `json:"top_p,omitempty"`
+	Stream            bool               `json:"stream,omitempty"`
+}
+
+type messageItem struct {
+	Role    string         `json:"role"`
+	Content []contentBlock `json:"content"`
+}
+
+type contentBlock struct {
+	Type         string        `json:"type"`
+	Text         string        `json:"text,omitempty"`
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
+}
+
+type systemBlock struct {
+	Type         string        `json:"type"`
+	Text         string        `json:"text,omitempty"`
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
+}
+
+type cacheControl struct {
+	Type string `json:"type"`
+}
+
+type toolDefinition struct{}
+
+type requestMetadata struct {
+	UserID string `json:"user_id"`
+}
+
+type thinkingConfig struct {
+	Type string `json:"type"`
+}
+
+type contextManagement struct {
+	Edits []contextManagementEdit `json:"edits,omitempty"`
+}
+
+type contextManagementEdit struct {
+	Type string `json:"type"`
+	Keep string `json:"keep"`
+}
+
+type outputConfig struct {
+	Effort string `json:"effort"`
+}
+
+type messagesResponse struct {
+	Content []struct {
+		Type string `json:"type"`
+		Text string `json:"text,omitempty"`
+	} `json:"content"`
+	StopReason string `json:"stop_reason"`
+	Usage      struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
 }
 
 func readMessageStream(body io.ReadCloser, sw *schema.StreamWriter[*schema.Message]) {
@@ -326,33 +531,6 @@ func emitStreamEvent(eventName string, payload string, sw *schema.StreamWriter[*
 		}
 	}
 	return nil
-}
-
-type messagesRequest struct {
-	Model       string        `json:"model"`
-	MaxTokens   int           `json:"max_tokens"`
-	Messages    []messageItem `json:"messages"`
-	System      string        `json:"system,omitempty"`
-	Temperature float64       `json:"temperature,omitempty"`
-	TopP        float64       `json:"top_p,omitempty"`
-	Stream      bool          `json:"stream,omitempty"`
-}
-
-type messageItem struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type messagesResponse struct {
-	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text,omitempty"`
-	} `json:"content"`
-	StopReason string `json:"stop_reason"`
-	Usage      struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
 }
 
 func (r *messagesResponse) toChatResponse() *provider.ChatResponse {
