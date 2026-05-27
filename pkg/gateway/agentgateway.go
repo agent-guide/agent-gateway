@@ -255,12 +255,12 @@ func (g *AgentGateway) NewRoutedProvider(route *llmroutepkg.LLMRoute, requestReq
 }
 
 func (g *AgentGateway) ResolveVirtualKey(ctx context.Context, httpReq *http.Request, r routecore.AgentRouteConfig) (*virtualkeypkg.VirtualKey, error) {
+	if !r.AuthPolicy.RequireVirtualKey {
+		return nil, nil
+	}
 	rawKey := virtualkeypkg.ExtractAPIKey(httpReq)
 	if rawKey == "" {
-		if r.AuthPolicy.RequireVirtualKey {
-			return nil, statuserr.New(http.StatusUnauthorized, "virtual key is required")
-		}
-		return nil, nil
+		return nil, statuserr.New(http.StatusUnauthorized, "virtual key is required")
 	}
 
 	g.mu.RLock()

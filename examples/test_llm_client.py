@@ -28,7 +28,7 @@ DEFAULT_BASE_URL = {
     PROVIDER_ANTHROPIC: "http://127.0.0.1:8080",
 }
 DEFAULT_MODEL = {
-    PROVIDER_OPENAI: "gpt-4.1",
+    PROVIDER_OPENAI: "gpt-5.4",
     PROVIDER_ANTHROPIC: "claude-sonnet-4-6",
 }
 
