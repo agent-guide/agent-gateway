@@ -97,18 +97,30 @@ cliAuthAuthenticators:
 }
 
 func TestDecodeYAMLMissingEnv(t *testing.T) {
+	const envName = "AGW_GATEWAYBUNDLE_TEST_MISSING_ENV"
+	if value, ok := os.LookupEnv(envName); ok {
+		t.Cleanup(func() {
+			_ = os.Setenv(envName, value)
+		})
+	} else {
+		t.Cleanup(func() {
+			_ = os.Unsetenv(envName)
+		})
+	}
+	_ = os.Unsetenv(envName)
+
 	_, err := DecodeYAML([]byte(`
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
 providers:
   - id: openai-main
     provider_type: openai
-    api_key: ${OPENAI_API_KEY}
+    api_key: ${AGW_GATEWAYBUNDLE_TEST_MISSING_ENV}
 `))
 	if err == nil {
 		t.Fatal("DecodeYAML() error = nil, want missing env error")
 	}
-	if !strings.Contains(err.Error(), `environment variable "OPENAI_API_KEY" is not set`) {
+	if !strings.Contains(err.Error(), `environment variable "AGW_GATEWAYBUNDLE_TEST_MISSING_ENV" is not set`) {
 		t.Fatalf("DecodeYAML() error = %v", err)
 	}
 }

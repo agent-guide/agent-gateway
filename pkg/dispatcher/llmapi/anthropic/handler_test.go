@@ -384,3 +384,34 @@ func TestServeLLMApiStreamToolOnlyOmitsEmptyTextBlock(t *testing.T) {
 		t.Fatalf("missing tool_use stop_reason in stream: %s", bodyText)
 	}
 }
+
+func TestToInternalCarriesThinkingMetadataAndOutputConfig(t *testing.T) {
+	conv := &Converter{}
+	req := &MessagesRequest{
+		Model:        "claude-sonnet-4-5",
+		MaxTokens:    4096,
+		Messages:     []MessageItem{{Role: "user", Content: MessageContent{{Type: "text", Text: "hi"}}}},
+		Thinking:     json.RawMessage(`{"type":"enabled","budget_tokens":2048}`),
+		Metadata:     json.RawMessage(`{"user_id":"end-user-1"}`),
+		OutputConfig: json.RawMessage(`{"format":{"type":"json_schema","schema":{"type":"object"}}}`),
+	}
+
+	chatReq := conv.ToInternal(req)
+	extra := provider.ChatExtraFieldsFromOptions(chatReq.Options...)
+	if extra == nil {
+		t.Fatal("ChatExtraFields = nil, want inbound thinking/metadata/output_config carried through")
+	}
+	if extra.Reasoning["type"] != "enabled" {
+		t.Fatalf("reasoning type = %v, want enabled", extra.Reasoning["type"])
+	}
+	if budget, _ := extra.Reasoning["budget_tokens"].(int); budget != 2048 {
+		t.Fatalf("reasoning budget_tokens = %v, want 2048", extra.Reasoning["budget_tokens"])
+	}
+	if extra.Metadata["user_id"] != "end-user-1" {
+		t.Fatalf("metadata user_id = %v, want end-user-1", extra.Metadata["user_id"])
+	}
+	format, ok := extra.ResponseFormat.(map[string]any)
+	if !ok || format["type"] != "json_schema" {
+		t.Fatalf("response_format = %#v, want json_schema format from output_config", extra.ResponseFormat)
+	}
+}

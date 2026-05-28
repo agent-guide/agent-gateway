@@ -52,11 +52,93 @@ func (c *Converter) ToInternal(req *MessagesRequest) *provider.ChatRequest {
 		opts = append(opts, provider.WithTopK(req.TopK))
 	}
 
+	if extra := chatExtraFields(req); extra != nil {
+		opts = append(opts, provider.WithChatExtraFields(extra))
+	}
+
 	return &provider.ChatRequest{
 		Model:    req.Model,
 		Messages: msgs,
 		Options:  opts,
 	}
+}
+
+// chatExtraFields carries inbound Anthropic-native fields that have no eino
+// common-option equivalent (thinking, metadata, structured-output format) so
+// the provider can re-emit them on the upstream request.
+func chatExtraFields(req *MessagesRequest) *provider.ChatExtraFields {
+	extra := &provider.ChatExtraFields{}
+	if reasoning := reasoningFromThinking(req.Thinking); len(reasoning) > 0 {
+		extra.Reasoning = reasoning
+	}
+	if user := userIDFromMetadata(req.Metadata); user != "" {
+		extra.Metadata = map[string]any{"user_id": user}
+	}
+	if format := responseFormatFromOutputConfig(req.OutputConfig); format != nil {
+		extra.ResponseFormat = format
+	}
+	if len(extra.Reasoning) == 0 && len(extra.Metadata) == 0 && extra.ResponseFormat == nil {
+		return nil
+	}
+	return extra
+}
+
+// reasoningFromThinking maps an inbound Anthropic thinking object onto the
+// reasoning map the provider understands ({type, budget_tokens}).
+func reasoningFromThinking(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var thinking struct {
+		Type         string `json:"type"`
+		BudgetTokens int    `json:"budget_tokens"`
+	}
+	if err := json.Unmarshal(raw, &thinking); err != nil {
+		return nil
+	}
+	reasoning := map[string]any{}
+	if thinking.Type != "" {
+		reasoning["type"] = thinking.Type
+	}
+	if thinking.BudgetTokens > 0 {
+		reasoning["budget_tokens"] = thinking.BudgetTokens
+	}
+	if len(reasoning) == 0 {
+		return nil
+	}
+	return reasoning
+}
+
+func userIDFromMetadata(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var metadata struct {
+		UserID string `json:"user_id"`
+	}
+	if err := json.Unmarshal(raw, &metadata); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(metadata.UserID)
+}
+
+// responseFormatFromOutputConfig extracts the inbound structured-output format
+// so the provider can re-emit output_config.format on the upstream request.
+func responseFormatFromOutputConfig(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var outputConfig struct {
+		Format json.RawMessage `json:"format"`
+	}
+	if err := json.Unmarshal(raw, &outputConfig); err != nil || len(outputConfig.Format) == 0 {
+		return nil
+	}
+	var format any
+	if err := json.Unmarshal(outputConfig.Format, &format); err != nil {
+		return nil
+	}
+	return format
 }
 
 func toolDefsToToolInfos(defs []ToolDefinition) []*schema.ToolInfo {
@@ -295,6 +377,8 @@ type MessagesRequest struct {
 	Tools         []ToolDefinition `json:"tools,omitempty"`
 	ToolChoice    json.RawMessage  `json:"tool_choice,omitempty"`
 	Metadata      json.RawMessage  `json:"metadata,omitempty"`
+	Thinking      json.RawMessage  `json:"thinking,omitempty"`
+	OutputConfig  json.RawMessage  `json:"output_config,omitempty"`
 }
 
 type MessageItem struct {

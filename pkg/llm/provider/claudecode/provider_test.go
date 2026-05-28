@@ -388,6 +388,181 @@ func TestChatPreservesToolChoiceNone(t *testing.T) {
 	}
 }
 
+func TestChatDerivesEffortAndKeepsGenuineMetadata(t *testing.T) {
+	var reqBody messagesRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"hello"}],"stop_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":34}}`))
+	}))
+	defer server.Close()
+
+	prov, err := New(provider.ProviderConfig{
+		BaseURL: server.URL,
+		APIKey:  "sk-ant-api-fallback",
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	store := false
+	parallel := true
+	_, err = prov.Chat(context.Background(), &provider.ChatRequest{
+		Model: "upstream-model",
+		Messages: []*schema.Message{
+			schema.UserMessage("hello"),
+		},
+		Options: []model.Option{
+			provider.WithChatExtraFields(&provider.ChatExtraFields{
+				ResponseFormat:    map[string]any{"type": "json_object"},
+				ReasoningEffort:   "low",
+				User:              "chat-user",
+				Metadata:          map[string]any{"trace_id": "chat-trace"},
+				ParallelToolCalls: &parallel,
+				Store:             &store,
+			}),
+			provider.WithResponsesRequestContext(&provider.ResponsesRequestContext{
+				PreviousResponseID: "resp_prev",
+				Store:              &store,
+				Text:               map[string]any{"format": map[string]any{"type": "text"}},
+				Metadata:           map[string]any{"trace_id": "responses-trace"},
+				User:               "responses-user",
+				Reasoning:          map[string]any{"effort": "medium"},
+				ParallelToolCalls:  &parallel,
+				Truncation:         "auto",
+			}),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+
+	// The chat-completions reasoning_effort wins over the Responses reasoning object.
+	if reqBody.OutputConfig == nil || reqBody.OutputConfig.Effort != "low" {
+		t.Fatalf("output_config = %+v, want effort=low from chat extra", reqBody.OutputConfig)
+	}
+
+	// metadata.user_id must stay byte-identical to the genuine CLI shape: no
+	// preserved request context is smuggled into it.
+	userID := decodeMetadataUserID(t, reqBody.Metadata.UserID)
+	for _, key := range []string{"chat_extra", "responses", "request_user"} {
+		if _, ok := userID[key]; ok {
+			t.Fatalf("metadata user_id must not carry preserved request context, found %q: %#v", key, userID)
+		}
+	}
+	if len(userID) != 3 {
+		t.Fatalf("metadata user_id = %#v, want exactly device_id/account_uuid/session_id", userID)
+	}
+	if userID["device_id"] == "" || userID["session_id"] == "" {
+		t.Fatalf("metadata user_id missing genuine CLI fields: %#v", userID)
+	}
+	if _, ok := userID["account_uuid"]; !ok {
+		t.Fatalf("metadata user_id missing account_uuid: %#v", userID)
+	}
+}
+
+func TestCreateResponsesUsesChatCompatibility(t *testing.T) {
+	var reqBody messagesRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"hello"}],"stop_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":34}}`))
+	}))
+	defer server.Close()
+
+	prov, err := New(provider.ProviderConfig{
+		BaseURL: server.URL,
+		APIKey:  "sk-ant-api-fallback",
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	responsesProv, ok := prov.(provider.ResponsesProvider)
+	if !ok {
+		t.Fatal("claudecode provider does not implement ResponsesProvider")
+	}
+
+	parallel := true
+	resp, err := responsesProv.CreateResponses(context.Background(), &provider.ResponsesRequest{
+		Model: "upstream-model",
+		Input: "hello",
+		Tools: []provider.ResponsesToolDefinition{{
+			Type:        "function",
+			Name:        "lookup",
+			Description: "Lookup data",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}}}`),
+		}},
+		ToolChoice:         json.RawMessage(`{"type":"function","name":"lookup"}`),
+		MaxOutputTokens:    123,
+		Temperature:        0.25,
+		TopP:               0.75,
+		PreviousResponseID: "resp_prev",
+		User:               "responses-user",
+		Metadata:           map[string]any{"trace_id": "responses-trace"},
+		Reasoning:          map[string]any{"effort": "medium"},
+		ParallelToolCalls:  &parallel,
+		Truncation:         "auto",
+	})
+	if err != nil {
+		t.Fatalf("CreateResponses() error = %v", err)
+	}
+	if resp == nil || len(resp.Output) == 0 {
+		t.Fatalf("responses response = %+v, want output", resp)
+	}
+
+	if reqBody.Model != "upstream-model" || reqBody.MaxTokens != 123 {
+		t.Fatalf("request model/max_tokens = %q/%d, want upstream-model/123", reqBody.Model, reqBody.MaxTokens)
+	}
+	if reqBody.Temperature != 0.25 || reqBody.TopP != 0.75 {
+		t.Fatalf("sampling = %v/%v, want 0.25/0.75", reqBody.Temperature, reqBody.TopP)
+	}
+	if len(reqBody.Tools) != 1 || reqBody.Tools[0].Name != "lookup" {
+		t.Fatalf("tools = %+v, want lookup tool", reqBody.Tools)
+	}
+	if string(reqBody.ToolChoice) != `{"name":"lookup","type":"tool"}` {
+		t.Fatalf("tool_choice = %s, want named Anthropic tool choice", string(reqBody.ToolChoice))
+	}
+	if reqBody.OutputConfig == nil || reqBody.OutputConfig.Effort != "medium" {
+		t.Fatalf("output_config = %+v, want effort=medium", reqBody.OutputConfig)
+	}
+	// Responses fields without a Messages API equivalent are dropped rather than
+	// smuggled into metadata.user_id, which stays in the genuine CLI shape.
+	userID := decodeMetadataUserID(t, reqBody.Metadata.UserID)
+	if len(userID) != 3 {
+		t.Fatalf("metadata user_id = %#v, want exactly device_id/account_uuid/session_id", userID)
+	}
+	for _, key := range []string{"chat_extra", "responses", "request_user"} {
+		if _, ok := userID[key]; ok {
+			t.Fatalf("metadata user_id must not carry preserved request context, found %q: %#v", key, userID)
+		}
+	}
+}
+
+func TestNormalizeEffort(t *testing.T) {
+	cases := map[string]string{
+		"low":     "low",
+		"LOW":     "low",
+		" medium": "medium",
+		"high":    "high",
+		"minimal": "low",
+		"":        defaultClaudeCodeEffort,
+		"bogus":   defaultClaudeCodeEffort,
+	}
+	for in, want := range cases {
+		if got := normalizeEffort(in); got != want {
+			t.Errorf("normalizeEffort(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestStreamChatParsesAnthropicSSE(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Accept"); got != "text/event-stream" {
@@ -437,4 +612,63 @@ func TestStreamChatParsesAnthropicSSE(t *testing.T) {
 	if first.Content != "hel" || second.Content != "lo" {
 		t.Fatalf("unexpected chunks: first=%+v second=%+v", first, second)
 	}
+}
+
+func TestChatMapsResponsesTextFormatToOutputConfigFormat(t *testing.T) {
+	var reqBody messagesRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"hello"}],"stop_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":34}}`))
+	}))
+	defer server.Close()
+
+	prov, err := New(provider.ProviderConfig{
+		BaseURL: server.URL,
+		APIKey:  "sk-ant-api-fallback",
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	_, err = prov.Chat(context.Background(), &provider.ChatRequest{
+		Model:    "upstream-model",
+		Messages: []*schema.Message{schema.UserMessage("hello")},
+		Options: []model.Option{
+			provider.WithResponsesRequestContext(&provider.ResponsesRequestContext{
+				Text: map[string]any{
+					"format": map[string]any{
+						"type":   "json_schema",
+						"schema": map[string]any{"type": "object"},
+					},
+				},
+			}),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+
+	if reqBody.OutputConfig == nil {
+		t.Fatal("output_config = nil, want effort and format")
+	}
+	if reqBody.OutputConfig.Effort != "high" {
+		t.Fatalf("output_config effort = %q, want high preserved alongside format", reqBody.OutputConfig.Effort)
+	}
+	if reqBody.OutputConfig.Format == nil || reqBody.OutputConfig.Format.Type != "json_schema" {
+		t.Fatalf("output_config format = %+v, want json_schema from responses text.format", reqBody.OutputConfig.Format)
+	}
+}
+
+func decodeMetadataUserID(t *testing.T, raw string) map[string]any {
+	t.Helper()
+	var out map[string]any
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		t.Fatalf("decode metadata.user_id: %v", err)
+	}
+	return out
 }
