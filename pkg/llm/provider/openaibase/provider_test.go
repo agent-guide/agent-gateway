@@ -2,11 +2,13 @@ package openaibase
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/httpclient"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
@@ -229,6 +231,59 @@ func TestBaseStreamResponseParsesSSEEvents(t *testing.T) {
 	}
 }
 
+func TestBaseStreamResponseStopsOnCompletedEvent(t *testing.T) {
+	requestDone := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			t.Fatalf("request path = %q, want /responses", r.URL.Path)
+		}
+		defer close(requestDone)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: response.completed\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":1,\"model\":\"gpt-4.1\",\"output\":[]}}\n\n"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	base := NewBase(provider.ProviderConfig{
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
+	})
+
+	stream, err := base.DoStreamResponses(context.Background(), &provider.ResponsesRequest{
+		Model:  "gpt-4.1",
+		Input:  "hello",
+		Stream: true,
+	})
+	if err != nil {
+		t.Fatalf("StreamResponse() error = %v", err)
+	}
+	defer stream.Close()
+
+	event, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("event: %v", err)
+	}
+	if event.Type != "response.completed" {
+		t.Fatalf("event type = %q, want response.completed", event.Type)
+	}
+
+	_, err = stream.Recv()
+	if err != io.EOF {
+		t.Fatalf("next recv error = %v, want io.EOF", err)
+	}
+
+	select {
+	case <-requestDone:
+	case <-time.After(time.Second):
+		t.Fatal("upstream request did not close after response.completed")
+	}
+}
+
 func TestBaseStreamResponseParsesStructuredFunctionCallEvents(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/responses" {
@@ -280,6 +335,55 @@ func TestBaseStreamResponseParsesStructuredFunctionCallEvents(t *testing.T) {
 	}
 	if third.Type != "response.output_item.done" || third.Item == nil || third.Item.CallID != "call_1" {
 		t.Fatalf("unexpected third event: %+v", third)
+	}
+}
+
+func TestBaseStreamResponseHandlesLargeDataLine(t *testing.T) {
+	largeDelta := strings.Repeat("x", 70*1024)
+	payload, err := json.Marshal(map[string]any{
+		"type":          "response.output_text.delta",
+		"item_id":       "msg_1",
+		"output_index":  0,
+		"content_index": 0,
+		"delta":         largeDelta,
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			t.Fatalf("request path = %q, want /responses", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: response.output_text.delta\n"))
+		_, _ = w.Write([]byte("data: "))
+		_, _ = w.Write(payload)
+		_, _ = w.Write([]byte("\n\n"))
+	}))
+	defer server.Close()
+
+	base := NewBase(provider.ProviderConfig{
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
+	})
+
+	stream, err := base.DoStreamResponses(context.Background(), &provider.ResponsesRequest{
+		Model:  "gpt-4.1",
+		Input:  "hello",
+		Stream: true,
+	})
+	if err != nil {
+		t.Fatalf("StreamResponse() error = %v", err)
+	}
+	defer stream.Close()
+
+	ev, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("event: %v", err)
+	}
+	if ev.Type != "response.output_text.delta" || ev.Delta != largeDelta {
+		t.Fatalf("event type/delta length = %q/%d, want response.output_text.delta/%d", ev.Type, len(ev.Delta), len(largeDelta))
 	}
 }
 

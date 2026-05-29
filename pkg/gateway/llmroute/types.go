@@ -22,6 +22,7 @@ type RouteProtocol = routecore.RouteProtocol
 const (
 	RouteProtocolOpenAI    = routecore.RouteProtocolOpenAI
 	RouteProtocolAnthropic = routecore.RouteProtocolAnthropic
+	RouteProtocolCC        = routecore.RouteProtocolCC
 	RouteProtocolMCP       = routecore.RouteProtocolMCP
 )
 

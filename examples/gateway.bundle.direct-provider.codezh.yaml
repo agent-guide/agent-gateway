@@ -12,7 +12,6 @@ providers:
     options:
       auth_mode: bearer_only
 
-providers:
   - id: codex-test
     provider_type: codex
     base_url: https://us-api.codexzh.com/v1
@@ -20,10 +19,12 @@ providers:
     default_model: gpt-5.5
     network:
       proxy_url: http://127.0.0.1:7890
+    options:
+      cc_compat: true
 
 llmRoutes:
   - id: chat
-    protocol: anthropic
+    protocol: cc
     match_policy:
       path_prefix: /
       methods:
@@ -32,7 +33,7 @@ llmRoutes:
       require_virtual_key: true
     target_policy:
       provider_target:
-        provider_id: claudecode-test
+        provider_id: codex-test
       credential_type_order:
         - api_key
 

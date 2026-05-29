@@ -154,6 +154,32 @@ func TestMatchLLMApiIncludesCountTokens(t *testing.T) {
 	}
 }
 
+func TestServeLLMApiCountTokensReturnsNotImplemented(t *testing.T) {
+	handler := NewHandler(nil)
+	body, err := json.Marshal(MessagesRequest{
+		Model:    "claude-sonnet-4-5",
+		Messages: []MessageItem{{Role: "user", Content: MessageContent{{Type: "text", Text: "hello world"}}}},
+		Tools: []ToolDefinition{{
+			Name:        "lookup",
+			Description: "Lookup data",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens?beta=true", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, &testProvider{}, nil); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, want 501; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 	credMgr := credentialmgr.NewManager(nil)
 	if err := credMgr.RegisterCredential(context.Background(), &credentialmgr.Credential{
@@ -203,8 +229,11 @@ func TestServeLLMApiMarksAnthropicStreamFailures(t *testing.T) {
 	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
 		t.Fatalf("ServeLLMApi returned error: %v", err)
 	}
-	if rec.Code != http.StatusTooManyRequests {
-		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusTooManyRequests)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusOK)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "event: error") || !strings.Contains(body, "rate limit") {
+		t.Fatalf("stream body = %s, want Anthropic error event", body)
 	}
 
 	_, err = scheduler.Pick(context.Background(), sched.Filter{
@@ -385,6 +414,121 @@ func TestServeLLMApiStreamToolOnlyOmitsEmptyTextBlock(t *testing.T) {
 	}
 }
 
+func TestServeLLMApiStreamEmitsStatefulToolUse(t *testing.T) {
+	handler := NewHandler(nil)
+	prov := &testStreamingProvider{
+		cfg: provider.ProviderConfig{Id: "codex", ProviderType: "codex"},
+		chunks: []*schema.Message{{
+			Role: schema.Assistant,
+			ToolCalls: []schema.ToolCall{{
+				ID:   "call_1",
+				Type: "function",
+				Function: schema.FunctionCall{
+					Name:      "Agent",
+					Arguments: `{"name":"researcher"}`,
+				},
+			}},
+			ResponseMeta: &schema.ResponseMeta{FinishReason: "tool_use"},
+		}},
+	}
+
+	body, err := json.Marshal(MessagesRequest{
+		Model:     "claude-sonnet-4-5",
+		MaxTokens: 16,
+		Stream:    true,
+		Messages: []MessageItem{{
+			Role:    "user",
+			Content: MessageContent{{Type: "text", Text: "hello"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+
+	payload, err := io.ReadAll(rec.Result().Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	bodyText := string(payload)
+	if !strings.Contains(bodyText, `"type":"tool_use"`) || !strings.Contains(bodyText, `"name":"Agent"`) {
+		t.Fatalf("missing Agent tool_use in stream: %s", bodyText)
+	}
+	if !strings.Contains(bodyText, `"stop_reason":"tool_use"`) {
+		t.Fatalf("missing tool_use stop_reason in stream: %s", bodyText)
+	}
+}
+
+func TestServeLLMApiStreamTextAfterToolUsesTextBlockIndex(t *testing.T) {
+	handler := NewHandler(nil)
+	prov := &testStreamingProvider{
+		cfg: provider.ProviderConfig{Id: "codex", ProviderType: "codex"},
+		chunks: []*schema.Message{
+			{
+				Role: schema.Assistant,
+				ToolCalls: []schema.ToolCall{{
+					ID:   "call_1",
+					Type: "function",
+					Function: schema.FunctionCall{
+						Name:      "lookup",
+						Arguments: `{"q":"hello"}`,
+					},
+				}},
+				ResponseMeta: &schema.ResponseMeta{FinishReason: "tool_use"},
+			},
+			{Role: schema.Assistant, Content: "done"},
+		},
+	}
+
+	body, err := json.Marshal(MessagesRequest{
+		Model:     "claude-sonnet-4-5",
+		MaxTokens: 16,
+		Stream:    true,
+		Messages: []MessageItem{{
+			Role:    "user",
+			Content: MessageContent{{Type: "text", Text: "hello"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+
+	payload, err := io.ReadAll(rec.Result().Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	bodyText := string(payload)
+	if !strings.Contains(bodyText, `event: content_block_start
+data: {"content_block":{"text":"","type":"text"},"index":1`) ||
+		!strings.Contains(bodyText, `event: content_block_delta
+data: {"delta":{"text":"done","type":"text_delta"},"index":1`) ||
+		!strings.Contains(bodyText, `event: content_block_stop
+data: {"index":1`) {
+		t.Fatalf("text block after tool must consistently use index 1: %s", bodyText)
+	}
+}
+
 func TestToInternalCarriesThinkingMetadataAndOutputConfig(t *testing.T) {
 	conv := &Converter{}
 	req := &MessagesRequest{
@@ -413,5 +557,21 @@ func TestToInternalCarriesThinkingMetadataAndOutputConfig(t *testing.T) {
 	format, ok := extra.ResponseFormat.(map[string]any)
 	if !ok || format["type"] != "json_schema" {
 		t.Fatalf("response_format = %#v, want json_schema format from output_config", extra.ResponseFormat)
+	}
+}
+
+func TestToInternalCarriesDisableParallelToolUse(t *testing.T) {
+	conv := &Converter{}
+	req := &MessagesRequest{
+		Model:      "claude-sonnet-4-5",
+		MaxTokens:  4096,
+		Messages:   []MessageItem{{Role: "user", Content: MessageContent{{Type: "text", Text: "hi"}}}},
+		ToolChoice: json.RawMessage(`{"type":"auto","disable_parallel_tool_use":true}`),
+	}
+
+	chatReq := conv.ToInternal(req)
+	extra := provider.ChatExtraFieldsFromOptions(chatReq.Options...)
+	if extra == nil || extra.ParallelToolCalls == nil || *extra.ParallelToolCalls {
+		t.Fatalf("parallel_tool_calls = %+v, want false", extra)
 	}
 }

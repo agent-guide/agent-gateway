@@ -71,6 +71,7 @@ Extra outbound request shaping:
 
 - uses OpenAI-compatible `POST /responses`
 - custom `base_url` must match the upstream codex-compatible deployment
+- `option cc_compat true` enables Claude Code CLI compatibility mode by filtering stateful Claude Code tools that Codex-compatible upstreams do not reliably sequence
 
 `deepseek`
 

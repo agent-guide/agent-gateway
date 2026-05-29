@@ -80,7 +80,7 @@ Use managed credentials when you need:
 
 - `openai` defaults to `https://api.openai.com/v1`
 - `anthropic` defaults to `https://api.anthropic.com`
-- `codex` defaults to `https://chatgpt.com/backend-api/codex` and sends OpenAI-compatible `POST /responses` requests; custom `base_url` values depend on the upstream codex-compatible deployment
+- `codex` defaults to `https://chatgpt.com/backend-api/codex` and sends OpenAI-compatible `POST /responses` requests; custom `base_url` values depend on the upstream codex-compatible deployment. Use `option cc_compat true` when routing Claude Code CLI traffic through a Codex-compatible upstream that cannot reliably sequence Claude Code stateful tools.
 - `claudecode` accepts either an Anthropic-style `api_key` or a managed `cliauth_token`; `api_key` uses `x-api-key`, while `cliauth_token` uses `Authorization: Bearer`
 - `openrouter` defaults to `https://openrouter.ai/api/v1`
 - `deepseek` defaults to `https://api.deepseek.com`

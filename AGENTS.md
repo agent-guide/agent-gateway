@@ -96,12 +96,17 @@ Responsibilities:
 - Module ID: `agent_route_dispatcher.llm_apis.anthropic`
   - Runtime package: `pkg/dispatcher/llmapi/anthropic/`
   - Caddy adapter: `caddy/dispatcher/llmapi/anthropic/`
+- Module ID: `agent_route_dispatcher.llm_apis.cc`
+  - Runtime package: `pkg/dispatcher/llmapi/cc/`
+  - Caddy adapter: `caddy/dispatcher/llmapi/cc/`
 
 Responsibilities:
 
 - parse wire-format requests
 - convert HTTP payloads into `provider.ChatRequest`
 - convert provider responses back to protocol-specific JSON or SSE
+
+The `cc` handler is the Claude Code CLI-compatible Anthropic Messages profile. Keep Claude Code CLI-specific protocol shims in this handler rather than in generic providers.
 
 These modules are not standalone `http.handlers.*` modules. They are loaded by `agent_route_dispatcher`.
 
@@ -348,6 +353,7 @@ http://127.0.0.1:8080 {
     agent_route_dispatcher {
         llm_api openai
         llm_api anthropic
+        llm_api cc
         mcp
     }
 }
@@ -356,7 +362,7 @@ http://127.0.0.1:8080 {
 Important current directives:
 
 - providers use `provider_type <name>`
-- LLM routes use `protocol <openai|anthropic>` and MCP routes use `protocol mcp`
+- LLM routes use `protocol <openai|anthropic|cc>` and MCP routes use `protocol mcp`
 - `agent_route_dispatcher` uses `llm_api <name>` for LLM protocol handlers and `mcp` to enable MCP protocol handling
 - auth uses `virtualkey`, not `local_api_key`
 

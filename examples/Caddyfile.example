@@ -6,6 +6,7 @@
 # Dispatcher LLM API module IDs:
 # - "agent_route_dispatcher.llm_apis.openai"
 # - "agent_route_dispatcher.llm_apis.anthropic"
+# - "agent_route_dispatcher.llm_apis.cc"
 
 {
 	admin localhost:2019
@@ -15,7 +16,7 @@
 	log {
 		output stderr
 		format console
-		level INFO
+		level DEBUG
 	}
 
 	agent_gateway {
@@ -39,12 +40,14 @@ http://127.0.0.1:8080 {
 	log {
 		output stderr
 		format console
+		level DEBUG
 	}
 
 	# LLM API routes
 	agent_route_dispatcher {
 		llm_api openai
 		llm_api anthropic
+		llm_api cc
 		mcp
 	}
 }

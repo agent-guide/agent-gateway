@@ -215,6 +215,7 @@ AGW_API_KEY=$(./agwctl gateway virtualkey get test-key | jq -r '.key')
 
 - `--stream`: use SSE streaming
 - `--api anthropic`: switch to the Anthropic-compatible surface
+- `--api cc`: switch to the Claude Code CLI-compatible surface
 - `--model <name>`: override the model name
 
 ---

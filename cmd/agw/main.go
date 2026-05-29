@@ -11,6 +11,7 @@ import (
 	_ "github.com/agent-guide/agent-gateway/caddy/configstore/sqlite"
 	_ "github.com/agent-guide/agent-gateway/caddy/dispatcher"
 	_ "github.com/agent-guide/agent-gateway/caddy/dispatcher/llmapi/anthropic"
+	_ "github.com/agent-guide/agent-gateway/caddy/dispatcher/llmapi/cc"
 	_ "github.com/agent-guide/agent-gateway/caddy/dispatcher/llmapi/openai"
 	_ "github.com/agent-guide/agent-gateway/caddy/gateway"
 

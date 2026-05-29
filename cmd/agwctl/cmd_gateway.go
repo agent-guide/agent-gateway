@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	_ "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/anthropic"
+	_ "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/cc"
 	_ "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/openai"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/anthropic"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/claudecode"

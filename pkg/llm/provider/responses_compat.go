@@ -385,13 +385,54 @@ func splitInstructionsAndInput(messages []*schema.Message) (string, []any) {
 			}
 			continue
 		}
+		items = append(items, responsesInputItemsFromMessage(msg)...)
+	}
+	return strings.Join(instructions, "\n"), items
+}
+
+func responsesInputItemsFromMessage(msg *schema.Message) []any {
+	if msg == nil {
+		return nil
+	}
+	if msg.Role == schema.Tool {
+		if strings.TrimSpace(msg.ToolCallID) == "" {
+			return []any{map[string]any{
+				"type":    "message",
+				"role":    string(schema.User),
+				"content": responsesContentPartsFromMessage(msg),
+			}}
+		}
+		return []any{map[string]any{
+			"type":    "function_call_output",
+			"call_id": msg.ToolCallID,
+			"output":  msg.Content,
+		}}
+	}
+
+	items := make([]any, 0, 1+len(msg.ToolCalls))
+	if msg.Content != "" || len(msg.UserInputMultiContent) > 0 || len(msg.ToolCalls) == 0 {
 		items = append(items, map[string]any{
 			"type":    "message",
 			"role":    string(msg.Role),
 			"content": responsesContentPartsFromMessage(msg),
 		})
 	}
-	return strings.Join(instructions, "\n"), items
+	for _, tc := range msg.ToolCalls {
+		callID := strings.TrimSpace(tc.ID)
+		if callID == "" {
+			callID = strings.TrimSpace(tc.Function.Name)
+		}
+		if callID == "" || strings.TrimSpace(tc.Function.Name) == "" {
+			continue
+		}
+		items = append(items, map[string]any{
+			"type":      "function_call",
+			"call_id":   callID,
+			"name":      tc.Function.Name,
+			"arguments": tc.Function.Arguments,
+		})
+	}
+	return items
 }
 
 func responsesContentPartsFromMessage(msg *schema.Message) []any {
@@ -426,6 +467,11 @@ func responseInputItemToMessage(item any) (*schema.Message, error) {
 	}
 
 	role, _ := obj["role"].(string)
+	if typ, _ := obj["type"].(string); typ == "function_call_output" {
+		output, _ := obj["output"].(string)
+		callID, _ := obj["call_id"].(string)
+		return &schema.Message{Role: schema.Tool, Content: output, ToolCallID: callID}, nil
+	}
 	if strings.TrimSpace(role) == "" {
 		role = string(schema.User)
 	}

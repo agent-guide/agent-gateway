@@ -21,7 +21,15 @@ import (
 
 // Handler handles Anthropic-format API requests (/v1/messages).
 type Handler struct {
-	logger *zap.Logger
+	logger              *zap.Logger
+	name                string
+	estimateCountTokens bool
+}
+
+// HandlerOptions configures an Anthropic-format handler variant.
+type HandlerOptions struct {
+	Name                string
+	EstimateCountTokens bool
 }
 
 func init() {
@@ -30,11 +38,27 @@ func init() {
 
 // NewHandler creates a Handler.
 func NewHandler(_ provider.Provider) *Handler {
-	return &Handler{logger: zap.NewNop()}
+	return NewHandlerWithOptions(HandlerOptions{Name: "anthropic"})
+}
+
+// NewHandlerWithOptions creates a configured Anthropic-format handler.
+func NewHandlerWithOptions(opts HandlerOptions) *Handler {
+	name := strings.TrimSpace(opts.Name)
+	if name == "" {
+		name = "anthropic"
+	}
+	return &Handler{
+		logger:              zap.NewNop(),
+		name:                name,
+		estimateCountTokens: opts.EstimateCountTokens,
+	}
 }
 
 func (h *Handler) Name() string {
-	return "anthropic"
+	if h == nil || strings.TrimSpace(h.name) == "" {
+		return "anthropic"
+	}
+	return h.name
 }
 
 // SetLogger configures the handler logger.
@@ -61,7 +85,7 @@ func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLM
 		return nil, llmroutepkg.RequestRequirements{}, fmt.Errorf("invalid request: %s", err)
 	}
 
-	h.logger.Debug("anthropic: request prepared",
+	h.logger.Debug(h.Name()+": request prepared",
 		zap.String("model", req.Model),
 		zap.Bool("stream", req.Stream),
 		zap.Int("message_count", len(req.Messages)),
@@ -90,7 +114,7 @@ func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provi
 	}
 
 	if strings.HasSuffix(r.URL.Path, "/count_tokens") {
-		h.handleCountTokens(w, r)
+		h.handleCountTokens(w, r, prepared)
 		return nil
 	}
 	h.handleMessages(w, r, prov, prepared)
@@ -129,7 +153,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request, prov pr
 		return
 	}
 
-	h.logger.Debug("anthropic: calling provider",
+	h.logger.Debug(h.Name()+": calling provider",
 		zap.String("model", chatReq.Model),
 		zap.Int("message_count", len(chatReq.Messages)),
 		zap.String("provider_type", prov.Config().ProviderType),
@@ -145,7 +169,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request, prov pr
 		contentLen = len(resp.Message.Content)
 		finishReason = provider.FinishReason(resp.Message)
 	}
-	h.logger.Debug("anthropic: provider response received",
+	h.logger.Debug(h.Name()+": provider response received",
 		zap.String("model", chatReq.Model),
 		zap.Int("content_length", contentLen),
 		zap.String("finish_reason", finishReason),
@@ -156,17 +180,11 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request, prov pr
 
 func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provider.Provider, chatReq *provider.ChatRequest, model string) {
 	ctx := r.Context()
-	h.logger.Debug("anthropic: starting stream",
+	h.logger.Debug(h.Name()+": starting stream",
 		zap.String("model", chatReq.Model),
 		zap.Int("message_count", len(chatReq.Messages)),
 		zap.String("provider_type", prov.Config().ProviderType),
 	)
-	stream, err := prov.StreamChat(ctx, chatReq)
-	if err != nil {
-		h.writeProviderError(w, r, chatReq.Model, err)
-		return
-	}
-	defer stream.Close()
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -189,11 +207,37 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 		flusher.Flush()
 	}
 
+	stream, err := prov.StreamChat(ctx, chatReq)
+	if err != nil {
+		httplog.Error(h.logger, "http request failed", r, http.StatusOK, fmt.Errorf("open stream: %w", err),
+			zap.String("protocol", h.Name()),
+			zap.String("model", chatReq.Model),
+		)
+		writeSSEEvent(w, "error", anthropicErrorResponse{
+			Type: "error",
+			Error: anthropicErrorBody{
+				Type:    "api_error",
+				Message: err.Error(),
+			},
+		})
+		if canFlush {
+			flusher.Flush()
+		}
+		return
+	}
+	defer stream.Close()
+	h.logger.Debug(h.Name()+": provider stream opened",
+		zap.String("model", chatReq.Model),
+		zap.String("provider_type", prov.Config().ProviderType),
+	)
+
 	chunkCount := 0
 	textBlockStarted := false
+	textBlockIndex := -1
 	finalStopReason := "end_turn"
 	finalOutputTokens := 0
 	nextBlockIndex := 0
+	emittedToolUse := false
 	for {
 		chunk, err := stream.Recv()
 		if err == io.EOF {
@@ -201,25 +245,36 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 		}
 		if err != nil {
 			httplog.Error(h.logger, "http request failed", r, http.StatusOK, fmt.Errorf("receive stream chunk: %w", err),
-				zap.String("protocol", "anthropic"),
+				zap.String("protocol", h.Name()),
 				zap.String("model", chatReq.Model),
 				zap.Int("chunks_received", chunkCount),
 			)
-			break
+			writeSSEEvent(w, "error", anthropicErrorResponse{
+				Type: "error",
+				Error: anthropicErrorBody{
+					Type:    "api_error",
+					Message: err.Error(),
+				},
+			})
+			if canFlush {
+				flusher.Flush()
+			}
+			return
 		}
 		chunkCount++
 
 		if text := extractText(chunk); text != "" {
 			if !textBlockStarted {
+				textBlockIndex = nextBlockIndex
 				writeSSEEvent(w, "content_block_start", map[string]any{
-					"type": "content_block_start", "index": nextBlockIndex,
+					"type": "content_block_start", "index": textBlockIndex,
 					"content_block": map[string]string{"type": "text", "text": ""},
 				})
 				textBlockStarted = true
 				nextBlockIndex++
 			}
 			writeSSEEvent(w, "content_block_delta", map[string]any{
-				"type": "content_block_delta", "index": 0,
+				"type": "content_block_delta", "index": textBlockIndex,
 				"delta": map[string]string{"type": "text_delta", "text": text},
 			})
 			if canFlush {
@@ -245,6 +300,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 			writeSSEEvent(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": idx})
 			nextBlockIndex++
 			finalStopReason = "tool_use"
+			emittedToolUse = true
 			if canFlush {
 				flusher.Flush()
 			}
@@ -253,6 +309,9 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 		if chunk != nil && chunk.ResponseMeta != nil {
 			if chunk.ResponseMeta.FinishReason != "" {
 				reason := mapAnthropicStopReason(chunk.ResponseMeta.FinishReason)
+				if reason == "tool_use" && !emittedToolUse {
+					reason = "end_turn"
+				}
 				if reason != "" {
 					finalStopReason = reason
 				}
@@ -263,12 +322,12 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 		}
 	}
 
-	h.logger.Debug("anthropic: stream completed",
+	h.logger.Debug(h.Name()+": stream completed",
 		zap.String("model", model),
 		zap.Int("chunks", chunkCount),
 	)
 	if textBlockStarted {
-		writeSSEEvent(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
+		writeSSEEvent(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": textBlockIndex})
 	}
 	writeSSEEvent(w, "message_delta", map[string]any{
 		"type":  "message_delta",
@@ -281,8 +340,52 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 	}
 }
 
-func (h *Handler) handleCountTokens(w http.ResponseWriter, _ *http.Request) {
-	h.writeError(w, nil, http.StatusNotImplemented, fmt.Errorf("count_tokens is not supported"))
+func (h *Handler) handleCountTokens(w http.ResponseWriter, r *http.Request, prepared *dispatcher.PreparedLLMApiRequest) {
+	if !h.estimateCountTokens {
+		h.writeError(w, r, http.StatusNotImplemented, fmt.Errorf("count_tokens is not supported"))
+		return
+	}
+	var req *MessagesRequest
+	if prepared != nil {
+		req, _ = prepared.RawRequest.(*MessagesRequest)
+	}
+	if req == nil {
+		parsed, _, err := h.PrepareLLMApiRequest(r)
+		if err != nil {
+			h.writeError(w, r, statuserr.StatusCode(err, http.StatusBadRequest), fmt.Errorf("prepare request: %w", err))
+			return
+		}
+		req, _ = parsed.RawRequest.(*MessagesRequest)
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{
+		"input_tokens": estimateAnthropicInputTokens(req),
+	})
+}
+
+func estimateAnthropicInputTokens(req *MessagesRequest) int {
+	if req == nil {
+		return 1
+	}
+	chars := len(req.System.Text())
+	for _, msg := range req.Messages {
+		chars += len(msg.Role)
+		chars += len(msg.Content.Text())
+		for _, block := range msg.Content {
+			chars += len(block.Type) + len(block.Text) + len(block.ID) + len(block.Name) + len(block.ToolUseID)
+			chars += len(block.Input)
+			if block.Source != nil {
+				chars += len(block.Source.Type) + len(block.Source.MediaType) + len(block.Source.Data) + len(block.Source.URL)
+			}
+		}
+	}
+	for _, tool := range req.Tools {
+		chars += len(tool.Name) + len(tool.Description) + len(tool.InputSchema)
+	}
+	tokens := chars / 4
+	if tokens < 1 {
+		return 1
+	}
+	return tokens
 }
 
 // writeError logs and writes an Anthropic-format error response.
@@ -292,7 +395,7 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, status int,
 		msg = cause.Error()
 	}
 	if r != nil {
-		logFields := []zap.Field{zap.String("protocol", "anthropic")}
+		logFields := []zap.Field{zap.String("protocol", h.Name())}
 		dispatcher.WriteHttpErrorLog(h.logger, w, r, status, "", cause, logFields...)
 	}
 	_ = httpjson.Write(w, status, anthropicErrorResponse{
@@ -306,7 +409,7 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, status int,
 
 // writeProviderError logs and writes an Anthropic-format error response for upstream errors.
 func (h *Handler) writeProviderError(w http.ResponseWriter, r *http.Request, model string, err error) {
-	status, msg := dispatcher.WriteProviderErrorLog(h.logger, w, r, "anthropic", model, "generate response", err)
+	status, msg := dispatcher.WriteProviderErrorLog(h.logger, w, r, h.Name(), model, "generate response", err)
 	_ = httpjson.Write(w, status, anthropicErrorResponse{
 		Type: "error",
 		Error: anthropicErrorBody{

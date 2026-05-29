@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -43,31 +44,132 @@ func TestChatStateToResponsesRequestMovesSystemMessagesToInstructions(t *testing
 	}
 }
 
-func TestSanitizeResponsesRequestProvidesDefaultInstructionsWhenMissing(t *testing.T) {
+func TestSanitizeResponsesRequestLeavesMissingInstructionsEmpty(t *testing.T) {
 	req := sanitizeResponsesRequest(&provider.ResponsesRequest{
 		Model: "gpt-5.4",
 		Input: []any{},
-	})
+	}, false)
 
-	if req.Instructions != "You are a helpful assistant." {
-		t.Fatalf("instructions = %q", req.Instructions)
+	if req.Instructions != "" {
+		t.Fatalf("instructions = %q, want empty", req.Instructions)
 	}
 }
 
 func TestSanitizeResponsesRequestEnforcesCodexBackendControls(t *testing.T) {
 	storeTrue := true
 	req := sanitizeResponsesRequest(&provider.ResponsesRequest{
-		Model:           "gpt-5.4",
-		Input:           []any{},
+		Model: "gpt-5.4",
+		Input: []any{map[string]any{
+			"type": "message",
+			"role": "user",
+			"content": []any{map[string]any{
+				"type": "input_text",
+				"text": "hello",
+			}},
+		}, map[string]any{
+			"type": "message",
+			"role": "assistant",
+			"content": []any{map[string]any{
+				"type": "input_text",
+				"text": "previous answer",
+			}},
+		}, map[string]any{
+			"type": "message",
+			"role": "tool",
+			"content": []any{map[string]any{
+				"type": "input_text",
+				"text": "tool output",
+			}},
+		}},
 		MaxOutputTokens: 1234,
-		Store:           &storeTrue,
-	})
+		Metadata:        map[string]any{"trace_id": "abc123"},
+		Text:            map[string]any{"format": map[string]any{"type": "json_schema", "schema": map[string]any{"type": "object"}}},
+		Tools: []provider.ResponsesToolDefinition{{
+			Type: "function",
+			Function: &provider.ResponsesToolFunction{
+				Name:        "lookup",
+				Description: "Lookup data",
+				Parameters:  json.RawMessage(`{"type":"object"}`),
+			},
+		}, {
+			Type: "function",
+			Function: &provider.ResponsesToolFunction{
+				Name:        "Agent",
+				Description: "Launch subagent",
+				Parameters:  json.RawMessage(`{"type":"object"}`),
+			},
+		}},
+		Store: &storeTrue,
+	}, false)
 
 	if req.MaxOutputTokens != 0 {
 		t.Fatalf("max_output_tokens = %d, want 0", req.MaxOutputTokens)
 	}
 	if req.Store == nil || *req.Store != false {
 		t.Fatalf("store = %#v, want false", req.Store)
+	}
+	if req.ParallelToolCalls == nil || *req.ParallelToolCalls != false {
+		t.Fatalf("parallel_tool_calls = %#v, want false", req.ParallelToolCalls)
+	}
+	if req.Metadata != nil {
+		t.Fatalf("metadata = %#v, want nil", req.Metadata)
+	}
+	inputItems, _ := req.Input.([]any)
+	userItem, _ := inputItems[0].(map[string]any)
+	userContent, _ := userItem["content"].([]any)
+	userContentPart, _ := userContent[0].(map[string]any)
+	if userContentPart["type"] != "input_text" {
+		t.Fatalf("user input content type = %#v, want input_text", userContentPart["type"])
+	}
+	assistantItem, _ := inputItems[1].(map[string]any)
+	assistantContent, _ := assistantItem["content"].([]any)
+	assistantContentPart, _ := assistantContent[0].(map[string]any)
+	if assistantContentPart["type"] != "output_text" {
+		t.Fatalf("assistant input content type = %#v, want output_text", assistantContentPart["type"])
+	}
+	toolItem, _ := inputItems[2].(map[string]any)
+	if toolItem["role"] != "user" {
+		t.Fatalf("tool result role = %#v, want user", toolItem["role"])
+	}
+	toolContent, _ := toolItem["content"].([]any)
+	toolContentPart, _ := toolContent[0].(map[string]any)
+	if toolContentPart["type"] != "input_text" {
+		t.Fatalf("tool result content type = %#v, want input_text", toolContentPart["type"])
+	}
+	if len(req.Tools) != 2 || req.Tools[0].Name != "lookup" || req.Tools[1].Name != "Agent" || req.Tools[0].Function != nil || req.Tools[1].Function != nil {
+		t.Fatalf("tools = %#v, want flattened lookup and Agent tools", req.Tools)
+	}
+	if string(req.Tools[0].Parameters) != `{"type":"object"}` {
+		t.Fatalf("tool parameters = %s, want object schema", string(req.Tools[0].Parameters))
+	}
+	format, _ := req.Text["format"].(map[string]any)
+	if format["name"] != "response" {
+		t.Fatalf("text.format = %#v, want default name", format)
+	}
+}
+
+func TestSanitizeResponsesRequestCCCompatFiltersStatefulClaudeCodeTools(t *testing.T) {
+	req := sanitizeResponsesRequest(&provider.ResponsesRequest{
+		Model:      "gpt-5.4",
+		Input:      []any{},
+		ToolChoice: json.RawMessage(`{"type":"function","name":"Agent"}`),
+		Tools: []provider.ResponsesToolDefinition{{
+			Type: "function",
+			Name: "lookup",
+		}, {
+			Type: "function",
+			Name: "Agent",
+		}, {
+			Type: "function",
+			Name: "spawnTeam",
+		}},
+	}, true)
+
+	if len(req.Tools) != 1 || req.Tools[0].Name != "lookup" {
+		t.Fatalf("tools = %#v, want only lookup", req.Tools)
+	}
+	if len(req.ToolChoice) != 0 {
+		t.Fatalf("tool_choice = %s, want omitted", string(req.ToolChoice))
 	}
 }
 
@@ -160,9 +262,8 @@ func TestChatCarriesRequestControlsToResponsesPayload(t *testing.T) {
 	if captured["user"] != "user-1" {
 		t.Fatalf("user = %#v, want user-1", captured["user"])
 	}
-	metadata, _ := captured["metadata"].(map[string]any)
-	if metadata["trace_id"] != "abc123" {
-		t.Fatalf("metadata = %+v, want trace_id", metadata)
+	if _, ok := captured["metadata"]; ok {
+		t.Fatalf("metadata = %#v, want omitted", captured["metadata"])
 	}
 	reasoning, _ := captured["reasoning"].(map[string]any)
 	if reasoning["effort"] != "high" || reasoning["summary"] != "auto" {
@@ -173,4 +274,221 @@ func TestChatCarriesRequestControlsToResponsesPayload(t *testing.T) {
 	if format["type"] != "json_schema" || format["name"] != "answer" || format["strict"] != true {
 		t.Fatalf("text.format = %+v, want flattened json_schema", format)
 	}
+}
+
+func TestResponsesEventStreamToMessageStreamEmitsToolCalls(t *testing.T) {
+	sr, sw := schema.Pipe[*provider.ResponsesStreamEvent](16)
+	stream := responsesEventStreamToMessageStream(sr, false)
+
+	sw.Send(&provider.ResponsesStreamEvent{
+		Type:        "response.output_item.added",
+		OutputIndex: 1,
+		ItemID:      "fc_1",
+		Item: &provider.ResponsesResponseOutput{
+			ID:     "fc_1",
+			Type:   "function_call",
+			CallID: "call_1",
+			Name:   "lookup",
+		},
+	}, nil)
+	sw.Send(&provider.ResponsesStreamEvent{
+		Type:        "response.function_call_arguments.delta",
+		OutputIndex: 1,
+		ItemID:      "fc_1",
+		Delta:       `{"q":`,
+	}, nil)
+	sw.Send(&provider.ResponsesStreamEvent{
+		Type:        "response.function_call_arguments.delta",
+		OutputIndex: 1,
+		ItemID:      "fc_1",
+		Delta:       `"cat"}`,
+	}, nil)
+	sw.Send(&provider.ResponsesStreamEvent{
+		Type:        "response.output_item.done",
+		OutputIndex: 1,
+		ItemID:      "fc_1",
+		Item: &provider.ResponsesResponseOutput{
+			ID:     "fc_1",
+			Type:   "function_call",
+			CallID: "call_1",
+			Name:   "lookup",
+		},
+	}, nil)
+	sw.Close()
+
+	msg, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("Recv() error = %v", err)
+	}
+	if len(msg.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %+v, want one", msg.ToolCalls)
+	}
+	tc := msg.ToolCalls[0]
+	if tc.ID != "call_1" || tc.Function.Name != "lookup" || tc.Function.Arguments != `{"q":"cat"}` {
+		t.Fatalf("tool call = %+v, want lookup with merged args", tc)
+	}
+	if _, err := stream.Recv(); err != io.EOF {
+		t.Fatalf("second Recv() error = %v, want EOF", err)
+	}
+}
+
+func TestResponsesEventStreamToMessageStreamDeduplicatesToolCallTerminalEvents(t *testing.T) {
+	sr, sw := schema.Pipe[*provider.ResponsesStreamEvent](16)
+	stream := responsesEventStreamToMessageStream(sr, false)
+
+	sw.Send(&provider.ResponsesStreamEvent{
+		Type:        "response.output_item.added",
+		OutputIndex: 1,
+		ItemID:      "fc_1",
+		Item: &provider.ResponsesResponseOutput{
+			ID:     "fc_1",
+			Type:   "function_call",
+			CallID: "call_1",
+			Name:   "lookup",
+		},
+	}, nil)
+	sw.Send(&provider.ResponsesStreamEvent{
+		Type:        "response.function_call_arguments.delta",
+		OutputIndex: 1,
+		ItemID:      "fc_1",
+		Delta:       `{"q":"cat"}`,
+	}, nil)
+	sw.Send(&provider.ResponsesStreamEvent{
+		Type:        "response.function_call_arguments.done",
+		OutputIndex: 1,
+		ItemID:      "fc_1",
+	}, nil)
+	sw.Send(&provider.ResponsesStreamEvent{
+		Type:        "response.output_item.done",
+		OutputIndex: 1,
+		ItemID:      "fc_1",
+		Item: &provider.ResponsesResponseOutput{
+			ID:        "fc_1",
+			Type:      "function_call",
+			CallID:    "call_1",
+			Name:      "lookup",
+			Arguments: `{"q":"cat"}`,
+		},
+	}, nil)
+	sw.Close()
+
+	msg, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("Recv() error = %v", err)
+	}
+	if len(msg.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %+v, want one", msg.ToolCalls)
+	}
+	tc := msg.ToolCalls[0]
+	if tc.ID != "call_1" || tc.Function.Name != "lookup" {
+		t.Fatalf("tool call = %+v, want lookup once", tc)
+	}
+	if _, err := stream.Recv(); err != io.EOF {
+		t.Fatalf("second Recv() error = %v, want EOF", err)
+	}
+}
+
+func TestResponsesEventStreamToMessageStreamEmitsAgentToolCalls(t *testing.T) {
+	sr, sw := schema.Pipe[*provider.ResponsesStreamEvent](16)
+	stream := responsesEventStreamToMessageStream(sr, false)
+
+	sw.Send(&provider.ResponsesStreamEvent{
+		Type:        "response.output_item.added",
+		OutputIndex: 1,
+		ItemID:      "fc_1",
+		Item: &provider.ResponsesResponseOutput{
+			ID:     "fc_1",
+			Type:   "function_call",
+			CallID: "call_1",
+			Name:   "Agent",
+		},
+	}, nil)
+	sw.Send(&provider.ResponsesStreamEvent{
+		Type:        "response.function_call_arguments.done",
+		OutputIndex: 1,
+		ItemID:      "fc_1",
+		Delta:       `{"name":"researcher"}`,
+	}, nil)
+	sw.Close()
+
+	msg, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("Recv() error = %v", err)
+	}
+	if len(msg.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %+v, want one", msg.ToolCalls)
+	}
+	if msg.ToolCalls[0].Function.Name != "Agent" {
+		t.Fatalf("tool call = %+v, want Agent", msg.ToolCalls[0])
+	}
+	if _, err := stream.Recv(); err != io.EOF {
+		t.Fatalf("second Recv() error = %v, want EOF", err)
+	}
+}
+
+func TestResponsesEventStreamToMessageStreamCCCompatFiltersAgentToolCalls(t *testing.T) {
+	sr, sw := schema.Pipe[*provider.ResponsesStreamEvent](16)
+	stream := responsesEventStreamToMessageStream(sr, true)
+
+	sw.Send(&provider.ResponsesStreamEvent{
+		Type:        "response.output_item.added",
+		OutputIndex: 1,
+		ItemID:      "fc_1",
+		Item: &provider.ResponsesResponseOutput{
+			ID:     "fc_1",
+			Type:   "function_call",
+			CallID: "call_1",
+			Name:   "Agent",
+		},
+	}, nil)
+	sw.Send(&provider.ResponsesStreamEvent{
+		Type:        "response.function_call_arguments.done",
+		OutputIndex: 1,
+		ItemID:      "fc_1",
+		Delta:       `{"name":"researcher"}`,
+	}, nil)
+	sw.Close()
+
+	if _, err := stream.Recv(); err != io.EOF {
+		t.Fatalf("Recv() error = %v, want EOF", err)
+	}
+}
+
+func TestResponsesEventStreamToMessageStreamCompletesOnResponseCompleted(t *testing.T) {
+	sr, sw := schema.Pipe[*provider.ResponsesStreamEvent](16)
+	stream := responsesEventStreamToMessageStream(sr, false)
+
+	sw.Send(&provider.ResponsesStreamEvent{
+		Type: "response.completed",
+		Response: &provider.ResponsesResponse{
+			Output: []provider.ResponsesResponseOutput{{
+				Type: "message",
+				Role: "assistant",
+				Content: []provider.ResponsesResponseContentPart{{
+					Type: "output_text",
+					Text: "done",
+				}},
+			}},
+		},
+	}, nil)
+
+	msg, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("first Recv() error = %v", err)
+	}
+	if msg.Content != "done" {
+		t.Fatalf("content = %q, want done", msg.Content)
+	}
+	msg, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("second Recv() error = %v", err)
+	}
+	if msg.ResponseMeta == nil || msg.ResponseMeta.FinishReason != "stop" {
+		t.Fatalf("response meta = %+v, want stop", msg.ResponseMeta)
+	}
+	if _, err := stream.Recv(); err != io.EOF {
+		t.Fatalf("third Recv() error = %v, want EOF", err)
+	}
+
+	sw.Close()
 }

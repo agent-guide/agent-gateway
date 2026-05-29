@@ -77,10 +77,27 @@ func chatExtraFields(req *MessagesRequest) *provider.ChatExtraFields {
 	if format := responseFormatFromOutputConfig(req.OutputConfig); format != nil {
 		extra.ResponseFormat = format
 	}
-	if len(extra.Reasoning) == 0 && len(extra.Metadata) == 0 && extra.ResponseFormat == nil {
+	if disabled, ok := disableParallelToolUseFromToolChoice(req.ToolChoice); ok {
+		parallel := !disabled
+		extra.ParallelToolCalls = &parallel
+	}
+	if len(extra.Reasoning) == 0 && len(extra.Metadata) == 0 && extra.ResponseFormat == nil && extra.ParallelToolCalls == nil {
 		return nil
 	}
 	return extra
+}
+
+func disableParallelToolUseFromToolChoice(raw json.RawMessage) (bool, bool) {
+	if len(raw) == 0 {
+		return false, false
+	}
+	var tc struct {
+		DisableParallelToolUse *bool `json:"disable_parallel_tool_use,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &tc); err != nil || tc.DisableParallelToolUse == nil {
+		return false, false
+	}
+	return *tc.DisableParallelToolUse, true
 }
 
 // reasoningFromThinking maps an inbound Anthropic thinking object onto the

@@ -200,11 +200,16 @@ func (b *Base) readResponsesStream(body io.ReadCloser, sw *schema.StreamWriter[*
 	defer body.Close()
 	defer sw.Close()
 
-	scanner := bufio.NewScanner(body)
+	reader := bufio.NewReader(body)
 	var eventName string
 	var data strings.Builder
-	for scanner.Scan() {
-		line := scanner.Text()
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			sw.Send(nil, fmt.Errorf("openaibase: read responses stream: %w", err))
+			return
+		}
+		line = strings.TrimRight(line, "\r\n")
 		switch {
 		case strings.HasPrefix(line, "event: "):
 			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
@@ -215,20 +220,52 @@ func (b *Base) readResponsesStream(body io.ReadCloser, sw *schema.StreamWriter[*
 				eventName = ""
 				continue
 			}
-			event, err := decodeResponsesStreamEvent(eventName, data.String())
+			payload := data.String()
+			if strings.TrimSpace(payload) == "[DONE]" {
+				return
+			}
+			event, err := decodeResponsesStreamEvent(eventName, payload)
 			if err != nil {
 				sw.Send(nil, err)
 				return
 			}
 			if event != nil {
-				sw.Send(event, nil)
+				if sw.Send(event, nil) {
+					return
+				}
+				if isResponsesTerminalEvent(event.Type) {
+					return
+				}
 			}
 			eventName = ""
 			data.Reset()
 		}
+		if err == io.EOF {
+			if data.Len() > 0 {
+				payload := data.String()
+				if strings.TrimSpace(payload) == "[DONE]" {
+					return
+				}
+				event, decodeErr := decodeResponsesStreamEvent(eventName, payload)
+				if decodeErr != nil {
+					sw.Send(nil, decodeErr)
+					return
+				}
+				if event != nil {
+					_ = sw.Send(event, nil)
+				}
+			}
+			return
+		}
 	}
-	if err := scanner.Err(); err != nil {
-		sw.Send(nil, fmt.Errorf("openaibase: read responses stream: %w", err))
+}
+
+func isResponsesTerminalEvent(eventType string) bool {
+	switch eventType {
+	case "response.completed", "response.failed", "response.incomplete":
+		return true
+	default:
+		return false
 	}
 }
 

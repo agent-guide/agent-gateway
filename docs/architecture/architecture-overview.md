@@ -33,6 +33,7 @@ HTTP handlers
 Dispatcher / protocol modules
   - agent_route_dispatcher.llm_apis.openai
   - agent_route_dispatcher.llm_apis.anthropic
+  - agent_route_dispatcher.llm_apis.cc
   - agent_route_dispatcher with MCP enabled
   |
   v
@@ -89,6 +90,7 @@ The `caddy/dispatcher/` package registers the `agent_route_dispatcher` Caddyfile
 agent_route_dispatcher {
     llm_api openai
     llm_api anthropic
+    llm_api cc
     mcp
 }
 ```
@@ -97,6 +99,9 @@ The HTTP handler is `http.handlers.agent_route_dispatcher`, and it loads LLM pro
 
 - `agent_route_dispatcher.llm_apis.openai`
 - `agent_route_dispatcher.llm_apis.anthropic`
+- `agent_route_dispatcher.llm_apis.cc`
+
+The `cc` handler is the Claude Code CLI-compatible ingress profile. It uses the Anthropic Messages wire format and keeps Claude Code-specific behavior out of the generic Anthropic handler and provider implementations.
 
 MCP handling is enabled with the dispatcher-local `mcp` option instead of a separate HTTP handler module.
 

@@ -31,8 +31,8 @@ var chatCmd = &cobra.Command{
 	Short: "Send a chat request to the agent gateway LLM API",
 	Long: `Send a single-turn chat request to the agent gateway's LLM API.
 
-Supports both the OpenAI-compatible (/v1/chat/completions) and
-Anthropic-compatible (/v1/messages) API surfaces, with optional SSE streaming.
+Supports OpenAI-compatible (/v1/chat/completions), Anthropic-compatible
+(/v1/messages), and Claude Code CLI-compatible API surfaces, with optional SSE streaming.
 
 Examples:
   agwctl chat "What is 2+2?"
@@ -47,10 +47,10 @@ Examples:
 		switch chatAPI {
 		case "openai":
 			return runChatOpenAI(prompt)
-		case "anthropic":
+		case "anthropic", "cc":
 			return runChatAnthropic(prompt)
 		default:
-			return fmt.Errorf("unknown --api %q: must be openai or anthropic", chatAPI)
+			return fmt.Errorf("unknown --api %q: must be openai, anthropic, or cc", chatAPI)
 		}
 	},
 }
@@ -296,7 +296,7 @@ func anthropicEndpointURL(baseURL, path string) string {
 
 func init() {
 	chatCmd.Flags().StringVar(&chatAPI, "api", envOr("AGW_API", "openai"),
-		"LLM API surface: openai or anthropic")
+		"LLM API surface: openai, anthropic, or cc")
 	chatCmd.Flags().StringVar(&chatBaseURL, "base-url", envOr("AGW_BASE_URL", "http://127.0.0.1:8080/v1"),
 		"gateway LLM API base URL (OpenAI usually includes /v1; Anthropic may omit it)")
 	chatCmd.Flags().StringVar(&chatAPIKey, "api-key", envOr("AGW_API_KEY", "test-key"),

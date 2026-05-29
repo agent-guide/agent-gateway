@@ -17,6 +17,7 @@ type RouteProtocol string
 const (
 	RouteProtocolOpenAI    RouteProtocol = "openai"
 	RouteProtocolAnthropic RouteProtocol = "anthropic"
+	RouteProtocolCC        RouteProtocol = "cc"
 	RouteProtocolMCP       RouteProtocol = "mcp"
 )
 

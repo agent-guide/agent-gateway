@@ -14,6 +14,7 @@ import (
 	configstoresqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
 	"github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	anthropicapi "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/anthropic"
+	ccapi "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/cc"
 	openaiapi "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/openai"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
@@ -216,9 +217,12 @@ func newLLMAPIHandlers(logger *zap.Logger) map[string]dispatcher.LLMApiHandler {
 	openAIHandler.SetLogger(logger.Named("openai"))
 	anthropicHandler := anthropicapi.NewHandler(nil)
 	anthropicHandler.SetLogger(logger.Named("anthropic"))
+	ccHandler := ccapi.NewHandler(nil)
+	ccHandler.SetLogger(logger.Named("cc"))
 	return map[string]dispatcher.LLMApiHandler{
 		openAIHandler.Name():    openAIHandler,
 		anthropicHandler.Name(): anthropicHandler,
+		ccHandler.Name():        ccHandler,
 	}
 }
 

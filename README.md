@@ -69,6 +69,7 @@ http://127.0.0.1:8080 {
 	agent_route_dispatcher {
 		llm_api openai
 		llm_api anthropic
+		llm_api cc
 		mcp
 	}
 }
@@ -124,6 +125,7 @@ http://127.0.0.1:8080 {
 	agent_route_dispatcher {
 		llm_api openai
 		llm_api anthropic
+		llm_api cc
 		mcp
 	}
 }
@@ -188,7 +190,7 @@ AGW_API_KEY=$(./agwctl gateway virtualkey get test-key | jq -r '.key')
 ./agwctl chat "hello" --api-key "$AGW_API_KEY"
 ```
 
-`agwctl chat` defaults to the OpenAI API at `http://127.0.0.1:8080/v1`. Pass `--stream` for SSE streaming or `--api anthropic` for the Anthropic-compatible surface.
+`agwctl chat` defaults to the OpenAI API at `http://127.0.0.1:8080/v1`. Pass `--stream` for SSE streaming, `--api anthropic` for the Anthropic-compatible surface, or `--api cc` for the Claude Code CLI-compatible surface.
 
 The `AGW_ADMIN_ADDR` environment variable sets the admin API address (default: `http://localhost:8019`). Run `agwctl gateway export` to dump the current gateway state as a bundle YAML.
 

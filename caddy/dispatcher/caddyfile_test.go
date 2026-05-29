@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	_ "github.com/agent-guide/agent-gateway/caddy/dispatcher/llmapi/anthropic"
+	_ "github.com/agent-guide/agent-gateway/caddy/dispatcher/llmapi/cc"
 	_ "github.com/agent-guide/agent-gateway/caddy/dispatcher/llmapi/openai"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	caddyfileadapter "github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -17,6 +18,7 @@ func TestParseAgentRouteDispatcher(t *testing.T) {
 	agent_route_dispatcher {
 		llm_api openai
 		llm_api anthropic
+		llm_api cc
 		mcp
 	}
 	`)
@@ -30,14 +32,17 @@ func TestParseAgentRouteDispatcher(t *testing.T) {
 	if !ok {
 		t.Fatalf("handler type = %T, want *AgentRouteDispatcher", handler)
 	}
-	if len(dispatcherHandler.APIHandlersRaw) != 2 {
-		t.Fatalf("api handler count = %d, want 2", len(dispatcherHandler.APIHandlersRaw))
+	if len(dispatcherHandler.APIHandlersRaw) != 3 {
+		t.Fatalf("api handler count = %d, want 3", len(dispatcherHandler.APIHandlersRaw))
 	}
 	if _, ok := dispatcherHandler.APIHandlersRaw["openai"]; !ok {
 		t.Fatal("missing openai api handler")
 	}
 	if _, ok := dispatcherHandler.APIHandlersRaw["anthropic"]; !ok {
 		t.Fatal("missing anthropic api handler")
+	}
+	if _, ok := dispatcherHandler.APIHandlersRaw["cc"]; !ok {
+		t.Fatal("missing cc api handler")
 	}
 	if !dispatcherHandler.EnableMCP {
 		t.Fatal("expected mcp to be enabled")
@@ -50,6 +55,7 @@ func TestAgentRouteDispatcherAdaptUsesHandlerType(t *testing.T) {
 			agent_route_dispatcher {
 				llm_api openai
 				llm_api anthropic
+				llm_api cc
 				mcp
 			}
 		}
@@ -65,7 +71,7 @@ func TestAgentRouteDispatcherAdaptUsesHandlerType(t *testing.T) {
 	if !strings.Contains(json, `"handler":"agent_route_dispatcher"`) {
 		t.Fatalf("adapted config missing agent_route_dispatcher handler: %s", json)
 	}
-	if !strings.Contains(json, `"api_handlers":{"anthropic":{}`) || !strings.Contains(json, `"openai":{}`) {
+	if !strings.Contains(json, `"api_handlers":{"anthropic":{}`) || !strings.Contains(json, `"cc":{}`) || !strings.Contains(json, `"openai":{}`) {
 		t.Fatalf("adapted config missing dispatcher api handlers: %s", json)
 	}
 	if !strings.Contains(json, `"mcp":true`) {

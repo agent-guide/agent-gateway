@@ -111,7 +111,7 @@ route openai-chat {
 
 Supported subdirectives:
 
-- `protocol <openai|anthropic>`
+- `protocol <openai|anthropic|cc>`
 - `host <host>`
 - `path_prefix <prefix>`
 - `method <method> [more-methods...]`

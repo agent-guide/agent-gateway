@@ -145,6 +145,48 @@ func TestResponsesFromChatResponsePreservesToolCalls(t *testing.T) {
 	}
 }
 
+func TestResponsesRequestFromChatStatePreservesToolCallHistory(t *testing.T) {
+	state := &ChatRequestState{
+		ModelName: "gpt-4.1",
+		Messages: []*schema.Message{
+			schema.UserMessage("start"),
+			{
+				Role: schema.Assistant,
+				ToolCalls: []schema.ToolCall{{
+					ID:   "call_1",
+					Type: "function",
+					Function: schema.FunctionCall{
+						Name:      "lookup",
+						Arguments: `{"q":"cat"}`,
+					},
+				}},
+			},
+			{
+				Role:       schema.Tool,
+				ToolCallID: "call_1",
+				Content:    "tool output",
+			},
+		},
+	}
+
+	req := ResponsesRequestFromChatState(state, true)
+	items, ok := req.Input.([]any)
+	if !ok {
+		t.Fatalf("input = %T, want []any", req.Input)
+	}
+	if len(items) != 3 {
+		t.Fatalf("input count = %d, want 3", len(items))
+	}
+	call, _ := items[1].(map[string]any)
+	if call["type"] != "function_call" || call["call_id"] != "call_1" || call["name"] != "lookup" || call["arguments"] != `{"q":"cat"}` {
+		t.Fatalf("function_call item = %+v", call)
+	}
+	output, _ := items[2].(map[string]any)
+	if output["type"] != "function_call_output" || output["call_id"] != "call_1" || output["output"] != "tool output" {
+		t.Fatalf("function_call_output item = %+v", output)
+	}
+}
+
 func TestStreamResponsesViaChatEmitsFunctionCallEvents(t *testing.T) {
 	prov := &testResponsesCompatProvider{
 		streamResp: schema.StreamReaderFromArray([]*schema.Message{{
