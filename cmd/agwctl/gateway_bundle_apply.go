@@ -78,9 +78,6 @@ func runGatewayApply(ctx context.Context, path string) error {
 		summary.Actions = append(summary.Actions, item)
 	}
 
-	if err := applyProviderTypes(ctx, client, bundle, record); err != nil {
-		return err
-	}
 	if err := applyProviders(ctx, client, bundle, record); err != nil {
 		return err
 	}
@@ -116,7 +113,7 @@ func runGatewayApply(ctx context.Context, path string) error {
 	return nil
 }
 
-func applyProviderTypes(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+func ensureProviderTypesEnabled(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle) error {
 	items, err := client.ListProviderTypes(ctx)
 	if err != nil {
 		return err
@@ -125,33 +122,26 @@ func applyProviderTypes(ctx context.Context, client *adminclient.Client, bundle 
 	for _, item := range items {
 		current[strings.ToLower(strings.TrimSpace(item.ProviderType))] = item.Enabled
 	}
-	for _, item := range bundle.ProviderTypes {
-		id := strings.ToLower(strings.TrimSpace(item.ProviderType))
-		enabled, ok := current[id]
-		if ok && enabled == item.Enabled {
-			record("provider_type", id, "skip", nil)
+	for _, item := range bundle.Providers {
+		providerType := strings.ToLower(strings.TrimSpace(item.ProviderType))
+		if providerType == "" {
 			continue
 		}
-		var callErr error
-		if item.Enabled {
-			_, callErr = client.EnableProviderType(ctx, id)
-		} else {
-			_, callErr = client.DisableProviderType(ctx, id)
+		enabled, ok := current[providerType]
+		if !ok {
+			return fmt.Errorf("providers[%q]: unknown provider_type %q", item.Id, providerType)
 		}
-		if callErr != nil {
-			record("provider_type", id, "error", fmt.Errorf("provider_type %q: %w", id, callErr))
-			continue
-		}
-		if ok {
-			record("provider_type", id, "update", nil)
-		} else {
-			record("provider_type", id, "create", nil)
+		if !enabled {
+			return fmt.Errorf("providers[%q]: provider_type %q is not enabled by this gateway runtime", item.Id, providerType)
 		}
 	}
 	return nil
 }
 
 func applyProviders(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+	if err := ensureProviderTypesEnabled(ctx, client, bundle); err != nil {
+		return err
+	}
 	items, err := client.ListProviders(ctx, adminclient.ProviderListOptions{})
 	if err != nil {
 		return err

@@ -121,7 +121,7 @@ Responsibilities:
 - CRUD for providers, routes, virtual keys, and credentials
 - CRUD for `mcp_services` and MCP routes
 - MCP discovery, execution, and dispatcher runtime inspection
-- enable or disable provider types and LLM API handler types
+- list startup-enabled provider types and LLM API handler types
 - configure and trigger CLI auth authenticators
 - start CLI auth logins bound to one `provider_id` and optional credential scope
 - expose stubbed memory, agent, and metrics endpoints
@@ -245,8 +245,7 @@ Provider registration rules:
 
 - implement the `provider.Provider` interface
 - register the factory with `provider.RegisterProviderFactory(...)`
-- add a Caddy adapter under `caddy/provider/<name>` that registers `llm.providers.<name>`
-- add a blank import for the Caddy adapter in `cmd/agw/main.go` so the provider is linked into the binary
+- add a blank import for the runtime provider package in `cmd/agw/main.go` and `cmd/agwd/main.go` so the provider is linked into the binaries
 
 ### `pkg/cliauth/`
 
@@ -334,6 +333,10 @@ Minimal example:
             path ./data/configstore.db
         }
 
+        provider_types {
+            openai
+        }
+
         provider openai-main {
             provider_type openai
             api_key {$OPENAI_API_KEY}
@@ -361,6 +364,7 @@ http://127.0.0.1:8080 {
 
 Important current directives:
 
+- `provider_types` is startup-only provider type availability; when omitted all registered provider types are enabled
 - providers use `provider_type <name>`
 - LLM routes use `protocol <openai|anthropic|cc>` and MCP routes use `protocol mcp`
 - `agent_route_dispatcher` uses `llm_api <name>` for LLM protocol handlers and `mcp` to enable MCP protocol handling
@@ -372,7 +376,7 @@ Implemented families:
 
 - `/admin/auth/...`
 - `/admin/providers/...`
-- `/admin/provider_types/...`
+- `/admin/provider_types` read-only listing
 - `/admin/llm_api_handler_types`
 - `/admin/llm/routes/...`
 - `/admin/virtual_keys/...`

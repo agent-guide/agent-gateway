@@ -63,8 +63,8 @@ The `caddy/gateway.App` type is the root Caddy app module with module ID `agent_
 Its responsibilities are:
 
 - Provision the configured config store
-- Load provider modules from `llm.providers.*`
-- Load authenticator modules from `llm.authenticators.*`
+- Load static provider configs and instantiate runtime providers through the provider registry
+- Initialize authenticator factories registered by runtime imports
 - Initialize the credential manager
 - Restore persisted credentials from storage
 - Build route loading and provider resolution dependencies
@@ -235,6 +235,10 @@ Static configuration lives in the global `agent_gateway` Caddyfile block:
 ```caddy
 {
     agent_gateway {
+        provider_types {
+            openai
+        }
+
         provider openai-main {
             provider_type openai
             ...
@@ -431,7 +435,7 @@ The codebase is designed to be extended in a few stable ways:
 
 ### 9.1 New Provider
 
-Implement `provider.Provider` in `pkg/llm/provider/<name>`. If the provider should also be available in the `agw` binary, add the corresponding Caddy adapter under `caddy/provider/<name>` and link it from `cmd/agw/main.go`.
+Implement `provider.Provider` in `pkg/llm/provider/<name>`. If the provider should also be available in the gateway binaries, link the runtime package from `cmd/agw/main.go` and `cmd/agwd/main.go`.
 
 This is the most mature extension path in the project today.
 

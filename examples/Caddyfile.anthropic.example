@@ -21,6 +21,10 @@
 			path ./data/configstore.db
 		}
 
+		provider_types {
+			zhipu
+		}
+
 		provider zhipu-test {
 			provider_type zhipu
 			api_key {$ZHIPU_API_KEY}

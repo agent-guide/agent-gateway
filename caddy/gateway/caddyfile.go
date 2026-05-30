@@ -1,12 +1,12 @@
 package gateway
 
 import (
-	"encoding/json"
 	"strconv"
 	"strings"
 
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -36,6 +36,10 @@ func parseApp(d *caddyfile.Dispenser, existingVal any) (any, error) {
 			if err := parseProvider(d, app); err != nil {
 				return nil, err
 			}
+		case "provider_types":
+			if err := parseProviderTypes(d, app); err != nil {
+				return nil, err
+			}
 		case "config_store":
 			if err := parseConfigStore(d, app); err != nil {
 				return nil, err
@@ -60,64 +64,192 @@ func parseApp(d *caddyfile.Dispenser, existingVal any) (any, error) {
 }
 
 func parseProvider(d *caddyfile.Dispenser, app *App) error {
-	segment := d.NextSegment()
-	scan := caddyfile.NewDispenser(segment)
-	if !scan.Next() {
+	seg := d.NewFromNextSegment()
+	if !seg.Next() {
 		return d.Err("expected provider directive")
 	}
-	if !scan.NextArg() {
-		return scan.ArgErr()
-	}
-	providerID := scan.Val()
-	if scan.NextArg() {
-		return scan.ArgErr()
-	}
-	providerType, err := providerTypeFromSegment(scan)
+	cfg, err := parseProviderConfig(seg)
 	if err != nil {
 		return err
 	}
-
-	unmarshal := caddyfile.NewDispenser(segment)
-	if !unmarshal.Next() || !unmarshal.NextArg() {
-		return d.ArgErr()
+	if app.Providers == nil {
+		app.Providers = make(map[string]provider.ProviderConfig)
 	}
-	modID := "llm.providers." + providerType
-	unm, err := caddyfile.UnmarshalModule(unmarshal, modID)
-	if err != nil {
-		return err
+	if _, exists := app.Providers[cfg.Id]; exists {
+		return d.Errf("duplicate provider %q", cfg.Id)
 	}
-
-	if app.ProvidersRaw == nil {
-		app.ProvidersRaw = make(map[string]json.RawMessage)
-	}
-	if _, exists := app.ProvidersRaw[providerID]; exists {
-		return d.Errf("duplicate provider %q", providerID)
-	}
-	app.ProvidersRaw[providerID] = caddyconfig.JSON(unm, nil)
+	app.Providers[cfg.Id] = cfg
 	return nil
 }
 
-func providerTypeFromSegment(d *caddyfile.Dispenser) (string, error) {
-	var providerType string
+func parseProviderConfig(d *caddyfile.Dispenser) (provider.ProviderConfig, error) {
+	var cfg provider.ProviderConfig
+	if !d.NextArg() {
+		return provider.ProviderConfig{}, d.ArgErr()
+	}
+	cfg.Id = d.Val()
+	if cfg.Id == "" {
+		return provider.ProviderConfig{}, d.Err("provider id is required")
+	}
+	if d.NextArg() {
+		return provider.ProviderConfig{}, d.ArgErr()
+	}
 	for d.NextBlock(0) {
-		if d.Val() != "provider_type" {
-			continue
+		switch d.Val() {
+		case "provider_type":
+			if cfg.ProviderType != "" {
+				return provider.ProviderConfig{}, d.Err("provider_type already configured")
+			}
+			if !d.NextArg() {
+				return provider.ProviderConfig{}, d.ArgErr()
+			}
+			cfg.ProviderType = strings.ToLower(strings.TrimSpace(d.Val()))
+			if d.NextArg() {
+				return provider.ProviderConfig{}, d.ArgErr()
+			}
+		case "api_key":
+			if !d.NextArg() {
+				return provider.ProviderConfig{}, d.ArgErr()
+			}
+			cfg.APIKey = d.Val()
+			if d.NextArg() {
+				return provider.ProviderConfig{}, d.ArgErr()
+			}
+		case "base_url":
+			if !d.NextArg() {
+				return provider.ProviderConfig{}, d.ArgErr()
+			}
+			cfg.BaseURL = d.Val()
+			if d.NextArg() {
+				return provider.ProviderConfig{}, d.ArgErr()
+			}
+		case "default_model":
+			if !d.NextArg() {
+				return provider.ProviderConfig{}, d.ArgErr()
+			}
+			cfg.DefaultModel = d.Val()
+			if d.NextArg() {
+				return provider.ProviderConfig{}, d.ArgErr()
+			}
+		case "request_timeout_seconds":
+			v, err := parseProviderIntArg(d)
+			if err != nil {
+				return provider.ProviderConfig{}, err
+			}
+			cfg.Network.RequestTimeoutSeconds = v
+		case "max_retries":
+			v, err := parseProviderIntArg(d)
+			if err != nil {
+				return provider.ProviderConfig{}, err
+			}
+			cfg.Network.MaxRetries = v
+		case "retry_delay_seconds":
+			v, err := parseProviderIntArg(d)
+			if err != nil {
+				return provider.ProviderConfig{}, err
+			}
+			cfg.Network.RetryDelaySeconds = v
+		case "max_idle_connections":
+			v, err := parseProviderIntArg(d)
+			if err != nil {
+				return provider.ProviderConfig{}, err
+			}
+			cfg.Network.MaxIdleConnections = v
+		case "max_idle_connections_per_host":
+			v, err := parseProviderIntArg(d)
+			if err != nil {
+				return provider.ProviderConfig{}, err
+			}
+			cfg.Network.MaxIdleConnectionsPerHost = v
+		case "idle_keep_alive_timeout_seconds":
+			v, err := parseProviderIntArg(d)
+			if err != nil {
+				return provider.ProviderConfig{}, err
+			}
+			cfg.Network.IdleKeepAliveTimeoutSeconds = v
+		case "proxy_url":
+			if !d.NextArg() {
+				return provider.ProviderConfig{}, d.ArgErr()
+			}
+			cfg.Network.ProxyURL = d.Val()
+			if d.NextArg() {
+				return provider.ProviderConfig{}, d.ArgErr()
+			}
+		case "header":
+			args := d.RemainingArgs()
+			if len(args) != 2 {
+				return provider.ProviderConfig{}, d.ArgErr()
+			}
+			if cfg.Network.ExtraHeaders == nil {
+				cfg.Network.ExtraHeaders = make(map[string]string)
+			}
+			cfg.Network.ExtraHeaders[args[0]] = args[1]
+		case "option":
+			args := d.RemainingArgs()
+			if len(args) != 2 {
+				return provider.ProviderConfig{}, d.ArgErr()
+			}
+			if cfg.Options == nil {
+				cfg.Options = make(map[string]any)
+			}
+			cfg.Options[args[0]] = args[1]
+		default:
+			return provider.ProviderConfig{}, d.Errf("unknown provider subdirective: %s", d.Val())
 		}
-		if providerType != "" {
-			return "", d.Err("provider_type already configured")
+	}
+	if cfg.ProviderType == "" {
+		return provider.ProviderConfig{}, d.Err("provider_type is required")
+	}
+	// Normalization (defaults, fallbacks) is applied authoritatively at
+	// provision time, which must also handle JSON-only configs.
+	return cfg, nil
+}
+
+func parseProviderIntArg(d *caddyfile.Dispenser) (int, error) {
+	if !d.NextArg() {
+		return 0, d.ArgErr()
+	}
+	v, err := strconv.Atoi(d.Val())
+	if err != nil {
+		return 0, err
+	}
+	if d.NextArg() {
+		return 0, d.ArgErr()
+	}
+	return v, nil
+}
+
+func parseProviderTypes(d *caddyfile.Dispenser, app *App) error {
+	if len(app.ProviderTypes) > 0 {
+		return d.Err("provider_types already configured")
+	}
+	if d.NextArg() {
+		return d.ArgErr()
+	}
+	seen := map[string]struct{}{}
+	for d.NextBlock(0) {
+		providerType := strings.ToLower(strings.TrimSpace(d.Val()))
+		if providerType == "" {
+			return d.Err("provider type is required")
 		}
-		if !d.NextArg() {
-			return "", d.ArgErr()
-		}
-		providerType = d.Val()
+		// Listing a provider type enables it. Every registered type that is
+		// not listed is disabled (exclusive policy applied at startup).
 		if d.NextArg() {
-			return "", d.ArgErr()
+			return d.ArgErr()
 		}
+		if _, exists := seen[providerType]; exists {
+			return d.Errf("duplicate provider type %q", providerType)
+		}
+		seen[providerType] = struct{}{}
+		app.ProviderTypes = append(app.ProviderTypes, provider.ProviderTypeSetting{
+			ProviderType: providerType,
+			Enabled:      true,
+		})
 	}
-	if providerType == "" {
-		return "", d.Err("provider_type is required")
+	if len(app.ProviderTypes) == 0 {
+		return d.Err("provider_types must declare at least one provider type")
 	}
-	return providerType, nil
+	return nil
 }
 
 func parseConfigStore(d *caddyfile.Dispenser, app *App) error {

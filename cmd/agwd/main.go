@@ -17,6 +17,8 @@ import (
 
 	// LLM providers register runtime factories through init.
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/anthropic"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/claudecode"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/codex"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/deepseek"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/gemini"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/ollama"
@@ -47,6 +49,7 @@ func main() {
 	rootCmd.Flags().StringVar(&opts.AdminPasswordHash, "admin-password-hash", os.Getenv("AGW_ADMIN_PASSWORD_HASH"), "bcrypt hash of admin password")
 	rootCmd.Flags().StringVar(&opts.ConfigStorePath, "config-store", "./data/configstore.db", "SQLite config store file")
 	rootCmd.Flags().StringVar(&opts.StaticConfigPath, "static-config", "", "gateway bundle YAML file loaded as read-only static configuration")
+	rootCmd.Flags().StringArrayVar(&opts.ProviderTypes, "provider-type", nil, "provider type enabled for this process; repeat to allow multiple types")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

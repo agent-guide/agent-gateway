@@ -1,12 +1,6 @@
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
 
-providerTypes:
-  - provider_type: openai
-    enabled: true
-  - provider_type: anthropic
-    enabled: true
-
 providers:
   - id: openai-main
     provider_type: openai

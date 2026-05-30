@@ -40,12 +40,14 @@ Use this when you want startup-only read-only static config:
 
 ```bash
 ./agwd --config-store ./data/configstore.db \
+  --provider-type openai \
   --static-config ./examples/gateway.static.minimal.yaml
 ```
 
 Behavior:
 
 - `--static-config` loads the bundle at startup
+- `--provider-type` is startup-only provider type availability; repeat it to allow multiple types
 - loaded objects are treated as static read-only runtime objects
 - static bundle objects are not pre-seeded into SQLite as writable rows
 
@@ -140,7 +142,6 @@ Top-level metadata:
 
 Common top-level sections:
 
-- `providerTypes`
 - `providers`
 - `managedModels`
 - `llmRoutes`

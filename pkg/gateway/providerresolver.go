@@ -61,12 +61,18 @@ func NewProviderManager(store configstore.ConfigStore) *ProviderManager {
 				if cfg.ProviderType == "" {
 					return nil, provider.ProviderConfig{}, fmt.Errorf("provider_type is required")
 				}
+				if err := validateProviderTypeEnabled(cfg.ProviderType); err != nil {
+					return nil, provider.ProviderConfig{}, err
+				}
 				cfg = provider.NormalizeConfig(cfg, cfg.Id, "")
 				return &cfg, cfg, nil
 			},
 			PrepareUpdate: func(providerID string, _ provider.ProviderConfig, cfg provider.ProviderConfig) (any, provider.ProviderConfig, error) {
 				if cfg.ProviderType == "" {
 					return nil, provider.ProviderConfig{}, fmt.Errorf("provider_type is required")
+				}
+				if err := validateProviderTypeEnabled(cfg.ProviderType); err != nil {
+					return nil, provider.ProviderConfig{}, err
 				}
 				cfg.Id = providerID
 				cfg = provider.NormalizeConfig(cfg, providerID, "")
@@ -265,6 +271,17 @@ func buildProvider(cfg provider.ProviderConfig) (provider.Provider, error) {
 		return nil, fmt.Errorf("%w: %q", ErrProviderDisabled, cfg.Id)
 	}
 	return provider.NewProvider(cfg)
+}
+
+func validateProviderTypeEnabled(providerType string) error {
+	enabled, ok := provider.IsProviderTypeEnabled(providerType)
+	if !ok {
+		return fmt.Errorf("unknown provider: %s", providerType)
+	}
+	if !enabled {
+		return fmt.Errorf("%w: %s", provider.ErrProviderTypeDisabled, providerType)
+	}
+	return nil
 }
 
 func decodeProviderConfigItem(providerID string, fallbackName string, item any) (provider.ProviderConfig, error) {

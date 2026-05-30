@@ -27,9 +27,11 @@ func init() {
 // It manages providers, MCP clients, memory stores, and configuration.
 type App struct {
 	// Providers lists the configured LLM providers.
-	ProvidersRaw caddy.ModuleMap `json:"providers,omitempty" caddy:"namespace=llm.providers inline_key=provider_type"`
+	Providers map[string]provider.ProviderConfig `json:"providers,omitempty"`
 	// ConfigStore configures persistent admin/auth state storage.
 	ConfigStoreRaw caddy.ModuleMap `json:"config_store,omitempty" caddy:"namespace=agent_gateway.config_store_backends"`
+	// ProviderTypes configures startup-only provider type availability.
+	ProviderTypes []provider.ProviderTypeSetting `json:"provider_types,omitempty"`
 	// LLMRoutes lists statically configured gateway LLM route configs from the Caddyfile app block.
 	LLMRoutes []routecore.AgentRouteConfig `json:"llm_routes,omitempty"`
 
@@ -58,6 +60,16 @@ func (a *App) Provision(ctx caddy.Context) error {
 
 	if err := a.provisionConfigStore(ctx); err != nil {
 		return fmt.Errorf("init config store: %w", err)
+	}
+	// Provider type availability is startup-only. Always reconfigure so a
+	// reload that omits provider_types resets to "all enabled" instead of
+	// inheriting the previous process state.
+	if len(a.ProviderTypes) > 0 {
+		if err := provider.ConfigureProviderTypes(a.ProviderTypes, true); err != nil {
+			return fmt.Errorf("configure provider types: %w", err)
+		}
+	} else {
+		provider.EnableAllProviderTypes()
 	}
 	credentialStore, err := a.configBackend.Get(schema.StoreCredentials)
 	if err != nil {
@@ -203,27 +215,21 @@ func (a *App) provisionConfigStore(ctx caddy.Context) error {
 	return fmt.Errorf("no config store backend module loaded")
 }
 
-func (a *App) provisionProviders(ctx caddy.Context) error {
-	if len(a.ProvidersRaw) == 0 {
+func (a *App) provisionProviders(_ caddy.Context) error {
+	if len(a.Providers) == 0 {
 		a.providers = map[string]provider.Provider{}
 		return nil
 	}
 
-	modules, err := ctx.LoadModule(a, "ProvidersRaw")
-	if err != nil {
-		return err
-	}
-
-	loaded, ok := modules.(map[string]any)
-	if !ok {
-		return fmt.Errorf("unexpected provider module type %T", modules)
-	}
-
-	a.providers = make(map[string]provider.Provider, len(loaded))
-	for name, mod := range loaded {
-		prov, ok := mod.(provider.Provider)
-		if !ok {
-			return fmt.Errorf("provider module %q does not implement provider.Provider", name)
+	a.providers = make(map[string]provider.Provider, len(a.Providers))
+	for name, cfg := range a.Providers {
+		cfg = provider.NormalizeConfig(cfg, name, cfg.ProviderType)
+		if cfg.Id != name {
+			return fmt.Errorf("provider %q config id %q must match registration id", name, cfg.Id)
+		}
+		prov, err := provider.NewProvider(cfg)
+		if err != nil {
+			return fmt.Errorf("init provider %q: %w", name, err)
 		}
 		a.providers[name] = prov
 	}

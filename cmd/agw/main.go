@@ -18,16 +18,16 @@ import (
 	// CLI authenticators (register as factory + Caddy modules via init())
 	_ "github.com/agent-guide/agent-gateway/pkg/cliauth/authenticator"
 
-	// LLM Providers (register as factory + Caddy modules via init())
-	_ "github.com/agent-guide/agent-gateway/caddy/provider/anthropic"
-	_ "github.com/agent-guide/agent-gateway/caddy/provider/claudecode"
-	_ "github.com/agent-guide/agent-gateway/caddy/provider/codex"
-	_ "github.com/agent-guide/agent-gateway/caddy/provider/deepseek"
-	_ "github.com/agent-guide/agent-gateway/caddy/provider/gemini"
-	_ "github.com/agent-guide/agent-gateway/caddy/provider/ollama"
-	_ "github.com/agent-guide/agent-gateway/caddy/provider/openai"
-	_ "github.com/agent-guide/agent-gateway/caddy/provider/openrouter"
-	_ "github.com/agent-guide/agent-gateway/caddy/provider/zhipu"
+	// LLM Providers (register runtime factories via init())
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/anthropic"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/claudecode"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/codex"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/deepseek"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/gemini"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/ollama"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openrouter"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/zhipu"
 )
 
 func main() {

@@ -913,9 +913,6 @@ func TestGatewayValidateCommand(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
-providerTypes:
-  - provider_type: openai
-    enabled: true
 providers:
   - id: openai-main
     provider_type: openai
@@ -954,9 +951,6 @@ func TestGatewayValidateCommandAcceptsCodexProvider(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
-providerTypes:
-  - provider_type: codex
-    enabled: true
 providers:
   - id: codex-test
     provider_type: codex
@@ -1048,7 +1042,7 @@ cliAuthAuthenticators:
 				"username": "admin",
 			})
 		case r.URL.Path == "/admin/provider_types":
-			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{{"provider_type": "openai", "enabled": true}, {"provider_type": "codex", "enabled": true}}})
 		case r.URL.Path == "/admin/providers" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
@@ -1194,7 +1188,7 @@ cliAuthAuthenticators:
 				"username": "admin",
 			})
 		case r.URL.Path == "/admin/provider_types":
-			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{{"provider_type": "openai", "enabled": true}, {"provider_type": "codex", "enabled": true}}})
 		case r.URL.Path == "/admin/providers" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
@@ -1299,7 +1293,7 @@ providers:
 				"username": "admin",
 			})
 		case r.URL.Path == "/admin/provider_types":
-			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{{"provider_type": "openai", "enabled": true}, {"provider_type": "codex", "enabled": true}}})
 		case r.URL.Path == "/admin/providers" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
@@ -1462,7 +1456,6 @@ func TestGatewayExportCommand(t *testing.T) {
 	for _, want := range []string{
 		"apiVersion: gateway.agw/v1alpha1",
 		"kind: GatewayBundle",
-		"providerTypes:",
 		"providers:",
 		"llmRoutes:",
 		"virtualKeys:",
@@ -1597,7 +1590,7 @@ func TestGatewayExportCommandIncludesMCPServicesAndRoutes(t *testing.T) {
 		case "/admin/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]string{"token": "test-token", "username": "admin"})
 		case "/admin/provider_types":
-			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{{"provider_type": "openai", "enabled": true}, {"provider_type": "codex", "enabled": true}}})
 		case "/admin/providers":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/models/managed":
@@ -1699,7 +1692,7 @@ mcpRoutes:
 		case r.URL.Path == "/admin/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]string{"token": "test-token", "username": "admin"})
 		case r.URL.Path == "/admin/provider_types":
-			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{{"provider_type": "openai", "enabled": true}, {"provider_type": "codex", "enabled": true}}})
 		case r.URL.Path == "/admin/providers" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/models/managed":

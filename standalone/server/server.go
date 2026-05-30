@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/admin"
@@ -33,6 +34,7 @@ type Options struct {
 	AdminAddr         string
 	ConfigStorePath   string
 	StaticConfigPath  string
+	ProviderTypes     []string
 	AdminUser         string
 	AdminPasswordHash string
 }
@@ -51,6 +53,9 @@ func (o *Options) setDefaults() {
 
 func Run(ctx context.Context, opts Options) error {
 	opts.setDefaults()
+	if err := configureProviderTypes(opts.ProviderTypes); err != nil {
+		return err
+	}
 
 	logger, err := zap.NewProduction()
 	if err != nil {
@@ -109,6 +114,26 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		return shutdownServers(context.Background(), servers)
 	}
+}
+
+func configureProviderTypes(providerTypes []string) error {
+	if len(providerTypes) == 0 {
+		return nil
+	}
+	settings := make([]provider.ProviderTypeSetting, 0, len(providerTypes))
+	seen := map[string]struct{}{}
+	for _, providerType := range providerTypes {
+		name := strings.ToLower(strings.TrimSpace(providerType))
+		if name == "" {
+			return fmt.Errorf("provider type must not be empty")
+		}
+		if _, exists := seen[name]; exists {
+			return fmt.Errorf("duplicate provider type %q", name)
+		}
+		seen[name] = struct{}{}
+		settings = append(settings, provider.ProviderTypeSetting{ProviderType: name, Enabled: true})
+	}
+	return provider.ConfigureProviderTypes(settings, true)
 }
 
 func newDispatchHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) (*dispatcher.Handler, error) {

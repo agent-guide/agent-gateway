@@ -21,6 +21,10 @@
 			path ./data/configstore.db
 		}
 
+		provider_types {
+			deepseek
+		}
+
 		provider deepseek-test {
 			provider_type deepseek
 			api_key {$DEEPSEEK_API_KEY}

@@ -21,6 +21,10 @@
 			path ./data/configstore.db
 		}
 
+		provider_types {
+			openai
+		}
+
 		provider zhipu-simulated-openai {
 			provider_type openai
 			api_key {$ZHIPU_API_KEY}

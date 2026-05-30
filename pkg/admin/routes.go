@@ -59,8 +59,6 @@ func (h *Handler) Routes() []Route {
 
 		// Provider names
 		{Method: http.MethodGet, Path: "/admin/provider_types", Handler: h.handleListProviderTypes, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/provider_types/{provider_type}/enable", Handler: h.handleEnableProviderType, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/provider_types/{provider_type}/disable", Handler: h.handleDisableProviderType, RequireAuth: true},
 
 		// LLM API handler types
 		{Method: http.MethodGet, Path: "/admin/llm_api_handler_types", Handler: h.handleListLLMApiHandlerTypes, RequireAuth: true},
@@ -203,43 +201,6 @@ func (h *Handler) handleListLLMApiHandlerTypes(w http.ResponseWriter, r *http.Re
 		})
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": items})
-}
-
-func (h *Handler) handleEnableProviderType(w http.ResponseWriter, r *http.Request) {
-	h.handleSetProviderTypeEnabled(w, r, true)
-}
-
-func (h *Handler) handleDisableProviderType(w http.ResponseWriter, r *http.Request) {
-	h.handleSetProviderTypeEnabled(w, r, false)
-}
-
-func (h *Handler) handleSetProviderTypeEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
-	name := strings.ToLower(strings.TrimSpace(r.PathValue("provider_type")))
-	if name == "" {
-		_ = httpjson.Error(w, http.StatusBadRequest, "provider_type is required")
-		return
-	}
-
-	var err error
-	if enabled {
-		err = provider.EnableProviderType(name)
-	} else {
-		err = provider.DisableProviderType(name)
-	}
-	if err != nil {
-		_ = httpjson.Error(w, http.StatusNotFound, err.Error())
-		return
-	}
-
-	status := "disabled"
-	if enabled {
-		status = "enabled"
-	}
-	_ = httpjson.Write(w, http.StatusOK, map[string]any{
-		"status":        status,
-		"provider_type": name,
-		"enabled":       enabled,
-	})
 }
 
 func (h *Handler) handleCreateProvider(w http.ResponseWriter, r *http.Request) {

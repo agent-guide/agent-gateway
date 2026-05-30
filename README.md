@@ -41,6 +41,10 @@ Create a `Caddyfile`:
 			path ./data/configstore.db
 		}
 
+		provider_types {
+			openai
+		}
+
 		provider openai-main {
 			provider_type openai
 			api_key {$OPENAI_API_KEY}
@@ -297,7 +301,7 @@ Useful commands:
 ```bash
 go test ./...
 go test ./pkg/admin ./pkg/gateway ./pkg/dispatcher/...
-go test ./pkg/llm/provider/... ./caddy/provider/...
+go test ./pkg/llm/provider/...
 ```
 
 ```bash

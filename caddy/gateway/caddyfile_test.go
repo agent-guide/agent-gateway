@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	configstoresqlite "github.com/agent-guide/agent-gateway/caddy/configstore/sqlite"
-	_ "github.com/agent-guide/agent-gateway/caddy/provider/ollama"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -58,19 +57,11 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	if len(app.ConfigStoreRaw) != 1 {
 		t.Fatalf("config_store count = %d, want 1", len(app.ConfigStoreRaw))
 	}
-	if len(app.ProvidersRaw) != 1 {
-		t.Fatalf("provider count = %d, want 1", len(app.ProvidersRaw))
+	if len(app.Providers) != 1 {
+		t.Fatalf("provider count = %d, want 1", len(app.Providers))
 	}
 
-	var ollama struct {
-		Id           string `json:"id,omitempty"`
-		ProviderType string `json:"provider_type,omitempty"`
-		BaseURL      string `json:"base_url,omitempty"`
-		DefaultModel string `json:"default_model,omitempty"`
-	}
-	if err := json.Unmarshal(app.ProvidersRaw["local-ollama"], &ollama); err != nil {
-		t.Fatalf("unmarshal ollama provider: %v", err)
-	}
+	ollama := app.Providers["local-ollama"]
 	if ollama.Id != "local-ollama" {
 		t.Fatalf("ollama id = %q, want local-ollama", ollama.Id)
 	}

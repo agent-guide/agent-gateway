@@ -9,7 +9,10 @@ import (
 	_ "github.com/agent-guide/agent-gateway/pkg/cliauth/authenticator"
 	_ "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/openai"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/deepseek"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/zhipu"
 )
 
 func TestDecodeYAML(t *testing.T) {
@@ -18,9 +21,6 @@ func TestDecodeYAML(t *testing.T) {
 	bundle, err := DecodeYAML([]byte(`
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
-providerTypes:
-  - provider_type: openai
-    enabled: true
 providers:
   - id: openai-main
     provider_type: openai
@@ -64,9 +64,6 @@ cliAuthAuthenticators:
 	}
 	if bundle.Kind != KindGatewayBundle {
 		t.Fatalf("Kind = %q, want %q", bundle.Kind, KindGatewayBundle)
-	}
-	if len(bundle.ProviderTypes) != 1 || bundle.ProviderTypes[0].ProviderType != "openai" || !bundle.ProviderTypes[0].Enabled {
-		t.Fatalf("ProviderTypes = %#v", bundle.ProviderTypes)
 	}
 	if len(bundle.Providers) != 1 {
 		t.Fatalf("len(Providers) = %d, want 1", len(bundle.Providers))
@@ -148,9 +145,7 @@ func TestEncodeYAMLRoundTrip(t *testing.T) {
 	original := &GatewayBundle{
 		APIVersion: APIVersionV1Alpha1,
 		Kind:       KindGatewayBundle,
-		ProviderTypes: []ProviderTypeSetting{
-			{ProviderType: "openai", Enabled: true},
-		},
+		Providers:  []provider.ProviderConfig{{Id: "openai-main", ProviderType: "openai"}},
 	}
 
 	data, err := EncodeYAML(original)
@@ -164,8 +159,24 @@ func TestEncodeYAMLRoundTrip(t *testing.T) {
 	if decoded.APIVersion != original.APIVersion || decoded.Kind != original.Kind {
 		t.Fatalf("round-trip bundle = %#v", decoded)
 	}
-	if len(decoded.ProviderTypes) != 1 || decoded.ProviderTypes[0].ProviderType != "openai" || !decoded.ProviderTypes[0].Enabled {
-		t.Fatalf("round-trip provider types = %#v", decoded.ProviderTypes)
+	if len(decoded.Providers) != 1 || decoded.Providers[0].Id != "openai-main" || decoded.Providers[0].ProviderType != "openai" {
+		t.Fatalf("round-trip providers = %#v", decoded.Providers)
+	}
+}
+
+func TestDecodeYAMLRejectsProviderTypes(t *testing.T) {
+	_, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+providerTypes:
+  - provider_type: openai
+    enabled: true
+`))
+	if err == nil {
+		t.Fatal("DecodeYAML() error = nil, want providerTypes rejection")
+	}
+	if !strings.Contains(err.Error(), "providerTypes is not supported in GatewayBundle") {
+		t.Fatalf("DecodeYAML() error = %v", err)
 	}
 }
 
@@ -173,9 +184,6 @@ func TestValidate(t *testing.T) {
 	bundle, err := DecodeYAML([]byte(`
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
-providerTypes:
-  - provider_type: openai
-    enabled: true
 providers:
   - id: openai-main
     provider_type: openai
@@ -212,8 +220,6 @@ func TestValidateAggregatesErrors(t *testing.T) {
 	bundle, err := DecodeYAML([]byte(`
 apiVersion: wrong
 kind: WrongKind
-providerTypes:
-  - provider_type: missing-provider
 providers:
   - id: dup
     provider_type: openai
@@ -271,7 +277,6 @@ cliAuthAuthenticators:
 	for _, want := range []string{
 		`apiVersion must be "gateway.agw/v1alpha1"`,
 		`kind must be "GatewayBundle"`,
-		`providerTypes["missing-provider"]: unknown provider_type`,
 		`providers["dup"]: duplicate id`,
 		`managedModels["openai-main/gpt-4.1"]: duplicate provider_id/upstream_model`,
 		`llmRoutes["route-a"]: duplicate id`,
@@ -348,11 +353,6 @@ func TestValidateRejectsConflictingRouteDefaults(t *testing.T) {
 	bundle, err := DecodeYAML([]byte(`
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
-providerTypes:
-  - provider_type: zhipu
-    enabled: true
-  - provider_type: deepseek
-    enabled: true
 providers:
   - id: zhipu-main
     provider_type: zhipu
@@ -488,9 +488,6 @@ func TestValidateForStaticConfigRejectsLogicalModelRoutes(t *testing.T) {
 	bundle, err := DecodeYAML([]byte(`
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
-providerTypes:
-  - provider_type: openai
-    enabled: true
 providers:
   - id: openai-main
     provider_type: openai

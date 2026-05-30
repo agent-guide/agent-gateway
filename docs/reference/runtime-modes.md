@@ -11,8 +11,9 @@
 ## `agwd`
 
 - the standalone gateway daemon
-- uses `--config-store` and optional `--static-config`
+- uses `--config-store`, optional `--static-config`, and optional repeated `--provider-type`
 - does not use a Caddyfile runtime
+- if any `--provider-type` flag is set, only those provider types are enabled for the process
 
 Current static config restriction:
 

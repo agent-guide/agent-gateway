@@ -48,6 +48,17 @@ config_store sqlite {
 
 ## `provider <provider-id>`
 
+Provider type availability is startup-only configuration:
+
+```caddy
+provider_types {
+	openai
+	anthropic
+}
+```
+
+If `provider_types` is omitted, all registered provider types are enabled. If it is present, only the listed provider types are enabled; every registered type that is not listed is disabled.
+
 Common provider settings:
 
 ```caddy

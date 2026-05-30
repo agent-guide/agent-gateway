@@ -67,7 +67,6 @@ var gatewayValidateCmd = &cobra.Command{
 				"status": "ok",
 				"file":   gatewayBundleFile,
 				"counts": map[string]int{
-					"provider_types":         len(bundle.ProviderTypes),
 					"providers":              len(bundle.Providers),
 					"managed_models":         len(bundle.ManagedModels),
 					"llm_routes":             len(bundle.LLMRoutes),
@@ -664,7 +663,7 @@ var gatewayModelsCmd = &cobra.Command{
 
 var gatewayProviderTypesCmd = &cobra.Command{
 	Use:   "provider-type",
-	Short: "Manage gateway provider types",
+	Short: "Inspect gateway provider types",
 }
 
 var gatewayProviderTypesListCmd = &cobra.Command{
@@ -680,32 +679,6 @@ var gatewayProviderTypesListCmd = &cobra.Command{
 		}
 		printGatewayProviderTypesTable(items)
 		return nil
-	},
-}
-
-var gatewayProviderTypesEnableCmd = &cobra.Command{
-	Use:   "enable <provider-type>",
-	Short: "Enable one gateway provider type",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		resp, err := newGatewayClient().EnableProviderType(context.Background(), args[0])
-		if err != nil {
-			return err
-		}
-		return printJSON(resp)
-	},
-}
-
-var gatewayProviderTypesDisableCmd = &cobra.Command{
-	Use:   "disable <provider-type>",
-	Short: "Disable one gateway provider type",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		resp, err := newGatewayClient().DisableProviderType(context.Background(), args[0])
-		if err != nil {
-			return err
-		}
-		return printJSON(resp)
 	},
 }
 
@@ -1048,11 +1021,7 @@ func init() {
 		gatewayModelsManagedDeleteCmd,
 	)
 	gatewayModelsCmd.AddCommand(gatewayModelsDiscoveredCmd, gatewayModelsManagedCmd)
-	gatewayProviderTypesCmd.AddCommand(
-		gatewayProviderTypesListCmd,
-		gatewayProviderTypesEnableCmd,
-		gatewayProviderTypesDisableCmd,
-	)
+	gatewayProviderTypesCmd.AddCommand(gatewayProviderTypesListCmd)
 	gatewayLLMAPIHandlerTypesCmd.AddCommand(
 		gatewayLLMAPIHandlerTypesListCmd,
 	)

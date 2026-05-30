@@ -14,6 +14,11 @@ type ProviderFactory func(config ProviderConfig) (Provider, error)
 // ErrProviderTypeDisabled is returned when a registered provider type is disabled.
 var ErrProviderTypeDisabled = errors.New("provider type is disabled")
 
+type ProviderTypeSetting struct {
+	ProviderType string `json:"provider_type"`
+	Enabled      bool   `json:"enabled"`
+}
+
 var (
 	mu                    sync.RWMutex
 	factories             = map[string]ProviderFactory{}
@@ -71,27 +76,45 @@ func IsProviderTypeEnabled(name string) (bool, bool) {
 	return !disabled, true
 }
 
-// EnableProviderType enables a registered provider type.
-func EnableProviderType(name string) error {
-	name = normalizeProviderType(name)
+// EnableAllProviderTypes clears the disabled set so every registered provider
+// type is enabled. It is used when no startup provider_types policy is set.
+func EnableAllProviderTypes() {
 	mu.Lock()
 	defer mu.Unlock()
-	if _, ok := factories[name]; !ok {
-		return fmt.Errorf("unknown provider: %s", name)
-	}
-	delete(disabledProviderTypes, name)
-	return nil
+	disabledProviderTypes = map[string]struct{}{}
 }
 
-// DisableProviderType disables a registered provider type.
-func DisableProviderType(name string) error {
-	name = normalizeProviderType(name)
+// ConfigureProviderTypes applies startup-only provider type availability.
+// If exclusive is true, every registered provider type not listed is disabled.
+func ConfigureProviderTypes(settings []ProviderTypeSetting, exclusive bool) error {
 	mu.Lock()
 	defer mu.Unlock()
-	if _, ok := factories[name]; !ok {
-		return fmt.Errorf("unknown provider: %s", name)
+
+	nextDisabled := map[string]struct{}{}
+	if !exclusive {
+		for name := range disabledProviderTypes {
+			nextDisabled[name] = struct{}{}
+		}
+	} else {
+		for name := range factories {
+			nextDisabled[name] = struct{}{}
+		}
 	}
-	disabledProviderTypes[name] = struct{}{}
+	for _, setting := range settings {
+		name := normalizeProviderType(setting.ProviderType)
+		if name == "" {
+			return fmt.Errorf("provider_type is required")
+		}
+		if _, ok := factories[name]; !ok {
+			return fmt.Errorf("unknown provider: %s", name)
+		}
+		if setting.Enabled {
+			delete(nextDisabled, name)
+		} else {
+			nextDisabled[name] = struct{}{}
+		}
+	}
+	disabledProviderTypes = nextDisabled
 	return nil
 }
 

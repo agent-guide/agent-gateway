@@ -92,7 +92,6 @@ Static objects are not persisted into SQLite as pre-seeded rows. They remain a d
 
 Configuration-type objects are:
 
-- `providerTypes`
 - `providers`
 - `managedModels`
 - `routes`
@@ -165,10 +164,6 @@ Current schema shape:
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
 
-providerTypes:
-  - provider_type: openai
-    enabled: true
-
 providers:
   - id: openai-main
     provider_type: openai
@@ -207,7 +202,6 @@ Field naming is intentionally kept close to existing JSON model fields so the bu
 
 The current implemented bundle path covers:
 
-- `providerTypes`
 - `providers`
 - `managedModels`
 - `routes`
@@ -274,11 +268,10 @@ Current behavior:
 
 Current object application order:
 
-1. `providerTypes`
-2. `providers`
-3. `managedModels`
-4. `routes`
-5. `virtualKeys`
+1. `providers`
+2. `managedModels`
+3. `routes`
+4. `virtualKeys`
 
 Current non-behavior:
 

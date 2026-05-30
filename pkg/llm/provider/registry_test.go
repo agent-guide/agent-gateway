@@ -37,11 +37,14 @@ func TestProviderRegistryEnableDisableProviderType(t *testing.T) {
 	RegisterProviderFactory(providerType, func(cfg ProviderConfig) (Provider, error) {
 		return &testConfigurableProvider{cfg: cfg}, nil
 	})
-	defer func() {
-		if err := EnableProviderType(providerType); err != nil {
-			t.Fatalf("restore provider type: %v", err)
+	// Toggle only this provider type (non-exclusive) so other registered
+	// types keep their state across parallel tests.
+	setEnabled := func(enabled bool) {
+		if err := ConfigureProviderTypes([]ProviderTypeSetting{{ProviderType: providerType, Enabled: enabled}}, false); err != nil {
+			t.Fatalf("configure provider type (enabled=%v): %v", enabled, err)
 		}
-	}()
+	}
+	defer setEnabled(true)
 
 	enabled, ok := IsProviderTypeEnabled(providerType)
 	if !ok {
@@ -51,9 +54,7 @@ func TestProviderRegistryEnableDisableProviderType(t *testing.T) {
 		t.Fatalf("provider type %q enabled = false, want true", providerType)
 	}
 
-	if err := DisableProviderType(providerType); err != nil {
-		t.Fatalf("disable provider type: %v", err)
-	}
+	setEnabled(false)
 	enabled, ok = IsProviderTypeEnabled(providerType)
 	if !ok || enabled {
 		t.Fatalf("provider type state after disable: enabled=%v registered=%v", enabled, ok)
@@ -62,9 +63,7 @@ func TestProviderRegistryEnableDisableProviderType(t *testing.T) {
 		t.Fatalf("NewProvider error = %v, want ErrProviderTypeDisabled", err)
 	}
 
-	if err := EnableProviderType(providerType); err != nil {
-		t.Fatalf("enable provider type: %v", err)
-	}
+	setEnabled(true)
 	if _, err := NewProvider(ProviderConfig{ProviderType: providerType}); err != nil {
 		t.Fatalf("NewProvider after enable: %v", err)
 	}

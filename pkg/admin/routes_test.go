@@ -23,6 +23,8 @@ import (
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/deepseek"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
 	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
 	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 	"github.com/cloudwego/eino/schema"
@@ -1314,16 +1316,11 @@ func TestProviderEnableDisable(t *testing.T) {
 	}
 }
 
-func TestProviderTypeListEnableDisable(t *testing.T) {
+func TestProviderTypeList(t *testing.T) {
 	const providerType = "test-admin-provider-name"
 	provider.RegisterProviderFactory(providerType, func(cfg provider.ProviderConfig) (provider.Provider, error) {
 		return &stubAdminProvider{cfg: cfg}, nil
 	})
-	defer func() {
-		if err := provider.EnableProviderType(providerType); err != nil {
-			t.Fatalf("restore provider type: %v", err)
-		}
-	}()
 
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
 	if err != nil {
@@ -1332,14 +1329,6 @@ func TestProviderTypeListEnableDisable(t *testing.T) {
 
 	handler := NewHandler(nil, nil, "admin", string(passwordHash))
 	token := loginForTest(t, handler, "admin", "secret-pass")
-
-	disableReq := httptest.NewRequest(http.MethodPost, "/admin/provider_types/"+providerType+"/disable", nil)
-	disableReq.Header.Set("Authorization", "Bearer "+token)
-	disableRec := httptest.NewRecorder()
-	handler.ServeHTTP(disableRec, disableReq)
-	if disableRec.Code != http.StatusOK {
-		t.Fatalf("disable status = %d, want %d", disableRec.Code, http.StatusOK)
-	}
 
 	listReq := httptest.NewRequest(http.MethodGet, "/admin/provider_types", nil)
 	listReq.Header.Set("Authorization", "Bearer "+token)
@@ -1361,32 +1350,12 @@ func TestProviderTypeListEnableDisable(t *testing.T) {
 			continue
 		}
 		found = true
-		if item.Enabled {
-			t.Fatal("provider type enabled = true, want false")
+		if !item.Enabled {
+			t.Fatal("provider type enabled = false, want true")
 		}
 	}
 	if !found {
 		t.Fatalf("provider type %q not listed", providerType)
-	}
-
-	enableReq := httptest.NewRequest(http.MethodPost, "/admin/provider_types/"+providerType+"/enable", nil)
-	enableReq.Header.Set("Authorization", "Bearer "+token)
-	enableRec := httptest.NewRecorder()
-	handler.ServeHTTP(enableRec, enableReq)
-	if enableRec.Code != http.StatusOK {
-		t.Fatalf("enable status = %d, want %d", enableRec.Code, http.StatusOK)
-	}
-
-	var enabled struct {
-		Status       string `json:"status"`
-		ProviderType string `json:"provider_type"`
-		Enabled      bool   `json:"enabled"`
-	}
-	if err := json.NewDecoder(enableRec.Body).Decode(&enabled); err != nil {
-		t.Fatalf("decode enabled provider type: %v", err)
-	}
-	if enabled.Status != "enabled" || enabled.ProviderType != providerType || !enabled.Enabled {
-		t.Fatalf("unexpected enable response: %#v", enabled)
 	}
 }
 

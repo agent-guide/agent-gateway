@@ -30,7 +30,6 @@ var envVarPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 type GatewayBundle struct {
 	APIVersion            string                        `json:"apiVersion"`
 	Kind                  string                        `json:"kind"`
-	ProviderTypes         []ProviderTypeSetting         `json:"providerTypes,omitempty"`
 	Providers             []provider.ProviderConfig     `json:"providers,omitempty"`
 	ManagedModels         []modelcatalog.ManagedModel   `json:"managedModels,omitempty"`
 	LLMRoutes             []routecore.AgentRouteConfig  `json:"llmRoutes,omitempty"`
@@ -48,11 +47,6 @@ type BundleVirtualKey struct {
 	AllowedRouteIDs []string  `json:"allowed_route_ids,omitempty"`
 	StatusMessage   string    `json:"status_message,omitempty"`
 	ExpiresAt       time.Time `json:"expires_at,omitempty"`
-}
-
-type ProviderTypeSetting struct {
-	ProviderType string `json:"provider_type"`
-	Enabled      bool   `json:"enabled"`
 }
 
 type CLIAuthAuthenticator struct {
@@ -82,6 +76,11 @@ func DecodeYAML(data []byte) (*GatewayBundle, error) {
 	expanded, err := expandEnvValue(normalizeYAMLValue(raw))
 	if err != nil {
 		return nil, err
+	}
+	if root, ok := expanded.(map[string]any); ok {
+		if _, exists := root["providerTypes"]; exists {
+			return nil, fmt.Errorf("providerTypes is not supported in GatewayBundle; configure provider types at gateway startup")
+		}
 	}
 
 	jsonBytes, err := json.Marshal(expanded)
@@ -164,16 +163,6 @@ func (b *GatewayBundle) validate(_ bool) error {
 
 	providerIDs := map[string]struct{}{}
 	routeIDs := map[string]struct{}{}
-	for _, item := range b.ProviderTypes {
-		item.ProviderType = strings.ToLower(strings.TrimSpace(item.ProviderType))
-		if item.ProviderType == "" {
-			errs.Append(fmt.Errorf("providerTypes[].provider_type is required"))
-			continue
-		}
-		if _, ok := provider.IsProviderTypeEnabled(item.ProviderType); !ok {
-			errs.Append(fmt.Errorf("providerTypes[%q]: unknown provider_type", item.ProviderType))
-		}
-	}
 	for i := range b.Providers {
 		b.Providers[i] = provider.NormalizeConfig(b.Providers[i], b.Providers[i].Id, b.Providers[i].ProviderType)
 		id := strings.TrimSpace(b.Providers[i].Id)
@@ -190,8 +179,13 @@ func (b *GatewayBundle) validate(_ bool) error {
 			errs.Append(fmt.Errorf("providers[%q].provider_type is required", id))
 			continue
 		}
-		if _, ok := provider.IsProviderTypeEnabled(b.Providers[i].ProviderType); !ok {
+		enabled, ok := provider.IsProviderTypeEnabled(b.Providers[i].ProviderType)
+		if !ok {
 			errs.Append(fmt.Errorf("providers[%q]: unknown provider_type %q", id, b.Providers[i].ProviderType))
+			continue
+		}
+		if !enabled {
+			errs.Append(fmt.Errorf("providers[%q]: provider_type %q is disabled by this gateway runtime", id, b.Providers[i].ProviderType))
 		}
 	}
 	managedKeys := map[string]struct{}{}
