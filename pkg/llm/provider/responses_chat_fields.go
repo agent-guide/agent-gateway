@@ -95,6 +95,16 @@ func ChatCompletionsExtraFieldsFromOptions(reasoning ReasoningFieldStyle, opts .
 	return fields
 }
 
+// StripCCUnsupportedChatFields removes the OpenAI-style `metadata` and `user`
+// chat-completions request fields. Some OpenAI-compatible upstreams (e.g. GLM)
+// reject these with a generic 400, while Claude Code always populates
+// `metadata.user_id`. Providers running in cc-compat mode call this to drop the
+// unsupported fields before the upstream request. It is a no-op on a nil map.
+func StripCCUnsupportedChatFields(fields map[string]any) {
+	delete(fields, "metadata")
+	delete(fields, "user")
+}
+
 // MergeExtraFields shallow-merges one or more request-body extension maps.
 // Later maps override earlier keys.
 func MergeExtraFields(base map[string]any, overlays ...map[string]any) map[string]any {

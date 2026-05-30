@@ -83,6 +83,9 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) 
 	}
 	cfg.APIKey = provider.APIKeyFromContextOrConfig(ctx, p.ProviderConfig.APIKey)
 	cfg.ExtraFields = provider.ChatCompletionsExtraFieldsFromOptions(provider.ReasoningObjectField, state.Options...)
+	if p.CCCompat {
+		provider.StripCCUnsupportedChatFields(cfg.ExtraFields)
+	}
 
 	chatModel, err := einoopenrouter.NewChatModel(ctx, cfg)
 	if err != nil {

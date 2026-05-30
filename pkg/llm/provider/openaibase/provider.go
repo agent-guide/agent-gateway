@@ -25,6 +25,9 @@ type Base struct {
 	provider.ProviderConfig
 	client         *http.Client
 	SetAuthHeaders func(ctx context.Context, req *http.Request)
+	// CCCompat enables Claude Code CLI compatibility mode for OpenAI-compatible
+	// chat upstreams. It is read from the `cc_compat` provider option.
+	CCCompat bool
 }
 
 // NewBase creates a Base using the supplied config.
@@ -34,6 +37,7 @@ func NewBase(config provider.ProviderConfig) *Base {
 	return &Base{
 		ProviderConfig: config,
 		client:         httpclient.BuildHTTPClient(config.Network),
+		CCCompat:       config.BoolOption("cc_compat"),
 	}
 }
 

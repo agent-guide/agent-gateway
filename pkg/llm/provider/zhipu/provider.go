@@ -121,6 +121,9 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) 
 	}
 	opts := append([]einomodel.Option(nil), state.Options...)
 	extraFields := provider.ChatCompletionsExtraFieldsFromOptions(provider.ReasoningEffortField, state.Options...)
+	if p.CCCompat {
+		provider.StripCCUnsupportedChatFields(extraFields)
+	}
 	if thinkingType := p.thinkingType(); thinkingType != "" {
 		extraFields = provider.MergeExtraFields(extraFields, map[string]any{
 			"thinking": map[string]any{

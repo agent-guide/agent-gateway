@@ -109,7 +109,11 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) 
 		return nil, nil, nil, err
 	}
 	opts := append([]einomodel.Option(nil), state.Options...)
-	if extraFields := provider.ChatCompletionsExtraFieldsFromOptions(provider.ReasoningEffortField, state.Options...); len(extraFields) > 0 {
+	extraFields := provider.ChatCompletionsExtraFieldsFromOptions(provider.ReasoningEffortField, state.Options...)
+	if p.CCCompat {
+		provider.StripCCUnsupportedChatFields(extraFields)
+	}
+	if len(extraFields) > 0 {
 		opts = append(opts, einoopenai.WithExtraFields(extraFields))
 	}
 	return chatModel, state.Messages, opts, nil

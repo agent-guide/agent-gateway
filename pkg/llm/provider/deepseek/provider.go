@@ -86,6 +86,9 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) 
 	cfg.APIKey = provider.APIKeyFromContextOrConfig(ctx, p.ProviderConfig.APIKey)
 	configExtra := applyOptions(cfg, p.ProviderConfig.Options)
 	requestExtra := provider.ChatCompletionsExtraFieldsFromOptions(provider.ReasoningEffortField, state.Options...)
+	if p.CCCompat {
+		provider.StripCCUnsupportedChatFields(requestExtra)
+	}
 	if _, ok := requestExtra["response_format"]; ok {
 		// A per-request response_format wins over the provider-config default
 		// so the request body carries a single response_format value.

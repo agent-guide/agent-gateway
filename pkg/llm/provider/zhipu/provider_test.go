@@ -107,6 +107,31 @@ func TestGenerateCarriesResponsesContextToOpenAICompatiblePayload(t *testing.T) 
 	}
 }
 
+func TestCCCompatDropsUnsupportedMetadataAndUser(t *testing.T) {
+	req, err := provider.ResponsesToChatRequest(&provider.ResponsesRequest{
+		Model:     "glm-4.7",
+		Input:     "2 + 2 等于几？",
+		Metadata:  map[string]any{"user_id": "abc123"},
+		User:      "user-1",
+		Reasoning: map[string]any{"effort": "high"},
+	})
+	if err != nil {
+		t.Fatalf("ResponsesToChatRequest returned error: %v", err)
+	}
+
+	_, captured := generateAndCaptureRequest(t, map[string]any{"cc_compat": true}, req)
+	if _, ok := captured["metadata"]; ok {
+		t.Fatalf("metadata should be dropped in cc_compat mode: %#v", captured["metadata"])
+	}
+	if _, ok := captured["user"]; ok {
+		t.Fatalf("user should be dropped in cc_compat mode: %#v", captured["user"])
+	}
+	// Unrelated fields must still pass through.
+	if captured["reasoning_effort"] != "high" {
+		t.Fatalf("reasoning_effort = %#v, want high", captured["reasoning_effort"])
+	}
+}
+
 func TestNewDefaults(t *testing.T) {
 	prov, err := New(provider.ProviderConfig{})
 	if err != nil {

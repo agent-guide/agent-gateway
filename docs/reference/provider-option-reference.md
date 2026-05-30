@@ -67,6 +67,13 @@ Extra outbound request shaping:
 
 ## Notable Provider-Specific Options
 
+`cc_compat` (OpenAI-compatible chat providers: `openai`, `deepseek`, `openrouter`, `zhipu`)
+
+- `option cc_compat true` enables Claude Code CLI compatibility mode for the chat-completions path by dropping the OpenAI-style `metadata` and `user` request fields
+- Claude Code always sends `metadata.user_id`; some OpenAI-compatible upstreams (e.g. GLM) reject these fields with a generic 400
+- default is off; `metadata`/`user` are forwarded unless `cc_compat` is set
+- note: the `codex` provider also exposes `cc_compat`, but it is a separate Responses-API behavior (see below), not the chat-field drop described here
+
 `codex`
 
 - uses OpenAI-compatible `POST /responses`
@@ -82,6 +89,7 @@ Extra outbound request shaping:
 `zhipu`
 
 - `option thinking_type <disabled|enabled|none>`
+- `option cc_compat true` — see the shared `cc_compat` note above
 
 ## Current Built-In Provider Types
 

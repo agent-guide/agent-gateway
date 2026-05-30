@@ -87,6 +87,8 @@ Use managed credentials when you need:
 - `zhipu` defaults to `https://open.bigmodel.cn/api/paas/v4`
 - `ollama` can be used without an API key
 
+The OpenAI-compatible chat providers (`openai`, `deepseek`, `openrouter`, `zhipu`) accept `option cc_compat true`, which drops the OpenAI-style `metadata` and `user` request fields that Claude Code CLI always sends but some upstreams (e.g. GLM) reject. Note this is distinct from `codex`'s `cc_compat`, which is a Responses-API tool-sequencing behavior described above.
+
 ## Related Docs
 
 - [../reference/provider-option-reference.md](../reference/provider-option-reference.md)

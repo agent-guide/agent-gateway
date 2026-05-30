@@ -11,7 +11,9 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
-func TestChatCarriesResponsesContextToOpenAICompatiblePayload(t *testing.T) {
+func chatAndCaptureRequest(t *testing.T, options map[string]any, req *provider.ChatRequest) map[string]any {
+	t.Helper()
+
 	var captured map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
@@ -36,12 +38,23 @@ func TestChatCarriesResponsesContextToOpenAICompatiblePayload(t *testing.T) {
 		ProviderType: "openai",
 		APIKey:       "test-key",
 		BaseURL:      server.URL + "/v1",
+		Options:      options,
 	})
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
 	p := prov.(*Provider)
 
+	ctx := provider.WithCredential(context.Background(), &credentialmgr.Credential{
+		Attributes: map[string]string{"api_key": "test-key"},
+	})
+	if _, err := p.Chat(ctx, req); err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+	return captured
+}
+
+func TestChatCarriesResponsesContextToOpenAICompatiblePayload(t *testing.T) {
 	chatReq, err := provider.ResponsesToChatRequest(&provider.ResponsesRequest{
 		Model: "gpt-4.1",
 		Input: "hello",
@@ -58,12 +71,7 @@ func TestChatCarriesResponsesContextToOpenAICompatiblePayload(t *testing.T) {
 		t.Fatalf("ResponsesToChatRequest returned error: %v", err)
 	}
 
-	ctx := provider.WithCredential(context.Background(), &credentialmgr.Credential{
-		Attributes: map[string]string{"api_key": "test-key"},
-	})
-	if _, err := p.Chat(ctx, chatReq); err != nil {
-		t.Fatalf("Chat returned error: %v", err)
-	}
+	captured := chatAndCaptureRequest(t, nil, chatReq)
 
 	if captured["user"] != "user-1" {
 		t.Fatalf("user = %#v, want user-1", captured["user"])
@@ -84,6 +92,32 @@ func TestChatCarriesResponsesContextToOpenAICompatiblePayload(t *testing.T) {
 	responseFormat, _ := captured["response_format"].(map[string]any)
 	if responseFormat["type"] != "json_object" {
 		t.Fatalf("response_format = %+v, want json_object", responseFormat)
+	}
+}
+
+func TestCCCompatDropsUnsupportedMetadataAndUser(t *testing.T) {
+	chatReq, err := provider.ResponsesToChatRequest(&provider.ResponsesRequest{
+		Model:     "gpt-4.1",
+		Input:     "hello",
+		Metadata:  map[string]any{"user_id": "abc123"},
+		User:      "user-1",
+		Reasoning: map[string]any{"effort": "high"},
+	})
+	if err != nil {
+		t.Fatalf("ResponsesToChatRequest returned error: %v", err)
+	}
+
+	captured := chatAndCaptureRequest(t, map[string]any{"cc_compat": true}, chatReq)
+
+	if _, ok := captured["metadata"]; ok {
+		t.Fatalf("metadata should be dropped in cc_compat mode: %#v", captured["metadata"])
+	}
+	if _, ok := captured["user"]; ok {
+		t.Fatalf("user should be dropped in cc_compat mode: %#v", captured["user"])
+	}
+	// Unrelated fields must still pass through.
+	if captured["reasoning_effort"] != "high" {
+		t.Fatalf("reasoning_effort = %#v, want high", captured["reasoning_effort"])
 	}
 }
 

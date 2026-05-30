@@ -2,15 +2,17 @@ apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
 
 providers:
-  - id: zhipu-test
-    provider_type: zhipu
-    api_key: ${ZHIPU_API_KEY}
-    default_model: glm-5.1
+  - id: codex-test
+    provider_type: codex
+    default_model: gpt-5.4
+    network:
+      proxy_url: http://127.0.0.1:7890
 
-  - id: deepseek-test
-    provider_type: deepseek
-    api_key: ${DEEPSEEK_API_KEY}
-    default_model: deepseek-v4-pro
+  - id: claudecode-test
+    provider_type: claudecode
+    default_model: claude-sonnet-4-6
+    network:
+      proxy_url: http://127.0.0.1:7890
 
 llmRoutes:
   - id: chat
@@ -23,7 +25,9 @@ llmRoutes:
       require_virtual_key: true
     target_policy:
       provider_target:
-        provider_id: zhipu-test
+        provider_id: claudecode-test
+      credential_type_order:
+        - cliauth_token
 
 virtualKeys:
   - id: vk-llm-test
