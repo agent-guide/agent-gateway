@@ -529,6 +529,77 @@ data: {"index":1`) {
 	}
 }
 
+func TestServeLLMApiStreamAccumulatesFragmentedToolCall(t *testing.T) {
+	handler := NewHandler(nil)
+	idx0 := 0
+	// OpenAI-compatible providers (e.g. DeepSeek) stream one tool call as many
+	// fragments: id+name first, then argument deltas with only the index set.
+	prov := &testStreamingProvider{
+		cfg: provider.ProviderConfig{Id: "deepseek", ProviderType: "deepseek"},
+		chunks: []*schema.Message{
+			{Role: schema.Assistant, ToolCalls: []schema.ToolCall{{
+				Index: &idx0, ID: "call_1", Type: "function",
+				Function: schema.FunctionCall{Name: "get_weather"},
+			}}},
+			{Role: schema.Assistant, ToolCalls: []schema.ToolCall{{
+				Index: &idx0, Function: schema.FunctionCall{Arguments: `{"ci`},
+			}}},
+			{Role: schema.Assistant, ToolCalls: []schema.ToolCall{{
+				Index: &idx0, Function: schema.FunctionCall{Arguments: `ty":"Paris"}`},
+			}}, ResponseMeta: &schema.ResponseMeta{FinishReason: "tool_use"}},
+		},
+	}
+
+	body, err := json.Marshal(MessagesRequest{
+		Model:     "claude-sonnet-4-5",
+		MaxTokens: 16,
+		Stream:    true,
+		Messages: []MessageItem{{
+			Role:    "user",
+			Content: MessageContent{{Type: "text", Text: "weather in Paris"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+
+	payload, err := io.ReadAll(rec.Result().Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	bodyText := string(payload)
+
+	// Exactly one tool_use content block, never a fragment-per-block explosion.
+	if n := strings.Count(bodyText, `"type":"tool_use"`); n != 1 {
+		t.Fatalf("tool_use blocks = %d, want 1: %s", n, bodyText)
+	}
+	// The single block must carry the real id and name (not an empty fragment).
+	if !strings.Contains(bodyText, `"id":"call_1","input":{},"name":"get_weather","type":"tool_use"`) {
+		t.Fatalf("missing accumulated tool_use block: %s", bodyText)
+	}
+	if strings.Contains(bodyText, `"name":"","type":"tool_use"`) {
+		t.Fatalf("phantom empty-name tool_use block emitted: %s", bodyText)
+	}
+	// Both argument fragments must stream into the same block and reconstruct.
+	if !strings.Contains(bodyText, `"partial_json":"{\"ci"`) ||
+		!strings.Contains(bodyText, `"partial_json":"ty\":\"Paris\"}"`) {
+		t.Fatalf("argument fragments not preserved: %s", bodyText)
+	}
+	if !strings.Contains(bodyText, `"stop_reason":"tool_use"`) {
+		t.Fatalf("missing tool_use stop_reason: %s", bodyText)
+	}
+}
+
 func TestToInternalCarriesThinkingMetadataAndOutputConfig(t *testing.T) {
 	conv := &Converter{}
 	req := &MessagesRequest{

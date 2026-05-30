@@ -6,6 +6,8 @@ providers:
     provider_type: zhipu
     api_key: ${ZHIPU_API_KEY}
     default_model: glm-5.1
+    options:
+      cc_compat: true
 
   - id: deepseek-test
     provider_type: deepseek

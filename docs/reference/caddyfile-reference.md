@@ -88,7 +88,7 @@ Provider-specific notes:
 
 - `openai` defaults to `https://api.openai.com/v1`
 - `deepseek` defaults to `https://api.deepseek.com`
-- `deepseek` accepts `option path <path>`, `option response_format_type <text|json_object>`, and tuning options such as `max_tokens`, `temperature`, `top_p`, `presence_penalty`, `frequency_penalty`, `log_probs`, and `top_log_probs`
+- `deepseek` accepts `option path <path>`, `option response_format_type <text|json_object>`, `option thinking_type <disabled|enabled|none>`, and tuning options such as `max_tokens`, `temperature`, `top_p`, `presence_penalty`, `frequency_penalty`, `log_probs`, and `top_log_probs`
 - `zhipu` defaults to `https://open.bigmodel.cn/api/paas/v4`
 - `zhipu` accepts `option thinking_type <disabled|enabled|none>`
 - `ollama` can be used without an API key

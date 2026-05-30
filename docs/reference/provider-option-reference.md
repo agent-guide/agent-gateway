@@ -84,6 +84,9 @@ Extra outbound request shaping:
 
 - `option path <path>`
 - `option response_format_type <text|json_object>`
+- `option thinking_type <disabled|enabled|none>`
+  - DeepSeek v4 models run in thinking mode by default and then require the `reasoning_content` of every tool-calling assistant turn to be replayed on the next request; the cc/anthropic protocol does not round-trip reasoning content, so default is `disabled` to keep Claude Code CLI tool loops working
+  - `none` omits the `thinking` field entirely (use the upstream default)
 - tuning options such as `max_tokens`, `temperature`, `top_p`, `presence_penalty`, `frequency_penalty`, `log_probs`, and `top_log_probs`
 
 `zhipu`

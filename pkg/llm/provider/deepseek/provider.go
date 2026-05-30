@@ -101,10 +101,43 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) 
 	}
 	opts := append([]einomodel.Option(nil), state.Options...)
 	extraFields := provider.MergeExtraFields(configExtra, requestExtra)
+	if thinkingType := p.thinkingType(); thinkingType != "" {
+		extraFields = provider.MergeExtraFields(extraFields, map[string]any{
+			"thinking": map[string]any{
+				"type": thinkingType,
+			},
+		})
+	}
 	if len(extraFields) > 0 {
 		opts = append(opts, einoopenai.WithExtraFields(extraFields))
 	}
 	return chatModel, state.Messages, opts, nil
+}
+
+// thinkingType resolves the deepseek `thinking.type` request field.
+//
+// DeepSeek v4 models run in thinking mode by default and then require the
+// `reasoning_content` of every tool-calling assistant turn to be replayed on
+// the next request. The cc/anthropic protocol does not round-trip reasoning
+// content, so the default is "disabled" to keep Claude Code CLI tool loops
+// working. Set `option thinking_type none` to omit the field entirely.
+func (p *Provider) thinkingType() string {
+	v, ok := p.ProviderConfig.Options["thinking_type"]
+	if !ok {
+		return "disabled"
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "disabled"
+	}
+	s = strings.TrimSpace(strings.ToLower(s))
+	if s == "" {
+		return "disabled"
+	}
+	if s == "none" {
+		return ""
+	}
+	return s
 }
 
 func (p *Provider) Capabilities() provider.ProviderCapabilities {

@@ -89,6 +89,8 @@ Use managed credentials when you need:
 
 The OpenAI-compatible chat providers (`openai`, `deepseek`, `openrouter`, `zhipu`) accept `option cc_compat true`, which drops the OpenAI-style `metadata` and `user` request fields that Claude Code CLI always sends but some upstreams (e.g. GLM) reject. Note this is distinct from `codex`'s `cc_compat`, which is a Responses-API tool-sequencing behavior described above.
 
+`deepseek` and `zhipu` also accept `option thinking_type <disabled|enabled|none>`. Both default to `disabled`: their thinking-mode models otherwise require the previous turn's `reasoning_content` to be replayed, which the cc/anthropic protocol does not carry, so an enabled thinking mode breaks Claude Code CLI tool loops. Use `none` to omit the field and take the upstream default.
+
 ## Related Docs
 
 - [../reference/provider-option-reference.md](../reference/provider-option-reference.md)

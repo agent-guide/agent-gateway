@@ -221,6 +221,73 @@ func TestApplyOptions(t *testing.T) {
 	}
 }
 
+func chatCaptureBody(t *testing.T, options map[string]any) map[string]any {
+	t.Helper()
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"chatcmpl-test","object":"chat.completion","created":1710000000,"model":"deepseek-chat",
+			"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],
+			"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+		}`))
+	}))
+	defer server.Close()
+
+	prov, err := New(provider.ProviderConfig{
+		ProviderType: "deepseek",
+		APIKey:       "test-key",
+		BaseURL:      server.URL,
+		Options:      options,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	p := prov.(*Provider)
+	ctx := provider.WithCredential(context.Background(), &credentialmgr.Credential{
+		Attributes: map[string]string{"api_key": "test-key"},
+	})
+	if _, err := p.Chat(ctx, &provider.ChatRequest{
+		Model:    "deepseek-chat",
+		Messages: []*schema.Message{{Role: schema.User, Content: "hi"}},
+	}); err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+	return captured
+}
+
+// DeepSeek v4 models run in thinking mode by default and then require the
+// reasoning_content of tool-calling assistant turns to be replayed, which the
+// cc/anthropic protocol cannot do. The provider must default thinking off.
+func TestThinkingDisabledByDefault(t *testing.T) {
+	captured := chatCaptureBody(t, nil)
+	thinking, ok := captured["thinking"].(map[string]any)
+	if !ok {
+		t.Fatalf("thinking = %#v, want object", captured["thinking"])
+	}
+	if thinking["type"] != "disabled" {
+		t.Fatalf("thinking.type = %#v, want disabled", thinking["type"])
+	}
+}
+
+func TestThinkingTypeOptionOverride(t *testing.T) {
+	captured := chatCaptureBody(t, map[string]any{"thinking_type": "enabled"})
+	thinking, ok := captured["thinking"].(map[string]any)
+	if !ok || thinking["type"] != "enabled" {
+		t.Fatalf("thinking = %#v, want type=enabled", captured["thinking"])
+	}
+}
+
+func TestThinkingTypeNoneOmitsField(t *testing.T) {
+	captured := chatCaptureBody(t, map[string]any{"thinking_type": "none"})
+	if _, ok := captured["thinking"]; ok {
+		t.Fatalf("thinking should be omitted when thinking_type=none: %#v", captured["thinking"])
+	}
+}
+
 func boolPtr(v bool) *bool {
 	return &v
 }

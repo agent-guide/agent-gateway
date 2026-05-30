@@ -238,6 +238,13 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 	finalOutputTokens := 0
 	nextBlockIndex := 0
 	emittedToolUse := false
+	// Streamed tool calls arrive as fragments: the first fragment for a tool-call
+	// index carries id+name, later fragments carry argument deltas. Accumulate
+	// them into one Anthropic tool_use content block per index instead of emitting
+	// a separate block per fragment.
+	type streamToolBlock struct{ blockIndex int }
+	toolBlocks := map[int]*streamToolBlock{}
+	var toolBlockOrder []int
 	for {
 		chunk, err := stream.Recv()
 		if err == io.EOF {
@@ -282,25 +289,56 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 			}
 		}
 
-		// Emit tool_use blocks as a complete content block per tool call.
+		// Accumulate streamed tool-call fragments into one content block per
+		// tool-call index. OpenAI-compatible providers send id+name in the first
+		// fragment and stream argument deltas afterward; emitting a block per
+		// fragment would corrupt the tool call into many empty tool_use blocks.
 		for _, tc := range chunk.ToolCalls {
-			idx := nextBlockIndex
-			writeSSEEvent(w, "content_block_start", map[string]any{
-				"type": "content_block_start", "index": idx,
-				"content_block": map[string]any{
-					"type": "tool_use", "id": tc.ID, "name": tc.Function.Name, "input": map[string]any{},
-				},
-			})
+			if tc.Index == nil {
+				// Provider delivered the whole tool call in a single fragment.
+				idx := nextBlockIndex
+				nextBlockIndex++
+				writeSSEEvent(w, "content_block_start", map[string]any{
+					"type": "content_block_start", "index": idx,
+					"content_block": map[string]any{
+						"type": "tool_use", "id": tc.ID, "name": tc.Function.Name, "input": map[string]any{},
+					},
+				})
+				if tc.Function.Arguments != "" {
+					writeSSEEvent(w, "content_block_delta", map[string]any{
+						"type": "content_block_delta", "index": idx,
+						"delta": map[string]any{"type": "input_json_delta", "partial_json": tc.Function.Arguments},
+					})
+				}
+				writeSSEEvent(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": idx})
+				finalStopReason = "tool_use"
+				emittedToolUse = true
+				if canFlush {
+					flusher.Flush()
+				}
+				continue
+			}
+			block, ok := toolBlocks[*tc.Index]
+			if !ok {
+				block = &streamToolBlock{blockIndex: nextBlockIndex}
+				nextBlockIndex++
+				toolBlocks[*tc.Index] = block
+				toolBlockOrder = append(toolBlockOrder, *tc.Index)
+				writeSSEEvent(w, "content_block_start", map[string]any{
+					"type": "content_block_start", "index": block.blockIndex,
+					"content_block": map[string]any{
+						"type": "tool_use", "id": tc.ID, "name": tc.Function.Name, "input": map[string]any{},
+					},
+				})
+				finalStopReason = "tool_use"
+				emittedToolUse = true
+			}
 			if tc.Function.Arguments != "" {
 				writeSSEEvent(w, "content_block_delta", map[string]any{
-					"type": "content_block_delta", "index": idx,
+					"type": "content_block_delta", "index": block.blockIndex,
 					"delta": map[string]any{"type": "input_json_delta", "partial_json": tc.Function.Arguments},
 				})
 			}
-			writeSSEEvent(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": idx})
-			nextBlockIndex++
-			finalStopReason = "tool_use"
-			emittedToolUse = true
 			if canFlush {
 				flusher.Flush()
 			}
@@ -328,6 +366,10 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 	)
 	if textBlockStarted {
 		writeSSEEvent(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": textBlockIndex})
+	}
+	// Close every accumulated streamed tool-call block.
+	for _, key := range toolBlockOrder {
+		writeSSEEvent(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": toolBlocks[key].blockIndex})
 	}
 	writeSSEEvent(w, "message_delta", map[string]any{
 		"type":  "message_delta",
