@@ -258,8 +258,8 @@ func (g *AgentGateway) ResolveVirtualKey(ctx context.Context, httpReq *http.Requ
 	if !r.AuthPolicy.RequireVirtualKey {
 		return nil, nil
 	}
-	rawKey := virtualkeypkg.ExtractAPIKey(httpReq)
-	if rawKey == "" {
+	candidates := virtualkeypkg.ExtractAPIKeys(httpReq)
+	if len(candidates) == 0 {
 		return nil, statuserr.New(http.StatusUnauthorized, "virtual key is required")
 	}
 
@@ -270,14 +270,24 @@ func (g *AgentGateway) ResolveVirtualKey(ctx context.Context, httpReq *http.Requ
 		return nil, statuserr.New(http.StatusServiceUnavailable, "virtual key manager is not configured")
 	}
 
-	virtualKey, err := virtualKeyManager.GetByKey(ctx, rawKey)
-	if err != nil {
-		return nil, statuserr.New(http.StatusUnauthorized, "invalid virtual key")
+	// A request may carry candidate keys in both `Authorization` and
+	// `x-api-key`; accept the first one that resolves to a usable virtual key
+	// for this route, so an unrelated key in one header cannot shadow the valid
+	// key in the other.
+	var lastErr error = statuserr.New(http.StatusUnauthorized, "invalid virtual key")
+	for _, rawKey := range candidates {
+		virtualKey, err := virtualKeyManager.GetByKey(ctx, rawKey)
+		if err != nil {
+			lastErr = statuserr.New(http.StatusUnauthorized, "invalid virtual key")
+			continue
+		}
+		if err := virtualKey.ValidateForRoute(r.ID); err != nil {
+			lastErr = err
+			continue
+		}
+		return &virtualKey, nil
 	}
-	if err := virtualKey.ValidateForRoute(r.ID); err != nil {
-		return nil, err
-	}
-	return &virtualKey, nil
+	return nil, lastErr
 }
 
 func (g *AgentGateway) providerResolver() ProviderResolver {

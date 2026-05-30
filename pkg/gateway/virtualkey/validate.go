@@ -49,17 +49,27 @@ func (key VirtualKey) ValidateForRoute(routeID string) error {
 // 	return key, nil
 // }
 
-// ExtractAPIKey extracts the bearer token or x-api-key value from the request.
-func ExtractAPIKey(r *http.Request) string {
+// ExtractAPIKeys returns every candidate virtual-key value carried by the
+// request, in precedence order. A request may legitimately present a key in
+// both the `x-api-key` header and the `Authorization: Bearer` header (Claude
+// Code, for example, always sends both — the gateway virtual key in one and an
+// unrelated upstream key in the other), so callers must try each candidate
+// rather than trusting a single header. Empty and duplicate values are omitted.
+func ExtractAPIKeys(r *http.Request) []string {
 	if r == nil {
-		return ""
+		return nil
 	}
-	if key := strings.TrimSpace(r.Header.Get("x-api-key")); key != "" {
-		return key
+	var keys []string
+	add := func(k string) {
+		k = strings.TrimSpace(k)
+		if k == "" || slices.Contains(keys, k) {
+			return
+		}
+		keys = append(keys, k)
 	}
-	auth := strings.TrimSpace(r.Header.Get("Authorization"))
-	if len(auth) > 7 && strings.EqualFold(auth[:7], "bearer ") {
-		return strings.TrimSpace(auth[7:])
+	add(r.Header.Get("x-api-key"))
+	if auth := strings.TrimSpace(r.Header.Get("Authorization")); len(auth) > 7 && strings.EqualFold(auth[:7], "bearer ") {
+		add(auth[7:])
 	}
-	return ""
+	return keys
 }
