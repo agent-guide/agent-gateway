@@ -38,23 +38,33 @@ func (s *callbackHTTPServer) start(handler http.Handler) error {
 		return fmt.Errorf("callback server already running")
 	}
 
-	addr := fmt.Sprintf(":%d", s.port)
+	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("port %d already in use: %w", s.port, err)
 	}
+	if tcpAddr, ok := ln.Addr().(*net.TCPAddr); ok {
+		s.port = tcpAddr.Port
+	}
 
-	s.srv = &http.Server{
+	httpSrv := &http.Server{
 		Handler:      handler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
+	s.srv = httpSrv
 	s.running = true
 
 	go func() {
-		_ = s.srv.Serve(ln)
+		_ = httpSrv.Serve(ln)
 	}()
 	return nil
+}
+
+func (s *callbackHTTPServer) actualPort() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.port
 }
 
 func (s *callbackHTTPServer) stop(ctx context.Context) error {

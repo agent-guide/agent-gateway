@@ -12,6 +12,7 @@ type oauthBrowserFlowOptions struct {
 	ProviderName              string
 	AuthURL                   string
 	ManualVerificationURL     string
+	Manual                    bool
 	NoBrowser                 bool
 	Reporter                  cliauth.LoginStatusReporter
 	AwaitingBrowserMessage    string
@@ -107,6 +108,9 @@ func runOAuthBrowserFlow(opts oauthBrowserFlowOptions) (oauthBrowserFlowResult, 
 				outcome, parseErr := opts.ParseManualInput(line)
 				if parseErr != nil {
 					return oauthBrowserFlowResult{}, parseErr
+				}
+				if opts.Manual {
+					outcome.Manual = true
 				}
 				return outcome, nil
 			}

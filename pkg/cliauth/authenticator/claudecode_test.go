@@ -12,7 +12,7 @@ func TestBuildClaudeRedirectURI(t *testing.T) {
 		port int
 		want string
 	}{
-		{name: "default port when zero", port: 0, want: "http://localhost:54545/callback"},
+		{name: "zero port", port: 0, want: "http://localhost:0/callback"},
 		{name: "custom port", port: 18443, want: "http://localhost:18443/callback"},
 	}
 
@@ -50,8 +50,21 @@ func TestBuildClaudeAuthURLUsesRedirectURI(t *testing.T) {
 	if query.Get("org:create_api_key") != "" {
 		t.Fatalf("unexpected literal query key %q present", "org:create_api_key")
 	}
-	if strings.Contains(query.Get("scope"), "user:file_upload") {
-		t.Fatalf("scope unexpectedly contains deprecated scope user:file_upload: %q", query.Get("scope"))
+	if !strings.Contains(query.Get("scope"), "user:file_upload") {
+		t.Fatalf("scope missing Claude Code file upload scope: %q", query.Get("scope"))
+	}
+}
+
+func TestGenerateClaudeStateMatchesClaudeCodeShape(t *testing.T) {
+	state, err := generateClaudeState()
+	if err != nil {
+		t.Fatalf("generateClaudeState() error = %v", err)
+	}
+	if len(state) != 43 {
+		t.Fatalf("state length = %d, want 43", len(state))
+	}
+	if strings.ContainsAny(state, "+/=") {
+		t.Fatalf("state = %q, want unpadded base64url", state)
 	}
 }
 
@@ -87,13 +100,13 @@ func TestParseClaudeCallbackURLErrors(t *testing.T) {
 	}
 }
 
-func TestParseClaudeManualInputShortCodeRejected(t *testing.T) {
-	_, err := parseClaudeManualInput("47", "state-123")
-	if err == nil {
-		t.Fatalf("parseClaudeManualInput() error = nil, want error")
+func TestParseClaudeManualInputCode(t *testing.T) {
+	outcome, err := parseClaudeManualInput("abc123", "state-123")
+	if err != nil {
+		t.Fatalf("parseClaudeManualInput() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "full callback URL") {
-		t.Fatalf("parseClaudeManualInput() error = %q, want mention of full callback URL", err.Error())
+	if outcome.Code != "abc123" || outcome.State != "state-123" || !outcome.Manual {
+		t.Fatalf("parseClaudeManualInput() = %#v, want manual code outcome", outcome)
 	}
 }
 
@@ -102,7 +115,7 @@ func TestParseClaudeManualInputCallbackURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseClaudeManualInput() error = %v", err)
 	}
-	if outcome.Code != "abc123" || outcome.State != "xyz789" || outcome.Manual {
+	if outcome.Code != "abc123" || outcome.State != "xyz789" || !outcome.Manual {
 		t.Fatalf("parseClaudeManualInput() = %#v, want parsed callback URL outcome", outcome)
 	}
 }

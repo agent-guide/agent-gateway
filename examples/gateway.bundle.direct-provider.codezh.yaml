@@ -2,7 +2,7 @@ apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
 
 providers:
-  - id: claudecode-test
+  - id: ccodezh-test
     provider_type: claudecode
     base_url: https://us-api.ccodezh.com
     api_key: ${ANTHROPIC_API_KEY}
@@ -12,7 +12,7 @@ providers:
     options:
       auth_mode: bearer_only
 
-  - id: codex-test
+  - id: codexzh-test
     provider_type: codex
     base_url: https://us-api.codexzh.com/v1
     api_key: ${OPENAI_API_KEY}
@@ -33,7 +33,7 @@ llmRoutes:
       require_virtual_key: true
     target_policy:
       provider_target:
-        provider_id: codex-test
+        provider_id: ccodezh-test
       credential_type_order:
         - api_key
 

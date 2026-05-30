@@ -3,6 +3,8 @@ package authenticator
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,10 +24,10 @@ const (
 	claudeTokenURL          = "https://platform.claude.com/v1/oauth/token"
 	claudeManualRedirectURL = "https://platform.claude.com/oauth/code/callback"
 	claudeClientID          = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-	claudeScopes            = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers"
+	claudeScopes            = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
 
 	claudeCallbackTimeout     = 5 * time.Minute
-	claudeDefaultCallbackPort = 54545
+	claudeDefaultCallbackPort = 0
 	claudeRefreshMaxRetries   = 3
 	claudeManualPromptDelay   = 15 * time.Second
 )
@@ -139,18 +141,12 @@ func (a *ClaudeAuthenticator) loginWithBrowser(ctx context.Context, reporter cli
 		return nil, fmt.Errorf("claudecode: PKCE generation failed: %w", err)
 	}
 
-	state, err := generateState()
+	state, err := generateClaudeState()
 	if err != nil {
 		return nil, fmt.Errorf("claudecode: state generation failed: %w", err)
 	}
 
-	port := a.CallbackPort
-	if port <= 0 {
-		port = claudeDefaultCallbackPort
-	}
-	redirectURI := buildClaudeRedirectURI(port)
-
-	srv := newClaudeCallbackServer(port)
+	srv := newClaudeCallbackServer(a.CallbackPort)
 	if err = srv.start(); err != nil {
 		if strings.Contains(err.Error(), "already in use") {
 			return nil, newAuthError(ErrPortInUse, err)
@@ -163,22 +159,20 @@ func (a *ClaudeAuthenticator) loginWithBrowser(ctx context.Context, reporter cli
 		_ = srv.stop(stopCtx)
 	}()
 
-	callbackAuthURL := buildClaudeAuthURL(state, codeChallenge, redirectURI)
+	redirectURI := buildClaudeRedirectURI(srv.actualPort())
 	manualAuthURL := buildClaudeAuthURL(state, codeChallenge, claudeManualRedirectURL)
-	authURL := callbackAuthURL
-	if a.NoBrowser {
-		authURL = manualAuthURL
-	}
+	authURL := manualAuthURL
 	outcome, err := runOAuthBrowserFlow(oauthBrowserFlowOptions{
 		ProviderName:              "Claude Code",
 		AuthURL:                   authURL,
 		ManualVerificationURL:     manualAuthURL,
+		Manual:                    true,
 		NoBrowser:                 a.NoBrowser,
 		Reporter:                  reporter,
 		AwaitingBrowserMessage:    "Open the verification URL in a browser and complete the Claude Code login flow.",
-		WaitingForCallbackMessage: "Waiting for the Claude Code OAuth callback after browser verification.",
-		ManualCallbackMessage:     "If the browser cannot reach localhost, open the manual verification URL, finish the browser flow, then paste the full callback URL from the browser address bar.",
-		ManualCallbackPrompt:      "Paste the full Claude Code callback URL from the browser address bar (or press Enter to keep waiting): ",
+		WaitingForCallbackMessage: "Waiting for the Claude Code OAuth code after browser verification.",
+		ManualCallbackMessage:     "After browser verification, paste the Claude Code authorization code from the browser.",
+		ManualCallbackPrompt:      "Paste the Claude Code authorization code or callback URL (or press Enter to keep waiting): ",
 		CallbackTimeout:           claudeCallbackTimeout,
 		ManualPromptDelay:         claudeManualPromptDelay,
 		WaitForCallback:           srv.waitForCallback,
@@ -365,6 +359,14 @@ func buildClaudeAuthURL(state, codeChallenge, redirectURI string) string {
 	return claudeAuthURL + "?" + params.Encode()
 }
 
+func generateClaudeState() (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("failed to generate OAuth state: %w", err)
+	}
+	return base64.URLEncoding.WithPadding(base64.NoPadding).EncodeToString(raw), nil
+}
+
 // parseClaudeCodeParam splits a code parameter that may contain an embedded state fragment
 // in the form "code#state".
 func parseClaudeCodeParam(code string) (parsedCode, parsedState string) {
@@ -390,9 +392,9 @@ func parseClaudeManualInput(rawInput, state string) (oauthBrowserFlowResult, err
 		if err != nil {
 			return oauthBrowserFlowResult{}, err
 		}
-		return oauthBrowserFlowResult{Code: code, State: parsedState}, nil
+		return oauthBrowserFlowResult{Code: code, State: parsedState, Manual: true}, nil
 	}
-	return oauthBrowserFlowResult{}, fmt.Errorf("claudecode: manual flow requires the full callback URL from the browser address bar, not the short verification number %q", trimmed)
+	return oauthBrowserFlowResult{Code: trimmed, State: state, Manual: true}, nil
 }
 
 func redirectURIForOutcome(callbackRedirectURI string, manual bool) string {
