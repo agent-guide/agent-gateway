@@ -194,6 +194,57 @@ func TestGenerateCarriesResponsesContextToDeepSeekPayload(t *testing.T) {
 	}
 }
 
+func TestGenerateMapsDeveloperMessagesToSystem(t *testing.T) {
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"chatcmpl-test","object":"chat.completion","created":1710000000,"model":"deepseek-chat",
+			"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],
+			"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+		}`))
+	}))
+	defer server.Close()
+
+	prov, err := New(provider.ProviderConfig{
+		ProviderType: "deepseek",
+		APIKey:       "test-key",
+		BaseURL:      server.URL,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	p := prov.(*Provider)
+
+	req := &provider.ChatRequest{
+		Model: "deepseek-chat",
+		Messages: []*schema.Message{
+			{Role: schema.RoleType("developer"), Content: "follow policy"},
+			{Role: schema.User, Content: "hi"},
+		},
+	}
+	ctx := provider.WithCredential(context.Background(), &credentialmgr.Credential{
+		Attributes: map[string]string{"api_key": "test-key"},
+	})
+	if _, err := p.Chat(ctx, req); err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+	if req.Messages[0].Role != schema.RoleType("developer") {
+		t.Fatalf("request message was mutated: %+v", req.Messages[0])
+	}
+
+	messages, ok := captured["messages"].([]any)
+	if !ok || len(messages) != 2 {
+		t.Fatalf("messages = %#v, want 2 messages", captured["messages"])
+	}
+	if got := messages[0].(map[string]any)["role"]; got != "system" {
+		t.Fatalf("first role = %#v, want system", got)
+	}
+}
+
 func TestApplyOptions(t *testing.T) {
 	cfg := &einoopenai.ChatModelConfig{}
 	extraFields := applyOptions(cfg, map[string]any{

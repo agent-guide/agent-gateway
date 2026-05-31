@@ -23,7 +23,7 @@ llmRoutes:
       require_virtual_key: true
     target_policy:
       provider_target:
-        provider_id: zhipu-test
+        provider_id: deepseek-test
       credential_type_order:
         - api_key
 

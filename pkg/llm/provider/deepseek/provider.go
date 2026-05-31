@@ -111,7 +111,28 @@ func (p *Provider) newChatModel(ctx context.Context, req *provider.ChatRequest) 
 	if len(extraFields) > 0 {
 		opts = append(opts, einoopenai.WithExtraFields(extraFields))
 	}
-	return chatModel, state.Messages, opts, nil
+	return chatModel, normalizeMessagesForDeepSeek(state.Messages), opts, nil
+}
+
+func normalizeMessagesForDeepSeek(messages []*schema.Message) []*schema.Message {
+	if len(messages) == 0 {
+		return messages
+	}
+	normalized := make([]*schema.Message, 0, len(messages))
+	for _, msg := range messages {
+		if msg == nil {
+			normalized = append(normalized, msg)
+			continue
+		}
+		if msg.Role != schema.RoleType("developer") {
+			normalized = append(normalized, msg)
+			continue
+		}
+		clone := *msg
+		clone.Role = schema.System
+		normalized = append(normalized, &clone)
+	}
+	return normalized
 }
 
 // thinkingType resolves the deepseek `thinking.type` request field.
