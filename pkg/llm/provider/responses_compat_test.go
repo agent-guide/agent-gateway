@@ -118,6 +118,86 @@ func TestResponsesToChatRequestRejectsMalformedInputImage(t *testing.T) {
 	}
 }
 
+func TestResponsesToChatRequestFoldsNonUserMultiPartText(t *testing.T) {
+	req := &ResponsesRequest{
+		Model: "gpt-4.1",
+		Input: []any{
+			map[string]any{
+				"type": "message",
+				"role": "developer",
+				"content": []any{
+					map[string]any{"type": "input_text", "text": "first"},
+					map[string]any{"type": "input_text", "text": "second"},
+				},
+			},
+			map[string]any{
+				"type": "message",
+				"role": "user",
+				"content": []any{
+					map[string]any{"type": "input_text", "text": "hello"},
+					map[string]any{"type": "input_text", "text": "world"},
+				},
+			},
+		},
+	}
+
+	chatReq, err := ResponsesToChatRequest(req)
+	if err != nil {
+		t.Fatalf("ResponsesToChatRequest() error = %v", err)
+	}
+	if len(chatReq.Messages) != 2 {
+		t.Fatalf("message count = %d, want 2", len(chatReq.Messages))
+	}
+	developer := chatReq.Messages[0]
+	if developer.Role != schema.RoleType("developer") || developer.Content != "first\nsecond" || len(developer.UserInputMultiContent) != 0 {
+		t.Fatalf("developer message = %+v, want folded text content", developer)
+	}
+	user := chatReq.Messages[1]
+	if user.Role != schema.User || user.Content != "hello\nworld" || len(user.UserInputMultiContent) != 0 {
+		t.Fatalf("user message = %+v, want folded text content", user)
+	}
+}
+
+func TestResponsesToChatRequestParsesToolCallHistory(t *testing.T) {
+	req := &ResponsesRequest{
+		Model: "gpt-4.1",
+		Input: []any{
+			map[string]any{
+				"type":      "function_call",
+				"call_id":   "call_1",
+				"name":      "shell",
+				"arguments": `{"cmd":"cat note.txt"}`,
+			},
+			map[string]any{
+				"type":    "function_call_output",
+				"call_id": "call_1",
+				"output": []any{
+					map[string]any{"type": "output_text", "text": "secret-token: AGW-ZHIPU-42"},
+				},
+			},
+		},
+	}
+
+	chatReq, err := ResponsesToChatRequest(req)
+	if err != nil {
+		t.Fatalf("ResponsesToChatRequest() error = %v", err)
+	}
+	if len(chatReq.Messages) != 2 {
+		t.Fatalf("message count = %d, want 2", len(chatReq.Messages))
+	}
+	call := chatReq.Messages[0]
+	if call.Role != schema.Assistant || len(call.ToolCalls) != 1 {
+		t.Fatalf("function_call message = %+v, want assistant tool call", call)
+	}
+	if call.ToolCalls[0].ID != "call_1" || call.ToolCalls[0].Function.Name != "shell" || call.ToolCalls[0].Function.Arguments != `{"cmd":"cat note.txt"}` {
+		t.Fatalf("tool call = %+v, want parsed function call", call.ToolCalls[0])
+	}
+	output := chatReq.Messages[1]
+	if output.Role != schema.Tool || output.ToolCallID != "call_1" || output.Content != "secret-token: AGW-ZHIPU-42" {
+		t.Fatalf("tool output = %+v, want parsed output text", output)
+	}
+}
+
 func TestResponsesFromChatResponsePreservesToolCalls(t *testing.T) {
 	resp := ResponsesFromChatResponse(&ChatResponse{
 		Message: &schema.Message{
@@ -249,6 +329,117 @@ func TestStreamResponsesViaChatEmitsFunctionCallEvents(t *testing.T) {
 	}
 	if delta != `{"q":"cat"}` {
 		t.Fatalf("delta = %q, want function call arguments", delta)
+	}
+}
+
+func TestStreamResponsesViaChatEmitsTextItemLifecycle(t *testing.T) {
+	prov := &testResponsesCompatProvider{
+		streamResp: schema.StreamReaderFromArray([]*schema.Message{
+			{Role: schema.Assistant, Content: "he"},
+			{Role: schema.Assistant, Content: "llo"},
+		}),
+	}
+
+	stream, err := StreamResponsesViaChat(nil, prov, &ResponsesRequest{Model: "gpt-4.1", Input: "hello"})
+	if err != nil {
+		t.Fatalf("StreamResponsesViaChat() error = %v", err)
+	}
+	defer stream.Close()
+
+	var eventTypes []string
+	var delta string
+	var doneItem *ResponsesResponseOutput
+	for {
+		ev, err := stream.Recv()
+		if err != nil {
+			break
+		}
+		eventTypes = append(eventTypes, ev.Type)
+		if ev.Type == "response.output_text.delta" {
+			delta += ev.Delta
+		}
+		if ev.Type == "response.output_item.done" {
+			doneItem = ev.Item
+		}
+	}
+
+	wantTypes := []string{
+		"response.created",
+		"response.output_item.added",
+		"response.output_text.delta",
+		"response.output_text.delta",
+		"response.output_item.done",
+		"response.completed",
+	}
+	if len(eventTypes) != len(wantTypes) {
+		t.Fatalf("event types = %#v, want %#v", eventTypes, wantTypes)
+	}
+	for i := range wantTypes {
+		if eventTypes[i] != wantTypes[i] {
+			t.Fatalf("event types = %#v, want %#v", eventTypes, wantTypes)
+		}
+	}
+	if delta != "hello" {
+		t.Fatalf("delta = %q, want hello", delta)
+	}
+	if doneItem == nil || len(doneItem.Content) != 1 || doneItem.Content[0].Text != "hello" {
+		t.Fatalf("done item = %+v, want completed text item", doneItem)
+	}
+}
+
+func TestStreamResponsesViaChatKeepsToolIndexesStableWhenTextFollowsTool(t *testing.T) {
+	prov := &testResponsesCompatProvider{
+		streamResp: schema.StreamReaderFromArray([]*schema.Message{
+			{
+				Role: schema.Assistant,
+				ToolCalls: []schema.ToolCall{{
+					ID:       "call_1",
+					Type:     "function",
+					Function: schema.FunctionCall{Name: "lookup", Arguments: `{"q":"cat"}`},
+				}},
+			},
+			{Role: schema.Assistant, Content: "done"},
+		}),
+	}
+
+	stream, err := StreamResponsesViaChat(nil, prov, &ResponsesRequest{Model: "gpt-4.1", Input: "hello"})
+	if err != nil {
+		t.Fatalf("StreamResponsesViaChat() error = %v", err)
+	}
+	defer stream.Close()
+
+	var toolAddedIndex, toolDeltaIndex, toolDoneIndex = -1, -1, -1
+	var toolAddedID, toolDeltaID, toolDoneID string
+	for {
+		ev, err := stream.Recv()
+		if err != nil {
+			break
+		}
+		switch ev.Type {
+		case "response.output_item.added":
+			if ev.Item != nil && ev.Item.Type == "function_call" {
+				toolAddedIndex = ev.OutputIndex
+				toolAddedID = ev.ItemID
+			}
+		case "response.function_call_arguments.delta":
+			toolDeltaIndex = ev.OutputIndex
+			toolDeltaID = ev.ItemID
+		case "response.output_item.done":
+			if ev.Item != nil && ev.Item.Type == "function_call" {
+				toolDoneIndex = ev.OutputIndex
+				toolDoneID = ev.ItemID
+			}
+		}
+	}
+
+	if toolAddedIndex < 0 || toolDeltaIndex < 0 || toolDoneIndex < 0 {
+		t.Fatalf("tool indexes added=%d delta=%d done=%d, want all present", toolAddedIndex, toolDeltaIndex, toolDoneIndex)
+	}
+	if toolAddedIndex != toolDeltaIndex || toolAddedIndex != toolDoneIndex {
+		t.Fatalf("tool indexes added=%d delta=%d done=%d, want stable", toolAddedIndex, toolDeltaIndex, toolDoneIndex)
+	}
+	if toolAddedID == "" || toolAddedID != toolDeltaID || toolAddedID != toolDoneID {
+		t.Fatalf("tool ids added=%q delta=%q done=%q, want stable", toolAddedID, toolDeltaID, toolDoneID)
 	}
 }
 

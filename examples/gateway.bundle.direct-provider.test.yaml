@@ -6,8 +6,6 @@ providers:
     provider_type: zhipu
     api_key: ${ZHIPU_API_KEY}
     default_model: glm-5.1
-    options:
-      cc_compat: true
 
   - id: deepseek-test
     provider_type: deepseek
@@ -16,7 +14,7 @@ providers:
 
 llmRoutes:
   - id: chat
-    protocol: cc
+    protocol: openai
     match_policy:
       path_prefix: /
       methods:
@@ -26,6 +24,8 @@ llmRoutes:
     target_policy:
       provider_target:
         provider_id: zhipu-test
+      credential_type_order:
+        - api_key
 
 virtualKeys:
   - id: vk-llm-test

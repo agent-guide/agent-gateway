@@ -54,11 +54,16 @@ func StreamResponsesViaChat(ctx context.Context, prov Provider, req *ResponsesRe
 		toolOutputIndexByKey := map[string]int{}
 		var toolOutputIndexes []int
 		fallbackToolCallKey := ""
+		textOutputIndex := -1
 
 		for {
 			chunk, err := stream.Recv()
 			if err != nil {
 				if err == io.EOF {
+					if textOutputIndex >= 0 {
+						item := resp.Output[textOutputIndex]
+						sw.Send(ResponsesOutputItemDoneEvent(textOutputIndex, &item), nil)
+					}
 					for _, outputIndex := range toolOutputIndexes {
 						item := resp.Output[outputIndex]
 						sw.Send(ResponsesOutputItemDoneEvent(outputIndex, &item), nil)
@@ -76,6 +81,11 @@ func StreamResponsesViaChat(ctx context.Context, prov Provider, req *ResponsesRe
 			if text := messageText(chunk); text != "" {
 				ensureTextOutput(resp)
 				textIndex := firstTextOutputIndex(resp)
+				if textOutputIndex < 0 {
+					textOutputIndex = textIndex
+					item := resp.Output[textIndex]
+					sw.Send(ResponsesOutputItemAddedEvent(textIndex, &item), nil)
+				}
 				resp.Output[textIndex].Content[0].Text += text
 				sw.Send(ResponsesDeltaEvent(resp.Output[textIndex].ID, textIndex, text), nil)
 			}
@@ -468,9 +478,30 @@ func responseInputItemToMessage(item any) (*schema.Message, error) {
 
 	role, _ := obj["role"].(string)
 	if typ, _ := obj["type"].(string); typ == "function_call_output" {
-		output, _ := obj["output"].(string)
+		output := responsesTextFromValue(obj["output"])
 		callID, _ := obj["call_id"].(string)
 		return &schema.Message{Role: schema.Tool, Content: output, ToolCallID: callID}, nil
+	} else if typ == "function_call" {
+		callID, _ := obj["call_id"].(string)
+		if strings.TrimSpace(callID) == "" {
+			callID, _ = obj["id"].(string)
+		}
+		name, _ := obj["name"].(string)
+		arguments := responsesTextFromValue(obj["arguments"])
+		if strings.TrimSpace(name) == "" && strings.TrimSpace(callID) == "" && strings.TrimSpace(arguments) == "" {
+			return nil, nil
+		}
+		return &schema.Message{
+			Role: schema.Assistant,
+			ToolCalls: []schema.ToolCall{{
+				ID:   callID,
+				Type: "function",
+				Function: schema.FunctionCall{
+					Name:      name,
+					Arguments: arguments,
+				},
+			}},
+		}, nil
 	}
 	if strings.TrimSpace(role) == "" {
 		role = string(schema.User)
@@ -519,17 +550,63 @@ func responseInputItemToMessage(item any) (*schema.Message, error) {
 			msg.Content = inputParts[0].Text
 			return msg, nil
 		}
+		if msg.Role != schema.User {
+			msg.Content = strings.Join(textParts, "\n")
+			return msg, nil
+		}
 		if len(inputParts) > 0 {
-			msg.UserInputMultiContent = inputParts
-			if len(textParts) > 0 {
+			if inputPartsAreTextOnly(inputParts) {
 				msg.Content = strings.Join(textParts, "\n")
+				return msg, nil
 			}
+			msg.UserInputMultiContent = inputParts
 			return msg, nil
 		}
 		return &schema.Message{Role: schema.RoleType(role), Content: strings.Join(textParts, "\n")}, nil
 	default:
 		return nil, statuserr.New(http.StatusBadRequest, "unsupported input content for responses api")
 	}
+}
+
+func inputPartsAreTextOnly(parts []schema.MessageInputPart) bool {
+	for _, part := range parts {
+		if part.Type != schema.ChatMessagePartTypeText {
+			return false
+		}
+	}
+	return true
+}
+
+func responsesTextFromValue(v any) string {
+	switch typed := v.(type) {
+	case string:
+		return typed
+	case []any:
+		var parts []string
+		for _, raw := range typed {
+			part, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			text, _ := part["text"].(string)
+			if strings.TrimSpace(text) != "" {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	case map[string]any:
+		if text, _ := typed["text"].(string); strings.TrimSpace(text) != "" {
+			return text
+		}
+	}
+	if v == nil {
+		return ""
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprint(v)
+	}
+	return string(b)
 }
 
 func responseTextFromChatResponseFormat(responseFormat any) map[string]any {
@@ -792,7 +869,7 @@ func ensureTextOutput(resp *ResponsesResponse) {
 			return
 		}
 	}
-	resp.Output = append([]ResponsesResponseOutput{emptyTextOutput()}, resp.Output...)
+	resp.Output = append(resp.Output, emptyTextOutput())
 }
 
 func firstTextOutputIndex(resp *ResponsesResponse) int {
