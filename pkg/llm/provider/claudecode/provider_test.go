@@ -21,20 +21,14 @@ func TestChatUsesCLIAuthTokenBearerHeaders(t *testing.T) {
 	var betaHeader string
 	var acceptHeader string
 	var requestPath string
-	var userAgent string
-	var xApp string
 	var sessionHeader string
-	var dangerousHeader string
 	var reqBody messagesRequest
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader = r.Header.Get("Authorization")
 		betaHeader = r.Header.Get("anthropic-beta")
 		acceptHeader = r.Header.Get("Accept")
-		userAgent = r.Header.Get("User-Agent")
-		xApp = r.Header.Get("x-app")
 		sessionHeader = r.Header.Get("x-claude-code-session-id")
-		dangerousHeader = r.Header.Get("anthropic-dangerous-direct-browser-access")
 		requestPath = r.URL.RequestURI()
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("decode request: %v", err)
@@ -79,26 +73,20 @@ func TestChatUsesCLIAuthTokenBearerHeaders(t *testing.T) {
 	if acceptHeader != "application/json" {
 		t.Fatalf("accept = %q, want application/json", acceptHeader)
 	}
-	if userAgent != defaultClaudeCodeUserAgent {
-		t.Fatalf("user-agent = %q, want %q", userAgent, defaultClaudeCodeUserAgent)
-	}
-	if xApp != "" {
-		t.Fatalf("x-app = %q, want empty", xApp)
-	}
 	if sessionHeader == "" {
 		t.Fatal("x-claude-code-session-id is empty")
-	}
-	if dangerousHeader != "" {
-		t.Fatalf("anthropic-dangerous-direct-browser-access = %q, want empty", dangerousHeader)
 	}
 	if requestPath != "/v1/messages?beta=true" {
 		t.Fatalf("request path = %q, want /v1/messages?beta=true", requestPath)
 	}
-	if len(reqBody.System) < 4 {
-		t.Fatalf("system = %+v, want default Claude Code system blocks plus user system prompt", reqBody.System)
+	if len(reqBody.System) != 2 {
+		t.Fatalf("system = %+v, want CLI preamble block plus user system prompt", reqBody.System)
 	}
-	if reqBody.System[1].CacheControl == nil || reqBody.System[1].CacheControl.Type != "ephemeral" {
-		t.Fatalf("default sdk identity block cache_control = %+v, want ephemeral", reqBody.System[1].CacheControl)
+	if reqBody.System[0].Text != claudeCodeSystemPreamble {
+		t.Fatalf("first system block = %q, want %q", reqBody.System[0].Text, claudeCodeSystemPreamble)
+	}
+	if reqBody.System[0].CacheControl == nil || reqBody.System[0].CacheControl.Type != "ephemeral" {
+		t.Fatalf("preamble block cache_control = %+v, want ephemeral", reqBody.System[0].CacheControl)
 	}
 	if reqBody.System[len(reqBody.System)-1].Text != "system prompt" {
 		t.Fatalf("last system block = %q, want system prompt", reqBody.System[len(reqBody.System)-1].Text)
@@ -132,6 +120,144 @@ func TestChatUsesCLIAuthTokenBearerHeaders(t *testing.T) {
 	}
 	if resp.Message.ResponseMeta == nil || resp.Message.ResponseMeta.Usage == nil || resp.Message.ResponseMeta.Usage.PromptTokens != 12 || resp.Message.ResponseMeta.Usage.CompletionTokens != 34 {
 		t.Fatalf("unexpected usage = %+v", resp.Message.ResponseMeta)
+	}
+}
+
+func TestChatAppliesConfiguredExtraHeaders(t *testing.T) {
+	var dangerousHeader string
+	var xApp string
+	var stainlessRuntime string
+	var userAgent string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		dangerousHeader = r.Header.Get("anthropic-dangerous-direct-browser-access")
+		xApp = r.Header.Get("x-app")
+		stainlessRuntime = r.Header.Get("x-stainless-runtime")
+		userAgent = r.Header.Get("User-Agent")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"hello"}],"stop_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":34}}`))
+	}))
+	defer server.Close()
+
+	prov, err := New(provider.ProviderConfig{
+		BaseURL: server.URL,
+		APIKey:  "sk-ant-api-fallback",
+		Network: httpclient.NetworkConfig{
+			RequestTimeoutSeconds: 5,
+			ExtraHeaders: map[string]string{
+				"Anthropic-Dangerous-Direct-Browser-Access": "true",
+				"User-Agent":          "claude-cli/2.1.158 (external, cli)",
+				"X-App":               "cli",
+				"X-Stainless-Runtime": "node",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	_, err = prov.Chat(context.Background(), &provider.ChatRequest{
+		Model: "claude-sonnet-4-20250514",
+		Messages: []*schema.Message{
+			schema.UserMessage("hello"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+
+	if dangerousHeader != "true" {
+		t.Fatalf("anthropic-dangerous-direct-browser-access = %q, want true", dangerousHeader)
+	}
+	if userAgent != "claude-cli/2.1.158 (external, cli)" {
+		t.Fatalf("user-agent = %q, want configured value", userAgent)
+	}
+	if xApp != "cli" {
+		t.Fatalf("x-app = %q, want cli", xApp)
+	}
+	if stainlessRuntime != "node" {
+		t.Fatalf("x-stainless-runtime = %q, want node", stainlessRuntime)
+	}
+}
+
+func TestChatSendsClaudeCodeFingerprintDefaultsWithoutExtraHeaders(t *testing.T) {
+	var got http.Header
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"hello"}],"stop_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":34}}`))
+	}))
+	defer server.Close()
+
+	prov, err := New(provider.ProviderConfig{
+		BaseURL: server.URL,
+		APIKey:  "sk-ant-api-fallback",
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	_, err = prov.Chat(context.Background(), &provider.ChatRequest{
+		Model:    "claude-sonnet-4-20250514",
+		Messages: []*schema.Message{schema.UserMessage("hello")},
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+
+	// With no ExtraHeaders configured, the provider must still present the full
+	// Claude Code fingerprint rather than Go's default User-Agent.
+	for name, want := range defaultClaudeCodeFingerprintHeaders {
+		if got := got.Get(name); got != want {
+			t.Fatalf("default header %s = %q, want %q", name, got, want)
+		}
+	}
+	if ua := got.Get("User-Agent"); ua == "Go-http-client/1.1" {
+		t.Fatalf("User-Agent leaked Go default %q", ua)
+	}
+}
+
+func TestChatExtraHeadersOverrideFingerprintDefaults(t *testing.T) {
+	var userAgent, anthropicBetaHeader string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userAgent = r.Header.Get("User-Agent")
+		anthropicBetaHeader = r.Header.Get("anthropic-beta")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"hello"}],"stop_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":34}}`))
+	}))
+	defer server.Close()
+
+	prov, err := New(provider.ProviderConfig{
+		BaseURL: server.URL,
+		APIKey:  "sk-ant-api-fallback",
+		Network: httpclient.NetworkConfig{
+			RequestTimeoutSeconds: 5,
+			ExtraHeaders: map[string]string{
+				"User-Agent":     "claude-cli/9.9.9 (external, cli)",
+				"anthropic-beta": "override-beta-flag",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	_, err = prov.Chat(context.Background(), &provider.ChatRequest{
+		Model:    "claude-sonnet-4-20250514",
+		Messages: []*schema.Message{schema.UserMessage("hello")},
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+
+	if userAgent != "claude-cli/9.9.9 (external, cli)" {
+		t.Fatalf("user-agent = %q, want ExtraHeaders override", userAgent)
+	}
+	if anthropicBetaHeader != "override-beta-flag" {
+		t.Fatalf("anthropic-beta = %q, want ExtraHeaders override", anthropicBetaHeader)
 	}
 }
 
@@ -229,7 +355,7 @@ func TestChatUsesBearerAuthorizationForProviderFallbackAPIKey(t *testing.T) {
 	}
 }
 
-func TestChatUsesAPIKeyHeaderWhenAuthModeIsExplicitlyAPIKey(t *testing.T) {
+func TestChatUsesXAPIKeyHeaderWhenAPIKeyHeaderIsXAPIKey(t *testing.T) {
 	var authHeader string
 	var apiKeyHeader string
 
@@ -245,7 +371,7 @@ func TestChatUsesAPIKeyHeaderWhenAuthModeIsExplicitlyAPIKey(t *testing.T) {
 		BaseURL: server.URL,
 		APIKey:  "sk-ant-api-fallback",
 		Options: map[string]any{
-			"auth_mode": "api_key",
+			"api_key_header": "x-api-key",
 		},
 		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
 	})
@@ -268,6 +394,34 @@ func TestChatUsesAPIKeyHeaderWhenAuthModeIsExplicitlyAPIKey(t *testing.T) {
 	}
 	if apiKeyHeader != "sk-ant-api-fallback" {
 		t.Fatalf("x-api-key = %q, want sk-ant-api-fallback", apiKeyHeader)
+	}
+}
+
+func TestNewRejectsInvalidAPIKeyHeader(t *testing.T) {
+	_, err := New(provider.ProviderConfig{
+		APIKey: "sk-ant-api-fallback",
+		Options: map[string]any{
+			"api_key_header": "bearer",
+		},
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
+	})
+	if err == nil {
+		t.Fatal("New() error = nil, want invalid api_key_header error")
+	}
+}
+
+func TestNewRejectsInvalidCodexCompat(t *testing.T) {
+	for _, value := range []any{"yes-ish", 1} {
+		_, err := New(provider.ProviderConfig{
+			APIKey: "sk-ant-api-fallback",
+			Options: map[string]any{
+				"codex_compat": value,
+			},
+			Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
+		})
+		if err == nil {
+			t.Fatalf("New() error = nil for codex_compat=%#v, want invalid option error", value)
+		}
 	}
 }
 
@@ -310,11 +464,14 @@ func TestChatBuildsClaudeCodeStyleBody(t *testing.T) {
 	if reqBody.MaxTokens != defaultClaudeCodeMaxTokens {
 		t.Fatalf("max_tokens = %d, want %d", reqBody.MaxTokens, defaultClaudeCodeMaxTokens)
 	}
-	if len(reqBody.System) < 4 {
-		t.Fatalf("system = %+v, want default system plus user system prompt", reqBody.System)
+	if len(reqBody.System) != 2 {
+		t.Fatalf("system = %+v, want CLI preamble block plus user system prompt", reqBody.System)
 	}
-	if reqBody.System[1].CacheControl == nil || reqBody.System[1].CacheControl.Type != "ephemeral" {
-		t.Fatalf("default sdk identity block cache_control = %+v, want ephemeral", reqBody.System[1].CacheControl)
+	if reqBody.System[0].Text != claudeCodeSystemPreamble {
+		t.Fatalf("first system block = %q, want %q", reqBody.System[0].Text, claudeCodeSystemPreamble)
+	}
+	if reqBody.System[0].CacheControl == nil || reqBody.System[0].CacheControl.Type != "ephemeral" {
+		t.Fatalf("preamble block cache_control = %+v, want ephemeral", reqBody.System[0].CacheControl)
 	}
 	if reqBody.System[len(reqBody.System)-1].Text != "system prompt" {
 		t.Fatalf("last system block = %q, want system prompt", reqBody.System[len(reqBody.System)-1].Text)
@@ -546,6 +703,198 @@ func TestCreateResponsesUsesChatCompatibility(t *testing.T) {
 	}
 }
 
+func codexCompatChatRequest() (*provider.ChatRequest, *schema.ToolInfo, *schema.Message) {
+	tool := &schema.ToolInfo{Name: "exec_command", Desc: "Runs a command."}
+	priorAssistant := &schema.Message{
+		Role: schema.Assistant,
+		ToolCalls: []schema.ToolCall{{
+			ID: "toolu_prev",
+			Function: schema.FunctionCall{
+				Name:      "exec_command",
+				Arguments: `{"cmd":"pwd"}`,
+			},
+		}},
+	}
+	req := &provider.ChatRequest{
+		Model: "claude-sonnet-4-20250514",
+		Messages: []*schema.Message{
+			schema.UserMessage("run a command"),
+			priorAssistant,
+			{
+				Role:       schema.Tool,
+				ToolCallID: "toolu_prev",
+				Content:    "/tmp\n",
+			},
+		},
+		Options: []model.Option{model.WithTools([]*schema.ToolInfo{tool})},
+	}
+	return req, tool, priorAssistant
+}
+
+func TestChatMapsCodexToolNamesForClaudeCode(t *testing.T) {
+	var reqBody messagesRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"cmd":"printf ok"}}],"stop_reason":"tool_use","usage":{"input_tokens":12,"output_tokens":34}}`))
+	}))
+	defer server.Close()
+
+	prov, err := New(provider.ProviderConfig{
+		BaseURL: server.URL,
+		APIKey:  "sk-ant-api-fallback",
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
+		Options: map[string]any{"codex_compat": true},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req, tool, priorAssistant := codexCompatChatRequest()
+	resp, err := prov.Chat(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+
+	if len(reqBody.Tools) != 1 || reqBody.Tools[0].Name != "Bash" {
+		t.Fatalf("request tools = %+v, want Bash alias", reqBody.Tools)
+	}
+	if len(reqBody.Messages) != 3 || len(reqBody.Messages[1].Content) != 1 || reqBody.Messages[1].Content[0].Name != "Bash" {
+		t.Fatalf("history messages = %+v, want prior assistant tool_use mapped to Bash", reqBody.Messages)
+	}
+	if resp == nil || resp.Message == nil || len(resp.Message.ToolCalls) != 1 {
+		t.Fatalf("response = %+v, want one tool call", resp)
+	}
+	if got := resp.Message.ToolCalls[0].Function.Name; got != "exec_command" {
+		t.Fatalf("response tool name = %q, want exec_command", got)
+	}
+
+	// The aliasing happens on the freshly built wire request, so the caller's
+	// tool definitions and message history must keep their original Codex names.
+	if tool.Name != "exec_command" {
+		t.Fatalf("tool definition name mutated to %q, want exec_command", tool.Name)
+	}
+	if got := priorAssistant.ToolCalls[0].Function.Name; got != "exec_command" {
+		t.Fatalf("history tool call name mutated to %q, want exec_command", got)
+	}
+}
+
+func TestChatKeepsCodexToolNamesWithoutCompat(t *testing.T) {
+	var reqBody messagesRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"tool_use","id":"toolu_1","name":"exec_command","input":{"cmd":"printf ok"}}],"stop_reason":"tool_use","usage":{"input_tokens":12,"output_tokens":34}}`))
+	}))
+	defer server.Close()
+
+	prov, err := New(provider.ProviderConfig{
+		BaseURL: server.URL,
+		APIKey:  "sk-ant-api-fallback",
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req, _, _ := codexCompatChatRequest()
+	resp, err := prov.Chat(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+
+	if len(reqBody.Tools) != 1 || reqBody.Tools[0].Name != "exec_command" {
+		t.Fatalf("request tools = %+v, want unchanged exec_command", reqBody.Tools)
+	}
+	if resp == nil || resp.Message == nil || len(resp.Message.ToolCalls) != 1 {
+		t.Fatalf("response = %+v, want one tool call", resp)
+	}
+	if got := resp.Message.ToolCalls[0].Function.Name; got != "exec_command" {
+		t.Fatalf("response tool name = %q, want exec_command", got)
+	}
+}
+
+func TestChatRestoresCodexToolNamesAfterRetry(t *testing.T) {
+	var attempts int
+	var reqBody messagesRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"cmd":"printf ok"}}],"stop_reason":"tool_use","usage":{"input_tokens":12,"output_tokens":34}}`))
+	}))
+	defer server.Close()
+
+	prov, err := New(provider.ProviderConfig{
+		BaseURL: server.URL,
+		APIKey:  "sk-ant-api-fallback",
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5, MaxRetries: 2, RetryDelaySeconds: 0},
+		Options: map[string]any{"codex_compat": true},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req, _, _ := codexCompatChatRequest()
+	resp, err := prov.Chat(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if attempts < 2 {
+		t.Fatalf("attempts = %d, want a retry after the first failure", attempts)
+	}
+	// The second attempt must still alias the request and restore the response
+	// name; the first attempt must not have left the shared state renamed.
+	if len(reqBody.Tools) != 1 || reqBody.Tools[0].Name != "Bash" {
+		t.Fatalf("retried request tools = %+v, want Bash alias", reqBody.Tools)
+	}
+	if resp == nil || resp.Message == nil || len(resp.Message.ToolCalls) != 1 {
+		t.Fatalf("response = %+v, want one tool call", resp)
+	}
+	if got := resp.Message.ToolCalls[0].Function.Name; got != "exec_command" {
+		t.Fatalf("response tool name = %q, want exec_command", got)
+	}
+}
+
+func TestChatRejectsCodexCompatToolNameCollision(t *testing.T) {
+	prov, err := New(provider.ProviderConfig{
+		BaseURL: "http://127.0.0.1:1",
+		APIKey:  "sk-ant-api-fallback",
+		Options: map[string]any{"codex_compat": true},
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	_, err = prov.Chat(context.Background(), &provider.ChatRequest{
+		Model:    "claude-sonnet-4-20250514",
+		Messages: []*schema.Message{schema.UserMessage("run a command")},
+		Options: []model.Option{
+			model.WithTools([]*schema.ToolInfo{
+				{Name: "exec_command", Desc: "Runs a command."},
+				{Name: "Bash", Desc: "Runs a shell command."},
+			}),
+		},
+	})
+	if err == nil {
+		t.Fatal("Chat() error = nil, want codex_compat tool name collision")
+	}
+}
+
 func TestNormalizeEffort(t *testing.T) {
 	cases := map[string]string{
 		"low":     "low",
@@ -611,6 +960,61 @@ func TestStreamChatParsesAnthropicSSE(t *testing.T) {
 	}
 	if first.Content != "hel" || second.Content != "lo" {
 		t.Fatalf("unexpected chunks: first=%+v second=%+v", first, second)
+	}
+}
+
+func TestStreamChatMapsCodexToolNamesForClaudeCode(t *testing.T) {
+	var reqBody messagesRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: content_block_start\n")
+		_, _ = io.WriteString(w, "data: {\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"Bash\"}}\n\n")
+		_, _ = io.WriteString(w, "event: content_block_delta\n")
+		_, _ = io.WriteString(w, "data: {\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"cmd\\\":\\\"pwd\\\"}\"}}\n\n")
+		_, _ = io.WriteString(w, "event: content_block_stop\n")
+		_, _ = io.WriteString(w, "data: {\"index\":0}\n\n")
+	}))
+	defer server.Close()
+
+	prov, err := New(provider.ProviderConfig{
+		BaseURL: server.URL,
+		APIKey:  "sk-ant-api-fallback",
+		Options: map[string]any{"codex_compat": true},
+		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	stream, err := prov.StreamChat(context.Background(), &provider.ChatRequest{
+		Model:    "claude-sonnet-4-20250514",
+		Messages: []*schema.Message{schema.UserMessage("run a command")},
+		Options: []model.Option{
+			model.WithTools([]*schema.ToolInfo{{Name: "exec_command", Desc: "Runs a command."}}),
+		},
+	})
+	if err != nil {
+		t.Fatalf("StreamChat() error = %v", err)
+	}
+	defer stream.Close()
+
+	msg, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("recv: %v", err)
+	}
+	if len(reqBody.Tools) != 1 || reqBody.Tools[0].Name != "Bash" {
+		t.Fatalf("request tools = %+v, want Bash alias", reqBody.Tools)
+	}
+	if len(msg.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %+v, want one tool call", msg.ToolCalls)
+	}
+	tc := msg.ToolCalls[0]
+	if tc.Function.Name != "exec_command" || tc.Function.Arguments != `{"cmd":"pwd"}` {
+		t.Fatalf("tool call = %+v, want restored exec_command", tc)
 	}
 }
 

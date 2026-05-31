@@ -36,6 +36,7 @@ const (
 	LLMApiRequestTypeChat      LLMApiRequestType = "chat"
 	LLMApiRequestTypeEmbedding LLMApiRequestType = "embedding"
 	LLMApiRequestTypeResponses LLMApiRequestType = "responses"
+	LLMApiRequestTypeModels    LLMApiRequestType = "models"
 )
 
 // Configuration and capability types.

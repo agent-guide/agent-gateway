@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
@@ -55,6 +56,15 @@ func (h *Handler) MatchLLMApi(r *http.Request) bool {
 }
 
 func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLMApiRequest, llmroutepkg.RequestRequirements, error) {
+	if r.URL.Path == "/v1/models" || r.URL.Path == "/models" {
+		return &dispatcher.PreparedLLMApiRequest{
+			Type: provider.LLMApiRequestTypeModels,
+			RawRequest: struct {
+				Path string
+			}{Path: r.URL.Path},
+		}, llmroutepkg.RequestRequirements{}, nil
+	}
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, llmroutepkg.RequestRequirements{}, fmt.Errorf("failed to read request body")
@@ -113,6 +123,10 @@ func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLM
 
 // ServeLLMApi handles OpenAI-compatible API requests.
 func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provider.Provider, prepared *dispatcher.PreparedLLMApiRequest) error {
+	if r.URL.Path == "/v1/models" || r.URL.Path == "/models" {
+		return h.serveModels(w, r, prov)
+	}
+
 	if r.Method != http.MethodPost {
 		h.writeError(w, r, http.StatusMethodNotAllowed, "method not allowed", fmt.Errorf("method %s not allowed", r.Method))
 		return nil
@@ -168,6 +182,51 @@ func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provi
 	)
 	conv := &Converter{}
 	_ = httpjson.Write(w, http.StatusOK, conv.FromInternal(resp, chatReq.Model))
+	return nil
+}
+
+func (h *Handler) serveModels(w http.ResponseWriter, r *http.Request, prov provider.Provider) error {
+	if r.Method != http.MethodGet {
+		h.writeError(w, r, http.StatusMethodNotAllowed, "method not allowed", fmt.Errorf("method %s not allowed", r.Method))
+		return nil
+	}
+	if prov == nil {
+		h.writeError(w, r, http.StatusServiceUnavailable, "provider is not configured", fmt.Errorf("provider is not configured"))
+		return nil
+	}
+	models, err := prov.ListModels(r.Context())
+	if err != nil {
+		_ = writeProviderError(h.logger, w, r, "", "list models", err)
+		return nil
+	}
+	type modelData struct {
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		Created int64  `json:"created"`
+		OwnedBy string `json:"owned_by"`
+	}
+	resp := struct {
+		Object string      `json:"object"`
+		Data   []modelData `json:"data"`
+	}{
+		Object: "list",
+		Data:   make([]modelData, 0, len(models)),
+	}
+	for _, model := range models {
+		id := strings.TrimSpace(model.ID)
+		if id == "" {
+			id = strings.TrimSpace(model.Name)
+		}
+		if id == "" {
+			continue
+		}
+		resp.Data = append(resp.Data, modelData{
+			ID:      id,
+			Object:  "model",
+			OwnedBy: strings.TrimSpace(prov.Config().ProviderType),
+		})
+	}
+	_ = httpjson.Write(w, http.StatusOK, resp)
 	return nil
 }
 

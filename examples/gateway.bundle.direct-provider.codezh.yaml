@@ -9,8 +9,15 @@ providers:
     default_model: claude-sonnet-4-6
     network:
       proxy_url: http://127.0.0.1:7890
+      # The claudecode provider sends the full Claude Code CLI fingerprint
+      # (User-Agent, X-App, X-Stainless-*, anthropic-version, anthropic-beta)
+      # by default. Only override here to match a newer CLI release, e.g.:
+      #   extra_headers:
+      #     User-Agent: claude-cli/2.1.158 (external, cli)
+      #     anthropic-beta: <new beta flag list>
     options:
-      auth_mode: bearer_only
+      api_key_header: authorization
+      codex_compat: true
 
   - id: codexzh-test
     provider_type: codex
@@ -24,11 +31,12 @@ providers:
 
 llmRoutes:
   - id: chat
-    protocol: cc
+    protocol: openai
     match_policy:
       path_prefix: /
       methods:
         - POST
+        - GET
     auth_policy:
       require_virtual_key: true
     target_policy:

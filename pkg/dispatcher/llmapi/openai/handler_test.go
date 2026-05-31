@@ -26,6 +26,7 @@ type testProvider struct {
 	generateErr error
 	streamResp  *schema.StreamReader[*schema.Message]
 	streamErr   error
+	models      []provider.ModelInfo
 	cfg         provider.ProviderConfig
 
 	lastChatReq   *provider.ChatRequest
@@ -43,7 +44,7 @@ func (p *testProvider) StreamChat(_ context.Context, req *provider.ChatRequest) 
 }
 
 func (p *testProvider) ListModels(context.Context) ([]provider.ModelInfo, error) {
-	return nil, nil
+	return p.models, nil
 }
 
 func (p *testProvider) Capabilities() provider.ProviderCapabilities {
@@ -183,6 +184,37 @@ func TestMatchLLMApiRequiresVersionedOpenAIPath(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "/v1/models/extra", nil)
 	if handler.MatchLLMApi(req) {
 		t.Fatal("MatchLLMApi matched non-endpoint path")
+	}
+}
+
+func TestServeLLMApiListsModels(t *testing.T) {
+	prov := &testProvider{
+		models: []provider.ModelInfo{{
+			ID:          "claude-sonnet-4-6",
+			DisplayName: "Claude Sonnet 4.6",
+		}},
+		cfg: provider.ProviderConfig{ProviderType: "claudecode"},
+	}
+	handler := newHandler()
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`"object":"list"`, `"id":"claude-sonnet-4-6"`, `"owned_by":"claudecode"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected %q in models response, got %q", want, body)
+		}
 	}
 }
 

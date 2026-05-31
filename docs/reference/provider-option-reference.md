@@ -74,6 +74,19 @@ Extra outbound request shaping:
 - default is off; `metadata`/`user` are forwarded unless `cc_compat` is set
 - note: the `codex` provider also exposes `cc_compat`, but it is a separate Responses-API behavior (see below), not the chat-field drop described here
 
+`claudecode`
+
+- `option api_key_header <authorization|x-api-key>`
+  - controls which header carries a plain API key (provider `api_key` or a managed `api_key` credential)
+  - default is `authorization`, which sends `Authorization: Bearer <key>`
+  - `x-api-key` sends the key in the `x-api-key` header instead
+  - a managed `cliauth_token` and any `sk-ant-oat-` OAuth token always use `Authorization: Bearer` regardless of this option
+  - invalid values are rejected at startup
+- `option codex_compat true` enables Codex CLI compatibility mode for Claude-Code-gated upstreams
+  - rewrites Codex tool names (e.g. `exec_command`) to their Claude Code equivalents (e.g. `Bash`) on the outbound request so an upstream that gates on Claude Code tool names accepts Codex traffic, then restores the original names on the response
+  - the rewrite is applied to the freshly built wire request only and never mutates the inbound request, so it is safe across retries
+  - default is off; tool names are forwarded unchanged unless `codex_compat` is set
+
 `codex`
 
 - uses OpenAI-compatible `POST /responses`

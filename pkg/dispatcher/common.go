@@ -45,6 +45,8 @@ func (r *PreparedLLMApiRequest) Model() string {
 		if r.ResponsesRequest != nil {
 			return r.ResponsesRequest.Model
 		}
+	case provider.LLMApiRequestTypeModels:
+		return ""
 	default:
 		if r.ChatRequest != nil {
 			return r.ChatRequest.Model
@@ -69,6 +71,8 @@ func (r *PreparedLLMApiRequest) IsValid() bool {
 		return r.EmbeddingRequest != nil
 	case provider.LLMApiRequestTypeResponses:
 		return r.ResponsesRequest != nil
+	case provider.LLMApiRequestTypeModels:
+		return true
 	case provider.LLMApiRequestTypeChat:
 		return r.ChatRequest != nil
 	default:

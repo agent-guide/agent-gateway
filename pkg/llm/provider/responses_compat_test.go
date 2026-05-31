@@ -198,6 +198,40 @@ func TestResponsesToChatRequestParsesToolCallHistory(t *testing.T) {
 	}
 }
 
+func TestResponsesToChatRequestAcceptsAssistantOutputText(t *testing.T) {
+	req := &ResponsesRequest{
+		Model: "gpt-4.1",
+		Input: []any{
+			map[string]any{
+				"role": "assistant",
+				"content": []any{
+					map[string]any{"type": "output_text", "text": "prior answer"},
+				},
+			},
+			map[string]any{
+				"role": "user",
+				"content": []any{
+					map[string]any{"type": "input_text", "text": "follow up"},
+				},
+			},
+		},
+	}
+
+	chatReq, err := ResponsesToChatRequest(req)
+	if err != nil {
+		t.Fatalf("ResponsesToChatRequest() error = %v", err)
+	}
+	if len(chatReq.Messages) != 2 {
+		t.Fatalf("message count = %d, want 2", len(chatReq.Messages))
+	}
+	if chatReq.Messages[0].Role != schema.Assistant || chatReq.Messages[0].Content != "prior answer" {
+		t.Fatalf("assistant message = %+v, want output_text content", chatReq.Messages[0])
+	}
+	if chatReq.Messages[1].Role != schema.User || chatReq.Messages[1].Content != "follow up" {
+		t.Fatalf("user message = %+v, want input_text content", chatReq.Messages[1])
+	}
+}
+
 func TestResponsesFromChatResponsePreservesToolCalls(t *testing.T) {
 	resp := ResponsesFromChatResponse(&ChatResponse{
 		Message: &schema.Message{

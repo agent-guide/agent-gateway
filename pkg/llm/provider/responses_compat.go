@@ -520,7 +520,7 @@ func responseInputItemToMessage(item any) (*schema.Message, error) {
 			}
 			partType, _ := part["type"].(string)
 			switch partType {
-			case "", "input_text", "text":
+			case "", "input_text", "output_text", "text":
 				text, _ := part["text"].(string)
 				if strings.TrimSpace(text) != "" {
 					textParts = append(textParts, text)

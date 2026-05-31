@@ -247,7 +247,30 @@ func ConvertMessages(msgs []*schema.Message, req *MessagesRequest, cacheUserText
 			i++
 		}
 	}
-	return out
+	return mergeAdjacentSameRole(out)
+}
+
+// mergeAdjacentSameRole collapses consecutive MessageItems that share a role
+// into a single message by concatenating their content blocks. The Anthropic
+// Messages API requires user and assistant turns to alternate, and in
+// particular every tool_use block must be immediately followed by its
+// tool_result in the next message. Codex replays parallel tool calls as
+// separate same-role items, so without this merge an assistant tool_use can be
+// followed by another assistant message instead of the user tool_result, which
+// the API rejects as malformed.
+func mergeAdjacentSameRole(items []MessageItem) []MessageItem {
+	if len(items) <= 1 {
+		return items
+	}
+	merged := make([]MessageItem, 0, len(items))
+	for _, item := range items {
+		if n := len(merged); n > 0 && merged[n-1].Role == item.Role {
+			merged[n-1].Content = append(merged[n-1].Content, item.Content...)
+			continue
+		}
+		merged = append(merged, item)
+	}
+	return merged
 }
 
 func convertAssistantMessage(msg *schema.Message) MessageItem {

@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/cloudwego/eino/schema"
@@ -20,19 +22,46 @@ import (
 )
 
 const (
-	defaultBaseURL                       = "https://api.anthropic.com"
-	anthropicVersion                     = "2023-06-01"
-	anthropicBeta                        = "claude-code-20250219,interleaved-thinking-2025-05-14,redact-thinking-2026-02-12,context-management-2025-06-27,prompt-caching-scope-2026-01-05,effort-2025-11-24"
-	oauthTokenPrefix                     = "sk-ant-oat-"
-	authModeBearer                       = "bearer_only"
-	authModeAPIKey                       = "api_key"
-	defaultClaudeCodeMaxTokens           = 32000
-	defaultClaudeCodeEffort              = "high"
-	defaultClaudeCodeUserAgent           = "claude-cli/2.1.150 (external, sdk-cli)"
-	defaultClaudeCodeBillingHeaderPrefix = "x-anthropic-billing-header: cc_version=2.1.150.4c2; cc_entrypoint=sdk-cli; cch="
+	defaultBaseURL             = "https://api.anthropic.com"
+	anthropicVersion           = "2023-06-01"
+	anthropicBeta              = "claude-code-20250219,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,advisor-tool-2026-03-01,effort-2025-11-24"
+	oauthTokenPrefix           = "sk-ant-oat-"
+	apiKeyHeaderAuthorization  = "authorization"
+	apiKeyHeaderXAPIKey        = "x-api-key"
+	defaultClaudeCodeMaxTokens = 32000
+	defaultClaudeCodeEffort    = "high"
 )
 
-const defaultClaudeCodeSystemPrompt = "\nYou are an interactive agent that helps users with software engineering tasks.\n"
+// claudeCodeSystemPreamble is the exact first system block the standard Claude
+// Code CLI sends. Relays that gate on a "standard Claude Code client" match this
+// string verbatim, so it must stay byte-for-byte identical to the real CLI.
+const claudeCodeSystemPreamble = "You are Claude Code, Anthropic's official CLI for Claude."
+
+// defaultClaudeCodeFingerprintHeaders is the full client-fingerprint header set
+// the standard Claude Code CLI sends. setHeaders applies it as defaults before
+// per-provider ExtraHeaders, so a provider config that omits or only partially
+// specifies the fingerprint still presents as the standard CLI instead of
+// leaking Go's default User-Agent. ExtraHeaders override any entry here.
+//
+// Version-coupled values (User-Agent, X-Stainless-Package-Version,
+// anthropic-version, anthropic-beta) are the parts an operator overrides via
+// ExtraHeaders to match a newer CLI release. Keeping them centralized here means
+// the canonical "what does Claude Code look like" knowledge lives in one place.
+var defaultClaudeCodeFingerprintHeaders = map[string]string{
+	"User-Agent":                                "claude-cli/2.1.158 (external, cli)",
+	"X-App":                                     "cli",
+	"X-Stainless-Arch":                          "arm64",
+	"X-Stainless-Lang":                          "js",
+	"X-Stainless-Os":                            "MacOS",
+	"X-Stainless-Package-Version":               "0.94.0",
+	"X-Stainless-Retry-Count":                   "0",
+	"X-Stainless-Runtime":                       "node",
+	"X-Stainless-Runtime-Version":               "v24.3.0",
+	"X-Stainless-Timeout":                       "3000",
+	"Anthropic-Dangerous-Direct-Browser-Access": "true",
+	"anthropic-version":                         anthropicVersion,
+	"anthropic-beta":                            anthropicBeta,
+}
 
 func init() {
 	provider.RegisterProviderFactory("claudecode", New)
@@ -40,7 +69,8 @@ func init() {
 
 type Provider struct {
 	provider.ProviderConfig
-	client *http.Client
+	client      *http.Client
+	codexCompat bool
 }
 
 func New(config provider.ProviderConfig) (provider.Provider, error) {
@@ -50,9 +80,18 @@ func New(config provider.ProviderConfig) (provider.Provider, error) {
 	config.BaseURL = strings.TrimRight(config.BaseURL, "/")
 	config.Network.Defaults()
 
+	if _, err := apiKeyHeaderFromOptions(config.Options); err != nil {
+		return nil, err
+	}
+	codexCompat, err := codexCompatFromOptions(config.Options)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Provider{
 		ProviderConfig: config,
 		client:         httpclient.BuildHTTPClient(config.Network),
+		codexCompat:    codexCompat,
 	}, nil
 }
 
@@ -63,7 +102,7 @@ func (p *Provider) Chat(ctx context.Context, req *provider.ChatRequest) (*provid
 			return nil, err
 		}
 
-		httpReq, err := p.newMessagesRequest(ctx, state, false)
+		httpReq, toolNames, err := p.newMessagesRequest(ctx, state, false)
 		if err != nil {
 			return nil, err
 		}
@@ -82,7 +121,9 @@ func (p *Provider) Chat(ctx context.Context, req *provider.ChatRequest) (*provid
 		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 			return nil, statuserr.Wrap(fmt.Errorf("claudecode: decode response: %w", err), http.StatusBadGateway)
 		}
-		return payload.ToChatResponse(), nil
+		chatResp := payload.ToChatResponse()
+		restoreClaudeCodeToolNames(chatResp.Message, toolNames)
+		return chatResp, nil
 	})
 }
 
@@ -92,7 +133,7 @@ func (p *Provider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*
 		return nil, err
 	}
 
-	httpReq, err := p.newMessagesRequest(ctx, state, true)
+	httpReq, toolNames, err := p.newMessagesRequest(ctx, state, true)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +149,23 @@ func (p *Provider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*
 	}
 
 	sr, sw := schema.Pipe[*schema.Message](16)
-	go anthropicbase.ReadMessageStream(resp.Body, sw, "claudecode")
+	go func() {
+		upstream, upstreamWriter := schema.Pipe[*schema.Message](16)
+		go anthropicbase.ReadMessageStream(resp.Body, upstreamWriter, "claudecode")
+		defer sw.Close()
+		defer upstream.Close()
+		for {
+			msg, err := upstream.Recv()
+			if err != nil {
+				if err != io.EOF {
+					sw.Send(nil, err)
+				}
+				return
+			}
+			restoreClaudeCodeToolNames(msg, toolNames)
+			sw.Send(msg, nil)
+		}
+	}()
 	return sr, nil
 }
 
@@ -175,26 +232,42 @@ func (p *Provider) Config() provider.ProviderConfig {
 	return p.ProviderConfig
 }
 
-func (p *Provider) newMessagesRequest(ctx context.Context, state *provider.ChatRequestState, stream bool) (*http.Request, error) {
+// newMessagesRequest builds the upstream HTTP request and, when codex_compat is
+// enabled, rewrites Codex tool names to their Claude Code equivalents on the
+// freshly built wire request. It returns the reverse map used to restore the
+// original names on the response. The shared ChatRequestState is never mutated,
+// so the rewrite stays idempotent across retries.
+func (p *Provider) newMessagesRequest(ctx context.Context, state *provider.ChatRequestState, stream bool) (*http.Request, map[string]string, error) {
 	session := newRequestSession()
-	body, err := p.buildRequestPayload(state, stream, session)
+	msgReq := buildMessagesRequest(state, stream, session)
+
+	var toolNames map[string]string
+	if p.codexCompat {
+		var err error
+		toolNames, err = applyCodexToolNameAliases(msgReq)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	body, err := json.Marshal(msgReq)
 	if err != nil {
-		return nil, err
+		return nil, nil, fmt.Errorf("claudecode: marshal request: %w", err)
 	}
 
 	url := p.ProviderConfig.BaseURL + "/v1/messages?beta=true"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("claudecode: build request: %w", err)
+		return nil, nil, fmt.Errorf("claudecode: build request: %w", err)
 	}
 	if err := p.setHeaders(ctx, httpReq, session); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return httpReq, nil
+	return httpReq, toolNames, nil
 }
 
 func (p *Provider) setHeaders(ctx context.Context, req *http.Request, session requestSession) error {
-	auth := authFromContextOrConfig(ctx, p.ProviderConfig.APIKey, p.authMode())
+	auth := authFromContextOrConfig(ctx, p.ProviderConfig.APIKey, p.apiKeyHeader())
 	if auth.authorization == "" && auth.apiKey == "" {
 		return fmt.Errorf("claudecode: missing upstream credential")
 	}
@@ -207,23 +280,18 @@ func (p *Provider) setHeaders(ctx context.Context, req *http.Request, session re
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("anthropic-version", anthropicVersion)
-	req.Header.Set("anthropic-beta", anthropicBeta)
-	req.Header.Set("User-Agent", defaultClaudeCodeUserAgent)
 	req.Header.Set("x-claude-code-session-id", session.SessionID)
+	// Apply the Claude Code client fingerprint as defaults, then let
+	// per-provider ExtraHeaders override any of them. This keeps a partial or
+	// drifted provider config from leaking Go's default User-Agent or omitting
+	// fingerprint headers a "standard Claude Code client" gate expects.
+	for k, v := range defaultClaudeCodeFingerprintHeaders {
+		req.Header.Set(k, v)
+	}
 	for k, v := range p.ProviderConfig.Network.ExtraHeaders {
 		req.Header.Set(k, v)
 	}
 	return nil
-}
-
-func (p *Provider) buildRequestPayload(state *provider.ChatRequestState, stream bool, session requestSession) ([]byte, error) {
-	msgReq := buildMessagesRequest(state, stream, session)
-	body, err := json.Marshal(msgReq)
-	if err != nil {
-		return nil, fmt.Errorf("claudecode: marshal request: %w", err)
-	}
-	return body, nil
 }
 
 type authHeader struct {
@@ -231,11 +299,8 @@ type authHeader struct {
 	apiKey        string
 }
 
-func authFromContextOrConfig(ctx context.Context, fallback string, authMode string) authHeader {
-	mode := strings.TrimSpace(strings.ToLower(authMode))
-	if mode == "" {
-		mode = authModeBearer
-	}
+func authFromContextOrConfig(ctx context.Context, fallback string, apiKeyHeader string) authHeader {
+	useXAPIKey := apiKeyHeader == apiKeyHeaderXAPIKey
 
 	if cred, ok := provider.CredentialFromContext(ctx); ok && cred != nil {
 		if cred.Type == credentialmgr.TypeCLIAuthToken && cred.Metadata != nil {
@@ -246,7 +311,7 @@ func authFromContextOrConfig(ctx context.Context, fallback string, authMode stri
 			}
 		}
 		if cred.Type == credentialmgr.TypeAPIKey && strings.TrimSpace(cred.APIKey()) != "" {
-			if mode == authModeAPIKey {
+			if useXAPIKey {
 				return authHeader{
 					apiKey: strings.TrimSpace(cred.APIKey()),
 				}
@@ -266,7 +331,7 @@ func authFromContextOrConfig(ctx context.Context, fallback string, authMode stri
 			authorization: "Bearer " + fallback,
 		}
 	}
-	if mode == authModeAPIKey {
+	if useXAPIKey {
 		return authHeader{
 			apiKey: fallback,
 		}
@@ -276,27 +341,52 @@ func authFromContextOrConfig(ctx context.Context, fallback string, authMode stri
 	}
 }
 
-func (p *Provider) authMode() string {
-	if p == nil || p.ProviderConfig.Options == nil {
-		return ""
+// apiKeyHeaderFromOptions resolves the api_key_header option to a normalized,
+// validated value. It controls which header carries a plain API key:
+// apiKeyHeaderAuthorization (default) sends Authorization: Bearer, while
+// apiKeyHeaderXAPIKey sends x-api-key. CLI-auth and sk-ant-oat- OAuth tokens
+// always use Authorization: Bearer regardless of this option.
+func apiKeyHeaderFromOptions(options map[string]any) (string, error) {
+	raw, ok := options["api_key_header"]
+	if !ok {
+		return apiKeyHeaderAuthorization, nil
 	}
-	mode, _ := p.ProviderConfig.Options["auth_mode"].(string)
-	return strings.ToLower(strings.TrimSpace(mode))
+	value, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("claudecode: option api_key_header must be a string")
+	}
+	switch normalized := strings.ToLower(strings.TrimSpace(value)); normalized {
+	case "":
+		return apiKeyHeaderAuthorization, nil
+	case apiKeyHeaderAuthorization, apiKeyHeaderXAPIKey:
+		return normalized, nil
+	default:
+		return "", fmt.Errorf("claudecode: invalid api_key_header %q (want %q or %q)", value, apiKeyHeaderAuthorization, apiKeyHeaderXAPIKey)
+	}
+}
+
+func (p *Provider) apiKeyHeader() string {
+	if p == nil {
+		return apiKeyHeaderAuthorization
+	}
+	header, err := apiKeyHeaderFromOptions(p.ProviderConfig.Options)
+	if err != nil {
+		return apiKeyHeaderAuthorization
+	}
+	return header
 }
 
 type requestSession struct {
-	SessionID   string
-	DeviceID    string
-	BillingCode string
+	SessionID string
+	DeviceID  string
 }
 
 func newRequestSession() requestSession {
 	sessionID := uuid.NewString()
 	sum := sha256.Sum256([]byte(sessionID))
 	return requestSession{
-		SessionID:   sessionID,
-		DeviceID:    fmt.Sprintf("%x", sum[:]),
-		BillingCode: fmt.Sprintf("%x", sum[:])[:5],
+		SessionID: sessionID,
+		DeviceID:  fmt.Sprintf("%x", sum[:]),
 	}
 }
 
@@ -304,13 +394,174 @@ func buildMessagesRequest(state *provider.ChatRequestState, stream bool, session
 	return anthropicbase.BuildMessagesRequest(state, anthropicbase.BuildMessagesOptions{
 		DefaultMaxTokens:  defaultClaudeCodeMaxTokens,
 		Stream:            stream,
-		System:            buildSystemBlocks(session),
+		System:            buildSystemBlocks(),
 		Metadata:          buildRequestMetadata(session),
 		Thinking:          &thinkingConfig{Type: "adaptive"},
 		ContextManagement: &contextManagement{Edits: []contextManagementEdit{{Type: "clear_thinking_20251015", Keep: "all"}}},
 		OutputConfig:      &outputConfig{Effort: requestEffort(state), Format: anthropicbase.OutputFormatFromState(state)},
 		CacheUserText:     true,
 	})
+}
+
+var codexToClaudeCodeToolNames = map[string]string{
+	"exec_command":       "Bash",
+	"write_stdin":        "TaskOutput",
+	"update_plan":        "TaskUpdate",
+	"get_goal":           "TaskGet",
+	"create_goal":        "TaskCreate",
+	"update_goal":        "TodoWrite",
+	"request_user_input": "AskUserQuestion",
+	"view_image":         "Read",
+}
+
+// applyCodexToolNameAliases rewrites Codex tool names to their Claude Code
+// equivalents on the outbound wire request so a Claude-Code-gated upstream
+// accepts Codex traffic. It operates on the freshly built request only (never
+// the shared ChatRequestState) and returns the reverse map used to restore the
+// original names on the response. It returns nil when nothing was rewritten.
+func applyCodexToolNameAliases(req *messagesRequest) (map[string]string, error) {
+	if req == nil {
+		return nil, nil
+	}
+	if err := rejectCodexToolAliasCollisions(req); err != nil {
+		return nil, err
+	}
+
+	claudeToCodex := map[string]string{}
+	alias := func(name string) (string, bool) {
+		claudeName, ok := codexToClaudeCodeToolNames[name]
+		if !ok {
+			return name, false
+		}
+		claudeToCodex[claudeName] = name
+		return claudeName, true
+	}
+
+	for i := range req.Tools {
+		if claudeName, ok := alias(req.Tools[i].Name); ok {
+			req.Tools[i].Name = claudeName
+		}
+	}
+	for i := range req.Messages {
+		for j := range req.Messages[i].Content {
+			block := &req.Messages[i].Content[j]
+			if block.Type != "tool_use" {
+				continue
+			}
+			if claudeName, ok := alias(block.Name); ok {
+				block.Name = claudeName
+			}
+		}
+	}
+	req.ToolChoice = aliasToolChoiceName(req.ToolChoice, alias)
+
+	if len(claudeToCodex) == 0 {
+		return nil, nil
+	}
+	return claudeToCodex, nil
+}
+
+func rejectCodexToolAliasCollisions(req *messagesRequest) error {
+	names := map[string]struct{}{}
+	for _, tool := range req.Tools {
+		if strings.TrimSpace(tool.Name) != "" {
+			names[tool.Name] = struct{}{}
+		}
+	}
+	for _, msg := range req.Messages {
+		for _, block := range msg.Content {
+			if block.Type == "tool_use" && strings.TrimSpace(block.Name) != "" {
+				names[block.Name] = struct{}{}
+			}
+		}
+	}
+	if name := toolChoiceName(req.ToolChoice); name != "" {
+		names[name] = struct{}{}
+	}
+
+	for codexName, claudeName := range codexToClaudeCodeToolNames {
+		_, hasCodex := names[codexName]
+		_, hasClaude := names[claudeName]
+		if hasCodex && hasClaude {
+			return fmt.Errorf("claudecode: codex_compat tool name collision: cannot alias %q to %q because both names are present", codexName, claudeName)
+		}
+	}
+	return nil
+}
+
+// aliasToolChoiceName rewrites the forced-tool name inside an Anthropic
+// tool_choice payload so it matches the aliased tool definitions.
+func aliasToolChoiceName(raw json.RawMessage, alias func(string) (string, bool)) json.RawMessage {
+	if len(raw) == 0 {
+		return raw
+	}
+	choice, name, ok := decodeNamedToolChoice(raw)
+	if !ok {
+		return raw
+	}
+	claudeName, ok := alias(name)
+	if !ok {
+		return raw
+	}
+	choice["name"] = claudeName
+	out, err := json.Marshal(choice)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+func toolChoiceName(raw json.RawMessage) string {
+	_, name, ok := decodeNamedToolChoice(raw)
+	if !ok {
+		return ""
+	}
+	return name
+}
+
+func decodeNamedToolChoice(raw json.RawMessage) (map[string]any, string, bool) {
+	if len(raw) == 0 {
+		return nil, "", false
+	}
+	var choice map[string]any
+	if err := json.Unmarshal(raw, &choice); err != nil {
+		return nil, "", false
+	}
+	name, _ := choice["name"].(string)
+	if name == "" {
+		return nil, "", false
+	}
+	return choice, name, true
+}
+
+func codexCompatFromOptions(opts map[string]any) (bool, error) {
+	v, ok := opts["codex_compat"]
+	if !ok {
+		return false, nil
+	}
+	switch typed := v.(type) {
+	case bool:
+		return typed, nil
+	case string:
+		parsed, err := strconv.ParseBool(strings.TrimSpace(typed))
+		if err != nil {
+			return false, fmt.Errorf("claudecode: option codex_compat must be a boolean")
+		}
+		return parsed, nil
+	default:
+		return false, fmt.Errorf("claudecode: option codex_compat must be a boolean")
+	}
+}
+
+func restoreClaudeCodeToolNames(msg *schema.Message, claudeToCodex map[string]string) {
+	if msg == nil || len(claudeToCodex) == 0 {
+		return
+	}
+	for i := range msg.ToolCalls {
+		if codexName, ok := claudeToCodex[msg.ToolCalls[i].Function.Name]; ok {
+			msg.ToolCalls[i].Function.Name = codexName
+		}
+	}
 }
 
 // requestEffort derives Claude's output_config.effort from the inbound reasoning
@@ -377,20 +628,16 @@ func buildRequestMetadata(session requestSession) *requestMetadata {
 	}
 }
 
-func buildSystemBlocks(session requestSession) []systemBlock {
+// buildSystemBlocks emits the standard Claude Code CLI system preamble as the
+// first block. The inbound (e.g. Codex) system instructions are appended after
+// it by anthropicbase.BuildMessagesRequest, yielding the real CLI's two-block
+// shape: official-CLI preamble first, agent instructions second.
+func buildSystemBlocks() []systemBlock {
 	return []systemBlock{
 		{
-			Type: "text",
-			Text: defaultClaudeCodeBillingHeaderPrefix + session.BillingCode + ";",
-		},
-		{
 			Type:         "text",
-			Text:         "You are a Claude agent, built on Anthropic's Claude Agent SDK.",
+			Text:         claudeCodeSystemPreamble,
 			CacheControl: &cacheControl{Type: "ephemeral"},
-		},
-		{
-			Type: "text",
-			Text: defaultClaudeCodeSystemPrompt,
 		},
 	}
 }
