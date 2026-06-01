@@ -49,6 +49,8 @@ Create a `Caddyfile`:
 			provider_type openai
 			api_key {$OPENAI_API_KEY}
 			default_model gpt-4.1
+			# Optional compatibility request shaping: cc, codex, or none.
+			option compact none
 		}
 
 		route openai-chat {
@@ -152,6 +154,8 @@ providers:
     provider_type: openai
     api_key: ${OPENAI_API_KEY}
     default_model: gpt-4.1
+    options:
+      compact: none
 llmRoutes:
   - id: openai-chat
     protocol: openai
@@ -198,7 +202,7 @@ AGW_API_KEY=$(./agwctl gateway virtualkey get test-key | jq -r '.key')
 
 The `AGW_ADMIN_ADDR` environment variable sets the admin API address (default: `http://localhost:8019`). Run `agwctl gateway export` to dump the current gateway state as a bundle YAML.
 
-Provider `options.compact` selects compatibility request shaping. Supported values are `cc`, `codex`, and `none`; providers ignore modes they do not implement.
+Provider `options.compact` selects compatibility request shaping. In Caddyfile provider blocks, configure it as `option compact <cc|codex|none>`. In bundle YAML, configure it as `options.compact`. Providers ignore modes they do not implement.
 
 ## MCP Quick Start
 
