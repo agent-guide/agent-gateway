@@ -6,15 +6,19 @@ providers:
     provider_type: zhipu
     api_key: ${ZHIPU_API_KEY}
     default_model: glm-5.1
+    options:
+      compact: cc
 
   - id: deepseek-test
     provider_type: deepseek
     api_key: ${DEEPSEEK_API_KEY}
     default_model: deepseek-v4-pro
+    options:
+      compact: cc
 
 llmRoutes:
   - id: chat
-    protocol: openai
+    protocol: cc
     match_policy:
       path_prefix: /
       methods:

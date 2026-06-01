@@ -29,6 +29,9 @@ func New(config provider.ProviderConfig) (provider.Provider, error) {
 		config.BaseURL = "https://openrouter.ai/api/v1"
 	}
 	config.Network.Defaults()
+	if _, err := provider.CompactModeFromOptions(config.Options); err != nil {
+		return nil, err
+	}
 	return &Provider{Base: openaibase.NewBase(config)}, nil
 }
 

@@ -67,12 +67,13 @@ Extra outbound request shaping:
 
 ## Notable Provider-Specific Options
 
-`cc_compat` (OpenAI-compatible chat providers: `openai`, `deepseek`, `openrouter`, `zhipu`)
+`compact` (compatibility mode selector)
 
-- `option cc_compat true` enables Claude Code CLI compatibility mode for the chat-completions path by dropping the OpenAI-style `metadata` and `user` request fields
+- supported values are `cc`, `codex`, and `none`
+- unsupported modes are ignored by providers that do not implement that compatibility profile
+- `option compact cc` enables Claude Code CLI compatibility mode for OpenAI-compatible chat providers (`openai`, `deepseek`, `openrouter`, `zhipu`) by dropping the OpenAI-style `metadata` and `user` request fields
 - Claude Code always sends `metadata.user_id`; some OpenAI-compatible upstreams (e.g. GLM) reject these fields with a generic 400
-- default is off; `metadata`/`user` are forwarded unless `cc_compat` is set
-- note: the `codex` provider also exposes `cc_compat`, but it is a separate Responses-API behavior (see below), not the chat-field drop described here
+- default is `none`; `metadata`/`user` are forwarded unless `compact` is `cc`
 
 `claudecode`
 
@@ -82,16 +83,16 @@ Extra outbound request shaping:
   - `x-api-key` sends the key in the `x-api-key` header instead
   - a managed `cliauth_token` and any `sk-ant-oat-` OAuth token always use `Authorization: Bearer` regardless of this option
   - invalid values are rejected at startup
-- `option codex_compat true` enables Codex CLI compatibility mode for Claude-Code-gated upstreams
+- `option compact codex` enables Codex CLI compatibility mode for Claude-Code-gated upstreams
   - rewrites Codex tool names (e.g. `exec_command`) to their Claude Code equivalents (e.g. `Bash`) on the outbound request so an upstream that gates on Claude Code tool names accepts Codex traffic, then restores the original names on the response
   - the rewrite is applied to the freshly built wire request only and never mutates the inbound request, so it is safe across retries
-  - default is off; tool names are forwarded unchanged unless `codex_compat` is set
+  - default is `none`; tool names are forwarded unchanged unless `compact` is `codex`
 
 `codex`
 
 - uses OpenAI-compatible `POST /responses`
 - custom `base_url` must match the upstream codex-compatible deployment
-- `option cc_compat true` enables Claude Code CLI compatibility mode by filtering stateful Claude Code tools that Codex-compatible upstreams do not reliably sequence
+- `option compact cc` enables Claude Code CLI compatibility mode by filtering stateful Claude Code tools that Codex-compatible upstreams do not reliably sequence
 
 `deepseek`
 
@@ -105,7 +106,7 @@ Extra outbound request shaping:
 `zhipu`
 
 - `option thinking_type <disabled|enabled|none>`
-- `option cc_compat true` — see the shared `cc_compat` note above
+- `option compact cc` — see the shared `compact` note above
 
 ## Current Built-In Provider Types
 

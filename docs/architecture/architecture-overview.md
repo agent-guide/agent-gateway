@@ -325,6 +325,8 @@ Provider resolution currently combines:
 
 This allows the request path to resolve a named target provider without hard-coding the source of truth to either the Caddyfile or the database alone.
 
+Provider config `options.compact` is the current compatibility-mode selector. Supported values are `cc`, `codex`, and `none`; providers ignore compact modes they do not support.
+
 ## 7. Data Flows
 
 ### 7.1 LLM API Request

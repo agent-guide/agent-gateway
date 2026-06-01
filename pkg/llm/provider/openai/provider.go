@@ -34,6 +34,9 @@ func New(config provider.ProviderConfig) (provider.Provider, error) {
 	}
 	config.BaseURL = strings.TrimRight(config.BaseURL, "/")
 	config.Network.Defaults()
+	if _, err := provider.CompactModeFromOptions(config.Options); err != nil {
+		return nil, err
+	}
 
 	// Inject OpenAI-specific headers via ExtraHeaders so Base.setHeaders picks them up.
 	if config.Network.ExtraHeaders == nil {

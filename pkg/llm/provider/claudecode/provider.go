@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/cloudwego/eino/schema"
@@ -83,7 +82,7 @@ func New(config provider.ProviderConfig) (provider.Provider, error) {
 	if _, err := apiKeyHeaderFromOptions(config.Options); err != nil {
 		return nil, err
 	}
-	codexCompat, err := codexCompatFromOptions(config.Options)
+	compactMode, err := provider.CompactModeFromOptions(config.Options)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +90,7 @@ func New(config provider.ProviderConfig) (provider.Provider, error) {
 	return &Provider{
 		ProviderConfig: config,
 		client:         httpclient.BuildHTTPClient(config.Network),
-		codexCompat:    codexCompat,
+		codexCompat:    compactMode == provider.CompactModeCodex,
 	}, nil
 }
 
@@ -232,7 +231,7 @@ func (p *Provider) Config() provider.ProviderConfig {
 	return p.ProviderConfig
 }
 
-// newMessagesRequest builds the upstream HTTP request and, when codex_compat is
+// newMessagesRequest builds the upstream HTTP request and, when compact=codex is
 // enabled, rewrites Codex tool names to their Claude Code equivalents on the
 // freshly built wire request. It returns the reverse map used to restore the
 // original names on the response. The shared ChatRequestState is never mutated,
@@ -483,7 +482,7 @@ func rejectCodexToolAliasCollisions(req *messagesRequest) error {
 		_, hasCodex := names[codexName]
 		_, hasClaude := names[claudeName]
 		if hasCodex && hasClaude {
-			return fmt.Errorf("claudecode: codex_compat tool name collision: cannot alias %q to %q because both names are present", codexName, claudeName)
+			return fmt.Errorf("claudecode: compact=codex tool name collision: cannot alias %q to %q because both names are present", codexName, claudeName)
 		}
 	}
 	return nil
@@ -532,25 +531,6 @@ func decodeNamedToolChoice(raw json.RawMessage) (map[string]any, string, bool) {
 		return nil, "", false
 	}
 	return choice, name, true
-}
-
-func codexCompatFromOptions(opts map[string]any) (bool, error) {
-	v, ok := opts["codex_compat"]
-	if !ok {
-		return false, nil
-	}
-	switch typed := v.(type) {
-	case bool:
-		return typed, nil
-	case string:
-		parsed, err := strconv.ParseBool(strings.TrimSpace(typed))
-		if err != nil {
-			return false, fmt.Errorf("claudecode: option codex_compat must be a boolean")
-		}
-		return parsed, nil
-	default:
-		return false, fmt.Errorf("claudecode: option codex_compat must be a boolean")
-	}
 }
 
 func restoreClaudeCodeToolNames(msg *schema.Message, claudeToCodex map[string]string) {

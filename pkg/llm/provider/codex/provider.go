@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/cloudwego/eino/schema"
@@ -34,10 +33,15 @@ func New(config provider.ProviderConfig) (provider.Provider, error) {
 	config.BaseURL = strings.TrimRight(config.BaseURL, "/")
 	config.Network.Defaults()
 
+	compactMode, err := provider.CompactModeFromOptions(config.Options)
+	if err != nil {
+		return nil, err
+	}
+
 	base := openaibase.NewBase(config)
 	base.SetAuthHeaders = newCodexAuthHeaders(config)
 
-	return &Provider{Base: base, ccCompat: boolOption(config.Options, "cc_compat")}, nil
+	return &Provider{Base: base, ccCompat: compactMode == provider.CompactModeCC}, nil
 }
 
 func newCodexAuthHeaders(config provider.ProviderConfig) func(ctx context.Context, req *http.Request) {
@@ -118,22 +122,6 @@ func sanitizeResponsesRequest(req *provider.ResponsesRequest, ccCompat bool) *pr
 	storeFalse := false
 	req.Store = &storeFalse
 	return req
-}
-
-func boolOption(opts map[string]any, key string) bool {
-	v, ok := opts[key]
-	if !ok {
-		return false
-	}
-	switch typed := v.(type) {
-	case bool:
-		return typed
-	case string:
-		parsed, err := strconv.ParseBool(strings.TrimSpace(typed))
-		return err == nil && parsed
-	default:
-		return false
-	}
 }
 
 func sanitizeResponsesInput(input any) any {

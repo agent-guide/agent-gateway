@@ -31,6 +31,9 @@ func New(config provider.ProviderConfig) (provider.Provider, error) {
 	}
 	config.BaseURL = strings.TrimRight(config.BaseURL, "/")
 	config.Network.Defaults()
+	if _, err := provider.CompactModeFromOptions(config.Options); err != nil {
+		return nil, err
+	}
 
 	return &Provider{Base: openaibase.NewBase(config)}, nil
 }

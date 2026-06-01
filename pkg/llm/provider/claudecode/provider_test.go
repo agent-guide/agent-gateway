@@ -410,17 +410,17 @@ func TestNewRejectsInvalidAPIKeyHeader(t *testing.T) {
 	}
 }
 
-func TestNewRejectsInvalidCodexCompat(t *testing.T) {
+func TestNewRejectsInvalidCompact(t *testing.T) {
 	for _, value := range []any{"yes-ish", 1} {
 		_, err := New(provider.ProviderConfig{
 			APIKey: "sk-ant-api-fallback",
 			Options: map[string]any{
-				"codex_compat": value,
+				"compact": value,
 			},
 			Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
 		})
 		if err == nil {
-			t.Fatalf("New() error = nil for codex_compat=%#v, want invalid option error", value)
+			t.Fatalf("New() error = nil for compact=%#v, want invalid option error", value)
 		}
 	}
 }
@@ -747,7 +747,7 @@ func TestChatMapsCodexToolNamesForClaudeCode(t *testing.T) {
 		BaseURL: server.URL,
 		APIKey:  "sk-ant-api-fallback",
 		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
-		Options: map[string]any{"codex_compat": true},
+		Options: map[string]any{"compact": "codex"},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -842,7 +842,7 @@ func TestChatRestoresCodexToolNamesAfterRetry(t *testing.T) {
 		BaseURL: server.URL,
 		APIKey:  "sk-ant-api-fallback",
 		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5, MaxRetries: 2, RetryDelaySeconds: 0},
-		Options: map[string]any{"codex_compat": true},
+		Options: map[string]any{"compact": "codex"},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -873,7 +873,7 @@ func TestChatRejectsCodexCompatToolNameCollision(t *testing.T) {
 	prov, err := New(provider.ProviderConfig{
 		BaseURL: "http://127.0.0.1:1",
 		APIKey:  "sk-ant-api-fallback",
-		Options: map[string]any{"codex_compat": true},
+		Options: map[string]any{"compact": "codex"},
 		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
 	})
 	if err != nil {
@@ -891,7 +891,7 @@ func TestChatRejectsCodexCompatToolNameCollision(t *testing.T) {
 		},
 	})
 	if err == nil {
-		t.Fatal("Chat() error = nil, want codex_compat tool name collision")
+		t.Fatal("Chat() error = nil, want compact=codex tool name collision")
 	}
 }
 
@@ -983,7 +983,7 @@ func TestStreamChatMapsCodexToolNamesForClaudeCode(t *testing.T) {
 	prov, err := New(provider.ProviderConfig{
 		BaseURL: server.URL,
 		APIKey:  "sk-ant-api-fallback",
-		Options: map[string]any{"codex_compat": true},
+		Options: map[string]any{"compact": "codex"},
 		Network: httpclient.NetworkConfig{RequestTimeoutSeconds: 5},
 	})
 	if err != nil {

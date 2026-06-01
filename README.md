@@ -198,6 +198,8 @@ AGW_API_KEY=$(./agwctl gateway virtualkey get test-key | jq -r '.key')
 
 The `AGW_ADMIN_ADDR` environment variable sets the admin API address (default: `http://localhost:8019`). Run `agwctl gateway export` to dump the current gateway state as a bundle YAML.
 
+Provider `options.compact` selects compatibility request shaping. Supported values are `cc`, `codex`, and `none`; providers ignore modes they do not implement.
+
 ## MCP Quick Start
 
 The MCP gateway uses the same minimal Caddyfile as LLM Option 2. Enable `mcp` in the dispatcher, then apply an MCP bundle.

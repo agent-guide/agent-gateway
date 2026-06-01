@@ -2,25 +2,30 @@ package provider
 
 import "testing"
 
-func TestBoolOption(t *testing.T) {
+func TestCompactModeFromOptions(t *testing.T) {
 	cases := []struct {
 		name string
 		opts map[string]any
-		want bool
+		want CompactMode
+		err  bool
 	}{
-		{name: "missing", opts: nil, want: false},
-		{name: "native true", opts: map[string]any{"cc_compat": true}, want: true},
-		{name: "native false", opts: map[string]any{"cc_compat": false}, want: false},
-		{name: "string true", opts: map[string]any{"cc_compat": "true"}, want: true},
-		{name: "string 1", opts: map[string]any{"cc_compat": " 1 "}, want: true},
-		{name: "string garbage", opts: map[string]any{"cc_compat": "yes-ish"}, want: false},
-		{name: "wrong type", opts: map[string]any{"cc_compat": 1}, want: false},
+		{name: "missing", opts: nil, want: CompactModeNone},
+		{name: "empty", opts: map[string]any{"compact": ""}, want: CompactModeNone},
+		{name: "none", opts: map[string]any{"compact": "none"}, want: CompactModeNone},
+		{name: "cc", opts: map[string]any{"compact": "cc"}, want: CompactModeCC},
+		{name: "codex", opts: map[string]any{"compact": "codex"}, want: CompactModeCodex},
+		{name: "trim case", opts: map[string]any{"compact": " Codex "}, want: CompactModeCodex},
+		{name: "string garbage", opts: map[string]any{"compact": "yes-ish"}, want: CompactModeNone, err: true},
+		{name: "wrong type", opts: map[string]any{"compact": true}, want: CompactModeNone, err: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := ProviderConfig{Options: tc.opts}
-			if got := cfg.BoolOption("cc_compat"); got != tc.want {
-				t.Fatalf("BoolOption = %v, want %v", got, tc.want)
+			got, err := CompactModeFromOptions(tc.opts)
+			if (err != nil) != tc.err {
+				t.Fatalf("CompactModeFromOptions error = %v, want err=%v", err, tc.err)
+			}
+			if got != tc.want {
+				t.Fatalf("CompactModeFromOptions = %v, want %v", got, tc.want)
 			}
 		})
 	}

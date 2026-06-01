@@ -17,7 +17,7 @@ providers:
       #     anthropic-beta: <new beta flag list>
     options:
       api_key_header: authorization
-      codex_compat: true
+      compact: codex
 
   - id: codexzh-test
     provider_type: codex
@@ -27,7 +27,7 @@ providers:
     network:
       proxy_url: http://127.0.0.1:7890
     options:
-      cc_compat: true
+      compact: cc
 
 llmRoutes:
   - id: chat

@@ -95,7 +95,7 @@ func TestChatCarriesResponsesContextToOpenAICompatiblePayload(t *testing.T) {
 	}
 }
 
-func TestCCCompatDropsUnsupportedMetadataAndUser(t *testing.T) {
+func TestCompactCCDropsUnsupportedMetadataAndUser(t *testing.T) {
 	chatReq, err := provider.ResponsesToChatRequest(&provider.ResponsesRequest{
 		Model:     "gpt-4.1",
 		Input:     "hello",
@@ -107,13 +107,13 @@ func TestCCCompatDropsUnsupportedMetadataAndUser(t *testing.T) {
 		t.Fatalf("ResponsesToChatRequest returned error: %v", err)
 	}
 
-	captured := chatAndCaptureRequest(t, map[string]any{"cc_compat": true}, chatReq)
+	captured := chatAndCaptureRequest(t, map[string]any{"compact": "cc"}, chatReq)
 
 	if _, ok := captured["metadata"]; ok {
-		t.Fatalf("metadata should be dropped in cc_compat mode: %#v", captured["metadata"])
+		t.Fatalf("metadata should be dropped in compact=cc mode: %#v", captured["metadata"])
 	}
 	if _, ok := captured["user"]; ok {
-		t.Fatalf("user should be dropped in cc_compat mode: %#v", captured["user"])
+		t.Fatalf("user should be dropped in compact=cc mode: %#v", captured["user"])
 	}
 	// Unrelated fields must still pass through.
 	if captured["reasoning_effort"] != "high" {
