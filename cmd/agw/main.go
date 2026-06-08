@@ -15,6 +15,10 @@ import (
 	_ "github.com/agent-guide/agent-gateway/caddy/dispatcher/llmapi/openai"
 	_ "github.com/agent-guide/agent-gateway/caddy/gateway"
 
+	// ACP agents register runtime factories through init.
+	_ "github.com/agent-guide/agent-gateway/pkg/acp/agent/codex"
+	_ "github.com/agent-guide/agent-gateway/pkg/acp/agent/opencode"
+
 	// CLI authenticators (register as factory + Caddy modules via init())
 	_ "github.com/agent-guide/agent-gateway/pkg/cliauth/authenticator"
 

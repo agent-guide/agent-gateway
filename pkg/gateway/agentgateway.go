@@ -122,6 +122,9 @@ func (g *AgentGateway) Reset() {
 	g.modelCatalog = nil
 	g.mcpServiceManager = nil
 	g.mcpRuntimeRegistry = mcpruntime.NewRegistry()
+	if g.acpRuntimeManager != nil {
+		g.acpRuntimeManager.Close()
+	}
 	g.acpServiceManager = nil
 	g.acpRuntimeManager = nil
 }

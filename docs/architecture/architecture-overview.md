@@ -52,7 +52,7 @@ Shared gateway runtime
 External systems
   - OpenAI / Anthropic / Gemini / Ollama / OpenRouter
   - upstream MCP services
-  - local ACP agent processes
+  - local ACP agent or adapter processes
   - SQLite config database
   - future memory backends
 ```
@@ -226,8 +226,10 @@ Current status:
   - `streamable_http` is the active upstream transport path today
   - `stdio` and `sse` code exist but are not yet equally integrated
 - `pkg/acp/`
-  - service config, runtime turn request/event types, stdio JSON-RPC transport, activity tracking, and Admin/dispatcher integration are active
+  - service config, runtime turn request/event types, agent SPI, stdio JSON-RPC transport, activity tracking, and Admin/dispatcher integration are active
   - first-version service config allows only `codex` and `opencode`
+  - `opencode` uses the fixed `opencode acp --cwd <cwd>` stdio process shape
+  - `codex` uses the fixed external ACP adapter binary `codex-acp` by default; it does not launch `codex acp`
   - the first runtime driver handles `initialize`, `session/new`, `session/load`, `session/prompt`, `session/update`, and fail-closed permission replies
 - `pkg/llm/memory/`
   - interfaces exist

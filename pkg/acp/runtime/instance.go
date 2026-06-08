@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	baseacp "github.com/agent-guide/agent-gateway/pkg/acp"
+	"github.com/agent-guide/agent-gateway/pkg/acp/agentspi"
+	"github.com/agent-guide/agent-gateway/pkg/acp/runtime/acpupdate"
 	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
 	acptransport "github.com/agent-guide/agent-gateway/pkg/acp/transport"
 )
@@ -16,7 +19,8 @@ type instance struct {
 	cwd       string
 	model     string
 	sessionID string
-	t         *acptransport.Transport
+	agent     agentspi.Agent
+	t         acptransport.Transport
 }
 
 func newInstance(ctx context.Context, cfg acpservice.ServiceConfig, req TurnRequest) (*instance, error) {
@@ -28,24 +32,15 @@ func newInstance(ctx context.Context, cfg acpservice.ServiceConfig, req TurnRequ
 	if model == "" {
 		model = cfg.DefaultModel
 	}
-	command, args, err := processArgs(cfg.AgentType, cwd)
+	agent, err := agentspi.New(cfg.AgentType, agentspi.OpenRequest{Service: cfg, CWD: cwd})
 	if err != nil {
 		return nil, err
 	}
-	mode := acptransport.PermissionModeDeny
-	if cfg.PermissionMode == baseacp.PermissionModeAutoApprove {
-		mode = acptransport.PermissionModeAutoApprove
-	}
-	t, err := acptransport.Open(ctx, acptransport.ProcessConfig{
-		Command:        command,
-		Args:           args,
-		Dir:            cwd,
-		PermissionMode: mode,
-	})
+	t, err := agent.Open(ctx, acptransport.Handlers{Permission: permissionHandler(cfg.PermissionMode)})
 	if err != nil {
 		return nil, err
 	}
-	inst := &instance{cfg: cfg, cwd: cwd, model: model, sessionID: strings.TrimSpace(req.SessionID), t: t}
+	inst := &instance{cfg: cfg, cwd: cwd, model: model, sessionID: strings.TrimSpace(req.SessionID), agent: agent, t: t}
 	if err := inst.initialize(ctx, req.FreshSession); err != nil {
 		_ = t.Close()
 		return nil, err
@@ -54,24 +49,16 @@ func newInstance(ctx context.Context, cfg acpservice.ServiceConfig, req TurnRequ
 }
 
 func (i *instance) initialize(ctx context.Context, fresh bool) error {
-	if _, err := i.t.Request(ctx, "initialize", map[string]any{
-		"protocolVersion": 1,
-		"clientCapabilities": map[string]any{
-			"fs": map[string]any{
-				"readTextFile":  false,
-				"writeTextFile": false,
-			},
-		},
-	}); err != nil {
+	if _, err := i.t.Request(ctx, "initialize", i.agent.InitializeParams()); err != nil {
 		return fmt.Errorf("initialize: %w", err)
 	}
 	if i.sessionID != "" && !fresh {
-		if _, err := i.t.Request(ctx, "session/load", map[string]any{"sessionId": i.sessionID, "cwd": i.cwd}); err != nil {
+		if _, err := i.t.Request(ctx, "session/load", i.agent.SessionLoadParams(i.sessionID)); err != nil {
 			return fmt.Errorf("session/load: %w", err)
 		}
 		return nil
 	}
-	result, err := i.t.Request(ctx, "session/new", sessionNewParams(i.cwd, i.model))
+	result, err := i.t.Request(ctx, "session/new", i.agent.SessionNewParams(i.model))
 	if err != nil {
 		return fmt.Errorf("session/new: %w", err)
 	}
@@ -79,8 +66,31 @@ func (i *instance) initialize(ctx context.Context, fresh bool) error {
 	if i.sessionID == "" {
 		return fmt.Errorf("session/new returned empty sessionId")
 	}
+	return i.applySessionModel(ctx)
+}
+
+// applySessionModel applies the configured model to a freshly created session.
+// ACP defines no standard model-selection method, so the model is applied only
+// when the agent declares how through SessionModelSelector; otherwise the
+// configured model is left to the agent/adapter default rather than being
+// smuggled into session/new as a non-standard field.
+func (i *instance) applySessionModel(ctx context.Context) error {
+	if i.model == "" {
+		return nil
+	}
+	selector, ok := i.agent.(agentspi.SessionModelSelector)
+	if !ok {
+		return nil
+	}
+	if _, err := selector.SelectSessionModel(ctx, i.t, i.sessionID, i.model, nil); err != nil {
+		return fmt.Errorf("select session model: %w", err)
+	}
 	return nil
 }
+
+// terminalDrainTimeout bounds how long the driver waits for a terminal update
+// after the prompt result, for agents that signal completion out of band.
+const terminalDrainTimeout = 2 * time.Second
 
 func (i *instance) prompt(ctx context.Context, req TurnRequest, emit EventSink) (string, error) {
 	if emit != nil && i.sessionID != "" {
@@ -91,48 +101,112 @@ func (i *instance) prompt(ctx context.Context, req TurnRequest, emit EventSink) 
 	updates, unsubscribe := i.t.Updates(256)
 	defer unsubscribe()
 
-	done := make(chan error, 1)
+	done := make(chan promptResult, 1)
 	go func() {
-		_, err := i.t.Request(ctx, "session/prompt", promptParams(i.cfg.AgentType, i.sessionID, req.Input, firstNonEmpty(strings.TrimSpace(req.Model), i.model)))
-		done <- err
+		raw, err := i.t.Request(ctx, "session/prompt", i.agent.PromptParams(i.sessionID, req.Input, firstNonEmpty(strings.TrimSpace(req.Model), i.model)))
+		done <- promptResult{stopReason: parseStopReason(raw), err: err}
 	}()
+
+	emitUpdate := func(msg acptransport.Message) error {
+		if emit == nil || msg.Method != "session/update" {
+			return nil
+		}
+		for _, ev := range acpupdate.Parse(msg.Params) {
+			if ev.Kind == acpupdate.KindReasoning && !i.acceptReasoning(msg.Params) {
+				continue
+			}
+			if err := emit(TurnEvent{Event: string(ev.Kind), Text: ev.Text, Data: ev.Data}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	terminalDetector, hasTerminal := i.agent.(agentspi.TerminalUpdateDetector)
+	stopReason := "end_turn"
+	resultReceived := false
+	var drainTimer <-chan time.Time
 
 	for {
 		select {
 		case <-ctx.Done():
 			i.cancel()
 			return "cancelled", nil
-		case err := <-done:
-			if err != nil {
-				return "end_turn", fmt.Errorf("session/prompt: %w", err)
+		case res := <-done:
+			if res.err != nil {
+				return "end_turn", fmt.Errorf("session/prompt: %w", res.err)
 			}
-			return "end_turn", nil
-		case msg, ok := <-updates:
-			if !ok {
-				return "end_turn", nil
+			if res.stopReason != "" {
+				stopReason = res.stopReason
 			}
-			if msg.Method != "session/update" {
-				continue
-			}
-			delta := parseDelta(msg.Params)
-			if delta == "" {
-				continue
-			}
-			if emit != nil {
-				if err := emit(TurnEvent{Event: "delta", Text: delta}); err != nil {
+			resultReceived = true
+			// Per ACP, session/update notifications for a turn precede its
+			// session/prompt result, so anything buffered now belongs to this
+			// turn. Drain it before returning so the tail of the response is
+			// never dropped by the select racing the result against updates.
+			if !hasTerminal {
+				if err := drainBuffered(updates, emitUpdate); err != nil {
 					i.cancel()
 					return "cancelled", err
 				}
+				return stopReason, nil
 			}
+			drainTimer = time.After(terminalDrainTimeout)
+		case msg, ok := <-updates:
+			if !ok {
+				return stopReason, nil
+			}
+			if err := emitUpdate(msg); err != nil {
+				i.cancel()
+				return "cancelled", err
+			}
+			if resultReceived && hasTerminal && terminalDetector.IsTerminalUpdate(msg.Params) {
+				return stopReason, nil
+			}
+		case <-drainTimer:
+			return stopReason, nil
 		}
 	}
+}
+
+type promptResult struct {
+	stopReason string
+	err        error
+}
+
+// drainBuffered emits every update already queued on the channel without
+// blocking, stopping as soon as the channel is empty or closed.
+func drainBuffered(updates <-chan acptransport.Message, emit func(acptransport.Message) error) error {
+	for {
+		select {
+		case msg, ok := <-updates:
+			if !ok {
+				return nil
+			}
+			if err := emit(msg); err != nil {
+				return err
+			}
+		default:
+			return nil
+		}
+	}
+}
+
+func parseStopReason(raw json.RawMessage) string {
+	var payload struct {
+		StopReason string `json:"stopReason"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.StopReason)
 }
 
 func (i *instance) cancel() {
 	if i == nil || i.t == nil || i.sessionID == "" {
 		return
 	}
-	_ = i.t.Notify("session/cancel", map[string]any{"sessionId": i.sessionID})
+	i.agent.Cancel(context.Background(), i.t, i.sessionID)
 }
 
 func (i *instance) close() error {
@@ -142,45 +216,8 @@ func (i *instance) close() error {
 	return i.t.Close()
 }
 
-func processArgs(agentType, cwd string) (string, []string, error) {
-	switch agentType {
-	case baseacp.AgentTypeOpencode:
-		return "opencode", []string{"acp", "--cwd", cwd}, nil
-	case baseacp.AgentTypeCodex:
-		return "codex", []string{"acp", "--cwd", cwd}, nil
-	default:
-		return "", nil, fmt.Errorf("unsupported acp agent_type %q", agentType)
-	}
-}
-
-func sessionNewParams(cwd, model string) map[string]any {
-	params := map[string]any{
-		"cwd":        cwd,
-		"mcpServers": []any{},
-	}
-	if model != "" {
-		params["model"] = model
-		params["modelId"] = model
-	}
-	return params
-}
-
-func promptParams(agentType, sessionID, input, model string) map[string]any {
-	params := map[string]any{
-		"sessionId": sessionID,
-		"prompt": []map[string]any{{
-			"type": "text",
-			"text": input,
-		}},
-	}
-	if model != "" {
-		if agentType == baseacp.AgentTypeOpencode {
-			params["modelId"] = model
-		} else {
-			params["model"] = model
-		}
-	}
-	return params
+func (i *instance) alive() bool {
+	return i != nil && i.t != nil && i.t.Alive()
 }
 
 func parseSessionID(raw json.RawMessage) string {
@@ -202,36 +239,27 @@ func parseSessionID(raw json.RawMessage) string {
 	return ""
 }
 
-func parseDelta(raw json.RawMessage) string {
-	var payload struct {
-		Delta  string `json:"delta"`
-		Update struct {
-			SessionUpdate string          `json:"sessionUpdate"`
-			Content       json.RawMessage `json:"content"`
-		} `json:"update"`
+// acceptReasoning lets an agent suppress agent_thought_chunk updates that are
+// not genuine reasoning (ReasoningUpdateFilter). Without the capability, every
+// reasoning update is forwarded.
+func (i *instance) acceptReasoning(params json.RawMessage) bool {
+	if filter, ok := i.agent.(agentspi.ReasoningUpdateFilter); ok {
+		return filter.AcceptReasoningUpdate(params)
 	}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return ""
+	return true
+}
+
+func permissionHandler(mode string) func(context.Context, json.RawMessage) acptransport.PermissionResponse {
+	return func(_ context.Context, params json.RawMessage) acptransport.PermissionResponse {
+		// Fail closed unless the service explicitly opts into auto-approval.
+		if mode != baseacp.PermissionModeAutoApprove {
+			return acptransport.PermissionResponse{Outcome: acptransport.PermissionOutcomeCancelled}
+		}
+		if id := acptransport.AllowOptionID(params); id != "" {
+			return acptransport.PermissionResponse{Outcome: acptransport.PermissionOutcomeSelected, SelectedOptionID: id}
+		}
+		return acptransport.PermissionResponse{Outcome: acptransport.PermissionOutcomeCancelled}
 	}
-	if payload.Delta != "" {
-		return payload.Delta
-	}
-	switch strings.TrimSpace(payload.Update.SessionUpdate) {
-	case "agent_message_chunk", "thought_message_chunk":
-	default:
-		return ""
-	}
-	var text string
-	if err := json.Unmarshal(payload.Update.Content, &text); err == nil {
-		return text
-	}
-	var content struct {
-		Text string `json:"text"`
-	}
-	if err := json.Unmarshal(payload.Update.Content, &content); err == nil {
-		return content.Text
-	}
-	return ""
 }
 
 func firstNonEmpty(values ...string) string {

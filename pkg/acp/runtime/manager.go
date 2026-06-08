@@ -10,24 +10,57 @@ import (
 	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
 )
 
+const defaultJanitorInterval = 30 * time.Second
+
 type Manager struct {
 	services *acpservice.Manager
 	active   *ActivityTracker
 
+	janitorInterval time.Duration
+
 	mu        sync.Mutex
 	instances map[string]*managedInstance
+
+	closeOnce sync.Once
+	done      chan struct{}
 }
 
 type managedInstance struct {
 	instance *instance
+	idleTTL  time.Duration
 	lastUsed time.Time
 }
 
 func NewManager(services *acpservice.Manager) *Manager {
-	return &Manager{
-		services:  services,
-		active:    NewActivityTracker(),
-		instances: map[string]*managedInstance{},
+	m := &Manager{
+		services:        services,
+		active:          NewActivityTracker(),
+		janitorInterval: defaultJanitorInterval,
+		instances:       map[string]*managedInstance{},
+		done:            make(chan struct{}),
+	}
+	go m.janitor()
+	return m
+}
+
+// Close stops the janitor and tears down every pooled instance, killing the
+// underlying agent subprocesses. It is safe to call more than once.
+func (m *Manager) Close() {
+	if m == nil {
+		return
+	}
+	m.closeOnce.Do(func() { close(m.done) })
+	m.mu.Lock()
+	victims := make([]*instance, 0, len(m.instances))
+	for scope, item := range m.instances {
+		if item != nil && item.instance != nil {
+			victims = append(victims, item.instance)
+		}
+		delete(m.instances, scope)
+	}
+	m.mu.Unlock()
+	for _, inst := range victims {
+		_ = inst.close()
 	}
 }
 
@@ -92,14 +125,26 @@ func (m *Manager) ListInFlight() []InFlightTurn {
 }
 
 func (m *Manager) resolveInstance(ctx context.Context, scope string, cfg acpservice.ServiceConfig, req TurnRequest) (*instance, error) {
+	// ServeTurn holds the per-scope activity lock for the whole turn, so only one
+	// turn resolves a given scope at a time and the janitor skips active scopes;
+	// no other goroutine mutates this scope's pool entry while we are here.
 	m.mu.Lock()
 	if item := m.instances[scope]; item != nil && item.instance != nil {
-		item.lastUsed = time.Now().UTC()
-		inst := item.instance
+		// Reuse only a live instance, and never when the caller asked for a fresh
+		// session. Otherwise evict and tear down the stale/dead instance.
+		if !req.FreshSession && item.instance.alive() {
+			item.lastUsed = time.Now().UTC()
+			inst := item.instance
+			m.mu.Unlock()
+			return inst, nil
+		}
+		delete(m.instances, scope)
+		stale := item.instance
 		m.mu.Unlock()
-		return inst, nil
+		_ = stale.close()
+	} else {
+		m.mu.Unlock()
 	}
-	m.mu.Unlock()
 
 	inst, err := newInstance(ctx, cfg, req)
 	if err != nil {
@@ -107,16 +152,62 @@ func (m *Manager) resolveInstance(ctx context.Context, scope string, cfg acpserv
 	}
 
 	m.mu.Lock()
-	if item := m.instances[scope]; item != nil && item.instance != nil {
-		item.lastUsed = time.Now().UTC()
-		existing := item.instance
-		m.mu.Unlock()
-		_ = inst.close()
-		return existing, nil
-	}
-	m.instances[scope] = &managedInstance{instance: inst, lastUsed: time.Now().UTC()}
+	m.instances[scope] = &managedInstance{instance: inst, idleTTL: cfg.IdleTTL, lastUsed: time.Now().UTC()}
 	m.mu.Unlock()
 	return inst, nil
+}
+
+func (m *Manager) janitor() {
+	ticker := time.NewTicker(m.janitorInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.done:
+			return
+		case <-ticker.C:
+			m.reapIdle(time.Now().UTC())
+		}
+	}
+}
+
+// reapIdle tears down pooled instances that are idle beyond their IdleTTL or
+// whose process has already exited. Instances with an active turn are left
+// alone; the active turn owns them until it releases the scope.
+func (m *Manager) reapIdle(now time.Time) {
+	var victims []*instance
+	m.mu.Lock()
+	for scope, item := range m.instances {
+		if item == nil || item.instance == nil {
+			delete(m.instances, scope)
+			continue
+		}
+		if !shouldReap(now, item.lastUsed, item.idleTTL, item.instance.alive(), m.active.IsActive(scope)) {
+			continue
+		}
+		victims = append(victims, item.instance)
+		delete(m.instances, scope)
+	}
+	m.mu.Unlock()
+	for _, inst := range victims {
+		_ = inst.close()
+	}
+}
+
+// shouldReap reports whether a pooled instance can be torn down. An instance
+// with an active turn is never reaped. A dead transport is always reaped. A
+// live, idle instance is reaped only when idleTTL > 0 and it has been idle for
+// longer than idleTTL.
+func shouldReap(now, lastUsed time.Time, idleTTL time.Duration, alive, active bool) bool {
+	if active {
+		return false
+	}
+	if !alive {
+		return true
+	}
+	if idleTTL <= 0 {
+		return false
+	}
+	return now.Sub(lastUsed) > idleTTL
 }
 
 type InFlightTurn struct {
@@ -148,6 +239,16 @@ func (t *ActivityTracker) Begin(scope string) (func(), error) {
 		delete(t.active, scope)
 		t.mu.Unlock()
 	}, nil
+}
+
+func (t *ActivityTracker) IsActive(scope string) bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	_, ok := t.active[strings.TrimSpace(scope)]
+	return ok
 }
 
 func (t *ActivityTracker) List() []InFlightTurn {

@@ -44,3 +44,44 @@ func TestValidateCWDAllowedRejectsOutsideRoot(t *testing.T) {
 		t.Fatal("ValidateCWDAllowed returned nil, want error")
 	}
 }
+
+func TestServiceConfigNormalizeCodexDefaultsToAdapter(t *testing.T) {
+	root := t.TempDir()
+	cfg := ServiceConfig{
+		ID:           "codex-main",
+		Name:         "Codex",
+		AgentType:    baseacp.AgentTypeCodex,
+		CWD:          root,
+		AllowedRoots: []string{root},
+		Codex:        &CodexConfig{},
+	}
+	cfg.Normalize()
+	if cfg.Codex.Mode != CodexModeAdapter {
+		t.Fatalf("codex mode = %q, want %q", cfg.Codex.Mode, CodexModeAdapter)
+	}
+	if cfg.Codex.AdapterCommand != "codex-acp" {
+		t.Fatalf("adapter command = %q, want codex-acp", cfg.Codex.AdapterCommand)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+}
+
+func TestServiceConfigValidateRejectsArbitraryCodexAdapterCommand(t *testing.T) {
+	root := t.TempDir()
+	cfg := ServiceConfig{
+		ID:           "codex-main",
+		Name:         "Codex",
+		AgentType:    baseacp.AgentTypeCodex,
+		CWD:          root,
+		AllowedRoots: []string{root},
+		Codex: &CodexConfig{
+			Mode:           CodexModeAdapter,
+			AdapterCommand: "sh",
+		},
+	}
+	cfg.Normalize()
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate returned nil, want error")
+	}
+}

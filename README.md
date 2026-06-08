@@ -282,7 +282,7 @@ MCP route IDs are auto-generated as `mcp:<service_id>:<path_prefix>` when `id` i
 
 ## ACP Status
 
-Native ACP support is implemented in this repository without depending on ngent. The first version adds ACP route/service config, Admin API endpoints, dispatcher routing, a gateway-owned `POST /<acp-route>/turn` SSE contract, and a minimal stdio JSON-RPC runtime for `codex` and `opencode`. Real-agent smoke coverage and broader ACP event handling are still being expanded; see [docs/design/acp-native-runtime.md](docs/design/acp-native-runtime.md).
+Native ACP support is implemented in this repository without depending on ngent. The first version adds ACP route/service config, Admin API endpoints, dispatcher routing, a gateway-owned `POST /<acp-route>/turn` SSE contract, and a stdio JSON-RPC runtime with thin agent adapters for `opencode` and `codex`. `opencode` launches the fixed `opencode acp --cwd <cwd>` shape; `codex` launches the fixed external ACP adapter binary `codex-acp` by default instead of a non-existent native `codex acp` subcommand. Real-agent smoke coverage and broader ACP event handling are still being expanded; see [docs/design/acp-native-runtime.md](docs/design/acp-native-runtime.md).
 
 ## Runtimes
 
@@ -305,7 +305,7 @@ See [docs/README.md](docs/README.md) for runtime-specific guides and references.
 - OpenAI-compatible chat and Anthropic-compatible messages are the primary mature LLM paths
 - OpenAI embeddings and Anthropic token counting are not fully implemented
 - MCP is active in the dispatcher and Admin API surface, but some adjacent subsystems are still evolving
-- ACP is present as a native route/admin/dispatcher surface with a minimal stdio runtime driver for codex/opencode
+- ACP is present as a native route/admin/dispatcher surface with a reusable stdio runtime driver and thin codex/opencode agent adapters
 - memory, agents, and metrics Admin API families still contain `501 Not Implemented` endpoints
 
 ## Development

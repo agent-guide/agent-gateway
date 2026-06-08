@@ -12,6 +12,11 @@ import (
 
 var ErrServiceNotConfigured = fmt.Errorf("acp service is not configured")
 
+const (
+	CodexModeAdapter   = "adapter"
+	CodexModeAppServer = "app_server"
+)
+
 type ServiceConfig struct {
 	ID              string            `json:"id"`
 	Name            string            `json:"name"`
@@ -30,6 +35,9 @@ type ServiceConfig struct {
 }
 
 type CodexConfig struct {
+	Mode             string   `json:"mode,omitempty"`
+	AdapterCommand   string   `json:"adapter_command,omitempty"`
+	AdapterArgs      []string `json:"adapter_args,omitempty"`
 	AppServerCommand string   `json:"app_server_command,omitempty"`
 	AppServerArgs    []string `json:"app_server_args,omitempty"`
 	DefaultProfile   string   `json:"default_profile,omitempty"`
@@ -71,6 +79,14 @@ func (c *ServiceConfig) Normalize() {
 		c.AllowedRoots = []string{c.CWD}
 	}
 	if c.Codex != nil {
+		c.Codex.Mode = strings.TrimSpace(c.Codex.Mode)
+		if c.Codex.Mode == "" {
+			c.Codex.Mode = CodexModeAdapter
+		}
+		c.Codex.AdapterCommand = strings.TrimSpace(c.Codex.AdapterCommand)
+		if c.Codex.AdapterCommand == "" && c.Codex.Mode == CodexModeAdapter {
+			c.Codex.AdapterCommand = "codex-acp"
+		}
 		c.Codex.AppServerCommand = strings.TrimSpace(c.Codex.AppServerCommand)
 		c.Codex.DefaultProfile = strings.TrimSpace(c.Codex.DefaultProfile)
 		c.Codex.InitialAuthMode = strings.TrimSpace(c.Codex.InitialAuthMode)
@@ -105,6 +121,18 @@ func (c ServiceConfig) Validate() error {
 	case "", baseacp.PermissionModeDeny, baseacp.PermissionModeAutoApprove:
 	default:
 		return fmt.Errorf("unsupported permission_mode %q", c.PermissionMode)
+	}
+	if c.AgentType == baseacp.AgentTypeCodex && c.Codex != nil {
+		switch c.Codex.Mode {
+		case "", CodexModeAdapter:
+			if c.Codex.AdapterCommand != "" && filepath.Base(c.Codex.AdapterCommand) != "codex-acp" {
+				return fmt.Errorf("codex adapter_command must be codex-acp")
+			}
+		case CodexModeAppServer:
+			return fmt.Errorf("codex mode %q is not implemented", c.Codex.Mode)
+		default:
+			return fmt.Errorf("unsupported codex mode %q", c.Codex.Mode)
+		}
 	}
 	return nil
 }

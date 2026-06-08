@@ -1,5 +1,7 @@
 package runtime
 
+import "encoding/json"
+
 type TurnRequest struct {
 	ThreadID        string            `json:"thread_id"`
 	SessionID       string            `json:"session_id,omitempty"`
@@ -11,11 +13,12 @@ type TurnRequest struct {
 }
 
 type TurnEvent struct {
-	Event      string `json:"-"`
-	SessionID  string `json:"session_id,omitempty"`
-	Text       string `json:"text,omitempty"`
-	StopReason string `json:"stop_reason,omitempty"`
-	Message    string `json:"message,omitempty"`
+	Event      string          `json:"-"`
+	SessionID  string          `json:"session_id,omitempty"`
+	Text       string          `json:"text,omitempty"`
+	StopReason string          `json:"stop_reason,omitempty"`
+	Message    string          `json:"message,omitempty"`
+	Data       json.RawMessage `json:"data,omitempty"`
 }
 
 type EventSink func(TurnEvent) error

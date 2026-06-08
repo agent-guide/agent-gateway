@@ -12,6 +12,10 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 
+	// ACP agents register runtime factories through init.
+	_ "github.com/agent-guide/agent-gateway/pkg/acp/agent/codex"
+	_ "github.com/agent-guide/agent-gateway/pkg/acp/agent/opencode"
+
 	// CLI authenticators register runtime factories through init.
 	_ "github.com/agent-guide/agent-gateway/pkg/cliauth/authenticator"
 

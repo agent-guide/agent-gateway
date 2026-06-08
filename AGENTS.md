@@ -226,7 +226,8 @@ First-version scope:
 - service config store: `acp_services`
 - dispatcher endpoint: `POST /<acp-route>/turn` with SSE events
 - permission mode defaults to fail-closed `deny`
-- runtime transport: native stdio JSON-RPC for fixed codex/opencode ACP commands
+- runtime shape: one stdio JSON-RPC driver plus thin agent adapters registered through `pkg/acp/agentspi`
+- process shapes: `opencode` uses fixed `opencode acp --cwd <cwd>`; `codex` uses fixed external ACP adapter binary `codex-acp` by default
 
 ### `pkg/gateway/virtualkey/`
 
