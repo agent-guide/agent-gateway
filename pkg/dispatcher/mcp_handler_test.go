@@ -32,7 +32,8 @@ func (b *testConfigStoreBackend) Get(name string) (configstore.ConfigStore, erro
 		configstoreschema.StoreRoutes,
 		configstoreschema.StoreVirtualKeys,
 		configstoreschema.StoreManagedModels,
-		configstoreschema.StoreMCPServices:
+		configstoreschema.StoreMCPServices,
+		configstoreschema.StoreACPServices:
 		return b.store, nil
 	default:
 		return nil, configstore.ErrUnknownStoreName

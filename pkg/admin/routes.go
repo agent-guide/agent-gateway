@@ -134,6 +134,20 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/prompts", Handler: h.handleListMCPPrompts, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/mcp/services/{id}/prompts/get", Handler: h.handleGetMCPPrompt, RequireAuth: true},
 
+		// ACP
+		{Method: http.MethodGet, Path: "/admin/acp/services", Handler: h.handleListACPServices, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/acp/services", Handler: h.handleCreateACPService, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/acp/services/{id}", Handler: h.handleGetACPService, RequireAuth: true},
+		{Method: http.MethodPut, Path: "/admin/acp/services/{id}", Handler: h.handleUpdateACPService, RequireAuth: true},
+		{Method: http.MethodDelete, Path: "/admin/acp/services/{id}", Handler: h.handleDeleteACPService, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/acp/routes", Handler: h.handleListACPRoutes, RequireAuth: true},
+		{Method: http.MethodPost, Path: "/admin/acp/routes", Handler: h.handleCreateACPRoute, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/acp/routes/{id}", Handler: h.handleGetACPRoute, RequireAuth: true},
+		{Method: http.MethodPut, Path: "/admin/acp/routes/{id}", Handler: h.handleUpdateACPRoute, RequireAuth: true},
+		{Method: http.MethodDelete, Path: "/admin/acp/routes/{id}", Handler: h.handleDeleteACPRoute, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/acp/runtime", Handler: h.handleGetACPRuntime, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/acp/runtime/inflight", Handler: h.handleListACPInFlight, RequireAuth: true},
+
 		// Memory
 		{Method: http.MethodGet, Path: "/admin/memory/config", Handler: h.handleGetMemoryConfig, RequireAuth: true},
 		{Method: http.MethodPut, Path: "/admin/memory/config", Handler: h.handleSetMemoryConfig, RequireAuth: true},

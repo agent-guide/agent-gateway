@@ -24,10 +24,12 @@ type Handler struct {
 	gateway     *gateway.AgentGateway
 	logger      *zap.Logger
 	mcpEnabled  bool
+	acpEnabled  bool
 }
 
 type HandlerOptions struct {
 	EnableMCP bool
+	EnableACP bool
 }
 
 // NewHandler constructs a runtime dispatcher handler.
@@ -43,14 +45,15 @@ func NewHandler(agentGateway *gateway.AgentGateway, apiHandlers map[string]LLMAp
 		gateway:     agentGateway,
 		logger:      logger,
 		mcpEnabled:  opts.EnableMCP,
+		acpEnabled:  opts.EnableACP,
 	}
 	return handler
 }
 
 // Validate verifies the dispatcher has at least one configured ingress protocol handler.
 func (h *Handler) Validate() error {
-	if h == nil || (len(h.apiHandlers) == 0 && !h.mcpEnabled) {
-		return fmt.Errorf("agent_route_dispatcher requires at least one llm_api or mcp")
+	if h == nil || (len(h.apiHandlers) == 0 && !h.mcpEnabled && !h.acpEnabled) {
+		return fmt.Errorf("agent_route_dispatcher requires at least one llm_api, mcp, or acp")
 	}
 	return nil
 }
@@ -114,6 +117,8 @@ func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request, next NextHand
 		return h.dispatchLLM(w, r, next, cfg)
 	case routecore.RouteKindMCP:
 		return h.dispatchMCP(w, r, next, cfg)
+	case routecore.RouteKindACP:
+		return h.dispatchACP(w, r, next, cfg)
 	default:
 		return WriteDispatchError(h.logger, string(cfg.Protocol), cfg.ID, "", http.StatusServiceUnavailable, w, r, "dispatch route", "route kind is not configured", fmt.Errorf("route %q kind %q is not configured", cfg.ID, cfg.Kind))
 	}

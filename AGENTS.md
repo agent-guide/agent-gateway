@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository builds a custom Caddy binary that acts as an AI gateway for LLM and MCP traffic.
+This repository builds a custom Caddy binary that acts as an AI gateway for LLM, MCP, and ACP traffic.
 The current primary LLM path is:
 
 1. `agent_gateway` app loads providers, routes, virtual keys, credentials, and CLI auth state
@@ -12,7 +12,7 @@ The current primary LLM path is:
 5. in logical-model routes, the model catalog resolves the logical model to one concrete `(provider_id, upstream_model)` binding
 6. the selected provider executes `Generate` or `Stream`
 
-MCP is also active now through `agent_route_dispatcher` with MCP enabled, `pkg/gateway/mcproute`, `pkg/mcp/service`, and MCP Admin APIs. Memory, agent, and metrics areas still exist as earlier-stage subsystems.
+MCP is also active now through `agent_route_dispatcher` with MCP enabled, `pkg/gateway/mcproute`, `pkg/mcp/service`, and MCP Admin APIs. ACP is being implemented natively through `pkg/acp`, `pkg/gateway/acproute`, dispatcher turn handling, and ACP Admin APIs. Memory, agent, and metrics areas still exist as earlier-stage subsystems.
 
 ## Change Policy
 
@@ -87,6 +87,7 @@ Responsibilities:
 - invoke the selected LLM protocol handler
 - when `mcp` is configured, resolve `MCPRoute` requests, parse MCP JSON-RPC, and invoke `pkg/mcp/service`
 - track in-flight MCP requests and progress through the shared runtime registry
+- when `acp` is configured, resolve `ACPRoute` requests, parse the gateway ACP turn request, and invoke `pkg/acp/runtime`
 
 ### Protocol handler modules
 
@@ -120,6 +121,7 @@ Responsibilities:
 - session login with `POST /admin/auth/login`
 - CRUD for providers, routes, virtual keys, and credentials
 - CRUD for `mcp_services` and MCP routes
+- CRUD for `acp_services` and ACP routes
 - MCP discovery, execution, and dispatcher runtime inspection
 - list startup-enabled provider types and LLM API handler types
 - configure and trigger CLI auth authenticators
@@ -196,6 +198,35 @@ Current shape:
 - `MCPRouteConfig` is the expanded config form used by admin and config-adjacent layers that need direct `service_id` access
 - `MCPRoute` is the runtime object created by `MCPRouteResolver` and used by dispatcher/runtime code
 - prefer `*MCPRoute` at runtime rather than copying `MCPRoute` values
+
+### `pkg/gateway/acproute/`
+
+Defines the ACP route config expansion and runtime route model.
+
+Important types:
+
+- `ACPRouteConfig`
+- `ACPRoute`
+- `RouteMatch`
+- `RouteAuthPolicy`
+
+Current shape:
+
+- persisted/static ACP routes use `routecore.AgentRouteConfig`
+- `ACPRouteConfig` is the expanded config form used by admin and config-adjacent layers that need direct `service_id` access
+- `ACPRoute` is the runtime object created by `ACPRouteResolver` and used by dispatcher/runtime code
+
+### `pkg/acp/`
+
+Owns native ACP service config and runtime integration. Do not add a dependency on `github.com/beyond5959/ngent`; ACP runtime support is implemented in this repository.
+
+First-version scope:
+
+- supported agent types: `codex`, `opencode`
+- service config store: `acp_services`
+- dispatcher endpoint: `POST /<acp-route>/turn` with SSE events
+- permission mode defaults to fail-closed `deny`
+- runtime transport: native stdio JSON-RPC for fixed codex/opencode ACP commands
 
 ### `pkg/gateway/virtualkey/`
 
@@ -294,6 +325,7 @@ Current store names:
 - `credentials`
 - `routes`
 - `mcp_services`
+- `acp_services`
 - `virtual_keys`
 - `managed_models`
 
@@ -358,6 +390,7 @@ http://127.0.0.1:8080 {
         llm_api anthropic
         llm_api cc
         mcp
+        acp
     }
 }
 ```
@@ -366,8 +399,8 @@ Important current directives:
 
 - `provider_types` is startup-only provider type availability; when omitted all registered provider types are enabled
 - providers use `provider_type <name>`
-- LLM routes use `protocol <openai|anthropic|cc>` and MCP routes use `protocol mcp`
-- `agent_route_dispatcher` uses `llm_api <name>` for LLM protocol handlers and `mcp` to enable MCP protocol handling
+- LLM routes use `protocol <openai|anthropic|cc>`, MCP routes use `protocol mcp`, and ACP routes use `protocol acp`
+- `agent_route_dispatcher` uses `llm_api <name>` for LLM protocol handlers, `mcp` to enable MCP protocol handling, and `acp` to enable ACP turn handling
 - auth uses `virtualkey`, not `local_api_key`
 
 ## Admin API Notes
@@ -394,6 +427,12 @@ Implemented MCP families:
 - `/admin/mcp/services/...`
 - `/admin/mcp/routes/...`
 - `/admin/mcp/runtime/...`
+
+Implemented ACP families:
+
+- `/admin/acp/services/...`
+- `/admin/acp/routes/...`
+- `/admin/acp/runtime/...`
 
 Stubbed families currently return `501 Not Implemented`:
 

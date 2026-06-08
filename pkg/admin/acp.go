@@ -1,0 +1,333 @@
+package admin
+
+import (
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+
+	"github.com/agent-guide/agent-gateway/internal/httpjson"
+	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	acproute "github.com/agent-guide/agent-gateway/pkg/gateway/acproute"
+)
+
+type ACPServiceView struct {
+	acpservice.ServiceConfig
+	Source   string `json:"source"`
+	ReadOnly bool   `json:"read_only"`
+}
+
+type ACPRouteView struct {
+	acproute.ACPRouteConfig
+	Source   string `json:"source"`
+	ReadOnly bool   `json:"read_only"`
+}
+
+func (h *Handler) handleListACPServices(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.acpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	items, err := manager.List(r.Context())
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	views := make([]ACPServiceView, 0, len(items))
+	for _, item := range items {
+		views = append(views, ACPServiceView{ServiceConfig: item, Source: "config_store"})
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": views})
+}
+
+func (h *Handler) handleCreateACPService(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.acpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	var cfg acpservice.ServiceConfig
+	if err := httpjson.Decode(r, &cfg); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	cfg.Normalize()
+	if err := manager.Create(r.Context(), cfg); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	created, err := manager.Get(r.Context(), cfg.ID)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusCreated, ACPServiceView{ServiceConfig: created, Source: "config_store"})
+}
+
+func (h *Handler) handleGetACPService(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.acpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	cfg, err := manager.Get(r.Context(), strings.TrimSpace(r.PathValue("id")))
+	if err != nil {
+		if errors.Is(err, acpservice.ErrServiceNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "acp service not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, ACPServiceView{ServiceConfig: cfg, Source: "config_store"})
+}
+
+func (h *Handler) handleUpdateACPService(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.acpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	var cfg acpservice.ServiceConfig
+	if err := httpjson.Decode(r, &cfg); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	if err := manager.Update(r.Context(), id, cfg); err != nil {
+		if errors.Is(err, acpservice.ErrServiceNotConfigured) || errors.Is(err, configstore.ErrNotFound) {
+			_ = httpjson.Error(w, http.StatusNotFound, "acp service not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	updated, err := manager.Get(r.Context(), id)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, ACPServiceView{ServiceConfig: updated, Source: "config_store"})
+}
+
+func (h *Handler) handleDeleteACPService(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.acpServiceManager()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	if err := manager.Delete(r.Context(), strings.TrimSpace(r.PathValue("id"))); err != nil {
+		if errors.Is(err, configstore.ErrNotFound) {
+			_ = httpjson.Error(w, http.StatusNotFound, "acp service not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (h *Handler) handleListACPRoutes(w http.ResponseWriter, r *http.Request) {
+	resolver, err := h.acpRouteResolver()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	items, err := resolver.ListConfigs(r.Context(), acproute.RouteListOptions{})
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	items = filterRouteConfigsByKind(items, acproute.RouteKindACP)
+	views := make([]ACPRouteView, 0, len(items))
+	for _, item := range items {
+		views = append(views, acpRouteViewFromConfig(resolver, item))
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": views})
+}
+
+func (h *Handler) handleCreateACPRoute(w http.ResponseWriter, r *http.Request) {
+	resolver, err := h.acpRouteResolver()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	var route acproute.ACPRouteConfig
+	if err := httpjson.Decode(r, &route); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	if !route.CreatedAt.IsZero() || !route.UpdatedAt.IsZero() {
+		_ = httpjson.Error(w, http.StatusBadRequest, "created_at and updated_at are managed by the server and must be omitted")
+		return
+	}
+	route.Normalize()
+	if route.ServiceID == "" {
+		_ = httpjson.Error(w, http.StatusBadRequest, "service_id is required")
+		return
+	}
+	cfg, err := route.ToConfig()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := resolver.CreateConfig(r.Context(), cfg, ""); err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	created, err := resolver.GetConfig(r.Context(), route.ID)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusCreated, acpRouteViewFromConfig(resolver, created))
+}
+
+func (h *Handler) handleGetACPRoute(w http.ResponseWriter, r *http.Request) {
+	resolver, err := h.acpRouteResolver()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	item, err := resolver.GetConfig(r.Context(), r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, acproute.ErrRouteNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "acp route not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if item.Kind != acproute.RouteKindACP {
+		_ = httpjson.Error(w, http.StatusNotFound, "acp route not found")
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, acpRouteViewFromConfig(resolver, item))
+}
+
+func (h *Handler) handleUpdateACPRoute(w http.ResponseWriter, r *http.Request) {
+	resolver, err := h.acpRouteResolver()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	id := r.PathValue("id")
+	current, err := resolver.GetConfig(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, acproute.ErrRouteNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "acp route not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if current.Kind != acproute.RouteKindACP {
+		_ = httpjson.Error(w, http.StatusNotFound, "acp route not found")
+		return
+	}
+	var route acproute.ACPRouteConfig
+	if err := httpjson.Decode(r, &route); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	if route.ID == "" {
+		route.ID = id
+	}
+	if route.ID != id {
+		_ = httpjson.Error(w, http.StatusBadRequest, "route id in body must match path")
+		return
+	}
+	if !route.CreatedAt.IsZero() || !route.UpdatedAt.IsZero() {
+		_ = httpjson.Error(w, http.StatusBadRequest, "created_at and updated_at are managed by the server and must be omitted")
+		return
+	}
+	route.Normalize()
+	if route.ServiceID == "" {
+		_ = httpjson.Error(w, http.StatusBadRequest, "service_id is required")
+		return
+	}
+	cfg, err := route.ToConfig()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := resolver.UpdateConfig(r.Context(), id, cfg); err != nil {
+		if errors.Is(err, configstore.ErrNotFound) {
+			_ = httpjson.Error(w, http.StatusNotFound, "acp route not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	item, err := resolver.GetConfig(r.Context(), id)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, acpRouteViewFromConfig(resolver, item))
+}
+
+func (h *Handler) handleDeleteACPRoute(w http.ResponseWriter, r *http.Request) {
+	resolver, err := h.acpRouteResolver()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	id := r.PathValue("id")
+	item, err := resolver.GetConfig(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, acproute.ErrRouteNotConfigured) {
+			_ = httpjson.Error(w, http.StatusNotFound, "acp route not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if item.Kind != acproute.RouteKindACP {
+		_ = httpjson.Error(w, http.StatusNotFound, "acp route not found")
+		return
+	}
+	if err := resolver.DeleteConfig(r.Context(), id); err != nil {
+		if errors.Is(err, configstore.ErrNotFound) {
+			_ = httpjson.Error(w, http.StatusNotFound, "acp route not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (h *Handler) handleGetACPRuntime(w http.ResponseWriter, r *http.Request) {
+	if h.acpRuntimeManager == nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "acp runtime manager is not configured")
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"in_flight": h.acpRuntimeManager.ListInFlight()})
+}
+
+func (h *Handler) handleListACPInFlight(w http.ResponseWriter, r *http.Request) {
+	if h.acpRuntimeManager == nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "acp runtime manager is not configured")
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": h.acpRuntimeManager.ListInFlight()})
+}
+
+func acpRouteViewFromConfig(resolver *acproute.ACPRouteResolver, cfg acproute.AgentRouteConfig) ACPRouteView {
+	item, _ := acproute.NewACPRouteConfigFromConfig(cfg)
+	view := ACPRouteView{
+		ACPRouteConfig: item,
+		Source:         "store",
+		ReadOnly:       false,
+	}
+	if resolver != nil {
+		if configManager := resolver.ConfigManager(); configManager != nil && configManager.IsStatic(cfg.ID) {
+			view.Source = "caddyfile"
+			view.ReadOnly = true
+		}
+	}
+	return view
+}

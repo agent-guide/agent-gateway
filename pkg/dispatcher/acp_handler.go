@@ -1,0 +1,90 @@
+package dispatcher
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+
+	"github.com/agent-guide/agent-gateway/internal/httpjson"
+	acpruntime "github.com/agent-guide/agent-gateway/pkg/acp/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
+	"go.uber.org/zap"
+)
+
+func (h *Handler) dispatchACP(w http.ResponseWriter, r *http.Request, next NextHandler, cfg routecore.AgentRouteConfig) error {
+	if !h.acpEnabled {
+		return serveNextOrNotFound(next, w, r)
+	}
+	routeResolver := h.gateway.ACPRouteResolver()
+	if routeResolver == nil {
+		return WriteDispatchError(h.logger, string(cfg.Protocol), cfg.ID, "", http.StatusServiceUnavailable, w, r, "resolve acp route", "acp route resolver is not configured", fmt.Errorf("acp route resolver is not configured"))
+	}
+	route, err := routeResolver.Resolve(r.Context(), cfg)
+	if err != nil {
+		return WriteDispatchError(h.logger, string(cfg.Protocol), cfg.ID, "", http.StatusBadGateway, w, r, "resolve acp route", "failed to resolve acp route", err)
+	}
+	if route == nil {
+		return WriteDispatchError(h.logger, string(cfg.Protocol), cfg.ID, "", http.StatusServiceUnavailable, w, r, "resolve acp route", "acp route is not configured", fmt.Errorf("acp route %q is not configured", cfg.ID))
+	}
+	logRequestPhase(h.logger, "dispatcher: acp route resolved", r,
+		zap.String("route_id", route.ID),
+		zap.String("service_id", route.ServiceID),
+		zap.String("path_prefix", route.MatchPolicy.PathPrefix),
+	)
+
+	rewritten := RewriteLLMRoutePath(r, route.MatchPolicy.PathPrefix)
+	if rewritten.URL.Path != "/turn" {
+		return serveNextOrNotFound(next, w, r)
+	}
+	if rewritten.Method != http.MethodPost {
+		return httpjson.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+
+	runtimeManager := h.gateway.ACPRuntimeManager()
+	if runtimeManager == nil {
+		return WriteDispatchError(h.logger, string(route.Protocol), route.ID, "", http.StatusServiceUnavailable, w, rewritten, "dispatch acp turn", "acp runtime manager is not configured", fmt.Errorf("acp runtime manager is not configured"))
+	}
+
+	var req acpruntime.TurnRequest
+	if err := json.NewDecoder(rewritten.Body).Decode(&req); err != nil {
+		return httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+	}
+	if strings.TrimSpace(req.ThreadID) == "" {
+		return httpjson.Error(w, http.StatusBadRequest, "thread_id is required")
+	}
+	if strings.TrimSpace(req.Input) == "" {
+		return httpjson.Error(w, http.StatusBadRequest, "input is required")
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		return httpjson.Error(w, http.StatusInternalServerError, "streaming is not supported")
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	emit := func(event acpruntime.TurnEvent) error {
+		name := strings.TrimSpace(event.Event)
+		if name == "" {
+			name = "delta"
+		}
+		data, err := json.Marshal(event)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, data); err != nil {
+			return err
+		}
+		flusher.Flush()
+		return nil
+	}
+
+	if err := runtimeManager.ServeTurn(rewritten.Context(), route.ServiceID, req, emit); err != nil {
+		_ = emit(acpruntime.TurnEvent{Event: "error", Message: err.Error()})
+		return nil
+	}
+	return nil
+}

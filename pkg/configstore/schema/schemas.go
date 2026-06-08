@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 
+	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	modelcatalog "github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	routecore "github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
@@ -27,6 +28,7 @@ func RegisterDefaultStores(backend configstore.ConfigStoreBackend) error {
 		VirtualKeySchema,
 		ManagedModelSchema,
 		MCPServiceSchema,
+		ACPServiceSchema,
 	}
 	for _, storeSchema := range schemas {
 		if err := backend.Register(storeSchema.Name, storeSchema); err != nil {
@@ -168,6 +170,25 @@ var MCPServiceSchema = configstore.StoreSchema{
 	},
 }
 
+var ACPServiceSchema = configstore.StoreSchema{
+	Name:              StoreACPServices,
+	Kind:              "acp service",
+	Table:             "acp_services",
+	PrimaryKeyColumns: []string{"id"},
+	TagColumn:         "tag",
+	DataColumn:        "config",
+	Timestamped:       true,
+	Codec: typedJSONCodec{
+		kind:     "acp service",
+		decode:   acpservice.DecodeStoredServiceConfig,
+		validate: validateACPServiceObject,
+	},
+	Metadata: configstore.MetadataFuncs{
+		PrimaryKeyFunc: primaryKeyFromStringFields("ID"),
+		TagFunc:        requiredTagFromStringField("AgentType", "agent_type"),
+	},
+}
+
 type typedJSONCodec struct {
 	kind     string
 	decode   func([]byte) (any, error)
@@ -267,6 +288,20 @@ func validateMCPServiceObject(obj any) error {
 		return value.Validate()
 	default:
 		return fmt.Errorf("mcp service object has unexpected type %T", obj)
+	}
+}
+
+func validateACPServiceObject(obj any) error {
+	switch value := unwrapConfigObject(obj).(type) {
+	case acpservice.ServiceConfig:
+		return value.Validate()
+	case *acpservice.ServiceConfig:
+		if value == nil {
+			return fmt.Errorf("acp service object is nil")
+		}
+		return value.Validate()
+	default:
+		return fmt.Errorf("acp service object has unexpected type %T", obj)
 	}
 }
 

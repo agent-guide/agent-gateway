@@ -35,6 +35,7 @@ type testConfigStore struct {
 	providerStore   configstore.ConfigStore
 	routeStore      configstore.ConfigStore
 	mcpServiceStore configstore.ConfigStore
+	acpServiceStore configstore.ConfigStore
 	virtualKeyStore configstore.ConfigStore
 	modelStore      configstore.ConfigStore
 }
@@ -77,6 +78,8 @@ func (s *testConfigStore) Get(name string) (configstore.ConfigStore, error) {
 		return s.routeStore, nil
 	case configstoreschema.StoreMCPServices:
 		return s.mcpServiceStore, nil
+	case configstoreschema.StoreACPServices:
+		return s.acpServiceStore, nil
 	case configstoreschema.StoreVirtualKeys:
 		return s.virtualKeyStore, nil
 	case configstoreschema.StoreManagedModels:

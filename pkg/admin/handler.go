@@ -7,9 +7,12 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/httpcapture"
 	"github.com/agent-guide/agent-gateway/internal/httplog"
+	acpruntime "github.com/agent-guide/agent-gateway/pkg/acp/runtime"
+	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
+	acproute "github.com/agent-guide/agent-gateway/pkg/gateway/acproute"
 	llmroute "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
@@ -30,11 +33,14 @@ type Handler struct {
 	routeConfigManager      *routecore.AgentRouteConfigManager
 	sharedLLMRouteResolver  *llmroute.LLMRouteResolver
 	sharedMCPRouteResolver  *mcproute.MCPRouteResolver
+	sharedACPRouteResolver  *acproute.ACPRouteResolver
 	sharedMCPServiceManager *mcpservice.Manager
+	sharedACPServiceManager *acpservice.Manager
 	virtualKeyManager       *virtualkeypkg.VirtualKeyManager
 	providerManager         *gateway.ProviderManager
 	modelCatalog            modelcatalog.Service
 	mcpRuntimeRegistry      *mcpruntime.Registry
+	acpRuntimeManager       *acpruntime.Manager
 	mux                     *http.ServeMux
 	logger                  *zap.Logger
 	cliAuthMu               sync.RWMutex
@@ -59,11 +65,14 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 	var routeConfigManager *routecore.AgentRouteConfigManager
 	var sharedLLMRouteResolver *llmroute.LLMRouteResolver
 	var sharedMCPRouteResolver *mcproute.MCPRouteResolver
+	var sharedACPRouteResolver *acproute.ACPRouteResolver
 	var sharedMCPServiceManager *mcpservice.Manager
+	var sharedACPServiceManager *acpservice.Manager
 	var virtualKeyManager *virtualkeypkg.VirtualKeyManager
 	var providerManager *gateway.ProviderManager
 	var modelCatalogSvc modelcatalog.Service
 	var mcpRuntimeRegistry *mcpruntime.Registry
+	var acpRuntimeManager *acpruntime.Manager
 	if agentGateway != nil {
 		cliauthMgr = agentGateway.CLIAuthManager()
 		cliauthRefresher = agentGateway.CLIAuthRefresher()
@@ -72,11 +81,14 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 		routeConfigManager = agentGateway.AgentRouteConfigManager()
 		sharedLLMRouteResolver = agentGateway.LLMRouteResolver()
 		sharedMCPRouteResolver = agentGateway.MCPRouteResolver()
+		sharedACPRouteResolver = agentGateway.ACPRouteResolver()
 		sharedMCPServiceManager = agentGateway.MCPServiceManager()
+		sharedACPServiceManager = agentGateway.ACPServiceManager()
 		virtualKeyManager = agentGateway.VirtualKeyManager()
 		providerManager = agentGateway.ProviderManager()
 		modelCatalogSvc = agentGateway.ModelCatalog()
 		mcpRuntimeRegistry = agentGateway.MCPRuntimeRegistry()
+		acpRuntimeManager = agentGateway.ACPRuntimeManager()
 	}
 
 	h := &Handler{
@@ -87,11 +99,14 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 		routeConfigManager:      routeConfigManager,
 		sharedLLMRouteResolver:  sharedLLMRouteResolver,
 		sharedMCPRouteResolver:  sharedMCPRouteResolver,
+		sharedACPRouteResolver:  sharedACPRouteResolver,
 		sharedMCPServiceManager: sharedMCPServiceManager,
+		sharedACPServiceManager: sharedACPServiceManager,
 		virtualKeyManager:       virtualKeyManager,
 		providerManager:         providerManager,
 		modelCatalog:            modelCatalogSvc,
 		mcpRuntimeRegistry:      mcpRuntimeRegistry,
+		acpRuntimeManager:       acpRuntimeManager,
 		logger:                  logger,
 		cliAuthSessions:         map[string]cliAuthStatus{},
 		cliAuthActive:           map[string]string{},
@@ -150,4 +165,22 @@ func (h *Handler) mcpRouteResolver() (*mcproute.MCPRouteResolver, error) {
 		return nil, configstore.ErrUnknownStoreName
 	}
 	return mcproute.NewMCPRouteResolver(manager), nil
+}
+
+func (h *Handler) acpServiceManager() (*acpservice.Manager, error) {
+	if h.sharedACPServiceManager == nil {
+		return nil, fmt.Errorf("acp service manager is not configured")
+	}
+	return h.sharedACPServiceManager, nil
+}
+
+func (h *Handler) acpRouteResolver() (*acproute.ACPRouteResolver, error) {
+	if h.sharedACPRouteResolver != nil {
+		return h.sharedACPRouteResolver, nil
+	}
+	manager := h.routeConfigManagerForRoutes()
+	if manager == nil {
+		return nil, configstore.ErrUnknownStoreName
+	}
+	return acproute.NewACPRouteResolver(manager), nil
 }

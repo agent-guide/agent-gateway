@@ -10,6 +10,7 @@ type RouteKind string
 const (
 	RouteKindLLM RouteKind = "llm"
 	RouteKindMCP RouteKind = "mcp"
+	RouteKindACP RouteKind = "acp"
 )
 
 type RouteProtocol string
@@ -19,6 +20,7 @@ const (
 	RouteProtocolAnthropic RouteProtocol = "anthropic"
 	RouteProtocolCC        RouteProtocol = "cc"
 	RouteProtocolMCP       RouteProtocol = "mcp"
+	RouteProtocolACP       RouteProtocol = "acp"
 )
 
 type RouteTargetPolicyKind string
@@ -27,6 +29,7 @@ const (
 	RouteTargetPolicyKindDirectProvider RouteTargetPolicyKind = "direct-provider"
 	RouteTargetPolicyKindLogicalModel   RouteTargetPolicyKind = "logical-model"
 	RouteTargetPolicyKindMCPService     RouteTargetPolicyKind = "mcp-service"
+	RouteTargetPolicyKindACPService     RouteTargetPolicyKind = "acp-service"
 )
 
 type AgentRouteConfig struct {

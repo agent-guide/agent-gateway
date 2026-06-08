@@ -13,7 +13,7 @@ The project is built around four practical goals:
 - Reuse Caddy's module system and config model where they fit, while keeping the core runtime reusable by the standalone daemon
 - Expose familiar LLM-compatible HTTP APIs to agent clients
 - Centralize provider configuration, upstream credentials, and gateway-side API keys
-- Leave room for richer agent runtime features such as MCP, memory, and orchestration without forcing them into every caller
+- Leave room for richer agent runtime features such as MCP, ACP, memory, and orchestration without forcing them into every caller
 
 The current Go module path is `github.com/agent-guide/agent-gateway`.
 
@@ -35,21 +35,24 @@ Dispatcher / protocol modules
   - agent_route_dispatcher.llm_apis.anthropic
   - agent_route_dispatcher.llm_apis.cc
   - agent_route_dispatcher with MCP enabled
+  - agent_route_dispatcher with ACP enabled
   |
   v
 Shared gateway runtime
   - provider loading and resolution
   - authenticator loading
   - config store loading
-  - llmroute and mcproute registries
+  - llmroute, mcproute, and acproute registries
   - virtual key lookup
   - credential and auth managers
   - MCP runtime registry
+  - ACP service and runtime managers
   |
   v
 External systems
   - OpenAI / Anthropic / Gemini / Ollama / OpenRouter
   - upstream MCP services
+  - local ACP agent processes
   - SQLite config database
   - future memory backends
 ```
@@ -92,6 +95,7 @@ agent_route_dispatcher {
     llm_api anthropic
     llm_api cc
     mcp
+    acp
 }
 ```
 
@@ -103,7 +107,7 @@ The HTTP handler is `http.handlers.agent_route_dispatcher`, and it loads LLM pro
 
 The `cc` handler is the Claude Code CLI-compatible ingress profile. It uses the Anthropic Messages wire format and keeps Claude Code-specific behavior out of the generic Anthropic handler and provider implementations.
 
-MCP handling is enabled with the dispatcher-local `mcp` option instead of a separate HTTP handler module.
+MCP handling is enabled with the dispatcher-local `mcp` option instead of a separate HTTP handler module. ACP handling is enabled the same way with `acp`; it uses a gateway-owned turn endpoint and routes to `pkg/acp` instead of the LLM provider interface.
 
 The runtime dispatcher in `pkg/dispatcher` does not define route policy inline. Instead, it asks the shared gateway route manager to match the HTTP request against `AgentRoute.match`, strips the matched route path prefix, selects the route's `protocol`, and resolves the matched route and target provider.
 
@@ -124,15 +128,18 @@ Today it exposes working endpoints for:
 - LLM route CRUD
 - MCP service CRUD
 - MCP route CRUD
+- ACP service CRUD
+- ACP route CRUD
 - virtual key CRUD
 - credential list/get/delete
 - async CLI login and login status
 - MCP service discovery and execution endpoints
 - MCP dispatcher runtime inspection endpoints
+- ACP runtime inspection endpoints
 
 The same route table still defines memory, agent, and metrics endpoints that are not yet implemented.
 
-This means the admin package is now the active control-plane entrypoint for both LLM and MCP, while memory, agent, and metrics remain future work.
+This means the admin package is now the active control-plane entrypoint for LLM, MCP, and ACP configuration, while memory, agent, and metrics remain future work.
 
 ### 4.4 `pkg/llm/provider/`: Provider Abstraction
 
@@ -197,6 +204,8 @@ It persists:
 - managed model overlays
 - MCP service definitions
 - MCP route definitions
+- ACP service definitions
+- ACP route definitions
 
 SQLite is the only storage backend that is provisioned end-to-end today.
 
@@ -204,7 +213,7 @@ The runtime storage API is schema-bound. `ConfigStoreBackend.Register(name, sche
 
 The config store is important for one reason beyond persistence: it allows some route and provider updates to take effect dynamically without rewriting the entire Caddy config.
 
-### 4.7 `pkg/mcp/`, `pkg/llm/memory/`, `pkg/llm/agent/`
+### 4.7 `pkg/mcp/`, `pkg/acp/`, `pkg/llm/memory/`, `pkg/llm/agent/`
 
 These packages are present because the gateway is intended to grow beyond plain API proxying.
 
@@ -216,6 +225,10 @@ Current status:
   - `pkg/mcp/runtime` tracks in-flight requests and progress for the MCP dispatcher
   - `streamable_http` is the active upstream transport path today
   - `stdio` and `sse` code exist but are not yet equally integrated
+- `pkg/acp/`
+  - service config, runtime turn request/event types, stdio JSON-RPC transport, activity tracking, and Admin/dispatcher integration are active
+  - first-version service config allows only `codex` and `opencode`
+  - the first runtime driver handles `initialize`, `session/new`, `session/load`, `session/prompt`, `session/update`, and fail-closed permission replies
 - `pkg/llm/memory/`
   - interfaces exist
   - SQLite and Mem0-related code exists
@@ -224,7 +237,7 @@ Current status:
   - an early orchestrator loop exists
   - memory retrieval and tool execution are still TODOs
 
-Architecturally, MCP is now an active subsystem; memory and agent are still extension subsystems rather than center-of-gravity runtimes.
+Architecturally, MCP is now an active subsystem and ACP is being introduced as a native runtime subsystem; memory and agent are still extension subsystems rather than center-of-gravity runtimes.
 
 ## 5. Configuration Model
 

@@ -7,9 +7,12 @@ import (
 	"sync"
 
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
+	acpruntime "github.com/agent-guide/agent-gateway/pkg/acp/runtime"
+	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
+	acproutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/acproute"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	mcproutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
@@ -26,6 +29,7 @@ import (
 type BootstrapOptions struct {
 	StaticLLMRoutes     []routecore.AgentRouteConfig
 	StaticMCPRoutes     []routecore.AgentRouteConfig
+	StaticACPRoutes     []routecore.AgentRouteConfig
 	StaticProviders     map[string]provider.Provider
 	ConfigStoreBackend  configstore.ConfigStoreBackend
 	CLIAuthManager      *cliauth.Manager
@@ -43,6 +47,7 @@ type AgentGateway struct {
 	routeConfigManager  *routecore.AgentRouteConfigManager
 	llmRouteResolver    *llmroutepkg.LLMRouteResolver
 	mcpRouteResolver    *mcproutepkg.MCPRouteResolver
+	acpRouteResolver    *acproutepkg.ACPRouteResolver
 	virtualKeyManager   *virtualkeypkg.VirtualKeyManager
 	providerManager     *ProviderManager
 	cliauthManager      *cliauth.Manager
@@ -52,6 +57,8 @@ type AgentGateway struct {
 	modelCatalog        modelcatalog.Service
 	mcpServiceManager   *mcpservice.Manager
 	mcpRuntimeRegistry  *mcpruntime.Registry
+	acpServiceManager   *acpservice.Manager
+	acpRuntimeManager   *acpruntime.Manager
 }
 
 func NewAgentGateway() *AgentGateway {
@@ -66,13 +73,17 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	defer g.mu.Unlock()
 
 	g.configureConfigStoreBackend(opts.ConfigStoreBackend)
-	staticRoutes := make([]routecore.AgentRouteConfig, 0, len(opts.StaticLLMRoutes)+len(opts.StaticMCPRoutes))
+	staticRoutes := make([]routecore.AgentRouteConfig, 0, len(opts.StaticLLMRoutes)+len(opts.StaticMCPRoutes)+len(opts.StaticACPRoutes))
 	staticRoutes = append(staticRoutes, opts.StaticLLMRoutes...)
 	staticRoutes = append(staticRoutes, opts.StaticMCPRoutes...)
+	staticRoutes = append(staticRoutes, opts.StaticACPRoutes...)
 	if err := g.configureRouteResolver(ctx, opts.ConfigStoreBackend, staticRoutes); err != nil {
 		return err
 	}
 	if err := g.configureMCPServiceManager(opts.ConfigStoreBackend); err != nil {
+		return err
+	}
+	if err := g.configureACPServiceManager(opts.ConfigStoreBackend); err != nil {
 		return err
 	}
 	if err := g.configureVirtualKeyManager(ctx, opts.ConfigStoreBackend); err != nil {
@@ -101,6 +112,7 @@ func (g *AgentGateway) Reset() {
 	g.routeConfigManager = nil
 	g.llmRouteResolver = nil
 	g.mcpRouteResolver = nil
+	g.acpRouteResolver = nil
 	g.virtualKeyManager = nil
 	g.providerManager = nil
 	g.cliauthManager = nil
@@ -110,6 +122,8 @@ func (g *AgentGateway) Reset() {
 	g.modelCatalog = nil
 	g.mcpServiceManager = nil
 	g.mcpRuntimeRegistry = mcpruntime.NewRegistry()
+	g.acpServiceManager = nil
+	g.acpRuntimeManager = nil
 }
 
 func (g *AgentGateway) ConfigStoreBackend() configstore.ConfigStoreBackend {
@@ -166,6 +180,18 @@ func (g *AgentGateway) MCPRouteResolver() *mcproutepkg.MCPRouteResolver {
 	return g.mcpRouteResolver
 }
 
+func (g *AgentGateway) ACPRouteConfigManager() *routecore.AgentRouteConfigManager {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.routeConfigManager
+}
+
+func (g *AgentGateway) ACPRouteResolver() *acproutepkg.ACPRouteResolver {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.acpRouteResolver
+}
+
 func (g *AgentGateway) VirtualKeyManager() *virtualkeypkg.VirtualKeyManager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
@@ -194,6 +220,18 @@ func (g *AgentGateway) MCPRuntimeRegistry() *mcpruntime.Registry {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.mcpRuntimeRegistry
+}
+
+func (g *AgentGateway) ACPServiceManager() *acpservice.Manager {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.acpServiceManager
+}
+
+func (g *AgentGateway) ACPRuntimeManager() *acpruntime.Manager {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.acpRuntimeManager
 }
 
 func (g *AgentGateway) Match(ctx context.Context, r *http.Request) (routecore.AgentRouteConfig, error) {
@@ -302,7 +340,7 @@ func (g *AgentGateway) configureConfigStoreBackend(configStoreBackend configstor
 
 func (g *AgentGateway) configureRouteResolver(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend, staticRoutes []routecore.AgentRouteConfig) error {
 	_ = ctx
-	if g.routeConfigManager != nil || g.llmRouteResolver != nil || g.mcpRouteResolver != nil {
+	if g.routeConfigManager != nil || g.llmRouteResolver != nil || g.mcpRouteResolver != nil || g.acpRouteResolver != nil {
 		return fmt.Errorf("route config manager and resolvers are already configured")
 	}
 
@@ -318,6 +356,7 @@ func (g *AgentGateway) configureRouteResolver(ctx context.Context, configStoreBa
 	g.routeConfigManager.InitStaticRoutes(staticRoutes)
 	g.llmRouteResolver = llmroutepkg.NewLLMRouteResolver(g.routeConfigManager)
 	g.mcpRouteResolver = mcproutepkg.NewMCPRouteResolver(g.routeConfigManager)
+	g.acpRouteResolver = acproutepkg.NewACPRouteResolver(g.routeConfigManager)
 
 	return nil
 }
@@ -334,6 +373,22 @@ func (g *AgentGateway) configureMCPServiceManager(configStoreBackend configstore
 		return err
 	}
 	g.mcpServiceManager = mcpservice.NewManager(store)
+	return nil
+}
+
+func (g *AgentGateway) configureACPServiceManager(configStoreBackend configstore.ConfigStoreBackend) error {
+	if g.acpServiceManager != nil {
+		return nil
+	}
+	if configStoreBackend == nil {
+		return nil
+	}
+	store, err := configStoreBackend.Get(schema.StoreACPServices)
+	if err != nil {
+		return err
+	}
+	g.acpServiceManager = acpservice.NewManager(store)
+	g.acpRuntimeManager = acpruntime.NewManager(g.acpServiceManager)
 	return nil
 }
 

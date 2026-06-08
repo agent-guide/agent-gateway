@@ -1,6 +1,6 @@
 # agent-gateway
 
-`agent-gateway` is an AI gateway for LLM and MCP workloads. It provides OpenAI-compatible and Anthropic-compatible ingress, route-based provider dispatch, VirtualKey authentication, dynamic config backed by SQLite, and Admin APIs for gateway operations.
+`agent-gateway` is an AI gateway for LLM, MCP, and native ACP workloads. It provides OpenAI-compatible and Anthropic-compatible ingress, route-based provider dispatch, VirtualKey authentication, dynamic config backed by SQLite, and Admin APIs for gateway operations.
 
 This repository builds three binaries:
 
@@ -14,6 +14,7 @@ This repository builds three binaries:
 - route requests to direct providers or logical model targets
 - manage providers, routes, VirtualKeys, credentials, and CLI auth through an Admin API
 - support MCP gateway routing, discovery, execution, and runtime inspection
+- expose the first native ACP control surface for codex/opencode agent routing
 - run with either a Caddyfile-based runtime or a standalone daemon with a config store
 
 ## Quick Start
@@ -77,6 +78,7 @@ http://127.0.0.1:8080 {
 		llm_api anthropic
 		llm_api cc
 		mcp
+		acp
 	}
 }
 ```
@@ -133,6 +135,7 @@ http://127.0.0.1:8080 {
 		llm_api anthropic
 		llm_api cc
 		mcp
+		acp
 	}
 }
 ```
@@ -277,6 +280,10 @@ curl -s http://127.0.0.1:8080/mcp \
 
 MCP route IDs are auto-generated as `mcp:<service_id>:<path_prefix>` when `id` is omitted. See [docs/getting-started/quickstart-mcp.md](docs/getting-started/quickstart-mcp.md) for the full walkthrough.
 
+## ACP Status
+
+Native ACP support is implemented in this repository without depending on ngent. The first version adds ACP route/service config, Admin API endpoints, dispatcher routing, a gateway-owned `POST /<acp-route>/turn` SSE contract, and a minimal stdio JSON-RPC runtime for `codex` and `opencode`. Real-agent smoke coverage and broader ACP event handling are still being expanded; see [docs/design/acp-native-runtime.md](docs/design/acp-native-runtime.md).
+
 ## Runtimes
 
 - `agw` uses a Caddyfile plus the shared config store
@@ -298,6 +305,7 @@ See [docs/README.md](docs/README.md) for runtime-specific guides and references.
 - OpenAI-compatible chat and Anthropic-compatible messages are the primary mature LLM paths
 - OpenAI embeddings and Anthropic token counting are not fully implemented
 - MCP is active in the dispatcher and Admin API surface, but some adjacent subsystems are still evolving
+- ACP is present as a native route/admin/dispatcher surface with a minimal stdio runtime driver for codex/opencode
 - memory, agents, and metrics Admin API families still contain `501 Not Implemented` endpoints
 
 ## Development
