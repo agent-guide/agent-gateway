@@ -67,6 +67,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	defer agentGateway.Close()
 	if cliauthRefresher != nil {
 		cliauthRefresher.Start(ctx)
 		defer cliauthRefresher.Stop()

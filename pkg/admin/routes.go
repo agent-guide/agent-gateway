@@ -147,6 +147,7 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodDelete, Path: "/admin/acp/routes/{id}", Handler: h.handleDeleteACPRoute, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/acp/runtime", Handler: h.handleGetACPRuntime, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/acp/runtime/inflight", Handler: h.handleListACPInFlight, RequireAuth: true},
+		{Method: http.MethodDelete, Path: "/admin/acp/runtime/threads/{service_id}/{thread_id}", Handler: h.handleCloseACPThread, RequireAuth: true},
 
 		// Memory
 		{Method: http.MethodGet, Path: "/admin/memory/config", Handler: h.handleGetMemoryConfig, RequireAuth: true},

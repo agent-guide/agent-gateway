@@ -41,7 +41,11 @@ func newInstance(ctx context.Context, cfg acpservice.ServiceConfig, req TurnRequ
 		return nil, err
 	}
 	inst := &instance{cfg: cfg, cwd: cwd, model: model, sessionID: strings.TrimSpace(req.SessionID), agent: agent, t: t}
-	if err := inst.initialize(ctx, req.FreshSession); err != nil {
+	// Bound the setup handshake so a wedged agent does not hang the turn until
+	// the client disconnects. Streaming (prompt) is intentionally not bounded.
+	setupCtx, cancel := context.WithTimeout(ctx, initializeTimeout)
+	defer cancel()
+	if err := inst.initialize(setupCtx, req.FreshSession); err != nil {
 		_ = t.Close()
 		return nil, err
 	}
@@ -66,7 +70,31 @@ func (i *instance) initialize(ctx context.Context, fresh bool) error {
 	if i.sessionID == "" {
 		return fmt.Errorf("session/new returned empty sessionId")
 	}
-	return i.applySessionModel(ctx)
+	if err := i.applySessionModel(ctx); err != nil {
+		return err
+	}
+	return i.applyConfigOverrides(ctx, i.cfg.ConfigOverrides)
+}
+
+// applyConfigOverrides replays config options via session/set_config_option
+// (`{sessionId, configId, value}`, verified against the ACP v1 schema and the
+// real opencode binary). A rejected option fails the setup/turn rather than
+// being silently dropped.
+func (i *instance) applyConfigOverrides(ctx context.Context, overrides map[string]string) error {
+	for id, value := range overrides {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, err := i.t.Request(ctx, "session/set_config_option", map[string]any{
+			"sessionId": i.sessionID,
+			"configId":  id,
+			"value":     value,
+		}); err != nil {
+			return fmt.Errorf("set_config_option %q: %w", id, err)
+		}
+	}
+	return nil
 }
 
 // applySessionModel applies the configured model to a freshly created session.
@@ -92,11 +120,19 @@ func (i *instance) applySessionModel(ctx context.Context) error {
 // after the prompt result, for agents that signal completion out of band.
 const terminalDrainTimeout = 2 * time.Second
 
+// initializeTimeout bounds the setup handshake (initialize + session/new|load +
+// model selection). It is a var so tests can shorten it.
+var initializeTimeout = 30 * time.Second
+
 func (i *instance) prompt(ctx context.Context, req TurnRequest, emit EventSink) (string, error) {
 	if emit != nil && i.sessionID != "" {
 		if err := emit(TurnEvent{Event: "session", SessionID: i.sessionID}); err != nil {
 			return "", err
 		}
+	}
+	// Per-turn config overrides apply to the (shared) session before the prompt.
+	if err := i.applyConfigOverrides(ctx, req.ConfigOverrides); err != nil {
+		return "", err
 	}
 	updates, unsubscribe := i.t.Updates(256)
 	defer unsubscribe()

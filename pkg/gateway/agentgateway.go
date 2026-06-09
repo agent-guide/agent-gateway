@@ -129,6 +129,10 @@ func (g *AgentGateway) Reset() {
 	g.acpRuntimeManager = nil
 }
 
+func (g *AgentGateway) Close() {
+	g.Reset()
+}
+
 func (g *AgentGateway) ConfigStoreBackend() configstore.ConfigStoreBackend {
 	g.mu.RLock()
 	defer g.mu.RUnlock()

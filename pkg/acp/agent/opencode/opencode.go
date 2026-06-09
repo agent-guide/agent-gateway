@@ -2,11 +2,16 @@ package opencode
 
 import (
 	"context"
+	"strings"
 
 	baseacp "github.com/agent-guide/agent-gateway/pkg/acp"
 	"github.com/agent-guide/agent-gateway/pkg/acp/agentspi"
 	"github.com/agent-guide/agent-gateway/pkg/acp/transport"
 )
+
+// modelConfigOptionID is the config option id opencode advertises for model
+// selection (verified against the real `opencode acp` session/new response).
+const modelConfigOptionID = "model"
 
 func init() {
 	agentspi.Register(baseacp.AgentTypeOpencode, New)
@@ -71,4 +76,19 @@ func (a *Agent) Cancel(_ context.Context, t transport.Transport, sessionID strin
 		return
 	}
 	_ = t.Notify("session/cancel", map[string]any{"sessionId": sessionID})
+}
+
+// SelectSessionModel applies the model by setting opencode's "model" config
+// option via session/set_config_option. This is the spec-blessed path (ACP has
+// no session/set_model); verified against the real opencode binary.
+func (a *Agent) SelectSessionModel(ctx context.Context, t transport.Transport, sessionID, modelID string, _ []agentspi.ConfigOption) ([]agentspi.ConfigOption, error) {
+	if t == nil || strings.TrimSpace(modelID) == "" {
+		return nil, nil
+	}
+	_, err := t.Request(ctx, "session/set_config_option", map[string]any{
+		"sessionId": sessionID,
+		"configId":  modelConfigOptionID,
+		"value":     modelID,
+	})
+	return nil, err
 }

@@ -249,6 +249,80 @@ func TestManagerCloseTearsDownInstances(t *testing.T) {
 	m.Close() // must be idempotent
 }
 
+func TestCloseThreadTearsDownMatchingInstances(t *testing.T) {
+	m := newTestManager()
+	cfg := testServiceConfig(t)
+	ctx := context.Background()
+
+	keep, err := m.resolveInstance(ctx, buildScope("svc", cfg.CWD, "other", "", ""), cfg, TurnRequest{ThreadID: "other", Input: "hi"})
+	if err != nil {
+		t.Fatalf("resolveInstance keep: %v", err)
+	}
+	a, err := m.resolveInstance(ctx, buildScope("svc", cfg.CWD, "t1", "s1", ""), cfg, TurnRequest{ThreadID: "t1", Input: "hi"})
+	if err != nil {
+		t.Fatalf("resolveInstance a: %v", err)
+	}
+	b, err := m.resolveInstance(ctx, buildScope("svc", cfg.CWD, "t1", "s2", ""), cfg, TurnRequest{ThreadID: "t1", Input: "hi"})
+	if err != nil {
+		t.Fatalf("resolveInstance b: %v", err)
+	}
+
+	if closed := m.CloseThread("svc", "t1"); closed != 2 {
+		t.Fatalf("CloseThread closed %d instances, want 2", closed)
+	}
+	if transportOf(t, a).Alive() || transportOf(t, b).Alive() {
+		t.Fatal("thread instances were not torn down")
+	}
+	if !transportOf(t, keep).Alive() {
+		t.Fatal("an instance from a different thread was torn down")
+	}
+}
+
+// slowInitAgent blocks session/new until the context is cancelled, to exercise
+// the initialize timeout.
+type slowInitAgent struct{ stubAgent }
+
+func (slowInitAgent) Open(context.Context, acptransport.Handlers) (acptransport.Transport, error) {
+	return &slowInitTransport{}, nil
+}
+
+type slowInitTransport struct{ closed bool }
+
+func (s *slowInitTransport) Request(ctx context.Context, method string, _ any) (json.RawMessage, error) {
+	if method == "session/new" {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return json.RawMessage(`{}`), nil
+}
+func (s *slowInitTransport) Notify(string, any) error { return nil }
+func (s *slowInitTransport) Updates(int) (<-chan acptransport.Message, func()) {
+	return make(chan acptransport.Message), func() {}
+}
+func (s *slowInitTransport) Alive() bool  { return !s.closed }
+func (s *slowInitTransport) Close() error { s.closed = true; return nil }
+
+func init() {
+	agentspi.Register("slow-init", func(agentspi.OpenRequest) (agentspi.Agent, error) {
+		return slowInitAgent{}, nil
+	})
+}
+
+func TestInitializeTimesOut(t *testing.T) {
+	prev := initializeTimeout
+	initializeTimeout = 100 * time.Millisecond
+	defer func() { initializeTimeout = prev }()
+
+	m := newTestManager()
+	cfg := testServiceConfig(t)
+	cfg.AgentType = "slow-init"
+
+	_, err := m.resolveInstance(context.Background(), "scope", cfg, TurnRequest{ThreadID: "t1", Input: "hi"})
+	if err == nil {
+		t.Fatal("resolveInstance returned nil error despite a hung session/new")
+	}
+}
+
 func TestShouldReap(t *testing.T) {
 	now := time.Now().UTC()
 	cases := []struct {

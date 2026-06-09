@@ -48,6 +48,9 @@ http://127.0.0.1:8080 {
 		llm_api openai
 		llm_api anthropic
 		llm_api cc
+		# Enable MCP and ACP handling. MCP/ACP services and routes are created
+		# through the Admin API (acp_services store), not in this Caddyfile;
+		# `acp` exposes POST /<acp-route>/turn with SSE for codex/opencode.
 		mcp
 		acp
 	}

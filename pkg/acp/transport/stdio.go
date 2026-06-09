@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type PermissionMode string
@@ -74,9 +75,23 @@ type Transport interface {
 	Close() error
 }
 
+// permissionTimeout bounds how long a host permission handler may take before
+// the transport fails closed (responds "cancelled"). It is a var so tests can
+// shorten it.
+var permissionTimeout = 60 * time.Second
+
+// stderrCaptureBytes caps how much agent stderr is retained for diagnostics.
+const stderrCaptureBytes = 8 * 1024
+
+// stdioMaxFrameBytes caps one JSONL frame from the ACP subprocess. The default
+// bufio.Scanner limit is 64 KiB, which is too small for real tool output and
+// structured content updates.
+const stdioMaxFrameBytes = 16 * 1024 * 1024
+
 type StdioTransport struct {
-	cmd *exec.Cmd
-	in  io.WriteCloser
+	cmd    *exec.Cmd
+	in     io.WriteCloser
+	stderr *ringBuffer
 
 	writeMu sync.Mutex
 	seq     atomic.Uint64
@@ -91,6 +106,32 @@ type StdioTransport struct {
 
 	handlers       Handlers
 	permissionMode PermissionMode
+}
+
+// ringBuffer keeps the most recent bytes written to it, bounded to max.
+type ringBuffer struct {
+	mu  sync.Mutex
+	buf []byte
+	max int
+}
+
+func (r *ringBuffer) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.buf = append(r.buf, p...)
+	if len(r.buf) > r.max {
+		r.buf = r.buf[len(r.buf)-r.max:]
+	}
+	return len(p), nil
+}
+
+func (r *ringBuffer) String() string {
+	if r == nil {
+		return ""
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return strings.TrimSpace(string(r.buf))
 }
 
 type wireMessage struct {
@@ -117,6 +158,11 @@ func Open(ctx context.Context, cfg ProcessConfig, handlers Handlers) (Transport,
 	if command == "" {
 		return nil, fmt.Errorf("acp command is required")
 	}
+	// Preflight: surface a clear error before spawning when the command is not
+	// resolvable, rather than a cryptic exec failure.
+	if _, err := exec.LookPath(command); err != nil {
+		return nil, fmt.Errorf("acp command %q not found: %w", command, err)
+	}
 	cmd := exec.Command(command, cfg.Args...)
 	cmd.Dir = strings.TrimSpace(cfg.Dir)
 	if len(cfg.Env) > 0 {
@@ -124,6 +170,8 @@ func Open(ctx context.Context, cfg ProcessConfig, handlers Handlers) (Transport,
 	} else {
 		cmd.Env = os.Environ()
 	}
+	stderr := &ringBuffer{max: stderrCaptureBytes}
+	cmd.Stderr = stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -138,6 +186,7 @@ func Open(ctx context.Context, cfg ProcessConfig, handlers Handlers) (Transport,
 	t := &StdioTransport{
 		cmd:            cmd,
 		in:             stdin,
+		stderr:         stderr,
 		pending:        map[string]chan response{},
 		updates:        map[chan Message]struct{}{},
 		done:           make(chan struct{}),
@@ -147,7 +196,7 @@ func Open(ctx context.Context, cfg ProcessConfig, handlers Handlers) (Transport,
 	go t.readLoop(stdout)
 	go func() {
 		_ = cmd.Wait()
-		t.closePending(fmt.Errorf("acp process exited"))
+		t.closePending(t.exitError())
 		close(t.done)
 	}()
 	select {
@@ -179,8 +228,17 @@ func (t *StdioTransport) Request(ctx context.Context, method string, params any)
 		t.deletePending(id)
 		return nil, ctx.Err()
 	case <-t.done:
-		return nil, fmt.Errorf("acp process exited")
+		return nil, t.exitError()
 	}
+}
+
+// exitError describes a dead transport, including recent agent stderr when any
+// was captured, so callers see why the process died.
+func (t *StdioTransport) exitError() error {
+	if stderr := t.stderr.String(); stderr != "" {
+		return fmt.Errorf("acp process exited: %s", stderr)
+	}
+	return fmt.Errorf("acp process exited")
 }
 
 func (t *StdioTransport) Notify(method string, params any) error {
@@ -231,6 +289,7 @@ func (t *StdioTransport) Close() error {
 
 func (t *StdioTransport) readLoop(r io.Reader) {
 	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 64*1024), stdioMaxFrameBytes)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -251,7 +310,9 @@ func (t *StdioTransport) readLoop(r io.Reader) {
 			// permission handler; reply method-not-found to anything else rather
 			// than dropping it (which would deadlock the agent).
 			if method == "session/request_permission" {
-				_ = t.write(t.permissionResponse(msg.ID, msg.Params))
+				// Answer off the read loop so a slow/interactive handler never
+				// stalls inbound session/update processing.
+				go t.answerPermission(msg.ID, msg.Params)
 				continue
 			}
 			_ = t.write(methodNotFound(msg.ID, method))
@@ -260,6 +321,10 @@ func (t *StdioTransport) readLoop(r io.Reader) {
 		if method != "" {
 			t.publish(Message{Method: method, Params: msg.Params})
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.closePending(fmt.Errorf("read acp stdout: %w", err))
+		_ = t.Close()
 	}
 }
 
@@ -316,15 +381,36 @@ func (t *StdioTransport) closePending(err error) {
 	}
 }
 
-func (t *StdioTransport) permissionResponse(id json.RawMessage, params json.RawMessage) wireMessage {
-	res := PermissionResponse{Outcome: PermissionOutcomeCancelled}
-	if t.handlers.Permission != nil {
-		res = t.handlers.Permission(context.Background(), params)
-	} else if t.permissionMode == PermissionModeAutoApprove {
-		res = autoApprovePermission(params)
+func (t *StdioTransport) answerPermission(id json.RawMessage, params json.RawMessage) {
+	_ = t.write(t.permissionWire(id, t.resolvePermission(params)))
+}
+
+// resolvePermission runs the host permission decision with a fail-closed
+// timeout. A nil handler uses the configured mode; any timeout, handler error,
+// or absent decision yields "cancelled".
+func (t *StdioTransport) resolvePermission(params json.RawMessage) PermissionResponse {
+	if t.handlers.Permission == nil {
+		if t.permissionMode == PermissionModeAutoApprove {
+			return autoApprovePermission(params)
+		}
+		return PermissionResponse{Outcome: PermissionOutcomeCancelled}
 	}
-	// Fail closed: only emit "selected" when the host picked a concrete option;
-	// every other case (including an empty/invalid response) becomes "cancelled".
+	ctx, cancel := context.WithTimeout(context.Background(), permissionTimeout)
+	defer cancel()
+	resultCh := make(chan PermissionResponse, 1)
+	go func() { resultCh <- t.handlers.Permission(ctx, params) }()
+	select {
+	case res := <-resultCh:
+		return res
+	case <-ctx.Done():
+		return PermissionResponse{Outcome: PermissionOutcomeCancelled}
+	}
+}
+
+// permissionWire builds the nested ACP RequestPermissionResponse. It fails
+// closed: only an explicit "selected" with a concrete option id is emitted as
+// selected; everything else becomes "cancelled".
+func (t *StdioTransport) permissionWire(id json.RawMessage, res PermissionResponse) wireMessage {
 	wire := permissionResultWire{Outcome: permissionOutcomeWire{Outcome: PermissionOutcomeCancelled}}
 	if strings.TrimSpace(res.Outcome) == PermissionOutcomeSelected {
 		if optionID := strings.TrimSpace(res.SelectedOptionID); optionID != "" {

@@ -282,7 +282,17 @@ MCP route IDs are auto-generated as `mcp:<service_id>:<path_prefix>` when `id` i
 
 ## ACP Status
 
-Native ACP support is implemented in this repository without depending on ngent. The first version adds ACP route/service config, Admin API endpoints, dispatcher routing, a gateway-owned `POST /<acp-route>/turn` SSE contract, and a stdio JSON-RPC runtime with thin agent adapters for `opencode` and `codex`. `opencode` launches the fixed `opencode acp --cwd <cwd>` shape; `codex` launches the fixed external ACP adapter binary `codex-acp` by default instead of a non-existent native `codex acp` subcommand. Real-agent smoke coverage and broader ACP event handling are still being expanded; see [docs/design/acp-native-runtime.md](docs/design/acp-native-runtime.md).
+Native ACP support is implemented in this repository without depending on ngent. It adds ACP route/service config, Admin API endpoints, dispatcher routing, a gateway-owned `POST /<acp-route>/turn` SSE contract, and a stdio JSON-RPC runtime with thin agent adapters for `opencode` and `codex`. `opencode` launches the fixed `opencode acp --cwd <cwd>` shape; `codex` launches the fixed external ACP adapter binary `codex-acp` by default instead of a non-existent native `codex acp` subcommand.
+
+Implemented and verified against the real `opencode acp` binary:
+
+- full lifecycle: `initialize → session/new|load → session/prompt`, with the real `stopReason` and buffered-update draining (no truncated responses);
+- complete `session/update` coverage parsed by `pkg/acp/runtime/acpupdate` — text, reasoning (emitted as a separate event), tool calls, plan, usage, available commands, session info, mode, and config options;
+- model selection and `config_overrides` via `session/set_config_option`;
+- spec-correct, fail-closed permission handling (nested ACP outcome, off-loop with a timeout);
+- runtime hardening: `PATH` preflight, stderr capture in errors, a setup-handshake timeout, an idle janitor, dead-instance eviction, `fresh_session`, and `DELETE /admin/acp/runtime/threads/{service_id}/{thread_id}` for operator teardown.
+
+Deferred (see [docs/design/acp-native-runtime.md](docs/design/acp-native-runtime.md)): the interactive permission workflow, `session/list`, transcript replay, codex stable-session rebinding, crash retry, and the in-repo codex app-server bridge (codex v2).
 
 ## Runtimes
 
@@ -305,7 +315,7 @@ See [docs/README.md](docs/README.md) for runtime-specific guides and references.
 - OpenAI-compatible chat and Anthropic-compatible messages are the primary mature LLM paths
 - OpenAI embeddings and Anthropic token counting are not fully implemented
 - MCP is active in the dispatcher and Admin API surface, but some adjacent subsystems are still evolving
-- ACP is present as a native route/admin/dispatcher surface with a reusable stdio runtime driver and thin codex/opencode agent adapters
+- ACP is a functional native route/admin/dispatcher surface with a reusable stdio runtime driver and thin codex/opencode agent adapters; opencode is verified end to end, codex needs the `codex-acp` binary, and the interactive permission workflow plus codex v2 bridge remain deferred
 - memory, agents, and metrics Admin API families still contain `501 Not Implemented` endpoints
 
 ## Development

@@ -164,6 +164,9 @@ func (a *App) Stop() error {
 	if a.cliauthRefresher != nil {
 		a.cliauthRefresher.Stop()
 	}
+	if a.agentGateway != nil {
+		a.agentGateway.Close()
+	}
 	return nil
 }
 

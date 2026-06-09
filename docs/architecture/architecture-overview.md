@@ -230,7 +230,9 @@ Current status:
   - first-version service config allows only `codex` and `opencode`
   - `opencode` uses the fixed `opencode acp --cwd <cwd>` stdio process shape
   - `codex` uses the fixed external ACP adapter binary `codex-acp` by default; it does not launch `codex acp`
-  - the first runtime driver handles `initialize`, `session/new`, `session/load`, `session/prompt`, `session/update`, and fail-closed permission replies
+  - the runtime driver handles `initialize`, `session/new`, `session/load`, `session/prompt`, full `session/update` parsing (`pkg/acp/runtime/acpupdate`: text, reasoning, tool calls, plan, usage, available commands, session info, mode, config options), model selection and `config_overrides` via `session/set_config_option`, and spec-correct fail-closed permission replies with an off-loop timeout
+  - runtime hardening: `PATH` preflight, stderr capture, a setup-handshake timeout, an idle janitor, dead-instance eviction, `fresh_session`, and `CloseScope`/`CloseThread` teardown
+  - verified end to end against the real `opencode acp` binary (deterministic full-lifecycle integration test plus a gated real-agent handshake smoke); the interactive permission workflow, `session/list`, transcript replay, codex stable-session rebinding, crash retry, and the codex app-server bridge (v2) are deferred
 - `pkg/llm/memory/`
   - interfaces exist
   - SQLite and Mem0-related code exists
@@ -239,7 +241,7 @@ Current status:
   - an early orchestrator loop exists
   - memory retrieval and tool execution are still TODOs
 
-Architecturally, MCP is now an active subsystem and ACP is being introduced as a native runtime subsystem; memory and agent are still extension subsystems rather than center-of-gravity runtimes.
+Architecturally, MCP and ACP are now active native runtime subsystems; memory and agent are still extension subsystems rather than center-of-gravity runtimes.
 
 ## 5. Configuration Model
 

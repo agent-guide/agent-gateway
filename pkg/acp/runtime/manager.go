@@ -64,6 +64,66 @@ func (m *Manager) Close() {
 	}
 }
 
+const scopeSep = "\x00"
+
+// buildScope assembles the pool key. Fields: serviceID, cwd, threadID,
+// sessionID, model.
+func buildScope(serviceID, cwd, threadID, sessionID, model string) string {
+	return strings.Join([]string{serviceID, cwd, threadID, sessionID, model}, scopeSep)
+}
+
+func scopeMatchesThread(scope, serviceID, threadID string) bool {
+	parts := strings.Split(scope, scopeSep)
+	return len(parts) == 5 && parts[0] == serviceID && parts[2] == threadID
+}
+
+// CloseScope tears down the pooled instance for an exact scope, returning
+// whether one was closed. An in-flight turn on that scope will fail on its next
+// request.
+func (m *Manager) CloseScope(scope string) bool {
+	if m == nil {
+		return false
+	}
+	m.mu.Lock()
+	item := m.instances[scope]
+	if item == nil || item.instance == nil {
+		m.mu.Unlock()
+		return false
+	}
+	delete(m.instances, scope)
+	inst := item.instance
+	m.mu.Unlock()
+	_ = inst.close()
+	return true
+}
+
+// CloseThread tears down every pooled instance for a service+thread and returns
+// the count closed. Intended as an operator escape hatch for a wedged thread.
+func (m *Manager) CloseThread(serviceID, threadID string) int {
+	if m == nil {
+		return 0
+	}
+	serviceID = strings.TrimSpace(serviceID)
+	threadID = strings.TrimSpace(threadID)
+	var victims []*instance
+	m.mu.Lock()
+	for scope, item := range m.instances {
+		if item == nil || item.instance == nil {
+			delete(m.instances, scope)
+			continue
+		}
+		if scopeMatchesThread(scope, serviceID, threadID) {
+			victims = append(victims, item.instance)
+			delete(m.instances, scope)
+		}
+	}
+	m.mu.Unlock()
+	for _, inst := range victims {
+		_ = inst.close()
+	}
+	return len(victims)
+}
+
 func (m *Manager) ServeTurn(ctx context.Context, serviceID string, req TurnRequest, emit EventSink) error {
 	if m == nil || m.services == nil {
 		return fmt.Errorf("acp runtime manager is not configured")
@@ -96,7 +156,7 @@ func (m *Manager) ServeTurn(ctx context.Context, serviceID string, req TurnReque
 	if model == "" {
 		model = cfg.DefaultModel
 	}
-	scope := cfg.ID + "\x00" + cwd + "\x00" + req.ThreadID + "\x00" + req.SessionID + "\x00" + model
+	scope := buildScope(cfg.ID, cwd, req.ThreadID, req.SessionID, model)
 	release, err := m.active.Begin(scope)
 	if err != nil {
 		return err

@@ -316,6 +316,20 @@ func (h *Handler) handleListACPInFlight(w http.ResponseWriter, r *http.Request) 
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": h.acpRuntimeManager.ListInFlight()})
 }
 
+func (h *Handler) handleCloseACPThread(w http.ResponseWriter, r *http.Request) {
+	if h.acpRuntimeManager == nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "acp runtime manager is not configured")
+		return
+	}
+	serviceID := strings.TrimSpace(r.PathValue("service_id"))
+	threadID := strings.TrimSpace(r.PathValue("thread_id"))
+	if serviceID == "" || threadID == "" {
+		_ = httpjson.Error(w, http.StatusBadRequest, "service_id and thread_id are required")
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"closed": h.acpRuntimeManager.CloseThread(serviceID, threadID)})
+}
+
 func acpRouteViewFromConfig(resolver *acproute.ACPRouteResolver, cfg acproute.AgentRouteConfig) ACPRouteView {
 	item, _ := acproute.NewACPRouteConfigFromConfig(cfg)
 	view := ACPRouteView{

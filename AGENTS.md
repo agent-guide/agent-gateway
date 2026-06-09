@@ -220,14 +220,18 @@ Current shape:
 
 Owns native ACP service config and runtime integration. Do not add a dependency on `github.com/beyond5959/ngent`; ACP runtime support is implemented in this repository.
 
-First-version scope:
+Scope:
 
 - supported agent types: `codex`, `opencode`
 - service config store: `acp_services`
-- dispatcher endpoint: `POST /<acp-route>/turn` with SSE events
-- permission mode defaults to fail-closed `deny`
-- runtime shape: one stdio JSON-RPC driver plus thin agent adapters registered through `pkg/acp/agentspi`
+- dispatcher endpoint: `POST /<acp-route>/turn` with SSE events (`session`, `delta`, `reasoning`, `content`, `plan`, `tool_call`, `usage`, `available_commands`, `session_info`, `mode`, `config_options`, `done`, `error`)
+- permission mode defaults to fail-closed `deny`; permission replies use the nested ACP outcome shape, run off the transport read loop, and time out fail-closed
+- runtime shape: one stdio JSON-RPC driver plus thin agent adapters registered through `pkg/acp/agentspi`; `session/update` parsing lives in `pkg/acp/runtime/acpupdate`
 - process shapes: `opencode` uses fixed `opencode acp --cwd <cwd>`; `codex` uses fixed external ACP adapter binary `codex-acp` by default
+- model selection and `config_overrides` go through `session/set_config_option` (ACP has no `session/set_model`); opencode model selection sets its `model` config option
+- pool lifecycle: idle janitor (`IdleTTL`), dead-instance eviction, `fresh_session`, setup-handshake timeout, `PATH` preflight, stderr capture, and `CloseScope`/`CloseThread`
+- do not reintroduce a `model`/`modelId` field on `session/new`/`session/prompt`, and do not answer `session/request_permission` with a flat `approved`/`declined` outcome — both are non-conformant with the ACP v1 schema
+- deferred: interactive permission workflow, `session/list`, transcript replay, codex stable-session rebinding, crash retry, and the codex app-server bridge (v2)
 
 ### `pkg/gateway/virtualkey/`
 

@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/agent-guide/agent-gateway/pkg/acp/agentspi"
 	"github.com/agent-guide/agent-gateway/pkg/acp/runtime/acpupdate"
+	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
 	acptransport "github.com/agent-guide/agent-gateway/pkg/acp/transport"
 )
 
@@ -31,17 +33,44 @@ func (stubAgent) PromptParams(sessionID, input string, _ string) map[string]any 
 
 func (stubAgent) Cancel(context.Context, acptransport.Transport, string) {}
 
+type recordedRequest struct {
+	method string
+	params any
+}
+
 type scriptedTransport struct {
 	promptResult json.RawMessage
 	promptErr    error
 	updates      chan acptransport.Message
+
+	mu       sync.Mutex
+	requests []recordedRequest
 }
 
-func (s *scriptedTransport) Request(_ context.Context, method string, _ any) (json.RawMessage, error) {
-	if method == "session/prompt" {
+func (s *scriptedTransport) Request(_ context.Context, method string, params any) (json.RawMessage, error) {
+	s.mu.Lock()
+	s.requests = append(s.requests, recordedRequest{method: method, params: params})
+	s.mu.Unlock()
+	switch method {
+	case "session/prompt":
 		return s.promptResult, s.promptErr
+	case "session/new":
+		return json.RawMessage(`{"sessionId":"s1"}`), nil
+	default:
+		return json.RawMessage(`{}`), nil
 	}
-	return json.RawMessage(`{}`), nil
+}
+
+func (s *scriptedTransport) recorded(method string) []recordedRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []recordedRequest
+	for _, r := range s.requests {
+		if r.method == method {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func (s *scriptedTransport) Notify(string, any) error { return nil }
@@ -196,6 +225,87 @@ func TestPromptEmitsStructuredToolCall(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("no tool_call event emitted, got %+v", events)
+	}
+}
+
+// modelSelectorAgent records SessionModelSelector invocations.
+type modelSelectorAgent struct {
+	stubAgent
+	gotModelID string
+	calls      int
+}
+
+func (a *modelSelectorAgent) SelectSessionModel(_ context.Context, _ acptransport.Transport, _, modelID string, _ []agentspi.ConfigOption) ([]agentspi.ConfigOption, error) {
+	a.calls++
+	a.gotModelID = modelID
+	return nil, nil
+}
+
+func paramField(t *testing.T, params any, key string) string {
+	t.Helper()
+	m, ok := params.(map[string]any)
+	if !ok {
+		t.Fatalf("params is %T, want map", params)
+	}
+	v, _ := m[key].(string)
+	return v
+}
+
+func TestInitializeAppliesServiceConfigOverrides(t *testing.T) {
+	tr := &scriptedTransport{updates: make(chan acptransport.Message, 1)}
+	inst := &instance{
+		cfg:   acpservice.ServiceConfig{ConfigOverrides: map[string]string{"mode": "plan"}},
+		agent: stubAgent{},
+		t:     tr,
+	}
+	if err := inst.initialize(context.Background(), false); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	got := tr.recorded("session/set_config_option")
+	if len(got) != 1 {
+		t.Fatalf("set_config_option calls = %d, want 1", len(got))
+	}
+	if id := paramField(t, got[0].params, "configId"); id != "mode" {
+		t.Fatalf("configId = %q, want mode", id)
+	}
+	if v := paramField(t, got[0].params, "value"); v != "plan" {
+		t.Fatalf("value = %q, want plan", v)
+	}
+}
+
+func TestInitializeInvokesModelSelector(t *testing.T) {
+	tr := &scriptedTransport{updates: make(chan acptransport.Message, 1)}
+	agent := &modelSelectorAgent{}
+	inst := &instance{
+		cfg:   acpservice.ServiceConfig{},
+		model: "anthropic/claude-3-5-haiku-latest",
+		agent: agent,
+		t:     tr,
+	}
+	if err := inst.initialize(context.Background(), false); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	if agent.calls != 1 {
+		t.Fatalf("SelectSessionModel called %d times, want 1", agent.calls)
+	}
+	if agent.gotModelID != "anthropic/claude-3-5-haiku-latest" {
+		t.Fatalf("model id = %q, want the configured model", agent.gotModelID)
+	}
+}
+
+func TestPromptAppliesPerTurnConfigOverrides(t *testing.T) {
+	tr := &scriptedTransport{
+		promptResult: json.RawMessage(`{"stopReason":"end_turn"}`),
+		updates:      make(chan acptransport.Message, 1),
+	}
+	inst := &instance{agent: stubAgent{}, t: tr, sessionID: "s1"}
+	_, err := inst.prompt(context.Background(), TurnRequest{Input: "hi", ConfigOverrides: map[string]string{"mode": "build"}}, func(TurnEvent) error { return nil })
+	if err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	got := tr.recorded("session/set_config_option")
+	if len(got) != 1 || paramField(t, got[0].params, "configId") != "mode" {
+		t.Fatalf("expected one set_config_option for mode, got %+v", got)
 	}
 }
 
