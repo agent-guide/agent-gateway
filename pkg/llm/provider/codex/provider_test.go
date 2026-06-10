@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -8,6 +9,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	anthropicapi "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/anthropic"
+	ccapi "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/cc"
+	openaiapi "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/openai"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
@@ -84,6 +88,7 @@ func TestSanitizeResponsesRequestEnforcesCodexBackendControls(t *testing.T) {
 		MaxOutputTokens: 1234,
 		Metadata:        map[string]any{"trace_id": "abc123"},
 		Text:            map[string]any{"format": map[string]any{"type": "json_schema", "schema": map[string]any{"type": "object"}}},
+		ToolChoice:      json.RawMessage(`{"type":"tool_search","name":"tool_search"}`),
 		Tools: []provider.ResponsesToolDefinition{{
 			Type: "function",
 			Function: &provider.ResponsesToolFunction{
@@ -98,6 +103,11 @@ func TestSanitizeResponsesRequestEnforcesCodexBackendControls(t *testing.T) {
 				Description: "Launch subagent",
 				Parameters:  json.RawMessage(`{"type":"object"}`),
 			},
+		}, {
+			Type:        "tool_search",
+			Name:        "tool_search",
+			Description: "Search the repository",
+			Parameters:  json.RawMessage(`{"type":"object"}`),
 		}},
 		Store: &storeTrue,
 	}, false)
@@ -137,15 +147,180 @@ func TestSanitizeResponsesRequestEnforcesCodexBackendControls(t *testing.T) {
 		t.Fatalf("tool result content type = %#v, want input_text", toolContentPart["type"])
 	}
 	if len(req.Tools) != 2 || req.Tools[0].Name != "lookup" || req.Tools[1].Name != "Agent" || req.Tools[0].Function != nil || req.Tools[1].Function != nil {
-		t.Fatalf("tools = %#v, want flattened lookup and Agent tools", req.Tools)
+		t.Fatalf("tools = %#v, want only flattened lookup and Agent tools", req.Tools)
+	}
+	if req.Tools[0].Description != "Lookup data" {
+		t.Fatalf("function tool description = %q, want preserved", req.Tools[0].Description)
 	}
 	if string(req.Tools[0].Parameters) != `{"type":"object"}` {
 		t.Fatalf("tool parameters = %s, want object schema", string(req.Tools[0].Parameters))
+	}
+	if len(req.ToolChoice) != 0 {
+		t.Fatalf("tool_choice = %s, want omitted for unsupported hosted tool", string(req.ToolChoice))
 	}
 	format, _ := req.Text["format"].(map[string]any)
 	if format["name"] != "response" {
 		t.Fatalf("text.format = %#v, want default name", format)
 	}
+}
+
+func TestSanitizeResponsesRequestFiltersUnsupportedHostedToolVariants(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		toolType   string
+		toolChoice json.RawMessage
+	}{
+		{
+			name:       "case insensitive type and name",
+			toolType:   "Tool_Search",
+			toolChoice: json.RawMessage(`{"type":"Tool_Search","name":"Tool_Search"}`),
+		},
+		{
+			name:       "nested function name",
+			toolType:   "tool_search",
+			toolChoice: json.RawMessage(`{"type":"function","function":{"name":"tool_search"}}`),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := sanitizeResponsesRequest(&provider.ResponsesRequest{
+				Model:      "gpt-5.4",
+				Input:      []any{},
+				ToolChoice: tc.toolChoice,
+				Tools: []provider.ResponsesToolDefinition{{
+					Type: tc.toolType,
+					Name: "tool_search",
+				}},
+			}, false)
+
+			if len(req.Tools) != 0 {
+				t.Fatalf("tools = %#v, want unsupported hosted tool omitted", req.Tools)
+			}
+			if len(req.ToolChoice) != 0 {
+				t.Fatalf("tool_choice = %s, want omitted for unsupported hosted tool", string(req.ToolChoice))
+			}
+		})
+	}
+}
+
+func TestSanitizeResponsesRequestFiltersUnsupportedHostedToolsFromProtocolInputs(t *testing.T) {
+	t.Run("openai chat completions", func(t *testing.T) {
+		handler := openaiapi.NewHandler()
+		body, err := json.Marshal(openaiapi.ChatCompletionRequest{
+			Model: "gpt-5.4",
+			Messages: []openaiapi.ChatMessage{{
+				Role:    "user",
+				Content: "hello",
+			}},
+			Tools: []openaiapi.ToolDefinition{{
+				Type: "function",
+				Function: openaiapi.ToolFunction{
+					Name:        "tool_search",
+					Description: "Hosted search",
+					Parameters:  json.RawMessage(`{"type":"object"}`),
+				},
+			}},
+			ToolChoice: json.RawMessage(`{"type":"function","function":{"name":"tool_search"}}`),
+		})
+		if err != nil {
+			t.Fatalf("marshal request: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+		prepared, _, err := handler.PrepareLLMApiRequest(req)
+		if err != nil {
+			t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+		}
+
+		state, err := provider.ResolveChatRequest(context.Background(), provider.ProviderConfig{}, prepared.ChatRequest)
+		if err != nil {
+			t.Fatalf("ResolveChatRequest returned error: %v", err)
+		}
+		sanitized := sanitizeResponsesRequest(chatStateToResponsesRequest(state, false), false)
+		if len(sanitized.Tools) != 0 {
+			t.Fatalf("tools = %#v, want unsupported hosted tool omitted", sanitized.Tools)
+		}
+		if len(sanitized.ToolChoice) != 0 {
+			t.Fatalf("tool_choice = %s, want omitted", string(sanitized.ToolChoice))
+		}
+	})
+
+	t.Run("anthropic messages", func(t *testing.T) {
+		handler := anthropicapi.NewHandler(nil)
+		body, err := json.Marshal(anthropicapi.MessagesRequest{
+			Model:     "claude-sonnet-4-5",
+			MaxTokens: 16,
+			Messages: []anthropicapi.MessageItem{{
+				Role:    "user",
+				Content: anthropicapi.MessageContent{{Type: "text", Text: "hello"}},
+			}},
+			Tools: []anthropicapi.ToolDefinition{{
+				Name:        "tool_search",
+				Description: "Hosted search",
+				InputSchema: json.RawMessage(`{"type":"object"}`),
+			}},
+			ToolChoice: json.RawMessage(`{"type":"tool","name":"tool_search"}`),
+		})
+		if err != nil {
+			t.Fatalf("marshal request: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+		prepared, _, err := handler.PrepareLLMApiRequest(req)
+		if err != nil {
+			t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+		}
+
+		state, err := provider.ResolveChatRequest(context.Background(), provider.ProviderConfig{}, prepared.ChatRequest)
+		if err != nil {
+			t.Fatalf("ResolveChatRequest returned error: %v", err)
+		}
+		sanitized := sanitizeResponsesRequest(chatStateToResponsesRequest(state, false), false)
+		if len(sanitized.Tools) != 0 {
+			t.Fatalf("tools = %#v, want unsupported hosted tool omitted", sanitized.Tools)
+		}
+		if len(sanitized.ToolChoice) != 0 {
+			t.Fatalf("tool_choice = %s, want omitted", string(sanitized.ToolChoice))
+		}
+	})
+
+	t.Run("cc messages", func(t *testing.T) {
+		handler := ccapi.NewHandler(nil)
+		body, err := json.Marshal(anthropicapi.MessagesRequest{
+			Model:     "claude-sonnet-4-5",
+			MaxTokens: 16,
+			Messages: []anthropicapi.MessageItem{{
+				Role:    "user",
+				Content: anthropicapi.MessageContent{{Type: "text", Text: "hello"}},
+			}},
+			Tools: []anthropicapi.ToolDefinition{{
+				Name:        "tool_search",
+				Description: "Hosted search",
+				InputSchema: json.RawMessage(`{"type":"object"}`),
+			}},
+			ToolChoice: json.RawMessage(`{"type":"tool","name":"tool_search"}`),
+		})
+		if err != nil {
+			t.Fatalf("marshal request: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+		prepared, _, err := handler.PrepareLLMApiRequest(req)
+		if err != nil {
+			t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+		}
+
+		state, err := provider.ResolveChatRequest(context.Background(), provider.ProviderConfig{}, prepared.ChatRequest)
+		if err != nil {
+			t.Fatalf("ResolveChatRequest returned error: %v", err)
+		}
+		sanitized := sanitizeResponsesRequest(chatStateToResponsesRequest(state, false), false)
+		if len(sanitized.Tools) != 0 {
+			t.Fatalf("tools = %#v, want unsupported hosted tool omitted", sanitized.Tools)
+		}
+		if len(sanitized.ToolChoice) != 0 {
+			t.Fatalf("tool_choice = %s, want omitted", string(sanitized.ToolChoice))
+		}
+	})
 }
 
 func TestSanitizeResponsesRequestCCCompatFiltersStatefulClaudeCodeTools(t *testing.T) {
@@ -170,6 +345,86 @@ func TestSanitizeResponsesRequestCCCompatFiltersStatefulClaudeCodeTools(t *testi
 	}
 	if len(req.ToolChoice) != 0 {
 		t.Fatalf("tool_choice = %s, want omitted", string(req.ToolChoice))
+	}
+}
+
+func TestSanitizeResponsesRequestCCCompatFiltersNestedStatefulToolChoice(t *testing.T) {
+	req := sanitizeResponsesRequest(&provider.ResponsesRequest{
+		Model:      "gpt-5.4",
+		Input:      []any{},
+		ToolChoice: json.RawMessage(`{"type":"function","function":{"name":"Agent"}}`),
+		Tools: []provider.ResponsesToolDefinition{{
+			Type: "function",
+			Name: "lookup",
+		}, {
+			Type: "function",
+			Name: "Agent",
+		}},
+	}, true)
+
+	if len(req.Tools) != 1 || req.Tools[0].Name != "lookup" {
+		t.Fatalf("tools = %#v, want only lookup", req.Tools)
+	}
+	if len(req.ToolChoice) != 0 {
+		t.Fatalf("tool_choice = %s, want omitted", string(req.ToolChoice))
+	}
+}
+
+func TestSanitizeResponsesRequestClearsForcedToolChoiceWhenToolsAreUnavailable(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		toolChoice json.RawMessage
+	}{
+		{
+			name:       "required string with no remaining tools",
+			toolChoice: json.RawMessage(`"required"`),
+		},
+		{
+			name:       "forced name filtered from tools",
+			toolChoice: json.RawMessage(`{"type":"function","function":{"name":"tool_search"}}`),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := sanitizeResponsesRequest(&provider.ResponsesRequest{
+				Model:      "gpt-5.4",
+				Input:      []any{},
+				ToolChoice: tc.toolChoice,
+				Tools: []provider.ResponsesToolDefinition{{
+					Type: "function",
+					Function: &provider.ResponsesToolFunction{
+						Name: "tool_search",
+					},
+				}},
+			}, false)
+
+			if len(req.Tools) != 0 {
+				t.Fatalf("tools = %#v, want all tools filtered", req.Tools)
+			}
+			if len(req.ToolChoice) != 0 {
+				t.Fatalf("tool_choice = %s, want omitted", string(req.ToolChoice))
+			}
+		})
+	}
+}
+
+func TestListModelsFallsBackToConfiguredDefaultModel(t *testing.T) {
+	prov, err := New(provider.ProviderConfig{
+		ProviderType: "codex",
+		DefaultModel: "gpt-5.4",
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	models, err := prov.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListModels returned error: %v", err)
+	}
+	if len(models) != 1 {
+		t.Fatalf("model count = %d, want 1", len(models))
+	}
+	if models[0].ID != "gpt-5.4" || models[0].Name != "gpt-5.4" || models[0].DisplayName != "gpt-5.4" {
+		t.Fatalf("models[0] = %#v, want default model metadata", models[0])
 	}
 }
 

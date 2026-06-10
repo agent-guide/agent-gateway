@@ -91,7 +91,17 @@ func (p *Provider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*
 }
 
 func (p *Provider) ListModels(_ context.Context) ([]provider.ModelInfo, error) {
-	return nil, nil
+	p.ensureBase()
+	model := strings.TrimSpace(p.ProviderConfig.DefaultModel)
+	if model == "" {
+		return nil, nil
+	}
+	return []provider.ModelInfo{{
+		ID:           model,
+		Name:         model,
+		DisplayName:  model,
+		Capabilities: provider.ModelCapabilitiesFromProviderSummary(p.Capabilities()),
+	}}, nil
 }
 
 func (p *Provider) CreateResponses(ctx context.Context, req *provider.ResponsesRequest) (*provider.ResponsesResponse, error) {
@@ -112,10 +122,12 @@ func sanitizeResponsesRequest(req *provider.ResponsesRequest, ccCompat bool) *pr
 	req.Metadata = nil
 	req.Input = sanitizeResponsesInput(req.Input)
 	req.Tools = sanitizeResponsesTools(req.Tools)
+	req.ToolChoice = filterUnsupportedHostedToolChoice(req.ToolChoice)
 	if ccCompat {
 		req.Tools = filterClaudeCodeStatefulTools(req.Tools)
 		req.ToolChoice = filterClaudeCodeStatefulToolChoice(req.ToolChoice)
 	}
+	req.ToolChoice = filterUnavailableToolChoice(req.ToolChoice, req.Tools)
 	req.Text = sanitizeResponsesText(req.Text)
 	parallelFalse := false
 	req.ParallelToolCalls = &parallelFalse
@@ -168,7 +180,13 @@ func sanitizeResponsesTools(tools []provider.ResponsesToolDefinition) []provider
 	for i := range tools {
 		fn := tools[i].Function
 		if fn == nil {
+			if isUnsupportedHostedTool(tools[i].Type) || isUnsupportedHostedTool(tools[i].Name) {
+				continue
+			}
 			out = append(out, tools[i])
+			continue
+		}
+		if isUnsupportedHostedTool(tools[i].Type) || isUnsupportedHostedTool(tools[i].Name) || isUnsupportedHostedTool(fn.Name) {
 			continue
 		}
 		if strings.TrimSpace(tools[i].Name) == "" {
@@ -186,6 +204,39 @@ func sanitizeResponsesTools(tools []provider.ResponsesToolDefinition) []provider
 	return out
 }
 
+func isUnsupportedHostedTool(toolType string) bool {
+	switch strings.ToLower(strings.TrimSpace(toolType)) {
+	case "tool_search":
+		return true
+	default:
+		return false
+	}
+}
+
+func filterUnsupportedHostedToolChoice(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return raw
+	}
+	var choice struct {
+		Type     string `json:"type,omitempty"`
+		Name     string `json:"name,omitempty"`
+		Function *struct {
+			Name string `json:"name,omitempty"`
+		} `json:"function,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &choice); err != nil {
+		return raw
+	}
+	functionName := ""
+	if choice.Function != nil {
+		functionName = choice.Function.Name
+	}
+	if isUnsupportedHostedTool(choice.Type) || isUnsupportedHostedTool(choice.Name) || isUnsupportedHostedTool(functionName) {
+		return nil
+	}
+	return raw
+}
+
 func filterClaudeCodeStatefulTools(tools []provider.ResponsesToolDefinition) []provider.ResponsesToolDefinition {
 	out := tools[:0]
 	for _, tool := range tools {
@@ -201,16 +252,68 @@ func filterClaudeCodeStatefulToolChoice(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 {
 		return raw
 	}
-	var choice struct {
-		Name string `json:"name,omitempty"`
-	}
-	if err := json.Unmarshal(raw, &choice); err != nil {
-		return raw
-	}
-	if choice.Name != "" && isClaudeCodeStatefulTool(choice.Name) {
+	name := toolChoiceName(raw)
+	if name != "" && isClaudeCodeStatefulTool(name) {
 		return nil
 	}
 	return raw
+}
+
+func filterUnavailableToolChoice(raw json.RawMessage, tools []provider.ResponsesToolDefinition) json.RawMessage {
+	if len(raw) == 0 || !isForcedToolChoice(raw) {
+		return raw
+	}
+	if len(tools) == 0 {
+		return nil
+	}
+	name := toolChoiceName(raw)
+	if name == "" {
+		return raw
+	}
+	for _, tool := range tools {
+		if strings.EqualFold(strings.TrimSpace(responsesToolName(tool)), strings.TrimSpace(name)) {
+			return raw
+		}
+	}
+	return nil
+}
+
+func isForcedToolChoice(raw json.RawMessage) bool {
+	var asString string
+	if err := json.Unmarshal(raw, &asString); err == nil {
+		return strings.EqualFold(strings.TrimSpace(asString), "required")
+	}
+	var choice struct {
+		Type string `json:"type,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &choice); err != nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(choice.Type)) {
+	case "required", "function", "tool":
+		return true
+	default:
+		return false
+	}
+}
+
+func toolChoiceName(raw json.RawMessage) string {
+	var choice struct {
+		Name     string `json:"name,omitempty"`
+		Function *struct {
+			Name string `json:"name,omitempty"`
+		} `json:"function,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &choice); err != nil {
+		return ""
+	}
+	if strings.TrimSpace(choice.Name) != "" {
+		return choice.Name
+	}
+	if choice.Function != nil {
+		return choice.Function.Name
+	}
+	return ""
 }
 
 func responsesToolName(tool provider.ResponsesToolDefinition) string {
@@ -304,15 +407,15 @@ func responsesToChatResponse(resp *provider.ResponsesResponse) *provider.ChatRes
 	if resp == nil {
 		return &provider.ChatResponse{}
 	}
-	var text string
+	var text strings.Builder
 	for _, out := range resp.Output {
 		for _, c := range out.Content {
-			text += c.Text
+			text.WriteString(c.Text)
 		}
 	}
 	msg := &schema.Message{
 		Role:    schema.Assistant,
-		Content: text,
+		Content: text.String(),
 	}
 	if resp.Usage != nil {
 		msg.ResponseMeta = &schema.ResponseMeta{
@@ -458,19 +561,19 @@ func responsesTextFromResponse(resp *provider.ResponsesResponse) string {
 	if resp == nil {
 		return ""
 	}
-	var text string
+	var text strings.Builder
 	for _, out := range resp.Output {
-		text += responsesTextFromOutput(out)
+		text.WriteString(responsesTextFromOutput(out))
 	}
-	return text
+	return text.String()
 }
 
 func responsesTextFromOutput(out provider.ResponsesResponseOutput) string {
-	var text string
+	var text strings.Builder
 	for _, part := range out.Content {
-		text += part.Text
+		text.WriteString(part.Text)
 	}
-	return text
+	return text.String()
 }
 
 func sendResponsesToolCall(sw *schema.StreamWriter[*schema.Message], tc *schema.ToolCall, ccCompat bool) {
