@@ -40,6 +40,26 @@ type SessionModelSelector interface {
 	SelectSessionModel(ctx context.Context, t transport.Transport, sessionID, modelID string, opts []ConfigOption) ([]ConfigOption, error)
 }
 
+type SessionLister interface {
+	SessionListParams(cwd, cursor string) map[string]any
+}
+
+// TranscriptEntry is one coalesced transcript message returned by a
+// TranscriptLoader.
+type TranscriptEntry struct {
+	Role string `json:"role"` // user | assistant | reasoning
+	Text string `json:"text"`
+}
+
+// TranscriptLoader replaces the runtime's generic session/load transcript
+// replay with an agent-specific implementation (e.g. a thick codex bridge
+// reading its own backend). Agents without it get the generic path: a
+// transient connection that replays the session via session/load and collects
+// the message chunks.
+type TranscriptLoader interface {
+	LoadSessionTranscript(ctx context.Context, sessionID string) ([]TranscriptEntry, error)
+}
+
 type ConfigOption struct {
 	ID    string `json:"id"`
 	Value string `json:"value,omitempty"`

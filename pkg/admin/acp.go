@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
+	acpruntime "github.com/agent-guide/agent-gateway/pkg/acp/runtime"
 	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	acproute "github.com/agent-guide/agent-gateway/pkg/gateway/acproute"
@@ -127,6 +128,46 @@ func (h *Handler) handleDeleteACPService(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (h *Handler) handleListACPSessions(w http.ResponseWriter, r *http.Request) {
+	if h.acpRuntimeManager == nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "acp runtime manager is not configured")
+		return
+	}
+	result, err := h.acpRuntimeManager.ListSessions(r.Context(), strings.TrimSpace(r.PathValue("id")), acpruntime.ListSessionsRequest{
+		CWD:    strings.TrimSpace(r.URL.Query().Get("cwd")),
+		Cursor: strings.TrimSpace(r.URL.Query().Get("cursor")),
+	})
+	if err != nil {
+		if errors.Is(err, acpservice.ErrServiceNotConfigured) || errors.Is(err, configstore.ErrNotFound) {
+			_ = httpjson.Error(w, http.StatusNotFound, "acp service not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, result)
+}
+
+func (h *Handler) handleGetACPSessionTranscript(w http.ResponseWriter, r *http.Request) {
+	if h.acpRuntimeManager == nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "acp runtime manager is not configured")
+		return
+	}
+	result, err := h.acpRuntimeManager.LoadTranscript(r.Context(), strings.TrimSpace(r.PathValue("id")), acpruntime.TranscriptRequest{
+		SessionID: strings.TrimSpace(r.PathValue("session_id")),
+		CWD:       strings.TrimSpace(r.URL.Query().Get("cwd")),
+	})
+	if err != nil {
+		if errors.Is(err, acpservice.ErrServiceNotConfigured) || errors.Is(err, configstore.ErrNotFound) {
+			_ = httpjson.Error(w, http.StatusNotFound, "acp service not found")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, result)
 }
 
 func (h *Handler) handleListACPRoutes(w http.ResponseWriter, r *http.Request) {
@@ -305,7 +346,10 @@ func (h *Handler) handleGetACPRuntime(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, "acp runtime manager is not configured")
 		return
 	}
-	_ = httpjson.Write(w, http.StatusOK, map[string]any{"in_flight": h.acpRuntimeManager.ListInFlight()})
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{
+		"in_flight": h.acpRuntimeManager.ListInFlight(),
+		"instances": h.acpRuntimeManager.ListInstances(),
+	})
 }
 
 func (h *Handler) handleListACPInFlight(w http.ResponseWriter, r *http.Request) {

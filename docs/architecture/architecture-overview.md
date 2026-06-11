@@ -230,9 +230,10 @@ Current status:
   - first-version service config allows only `codex` and `opencode`
   - `opencode` uses the fixed `opencode acp --cwd <cwd>` stdio process shape
   - `codex` uses the fixed external ACP adapter binary `codex-acp` by default; it does not launch `codex acp`
-  - the runtime driver handles `initialize`, `session/new`, `session/load`, `session/prompt`, full `session/update` parsing (`pkg/acp/runtime/acpupdate`: text, reasoning, tool calls, plan, usage, available commands, session info, mode, config options), model selection and `config_overrides` via `session/set_config_option`, and spec-correct fail-closed permission replies with an off-loop timeout
-  - runtime hardening: `PATH` preflight, stderr capture, a setup-handshake timeout, an idle janitor, dead-instance eviction, `fresh_session`, and `CloseScope`/`CloseThread` teardown
-  - verified end to end against the real `opencode acp` binary (deterministic full-lifecycle integration test plus a gated real-agent handshake smoke); the interactive permission workflow, `session/list`, transcript replay, codex stable-session rebinding, crash retry, and the codex app-server bridge (v2) are deferred
+  - the runtime driver handles `initialize`, `session/new`, `session/load`, `session/prompt`, full `session/update` parsing (`pkg/acp/runtime/acpupdate`: text, reasoning, tool calls, plan, usage, available commands, session info, mode, config options), Admin `session/list` and transcript replay (`session/load` over a transient connection) after ACP capability checking, model selection and `config_overrides` via `session/set_config_option`, and spec-correct fail-closed permission replies with an off-loop timeout
+  - each pooled instance caches the latest session metadata (config options, slash commands, title, mode, usage) from a lifetime updates subscription; the cache is replayed as snapshot events at every turn start and exposed through the runtime Admin inspection
+  - runtime hardening: `PATH` preflight, stderr capture, a setup-handshake timeout, an idle janitor, dead-instance eviction, `fresh_session`, scope rebind (a session-addressed turn adopts the thread's live instance instead of spawning a second process), and `CloseScope`/`CloseThread` teardown
+  - verified end to end against the real `opencode acp` and `codex-acp` binaries (deterministic full-lifecycle integration test plus gated real-agent handshake, session-lifecycle, and prompt-level real-model smokes); the interactive permission workflow, codex stable-session id resolution, crash retry, and the codex app-server bridge (v2) are deferred
 - `pkg/llm/memory/`
   - interfaces exist
   - SQLite and Mem0-related code exists

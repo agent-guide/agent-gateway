@@ -284,15 +284,19 @@ MCP route IDs are auto-generated as `mcp:<service_id>:<path_prefix>` when `id` i
 
 Native ACP support is implemented in this repository without depending on ngent. It adds ACP route/service config, Admin API endpoints, dispatcher routing, a gateway-owned `POST /<acp-route>/turn` SSE contract, and a stdio JSON-RPC runtime with thin agent adapters for `opencode` and `codex`. `opencode` launches the fixed `opencode acp --cwd <cwd>` shape; `codex` launches the fixed external ACP adapter binary `codex-acp` by default instead of a non-existent native `codex acp` subcommand.
 
-Implemented and verified against the real `opencode acp` binary:
+Implemented and verified against the real `opencode acp` and `codex-acp` binaries:
 
-- full lifecycle: `initialize → session/new|load → session/prompt`, with the real `stopReason` and buffered-update draining (no truncated responses);
+- full lifecycle: `initialize → session/new|load → session/prompt`, with the real `stopReason` and a post-result idle-grace drain (the real opencode binary can deliver the final reply chunks after the prompt result — no truncated responses);
+- prompt-level real-model turns, smoke-verified for both agents (`AGW_ACP_SMOKE=1 AGW_ACP_SMOKE_PROMPT=1`): streamed reply, populated transcript replay, and cached usage;
 - complete `session/update` coverage parsed by `pkg/acp/runtime/acpupdate` — text, reasoning (emitted as a separate event), tool calls, plan, usage, available commands, session info, mode, and config options;
 - model selection and `config_overrides` via `session/set_config_option`;
+- Admin `session/list` via `GET /admin/acp/services/{id}/sessions`, with ACP capability checking, optional `cwd` and `cursor` query parameters, and symlink-canonicalized `cwd` filtering;
+- Admin transcript replay via `GET /admin/acp/services/{id}/sessions/{session_id}/transcript`, replaying the session through `session/load` over a transient connection after checking the `loadSession` capability;
+- a per-instance session metadata cache (config options, slash commands, session info, mode, usage) replayed as snapshot events at every turn start and exposed through `GET /admin/acp/runtime`;
 - spec-correct, fail-closed permission handling (nested ACP outcome, off-loop with a timeout);
-- runtime hardening: `PATH` preflight, stderr capture in errors, a setup-handshake timeout, an idle janitor, dead-instance eviction, `fresh_session`, and `DELETE /admin/acp/runtime/threads/{service_id}/{thread_id}` for operator teardown.
+- runtime hardening: `PATH` preflight, stderr capture in errors, a setup-handshake timeout, an idle janitor, dead-instance eviction, `fresh_session`, pool scope rebind (a session-addressed turn reuses the thread's live instance bound to that session instead of spawning a second process), and `DELETE /admin/acp/runtime/threads/{service_id}/{thread_id}` for operator teardown.
 
-Deferred (see [docs/design/acp-native-runtime.md](docs/design/acp-native-runtime.md)): the interactive permission workflow, `session/list`, transcript replay, codex stable-session rebinding, crash retry, and the in-repo codex app-server bridge (codex v2).
+Deferred (see [docs/design/acp-native-runtime.md](docs/design/acp-native-runtime.md)): the interactive permission workflow, codex stable-session id resolution, crash retry, and the in-repo codex app-server bridge (codex v2).
 
 ## Runtimes
 
@@ -315,7 +319,7 @@ See [docs/README.md](docs/README.md) for runtime-specific guides and references.
 - OpenAI-compatible chat and Anthropic-compatible messages are the primary mature LLM paths
 - OpenAI embeddings and Anthropic token counting are not fully implemented
 - MCP is active in the dispatcher and Admin API surface, but some adjacent subsystems are still evolving
-- ACP is a functional native route/admin/dispatcher surface with a reusable stdio runtime driver and thin codex/opencode agent adapters; opencode is verified end to end, codex needs the `codex-acp` binary, and the interactive permission workflow plus codex v2 bridge remain deferred
+- ACP is a functional native route/admin/dispatcher surface with a reusable stdio runtime driver and thin codex/opencode agent adapters; opencode and codex (via the external `codex-acp` adapter binary) are both smoke-verified end to end at the session-lifecycle level, and the interactive permission workflow plus codex v2 bridge remain deferred
 - memory, agents, and metrics Admin API families still contain `501 Not Implemented` endpoints
 
 ## Development

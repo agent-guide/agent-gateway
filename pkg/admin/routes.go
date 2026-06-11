@@ -140,6 +140,8 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodGet, Path: "/admin/acp/services/{id}", Handler: h.handleGetACPService, RequireAuth: true},
 		{Method: http.MethodPut, Path: "/admin/acp/services/{id}", Handler: h.handleUpdateACPService, RequireAuth: true},
 		{Method: http.MethodDelete, Path: "/admin/acp/services/{id}", Handler: h.handleDeleteACPService, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/acp/services/{id}/sessions", Handler: h.handleListACPSessions, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/acp/services/{id}/sessions/{session_id}/transcript", Handler: h.handleGetACPSessionTranscript, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/acp/routes", Handler: h.handleListACPRoutes, RequireAuth: true},
 		{Method: http.MethodPost, Path: "/admin/acp/routes", Handler: h.handleCreateACPRoute, RequireAuth: true},
 		{Method: http.MethodGet, Path: "/admin/acp/routes/{id}", Handler: h.handleGetACPRoute, RequireAuth: true},

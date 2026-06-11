@@ -59,8 +59,9 @@ func (f *fakePoolTransport) Request(_ context.Context, method string, _ any) (js
 func (f *fakePoolTransport) Notify(string, any) error { return nil }
 
 func (f *fakePoolTransport) Updates(int) (<-chan acptransport.Message, func()) {
-	ch := make(chan acptransport.Message)
-	return ch, func() {}
+	ch := make(chan acptransport.Message, 8)
+	var once sync.Once
+	return ch, func() { once.Do(func() { close(ch) }) }
 }
 
 func (f *fakePoolTransport) Alive() bool {
@@ -173,6 +174,140 @@ func TestResolveInstanceEvictsDeadInstance(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&fakeOpenCount); got != 2 {
 		t.Fatalf("agent opened %d times, want 2", got)
+	}
+}
+
+// The fake transport binds every new session to "sess-1", so a follow-up turn
+// that echoes that id back must adopt the thread-scoped instance.
+func TestResolveInstanceAdoptsSessionScopedInstance(t *testing.T) {
+	atomic.StoreInt32(&fakeOpenCount, 0)
+	m := newTestManager()
+	cfg := testServiceConfig(t)
+	ctx := context.Background()
+
+	threadScope := buildScope(cfg.ID, cfg.CWD, "t1", "", "")
+	first, err := m.resolveInstance(ctx, threadScope, cfg, TurnRequest{ThreadID: "t1", Input: "hi"})
+	if err != nil {
+		t.Fatalf("first resolveInstance: %v", err)
+	}
+	if first.sessionID != "sess-1" {
+		t.Fatalf("unexpected fake session id %q", first.sessionID)
+	}
+
+	sessionScope := buildScope(cfg.ID, cfg.CWD, "t1", "sess-1", "")
+	second, err := m.resolveInstance(ctx, sessionScope, cfg, TurnRequest{ThreadID: "t1", SessionID: "sess-1", Input: "hi"})
+	if err != nil {
+		t.Fatalf("session-addressed resolveInstance: %v", err)
+	}
+	if first != second {
+		t.Fatal("session-addressed turn must adopt the thread-scoped instance")
+	}
+	if got := atomic.LoadInt32(&fakeOpenCount); got != 1 {
+		t.Fatalf("agent opened %d times, want 1", got)
+	}
+
+	m.mu.Lock()
+	_, oldPresent := m.instances[threadScope]
+	_, newPresent := m.instances[sessionScope]
+	m.mu.Unlock()
+	if oldPresent || !newPresent {
+		t.Fatalf("instance was not rebound: thread scope present=%v, session scope present=%v", oldPresent, newPresent)
+	}
+}
+
+func TestResolveInstanceDoesNotAdoptMismatchedSession(t *testing.T) {
+	atomic.StoreInt32(&fakeOpenCount, 0)
+	m := newTestManager()
+	cfg := testServiceConfig(t)
+	ctx := context.Background()
+
+	threadScope := buildScope(cfg.ID, cfg.CWD, "t1", "", "")
+	first, err := m.resolveInstance(ctx, threadScope, cfg, TurnRequest{ThreadID: "t1", Input: "hi"})
+	if err != nil {
+		t.Fatalf("first resolveInstance: %v", err)
+	}
+
+	otherScope := buildScope(cfg.ID, cfg.CWD, "t1", "other-session", "")
+	second, err := m.resolveInstance(ctx, otherScope, cfg, TurnRequest{ThreadID: "t1", SessionID: "other-session", Input: "hi"})
+	if err != nil {
+		t.Fatalf("second resolveInstance: %v", err)
+	}
+	if first == second {
+		t.Fatal("an instance bound to a different session must not be adopted")
+	}
+	if got := atomic.LoadInt32(&fakeOpenCount); got != 2 {
+		t.Fatalf("agent opened %d times, want 2", got)
+	}
+}
+
+func TestResolveInstanceDoesNotAdoptActiveOrDeadInstance(t *testing.T) {
+	atomic.StoreInt32(&fakeOpenCount, 0)
+	m := newTestManager()
+	cfg := testServiceConfig(t)
+	ctx := context.Background()
+
+	threadScope := buildScope(cfg.ID, cfg.CWD, "t1", "", "")
+	first, err := m.resolveInstance(ctx, threadScope, cfg, TurnRequest{ThreadID: "t1", Input: "hi"})
+	if err != nil {
+		t.Fatalf("first resolveInstance: %v", err)
+	}
+
+	sessionScope := buildScope(cfg.ID, cfg.CWD, "t1", "sess-1", "")
+	release, err := m.active.Begin(threadScope)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	busy, err := m.resolveInstance(ctx, sessionScope, cfg, TurnRequest{ThreadID: "t1", SessionID: "sess-1", Input: "hi"})
+	if err != nil {
+		t.Fatalf("resolveInstance with active sibling: %v", err)
+	}
+	if busy == first {
+		t.Fatal("an instance with an active turn must not be adopted")
+	}
+	release()
+	m.CloseScope(sessionScope)
+
+	transportOf(t, first).kill()
+	dead, err := m.resolveInstance(ctx, sessionScope, cfg, TurnRequest{ThreadID: "t1", SessionID: "sess-1", Input: "hi"})
+	if err != nil {
+		t.Fatalf("resolveInstance with dead sibling: %v", err)
+	}
+	if dead == first {
+		t.Fatal("a dead instance must not be adopted")
+	}
+}
+
+func TestRebindLocked(t *testing.T) {
+	m := newTestManager()
+	cfg := testServiceConfig(t)
+	ctx := context.Background()
+
+	if _, err := m.resolveInstance(ctx, "scope-a", cfg, TurnRequest{ThreadID: "t1", Input: "hi"}); err != nil {
+		t.Fatalf("resolveInstance a: %v", err)
+	}
+	if _, err := m.resolveInstance(ctx, "scope-b", cfg, TurnRequest{ThreadID: "t1", Input: "hi"}); err != nil {
+		t.Fatalf("resolveInstance b: %v", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.rebindLocked("scope-a", "scope-a") {
+		t.Fatal("rebinding a scope onto itself must be a no-op")
+	}
+	if m.rebindLocked("missing", "scope-c") {
+		t.Fatal("rebinding an absent source must be a no-op")
+	}
+	if m.rebindLocked("scope-a", "scope-b") {
+		t.Fatal("rebinding onto an occupied destination must be a no-op")
+	}
+	if !m.rebindLocked("scope-a", "scope-c") {
+		t.Fatal("rebind to a free destination failed")
+	}
+	if _, present := m.instances["scope-a"]; present {
+		t.Fatal("source scope still present after rebind")
+	}
+	if _, present := m.instances["scope-c"]; !present {
+		t.Fatal("destination scope missing after rebind")
 	}
 }
 

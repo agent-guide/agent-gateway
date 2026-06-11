@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -177,11 +178,76 @@ func (m *Manager) ServeTurn(ctx context.Context, serviceID string, req TurnReque
 	return nil
 }
 
+func (m *Manager) ListSessions(ctx context.Context, serviceID string, req ListSessionsRequest) (ListSessionsResponse, error) {
+	if m == nil || m.services == nil {
+		return ListSessionsResponse{}, fmt.Errorf("acp runtime manager is not configured")
+	}
+	cfg, err := m.services.Get(ctx, strings.TrimSpace(serviceID))
+	if err != nil {
+		return ListSessionsResponse{}, err
+	}
+	if cfg.Disabled {
+		return ListSessionsResponse{}, fmt.Errorf("acp service %q is disabled", cfg.ID)
+	}
+	if req.CWD = strings.TrimSpace(req.CWD); req.CWD != "" {
+		if err := acpservice.ValidateCWDAllowed(req.CWD, cfg.AllowedRoots); err != nil {
+			return ListSessionsResponse{}, err
+		}
+	}
+	return listAgentSessions(ctx, cfg, req)
+}
+
+func (m *Manager) LoadTranscript(ctx context.Context, serviceID string, req TranscriptRequest) (TranscriptResponse, error) {
+	if m == nil || m.services == nil {
+		return TranscriptResponse{}, fmt.Errorf("acp runtime manager is not configured")
+	}
+	cfg, err := m.services.Get(ctx, strings.TrimSpace(serviceID))
+	if err != nil {
+		return TranscriptResponse{}, err
+	}
+	if cfg.Disabled {
+		return TranscriptResponse{}, fmt.Errorf("acp service %q is disabled", cfg.ID)
+	}
+	if req.CWD = strings.TrimSpace(req.CWD); req.CWD != "" {
+		if err := acpservice.ValidateCWDAllowed(req.CWD, cfg.AllowedRoots); err != nil {
+			return TranscriptResponse{}, err
+		}
+	}
+	return loadAgentTranscript(ctx, cfg, req)
+}
+
 func (m *Manager) ListInFlight() []InFlightTurn {
 	if m == nil || m.active == nil {
 		return nil
 	}
 	return m.active.List()
+}
+
+// ListInstances returns an operator-facing snapshot of the pooled instances,
+// including each instance's cached session metadata, sorted by scope.
+func (m *Manager) ListInstances() []PooledInstanceInfo {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	out := make([]PooledInstanceInfo, 0, len(m.instances))
+	for scope, item := range m.instances {
+		if item == nil || item.instance == nil {
+			continue
+		}
+		out = append(out, PooledInstanceInfo{
+			Scope:     scope,
+			SessionID: item.instance.sessionID,
+			Alive:     item.instance.alive(),
+			Active:    m.active.IsActive(scope),
+			LastUsed:  item.lastUsed,
+			IdleTTL:   item.idleTTL,
+			Metadata:  item.instance.meta.snapshot(),
+		})
+	}
+	m.mu.Unlock()
+	sort.Slice(out, func(a, b int) bool { return out[a].Scope < out[b].Scope })
+	return out
 }
 
 func (m *Manager) resolveInstance(ctx context.Context, scope string, cfg acpservice.ServiceConfig, req TurnRequest) (*instance, error) {
@@ -202,6 +268,9 @@ func (m *Manager) resolveInstance(ctx context.Context, scope string, cfg acpserv
 		stale := item.instance
 		m.mu.Unlock()
 		_ = stale.close()
+	} else if inst := m.adoptSessionInstanceLocked(scope, cfg, req); inst != nil {
+		m.mu.Unlock()
+		return inst, nil
 	} else {
 		m.mu.Unlock()
 	}
@@ -215,6 +284,61 @@ func (m *Manager) resolveInstance(ctx context.Context, scope string, cfg acpserv
 	m.instances[scope] = &managedInstance{instance: inst, idleTTL: cfg.IdleTTL, lastUsed: time.Now().UTC()}
 	m.mu.Unlock()
 	return inst, nil
+}
+
+// adoptSessionInstanceLocked rebinds the thread's empty-session-scope instance
+// to a session-addressed scope when the requested session id is the one that
+// instance is already bound to. This keeps one live agent process serving the
+// thread when a client switches from thread-only addressing (turn 1, no
+// session_id) to explicit session addressing (later turns echo back the
+// session id from the session event), instead of spawning a second process and
+// replaying session/load. The caller must hold m.mu.
+func (m *Manager) adoptSessionInstanceLocked(scope string, cfg acpservice.ServiceConfig, req TurnRequest) *instance {
+	if req.FreshSession || req.SessionID == "" {
+		return nil
+	}
+	cwd := strings.TrimSpace(req.CWD)
+	if cwd == "" {
+		cwd = cfg.CWD
+	}
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = cfg.DefaultModel
+	}
+	from := buildScope(cfg.ID, cwd, req.ThreadID, "", model)
+	item := m.instances[from]
+	if item == nil || item.instance == nil || item.instance.sessionID != req.SessionID {
+		return nil
+	}
+	// Never steal an instance from a turn that is still running on the
+	// thread-addressed scope, and never adopt a dead process.
+	if m.active.IsActive(from) || !item.instance.alive() {
+		return nil
+	}
+	if !m.rebindLocked(from, scope) {
+		return nil
+	}
+	return item.instance
+}
+
+// rebindLocked moves a pooled instance from one scope key to another. It is a
+// no-op (returning false) when the scopes are equal, the source is absent, or
+// the destination is already occupied. The caller must hold m.mu.
+func (m *Manager) rebindLocked(fromScope, toScope string) bool {
+	if fromScope == toScope {
+		return false
+	}
+	item := m.instances[fromScope]
+	if item == nil || item.instance == nil {
+		return false
+	}
+	if existing := m.instances[toScope]; existing != nil && existing.instance != nil {
+		return false
+	}
+	delete(m.instances, fromScope)
+	item.lastUsed = time.Now().UTC()
+	m.instances[toScope] = item
+	return true
 }
 
 func (m *Manager) janitor() {

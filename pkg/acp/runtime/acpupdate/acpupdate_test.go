@@ -129,6 +129,30 @@ func TestParseVariants(t *testing.T) {
 	}
 }
 
+func TestParseReplayChunk(t *testing.T) {
+	cases := []struct {
+		name     string
+		update   map[string]any
+		wantRole string
+		wantText string
+		wantOK   bool
+	}{
+		{"user chunk", map[string]any{"sessionUpdate": "user_message_chunk", "content": map[string]any{"type": "text", "text": "hi"}}, TranscriptRoleUser, "hi", true},
+		{"agent chunk", map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": "done"}}, TranscriptRoleAssistant, "done", true},
+		{"thought chunk", map[string]any{"sessionUpdate": "agent_thought_chunk", "content": map[string]any{"type": "text", "text": "hmm"}}, TranscriptRoleReasoning, "hmm", true},
+		{"non-message update", map[string]any{"sessionUpdate": "plan", "entries": []any{}}, "", "", false},
+		{"non-text content", map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "image", "data": "AAAA"}}, "", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			role, text, ok := ParseReplayChunk(sessionUpdate(t, tc.update))
+			if ok != tc.wantOK || role != tc.wantRole || text != tc.wantText {
+				t.Fatalf("ParseReplayChunk = (%q, %q, %v), want (%q, %q, %v)", role, text, ok, tc.wantRole, tc.wantText, tc.wantOK)
+			}
+		})
+	}
+}
+
 func TestParseRejectsMalformed(t *testing.T) {
 	if events := Parse(json.RawMessage(`not json`)); events != nil {
 		t.Fatalf("expected nil for malformed params, got %+v", events)

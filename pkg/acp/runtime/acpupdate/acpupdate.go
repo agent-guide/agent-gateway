@@ -89,6 +89,43 @@ func Parse(params json.RawMessage) []Event {
 	}
 }
 
+// Transcript roles for replayed session/load message chunks.
+const (
+	TranscriptRoleUser      = "user"
+	TranscriptRoleAssistant = "assistant"
+	TranscriptRoleReasoning = "reasoning"
+)
+
+// ParseReplayChunk extracts one replayed message chunk from a session/update
+// delivered during session/load. Unlike Parse, it includes user_message_chunk
+// (replayed user turns) and maps each chunk to a transcript role. Non-text
+// content blocks and non-message updates report ok=false.
+func ParseReplayChunk(params json.RawMessage) (role, text string, ok bool) {
+	var env envelope
+	if err := json.Unmarshal(params, &env); err != nil || len(env.Update) == 0 {
+		return "", "", false
+	}
+	var head header
+	if err := json.Unmarshal(env.Update, &head); err != nil {
+		return "", "", false
+	}
+	switch strings.TrimSpace(head.SessionUpdate) {
+	case "user_message_chunk":
+		role = TranscriptRoleUser
+	case "agent_message_chunk":
+		role = TranscriptRoleAssistant
+	case "agent_thought_chunk":
+		role = TranscriptRoleReasoning
+	default:
+		return "", "", false
+	}
+	text, isText := contentText(head.Content)
+	if !isText {
+		return "", "", false
+	}
+	return role, text, true
+}
+
 // contentText reports the text of an ACP ContentBlock. It returns isText=true
 // for a bare string or a {"type":"text","text":...} block, and isText=false for
 // non-text blocks (image/audio/resource_link/resource) so the caller surfaces

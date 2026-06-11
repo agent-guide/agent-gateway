@@ -75,7 +75,22 @@ func (a *Agent) SessionNewParams(string) map[string]any {
 }
 
 func (a *Agent) SessionLoadParams(sessionID string) map[string]any {
-	return map[string]any{"sessionId": sessionID, "cwd": a.cwd}
+	return map[string]any{
+		"sessionId":  sessionID,
+		"cwd":        a.cwd,
+		"mcpServers": []any{},
+	}
+}
+
+func (a *Agent) SessionListParams(cwd, cursor string) map[string]any {
+	params := map[string]any{}
+	if cwd = strings.TrimSpace(cwd); cwd != "" {
+		params["cwd"] = cwd
+	}
+	if cursor = strings.TrimSpace(cursor); cursor != "" {
+		params["cursor"] = cursor
+	}
+	return params
 }
 
 func (a *Agent) PromptParams(sessionID, input string, _ string) map[string]any {

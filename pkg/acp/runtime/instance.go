@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	baseacp "github.com/agent-guide/agent-gateway/pkg/acp"
@@ -21,6 +23,79 @@ type instance struct {
 	sessionID string
 	agent     agentspi.Agent
 	t         acptransport.Transport
+
+	meta      sessionMetaCache
+	metaUnsub func()
+}
+
+// sessionMetaCache keeps the latest structured session state pushed by the
+// agent (config options, slash commands, title, mode, usage) so a turn that
+// joins an already-pooled instance can be told the current state up front,
+// and so operators can inspect pooled sessions through the runtime Admin API.
+// Each entry stores the raw ACP update object of its kind.
+type sessionMetaCache struct {
+	mu            sync.Mutex
+	configOptions json.RawMessage
+	commands      json.RawMessage
+	sessionInfo   json.RawMessage
+	mode          json.RawMessage
+	usage         json.RawMessage
+}
+
+func (c *sessionMetaCache) store(kind acpupdate.Kind, data json.RawMessage) {
+	if len(data) == 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	switch kind {
+	case acpupdate.KindConfigOptions:
+		c.configOptions = data
+	case acpupdate.KindCommands:
+		c.commands = data
+	case acpupdate.KindSessionInfo:
+		c.sessionInfo = data
+	case acpupdate.KindMode:
+		c.mode = data
+	case acpupdate.KindUsage:
+		c.usage = data
+	}
+}
+
+func (c *sessionMetaCache) snapshot() SessionMetadata {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return SessionMetadata{
+		ConfigOptions:     c.configOptions,
+		AvailableCommands: c.commands,
+		SessionInfo:       c.sessionInfo,
+		Mode:              c.mode,
+		Usage:             c.usage,
+	}
+}
+
+// turnStartEvents builds the cached-state events replayed at the start of each
+// turn, in a stable order. Live updates during the turn supersede them; a
+// rare duplicate (an update racing the turn start) is harmless because every
+// entry is a full snapshot of its kind.
+func (c *sessionMetaCache) turnStartEvents() []TurnEvent {
+	snap := c.snapshot()
+	var events []TurnEvent
+	for _, entry := range []struct {
+		event string
+		data  json.RawMessage
+	}{
+		{string(acpupdate.KindConfigOptions), snap.ConfigOptions},
+		{string(acpupdate.KindCommands), snap.AvailableCommands},
+		{string(acpupdate.KindSessionInfo), snap.SessionInfo},
+		{string(acpupdate.KindMode), snap.Mode},
+		{string(acpupdate.KindUsage), snap.Usage},
+	} {
+		if len(entry.data) > 0 {
+			events = append(events, TurnEvent{Event: entry.event, Data: entry.data})
+		}
+	}
+	return events
 }
 
 func newInstance(ctx context.Context, cfg acpservice.ServiceConfig, req TurnRequest) (*instance, error) {
@@ -41,15 +116,35 @@ func newInstance(ctx context.Context, cfg acpservice.ServiceConfig, req TurnRequ
 		return nil, err
 	}
 	inst := &instance{cfg: cfg, cwd: cwd, model: model, sessionID: strings.TrimSpace(req.SessionID), agent: agent, t: t}
+	// Subscribe for the whole instance lifetime so state pushed outside a turn
+	// is not lost — the real opencode binary pushes available_commands_update
+	// right after session/new, before any prompt.
+	metaCh, metaUnsub := t.Updates(64)
+	inst.metaUnsub = metaUnsub
+	go inst.consumeMetadata(metaCh)
 	// Bound the setup handshake so a wedged agent does not hang the turn until
 	// the client disconnects. Streaming (prompt) is intentionally not bounded.
 	setupCtx, cancel := context.WithTimeout(ctx, initializeTimeout)
 	defer cancel()
 	if err := inst.initialize(setupCtx, req.FreshSession); err != nil {
-		_ = t.Close()
+		_ = inst.close()
 		return nil, err
 	}
 	return inst, nil
+}
+
+// consumeMetadata feeds the session metadata cache from a dedicated updates
+// subscription. It exits when the subscription channel is closed (instance
+// close unsubscribes).
+func (i *instance) consumeMetadata(updates <-chan acptransport.Message) {
+	for msg := range updates {
+		if msg.Method != "session/update" {
+			continue
+		}
+		for _, ev := range acpupdate.Parse(msg.Params) {
+			i.meta.store(ev.Kind, ev.Data)
+		}
+	}
 }
 
 func (i *instance) initialize(ctx context.Context, fresh bool) error {
@@ -70,10 +165,146 @@ func (i *instance) initialize(ctx context.Context, fresh bool) error {
 	if i.sessionID == "" {
 		return fmt.Errorf("session/new returned empty sessionId")
 	}
+	i.cacheNewSessionConfigOptions(result)
 	if err := i.applySessionModel(ctx); err != nil {
 		return err
 	}
 	return i.applyConfigOverrides(ctx, i.cfg.ConfigOverrides)
+}
+
+// cacheNewSessionConfigOptions seeds the config-options cache from the
+// session/new result (the real opencode binary returns the full configOptions
+// list there, including currentValue). The cached object is synthesized in the
+// config_option_update shape so turn-start replay events match live ones.
+func (i *instance) cacheNewSessionConfigOptions(result json.RawMessage) {
+	var payload struct {
+		ConfigOptions json.RawMessage `json:"configOptions"`
+	}
+	if err := json.Unmarshal(result, &payload); err != nil || len(payload.ConfigOptions) == 0 {
+		return
+	}
+	synthesized, err := json.Marshal(map[string]json.RawMessage{
+		"sessionUpdate": json.RawMessage(`"config_option_update"`),
+		"configOptions": payload.ConfigOptions,
+	})
+	if err != nil {
+		return
+	}
+	i.meta.store(acpupdate.KindConfigOptions, synthesized)
+}
+
+func listAgentSessions(ctx context.Context, cfg acpservice.ServiceConfig, req ListSessionsRequest) (ListSessionsResponse, error) {
+	openCWD := strings.TrimSpace(req.CWD)
+	if openCWD == "" {
+		openCWD = cfg.CWD
+	}
+	agent, err := agentspi.New(cfg.AgentType, agentspi.OpenRequest{Service: cfg, CWD: openCWD})
+	if err != nil {
+		return ListSessionsResponse{}, err
+	}
+	lister, ok := agent.(agentspi.SessionLister)
+	if !ok {
+		return ListSessionsResponse{}, fmt.Errorf("acp agent %q does not implement session/list", agent.Name())
+	}
+	t, err := agent.Open(ctx, acptransport.Handlers{Permission: permissionHandler(cfg.PermissionMode)})
+	if err != nil {
+		return ListSessionsResponse{}, err
+	}
+	defer func() { _ = t.Close() }()
+
+	setupCtx, cancel := context.WithTimeout(ctx, initializeTimeout)
+	defer cancel()
+	initResult, err := t.Request(setupCtx, "initialize", agent.InitializeParams())
+	if err != nil {
+		return ListSessionsResponse{}, fmt.Errorf("initialize: %w", err)
+	}
+	if !supportsSessionList(initResult) {
+		return ListSessionsResponse{}, fmt.Errorf("acp agent %q does not advertise session/list", agent.Name())
+	}
+	raw, err := t.Request(ctx, "session/list", lister.SessionListParams(canonicalCWD(req.CWD), req.Cursor))
+	if err != nil {
+		return ListSessionsResponse{}, fmt.Errorf("session/list: %w", err)
+	}
+	out, err := parseListSessionsResponse(raw)
+	if err != nil {
+		return ListSessionsResponse{}, err
+	}
+	if out.Sessions == nil {
+		out.Sessions = []SessionInfo{}
+	}
+	return out, nil
+}
+
+// canonicalCWD resolves symlinks in a cwd filter so it matches the canonical
+// session cwd agents store. Verified against the real opencode binary: it
+// canonicalizes session cwds (macOS /tmp -> /private/tmp) and exact-matches the
+// session/list cwd filter, so an uncanonicalized filter silently returns zero
+// sessions. Unresolvable paths are passed through unchanged.
+func canonicalCWD(cwd string) string {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
+		return resolved
+	}
+	return cwd
+}
+
+func supportsSessionList(raw json.RawMessage) bool {
+	var payload struct {
+		AgentCapabilities struct {
+			SessionCapabilities map[string]json.RawMessage `json:"sessionCapabilities"`
+			ListSessions        json.RawMessage            `json:"listSessions"`
+		} `json:"agentCapabilities"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return false
+	}
+	if _, ok := payload.AgentCapabilities.SessionCapabilities["list"]; ok {
+		return true
+	}
+	return len(payload.AgentCapabilities.ListSessions) > 0
+}
+
+func parseListSessionsResponse(raw json.RawMessage) (ListSessionsResponse, error) {
+	var payload struct {
+		Sessions []struct {
+			SessionID string          `json:"sessionId"`
+			CWD       string          `json:"cwd"`
+			Title     string          `json:"title"`
+			UpdatedAt string          `json:"updatedAt"`
+			Meta      json.RawMessage `json:"_meta"`
+		} `json:"sessions"`
+		NextCursor string `json:"nextCursor"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ListSessionsResponse{}, fmt.Errorf("decode session/list response: %w", err)
+	}
+	out := ListSessionsResponse{NextCursor: strings.TrimSpace(payload.NextCursor)}
+	out.Sessions = make([]SessionInfo, 0, len(payload.Sessions))
+	for _, item := range payload.Sessions {
+		sessionID := strings.TrimSpace(item.SessionID)
+		cwd := strings.TrimSpace(item.CWD)
+		if sessionID == "" || cwd == "" {
+			return ListSessionsResponse{}, fmt.Errorf("session/list returned a session without sessionId or cwd")
+		}
+		info := SessionInfo{
+			SessionID: sessionID,
+			CWD:       cwd,
+			Title:     item.Title,
+			Meta:      item.Meta,
+		}
+		if ts := strings.TrimSpace(item.UpdatedAt); ts != "" {
+			updatedAt, err := time.Parse(time.RFC3339, ts)
+			if err != nil {
+				return ListSessionsResponse{}, fmt.Errorf("session/list returned invalid updatedAt for %q: %w", sessionID, err)
+			}
+			info.UpdatedAt = &updatedAt
+		}
+		out.Sessions = append(out.Sessions, info)
+	}
+	return out, nil
 }
 
 // applyConfigOverrides replays config options via session/set_config_option
@@ -120,6 +351,14 @@ func (i *instance) applySessionModel(ctx context.Context) error {
 // after the prompt result, for agents that signal completion out of band.
 const terminalDrainTimeout = 2 * time.Second
 
+// postResultIdleGrace is how long the post-result drain waits for further
+// updates before concluding the turn, for agents without a terminal-update
+// signal. The real opencode binary races the session/prompt response against
+// the final agent_message_chunk updates (observed live: the reply chunks can
+// arrive after the result), so returning on the result with only a buffered
+// drain drops the reply tail. It is a var so tests can shorten it.
+var postResultIdleGrace = 250 * time.Millisecond
+
 // initializeTimeout bounds the setup handshake (initialize + session/new|load +
 // model selection). It is a var so tests can shorten it.
 var initializeTimeout = 30 * time.Second
@@ -128,6 +367,17 @@ func (i *instance) prompt(ctx context.Context, req TurnRequest, emit EventSink) 
 	if emit != nil && i.sessionID != "" {
 		if err := emit(TurnEvent{Event: "session", SessionID: i.sessionID}); err != nil {
 			return "", err
+		}
+	}
+	// Replay the cached session state (config options, slash commands, title,
+	// mode, usage) so a client joining a pooled instance sees the current state
+	// even though the originating updates were delivered during an earlier turn
+	// or during setup.
+	if emit != nil {
+		for _, ev := range i.meta.turnStartEvents() {
+			if err := emit(ev); err != nil {
+				return "", err
+			}
 		}
 	}
 	// Per-turn config overrides apply to the (shared) session before the prompt.
@@ -162,6 +412,7 @@ func (i *instance) prompt(ctx context.Context, req TurnRequest, emit EventSink) 
 	stopReason := "end_turn"
 	resultReceived := false
 	var drainTimer <-chan time.Time
+	var idleTimer <-chan time.Time
 
 	for {
 		select {
@@ -176,18 +427,17 @@ func (i *instance) prompt(ctx context.Context, req TurnRequest, emit EventSink) 
 				stopReason = res.stopReason
 			}
 			resultReceived = true
-			// Per ACP, session/update notifications for a turn precede its
-			// session/prompt result, so anything buffered now belongs to this
-			// turn. Drain it before returning so the tail of the response is
-			// never dropped by the select racing the result against updates.
-			if !hasTerminal {
-				if err := drainBuffered(updates, emitUpdate); err != nil {
-					i.cancel()
-					return "cancelled", err
-				}
-				return stopReason, nil
-			}
+			// The turn's updates are expected to precede the session/prompt
+			// result, but agents race the two in practice (observed live: the
+			// real opencode binary can deliver the final agent_message_chunk
+			// updates after the result). Keep draining until a terminal update
+			// (TerminalUpdateDetector agents) or until the stream has been
+			// quiet for a short grace period, capped by terminalDrainTimeout,
+			// so the tail of the response is never dropped.
 			drainTimer = time.After(terminalDrainTimeout)
+			if !hasTerminal {
+				idleTimer = time.After(postResultIdleGrace)
+			}
 		case msg, ok := <-updates:
 			if !ok {
 				return stopReason, nil
@@ -196,9 +446,16 @@ func (i *instance) prompt(ctx context.Context, req TurnRequest, emit EventSink) 
 				i.cancel()
 				return "cancelled", err
 			}
-			if resultReceived && hasTerminal && terminalDetector.IsTerminalUpdate(msg.Params) {
-				return stopReason, nil
+			if resultReceived {
+				if hasTerminal && terminalDetector.IsTerminalUpdate(msg.Params) {
+					return stopReason, nil
+				}
+				if !hasTerminal {
+					idleTimer = time.After(postResultIdleGrace)
+				}
 			}
+		case <-idleTimer:
+			return stopReason, nil
 		case <-drainTimer:
 			return stopReason, nil
 		}
@@ -248,6 +505,10 @@ func (i *instance) cancel() {
 func (i *instance) close() error {
 	if i == nil || i.t == nil {
 		return nil
+	}
+	// End the metadata subscription first so its consumer goroutine exits.
+	if i.metaUnsub != nil {
+		i.metaUnsub()
 	}
 	return i.t.Close()
 }

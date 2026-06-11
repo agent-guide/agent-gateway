@@ -229,9 +229,13 @@ Scope:
 - runtime shape: one stdio JSON-RPC driver plus thin agent adapters registered through `pkg/acp/agentspi`; `session/update` parsing lives in `pkg/acp/runtime/acpupdate`
 - process shapes: `opencode` uses fixed `opencode acp --cwd <cwd>`; `codex` uses fixed external ACP adapter binary `codex-acp` by default
 - model selection and `config_overrides` go through `session/set_config_option` (ACP has no `session/set_model`); opencode model selection sets its `model` config option
-- pool lifecycle: idle janitor (`IdleTTL`), dead-instance eviction, `fresh_session`, setup-handshake timeout, `PATH` preflight, stderr capture, and `CloseScope`/`CloseThread`
+- `session/list` is exposed as `GET /admin/acp/services/{id}/sessions`, checks the initialized ACP capability before calling the method, supports optional `cwd` and `cursor` query parameters, and symlink-canonicalizes the `cwd` filter (agents store canonical session cwds and exact-match the filter)
+- transcript replay is exposed as `GET /admin/acp/services/{id}/sessions/{session_id}/transcript`: a transient connection checks the `loadSession` capability, replays the session via `session/load`, and returns coalesced `{role, text}` messages; `agentspi.TranscriptLoader` is the agent-specific override seam
+- each pooled instance caches the latest session metadata (config options, slash commands, session info, mode, usage) from a lifetime updates subscription, replays it as snapshot events at every turn start, and exposes it through `GET /admin/acp/runtime`
+- pool lifecycle: idle janitor (`IdleTTL`), dead-instance eviction, `fresh_session`, setup-handshake timeout, `PATH` preflight, stderr capture, `CloseScope`/`CloseThread`, and scope rebind (a session-addressed turn adopts the thread's live instance bound to that session instead of spawning a second process)
 - do not reintroduce a `model`/`modelId` field on `session/new`/`session/prompt`, and do not answer `session/request_permission` with a flat `approved`/`declined` outcome — both are non-conformant with the ACP v1 schema
-- deferred: interactive permission workflow, `session/list`, transcript replay, codex stable-session rebinding, crash retry, and the codex app-server bridge (v2)
+- the prompt loop keeps draining after the session/prompt result until the update stream is quiet for a short grace period — the real opencode binary can deliver the final `agent_message_chunk` updates after the result, so a buffered-only drain drops the reply tail
+- deferred: interactive permission workflow, codex stable-session id resolution, crash retry, and the codex app-server bridge (v2)
 
 ### `pkg/gateway/virtualkey/`
 

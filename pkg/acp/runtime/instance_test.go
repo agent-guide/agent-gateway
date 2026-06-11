@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/acp/agentspi"
 	"github.com/agent-guide/agent-gateway/pkg/acp/runtime/acpupdate"
@@ -150,6 +151,49 @@ func TestPromptParsesStopReasonAndDrainsBufferedUpdates(t *testing.T) {
 	}
 	if got := strings.Join(deltas, ""); got != "hello world" {
 		t.Fatalf("emitted deltas = %q, want %q (updates were dropped)", got, "hello world")
+	}
+}
+
+// TestPromptDrainsUpdatesArrivingAfterResult reproduces the live opencode
+// race: the session/prompt result is delivered before the final
+// agent_message_chunk updates. The post-result idle-grace drain must still
+// emit them.
+func TestPromptDrainsUpdatesArrivingAfterResult(t *testing.T) {
+	prevGrace := postResultIdleGrace
+	postResultIdleGrace = 150 * time.Millisecond
+	defer func() { postResultIdleGrace = prevGrace }()
+
+	updates := make(chan acptransport.Message, 8)
+	tr := &scriptedTransport{
+		promptResult: json.RawMessage(`{"stopReason":"end_turn"}`),
+		updates:      updates,
+	}
+	inst := &instance{agent: stubAgent{}, t: tr, sessionID: "s1"}
+
+	go func() {
+		// Arrive after the prompt result has already been returned.
+		time.Sleep(40 * time.Millisecond)
+		updates <- deltaMessage("late ")
+		time.Sleep(40 * time.Millisecond)
+		updates <- deltaMessage("tail")
+	}()
+
+	var deltas []string
+	emit := func(ev TurnEvent) error {
+		if ev.Event == "delta" {
+			deltas = append(deltas, ev.Text)
+		}
+		return nil
+	}
+	stop, err := inst.prompt(context.Background(), TurnRequest{Input: "hi"}, emit)
+	if err != nil {
+		t.Fatalf("prompt returned error: %v", err)
+	}
+	if stop != "end_turn" {
+		t.Fatalf("stop reason = %q, want end_turn", stop)
+	}
+	if got := strings.Join(deltas, ""); got != "late tail" {
+		t.Fatalf("emitted deltas = %q, want %q (post-result updates were dropped)", got, "late tail")
 	}
 }
 
@@ -306,6 +350,275 @@ func TestPromptAppliesPerTurnConfigOverrides(t *testing.T) {
 	got := tr.recorded("session/set_config_option")
 	if len(got) != 1 || paramField(t, got[0].params, "configId") != "mode" {
 		t.Fatalf("expected one set_config_option for mode, got %+v", got)
+	}
+}
+
+type sessionListAgent struct {
+	stubAgent
+	cwd string
+}
+
+func (a sessionListAgent) Name() string { return "session-list" }
+
+func (a sessionListAgent) Open(context.Context, acptransport.Handlers) (acptransport.Transport, error) {
+	tr := &sessionListTransport{requests: []recordedRequest{}}
+	lastSessionListTransport = tr
+	return tr, nil
+}
+
+func (a sessionListAgent) SessionListParams(cwd, cursor string) map[string]any {
+	params := map[string]any{}
+	if cwd != "" {
+		params["cwd"] = cwd
+	}
+	if cursor != "" {
+		params["cursor"] = cursor
+	}
+	return params
+}
+
+type sessionListTransport struct {
+	mu       sync.Mutex
+	requests []recordedRequest
+}
+
+var lastSessionListTransport *sessionListTransport
+
+func (s *sessionListTransport) Request(_ context.Context, method string, params any) (json.RawMessage, error) {
+	s.mu.Lock()
+	s.requests = append(s.requests, recordedRequest{method: method, params: params})
+	s.mu.Unlock()
+	switch method {
+	case "initialize":
+		return json.RawMessage(`{"agentCapabilities":{"sessionCapabilities":{"list":{}}}}`), nil
+	case "session/list":
+		return json.RawMessage(`{"sessions":[{"sessionId":"s1","cwd":"/tmp/project","title":"Fix ACP","updatedAt":"2026-06-09T10:11:12Z","_meta":{"turns":3}}],"nextCursor":"next"}`), nil
+	default:
+		return json.RawMessage(`{}`), nil
+	}
+}
+
+func (s *sessionListTransport) recorded(method string) []recordedRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []recordedRequest
+	for _, r := range s.requests {
+		if r.method == method {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func (s *sessionListTransport) Notify(string, any) error { return nil }
+func (s *sessionListTransport) Updates(int) (<-chan acptransport.Message, func()) {
+	return make(chan acptransport.Message), func() {}
+}
+func (s *sessionListTransport) Alive() bool  { return true }
+func (s *sessionListTransport) Close() error { return nil }
+
+func init() {
+	agentspi.Register("session-list", func(req agentspi.OpenRequest) (agentspi.Agent, error) {
+		return sessionListAgent{cwd: req.CWD}, nil
+	})
+	agentspi.Register("session-list-missing-cap", func(agentspi.OpenRequest) (agentspi.Agent, error) {
+		return missingSessionListCapabilityAgent{}, nil
+	})
+	agentspi.Register("session-list-no-spi", func(agentspi.OpenRequest) (agentspi.Agent, error) {
+		return stubAgent{}, nil
+	})
+}
+
+type missingSessionListCapabilityAgent struct{ sessionListAgent }
+
+func (missingSessionListCapabilityAgent) Name() string { return "session-list-missing-cap" }
+
+func (missingSessionListCapabilityAgent) Open(context.Context, acptransport.Handlers) (acptransport.Transport, error) {
+	return &missingSessionListCapabilityTransport{}, nil
+}
+
+type missingSessionListCapabilityTransport struct{ sessionListTransport }
+
+func (s *missingSessionListCapabilityTransport) Request(_ context.Context, method string, params any) (json.RawMessage, error) {
+	if method == "initialize" {
+		return json.RawMessage(`{"agentCapabilities":{"sessionCapabilities":{}}}`), nil
+	}
+	return s.sessionListTransport.Request(context.Background(), method, params)
+}
+
+func TestListAgentSessionsCallsSessionList(t *testing.T) {
+	result, err := listAgentSessions(context.Background(), acpservice.ServiceConfig{
+		AgentType: "session-list",
+		CWD:       "/tmp/project",
+	}, ListSessionsRequest{CWD: "/tmp/project", Cursor: "cur"})
+	if err != nil {
+		t.Fatalf("listAgentSessions: %v", err)
+	}
+	if result.NextCursor != "next" {
+		t.Fatalf("next cursor = %q, want next", result.NextCursor)
+	}
+	if len(result.Sessions) != 1 {
+		t.Fatalf("sessions = %d, want 1", len(result.Sessions))
+	}
+	got := result.Sessions[0]
+	if got.SessionID != "s1" || got.CWD != "/tmp/project" || got.Title != "Fix ACP" {
+		t.Fatalf("unexpected session info: %+v", got)
+	}
+	if got.UpdatedAt == nil || got.UpdatedAt.Format(time.RFC3339) != "2026-06-09T10:11:12Z" {
+		t.Fatalf("updatedAt = %v, want parsed timestamp", got.UpdatedAt)
+	}
+}
+
+func TestListAgentSessionsOmitsCWDFilterWhenAbsent(t *testing.T) {
+	_, err := listAgentSessions(context.Background(), acpservice.ServiceConfig{
+		AgentType: "session-list",
+		CWD:       "/tmp/project",
+	}, ListSessionsRequest{Cursor: "cur"})
+	if err != nil {
+		t.Fatalf("listAgentSessions: %v", err)
+	}
+	got := lastSessionListTransport.recorded("session/list")
+	if len(got) != 1 {
+		t.Fatalf("session/list calls = %d, want 1", len(got))
+	}
+	params, ok := got[0].params.(map[string]any)
+	if !ok {
+		t.Fatalf("session/list params are %T, want map", got[0].params)
+	}
+	if _, exists := params["cwd"]; exists {
+		t.Fatalf("session/list unexpectedly included cwd filter: %+v", params)
+	}
+	if params["cursor"] != "cur" {
+		t.Fatalf("cursor = %v, want cur", params["cursor"])
+	}
+}
+
+func TestListAgentSessionsRequiresAdvertisedCapability(t *testing.T) {
+	_, err := listAgentSessions(context.Background(), acpservice.ServiceConfig{
+		AgentType: "session-list-missing-cap",
+		CWD:       "/tmp/project",
+	}, ListSessionsRequest{})
+	if err == nil || !strings.Contains(err.Error(), "does not advertise session/list") {
+		t.Fatalf("error = %v, want missing capability error", err)
+	}
+}
+
+func TestListAgentSessionsRequiresSPI(t *testing.T) {
+	_, err := listAgentSessions(context.Background(), acpservice.ServiceConfig{
+		AgentType: "session-list-no-spi",
+		CWD:       "/tmp/project",
+	}, ListSessionsRequest{})
+	if err == nil || !strings.Contains(err.Error(), "does not implement session/list") {
+		t.Fatalf("error = %v, want missing SPI error", err)
+	}
+}
+
+func structuredMessage(sessionUpdate string, fields map[string]any) acptransport.Message {
+	update := map[string]any{"sessionUpdate": sessionUpdate}
+	for k, v := range fields {
+		update[k] = v
+	}
+	params, _ := json.Marshal(map[string]any{"update": update})
+	return acptransport.Message{Method: "session/update", Params: params}
+}
+
+func TestSessionMetaCacheStoresAndReplaysLatestState(t *testing.T) {
+	inst := &instance{agent: stubAgent{}, sessionID: "s1"}
+	for _, msg := range []acptransport.Message{
+		structuredMessage("available_commands_update", map[string]any{"availableCommands": []any{map[string]any{"name": "init"}}}),
+		structuredMessage("usage_update", map[string]any{"used": float64(10)}),
+		structuredMessage("usage_update", map[string]any{"used": float64(20)}),
+		structuredMessage("session_info_update", map[string]any{"title": "Fix ACP"}),
+	} {
+		for _, ev := range acpupdate.Parse(msg.Params) {
+			inst.meta.store(ev.Kind, ev.Data)
+		}
+	}
+
+	snap := inst.meta.snapshot()
+	if len(snap.AvailableCommands) == 0 || len(snap.SessionInfo) == 0 {
+		t.Fatalf("metadata not cached: %+v", snap)
+	}
+	var usage struct {
+		Used int `json:"used"`
+	}
+	if err := json.Unmarshal(snap.Usage, &usage); err != nil || usage.Used != 20 {
+		t.Fatalf("usage snapshot = %s, want the latest update (used=20)", snap.Usage)
+	}
+
+	events := inst.meta.turnStartEvents()
+	if len(events) != 3 {
+		t.Fatalf("turn-start events = %d, want 3 (commands, session_info, usage)", len(events))
+	}
+	order := make([]string, 0, len(events))
+	for _, ev := range events {
+		if len(ev.Data) == 0 {
+			t.Fatalf("turn-start event %q carried no data", ev.Event)
+		}
+		order = append(order, ev.Event)
+	}
+	want := []string{"available_commands", "session_info", "usage"}
+	for idx := range want {
+		if order[idx] != want[idx] {
+			t.Fatalf("turn-start event order = %v, want %v", order, want)
+		}
+	}
+}
+
+func TestPromptReplaysCachedMetadataAtTurnStart(t *testing.T) {
+	tr := &scriptedTransport{
+		promptResult: json.RawMessage(`{"stopReason":"end_turn"}`),
+		updates:      make(chan acptransport.Message, 1),
+	}
+	inst := &instance{agent: stubAgent{}, t: tr, sessionID: "s1"}
+	msg := structuredMessage("available_commands_update", map[string]any{"availableCommands": []any{map[string]any{"name": "compact"}}})
+	for _, ev := range acpupdate.Parse(msg.Params) {
+		inst.meta.store(ev.Kind, ev.Data)
+	}
+
+	var events []string
+	emit := func(ev TurnEvent) error {
+		events = append(events, ev.Event)
+		return nil
+	}
+	if _, err := inst.prompt(context.Background(), TurnRequest{Input: "hi"}, emit); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if len(events) < 2 || events[0] != "session" || events[1] != "available_commands" {
+		t.Fatalf("events = %v, want session then cached available_commands", events)
+	}
+}
+
+func TestCacheNewSessionConfigOptionsSynthesizesUpdateShape(t *testing.T) {
+	inst := &instance{agent: stubAgent{}}
+	inst.cacheNewSessionConfigOptions(json.RawMessage(`{"sessionId":"s1","configOptions":[{"id":"model","currentValue":"opencode/big-pickle"}]}`))
+
+	snap := inst.meta.snapshot()
+	if len(snap.ConfigOptions) == 0 {
+		t.Fatal("config options from session/new were not cached")
+	}
+	var payload struct {
+		SessionUpdate string `json:"sessionUpdate"`
+		ConfigOptions []struct {
+			ID           string `json:"id"`
+			CurrentValue string `json:"currentValue"`
+		} `json:"configOptions"`
+	}
+	if err := json.Unmarshal(snap.ConfigOptions, &payload); err != nil {
+		t.Fatalf("decode cached config options: %v", err)
+	}
+	if payload.SessionUpdate != "config_option_update" {
+		t.Fatalf("sessionUpdate = %q, want config_option_update", payload.SessionUpdate)
+	}
+	if len(payload.ConfigOptions) != 1 || payload.ConfigOptions[0].ID != "model" || payload.ConfigOptions[0].CurrentValue != "opencode/big-pickle" {
+		t.Fatalf("unexpected cached config options: %+v", payload.ConfigOptions)
+	}
+
+	// A session/new result without config options must not synthesize an entry.
+	empty := &instance{agent: stubAgent{}}
+	empty.cacheNewSessionConfigOptions(json.RawMessage(`{"sessionId":"s2"}`))
+	if snap := empty.meta.snapshot(); len(snap.ConfigOptions) != 0 {
+		t.Fatalf("config options cached from a result without any: %s", snap.ConfigOptions)
 	}
 }
 
