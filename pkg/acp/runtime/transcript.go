@@ -59,13 +59,26 @@ func loadAgentTranscript(ctx context.Context, cfg acpservice.ServiceConfig, req 
 		return TranscriptResponse{}, fmt.Errorf("acp agent %q does not advertise session/load", agent.Name())
 	}
 
+	// Map the host-visible session id to the backend load id for agents that
+	// keep the two distinct (SessionLoadResolver).
+	loadID := sessionID
+	if resolver, ok := agent.(agentspi.SessionLoadResolver); ok {
+		resolvedLoadID, _, err := resolver.ResolveLoadSessionID(ctx, t, openCWD, sessionID)
+		if err != nil {
+			return TranscriptResponse{}, fmt.Errorf("resolve load session id: %w", err)
+		}
+		if strings.TrimSpace(resolvedLoadID) != "" {
+			loadID = strings.TrimSpace(resolvedLoadID)
+		}
+	}
+
 	// Subscribe before sending session/load so no replayed update is missed.
 	updates, unsubscribe := t.Updates(256)
 	defer unsubscribe()
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := t.Request(ctx, "session/load", agent.SessionLoadParams(sessionID))
+		_, err := t.Request(ctx, "session/load", agent.SessionLoadParams(loadID))
 		done <- err
 	}()
 

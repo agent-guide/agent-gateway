@@ -296,7 +296,7 @@ Implemented and verified against the real `opencode acp` and `codex-acp` binarie
 - spec-correct, fail-closed permission handling (nested ACP outcome, off-loop with a timeout) with three modes: `deny`, `auto_approve`, and `interactive` — the latter surfaces agent permission requests as `permission` SSE events and resolves them via `POST /<acp-route>/permission` or the admin escape hatch;
 - runtime hardening: `PATH` preflight, stderr capture in errors, a setup-handshake timeout, an idle janitor, dead-instance eviction, `fresh_session`, pool scope rebind (a session-addressed turn reuses the thread's live instance bound to that session instead of spawning a second process), and `DELETE /admin/acp/runtime/threads/{service_id}/{thread_id}` for operator teardown.
 
-Deferred (see [docs/design/acp-native-runtime.md](docs/design/acp-native-runtime.md)): codex stable-session id resolution, crash retry, and the in-repo codex app-server bridge (codex v2).
+Deferred (see [docs/design/acp-native-runtime.md](docs/design/acp-native-runtime.md)): crash retry and the in-repo codex app-server bridge (codex v2). Codex stable-session id resolution turned out to be a non-gap for the v1 adapter path — the real `codex-acp` raw session ids are verified stable — and the driver seams a v2 bridge would need (`StableSessionResolver`/`SessionLoadResolver`) are wired.
 
 ## Runtimes
 

@@ -236,7 +236,8 @@ Scope:
 - pool lifecycle: idle janitor (`IdleTTL`), dead-instance eviction, `fresh_session`, setup-handshake timeout, `PATH` preflight, stderr capture, `CloseScope`/`CloseThread`, and scope rebind (a session-addressed turn adopts the thread's live instance bound to that session instead of spawning a second process)
 - do not reintroduce a `model`/`modelId` field on `session/new`/`session/prompt`, and do not answer `session/request_permission` with a flat `approved`/`declined` outcome — both are non-conformant with the ACP v1 schema
 - the prompt loop keeps draining after the session/prompt result until the update stream is quiet for a short grace period — the real opencode binary can deliver the final `agent_message_chunk` updates after the result, so a buffered-only drain drops the reply tail
-- deferred: codex stable-session id resolution, crash retry, and the codex app-server bridge (v2)
+- session ids: the driver splits the raw protocol id (wire calls) from the host-bound id (session events, scope adoption) with `StableSessionResolver`/`SessionLoadResolver` seams for agents whose ids differ; no built-in agent implements them — the real `codex-acp` adapter's raw ids are verified stable (listable and loadable from a fresh process after the first turn)
+- deferred: crash retry and the codex app-server bridge (v2; its stable-id/load-id driver seams are already wired)
 
 ### `pkg/gateway/virtualkey/`
 

@@ -44,6 +44,26 @@ type SessionLister interface {
 	SessionListParams(cwd, cursor string) map[string]any
 }
 
+// StableSessionResolver maps the raw session/new protocol id to the agent's
+// stable, host-visible session id (e.g. a thick codex bridge resolving the
+// persisted thread id). Returning "" without an error means the stable id is
+// not resolvable yet (typically before the first prompt persists the
+// session); the driver then re-resolves after each prompt and emits a late
+// session event once the stable id settles. The raw protocol id keeps being
+// used on the wire either way. Verified live: the thin codex-acp adapter does
+// NOT need this — its raw session ids are already stable (listable and
+// loadable from a fresh process after the first turn).
+type StableSessionResolver interface {
+	ResolveBoundSessionID(ctx context.Context, t transport.Transport, cwd, rawSessionID string) (string, error)
+}
+
+// SessionLoadResolver maps a host-visible session id to the backend id that
+// session/load accepts, plus the host-bound id the loaded session should be
+// known by (empty means the requested id).
+type SessionLoadResolver interface {
+	ResolveLoadSessionID(ctx context.Context, t transport.Transport, cwd, requestedSessionID string) (loadSessionID, boundSessionID string, err error)
+}
+
 // TranscriptEntry is one coalesced transcript message returned by a
 // TranscriptLoader.
 type TranscriptEntry struct {

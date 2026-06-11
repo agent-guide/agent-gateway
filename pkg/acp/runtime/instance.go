@@ -17,12 +17,21 @@ import (
 )
 
 type instance struct {
-	cfg       acpservice.ServiceConfig
-	cwd       string
-	model     string
-	sessionID string
-	agent     agentspi.Agent
-	t         acptransport.Transport
+	cfg   acpservice.ServiceConfig
+	cwd   string
+	model string
+	agent agentspi.Agent
+	t     acptransport.Transport
+
+	// sessionID is the host-bound id (session events, scope adoption,
+	// permission events); rawSessionID is the protocol id used on the wire
+	// (session/prompt, session/cancel, session/set_config_option). They differ
+	// only for agents implementing StableSessionResolver/SessionLoadResolver;
+	// stablePending marks a deferred stable-id resolution that is re-attempted
+	// after each prompt.
+	sessionID     string
+	rawSessionID  string
+	stablePending bool
 
 	meta      sessionMetaCache
 	metaUnsub func()
@@ -172,24 +181,92 @@ func (i *instance) initialize(ctx context.Context, fresh bool) error {
 		return fmt.Errorf("initialize: %w", err)
 	}
 	if i.sessionID != "" && !fresh {
-		if _, err := i.t.Request(ctx, "session/load", i.agent.SessionLoadParams(i.sessionID)); err != nil {
+		loadID := i.sessionID
+		boundID := i.sessionID
+		if resolver, ok := i.agent.(agentspi.SessionLoadResolver); ok {
+			resolvedLoadID, resolvedBoundID, err := resolver.ResolveLoadSessionID(ctx, i.t, i.cwd, i.sessionID)
+			if err != nil {
+				return fmt.Errorf("resolve load session id: %w", err)
+			}
+			if strings.TrimSpace(resolvedLoadID) != "" {
+				loadID = strings.TrimSpace(resolvedLoadID)
+			}
+			if strings.TrimSpace(resolvedBoundID) != "" {
+				boundID = strings.TrimSpace(resolvedBoundID)
+			}
+		}
+		if _, err := i.t.Request(ctx, "session/load", i.agent.SessionLoadParams(loadID)); err != nil {
 			return fmt.Errorf("session/load: %w", err)
 		}
+		i.rawSessionID = loadID
+		i.sessionID = boundID
 		return nil
 	}
 	result, err := i.t.Request(ctx, "session/new", i.agent.SessionNewParams(i.model))
 	if err != nil {
 		return fmt.Errorf("session/new: %w", err)
 	}
-	i.sessionID = parseSessionID(result)
-	if i.sessionID == "" {
+	raw := parseSessionID(result)
+	if raw == "" {
 		return fmt.Errorf("session/new returned empty sessionId")
+	}
+	i.rawSessionID = raw
+	i.sessionID = raw
+	if resolver, ok := i.agent.(agentspi.StableSessionResolver); ok {
+		bound, err := resolver.ResolveBoundSessionID(ctx, i.t, i.cwd, raw)
+		if err != nil {
+			return fmt.Errorf("resolve bound session id: %w", err)
+		}
+		if bound = strings.TrimSpace(bound); bound != "" {
+			i.sessionID = bound
+		} else {
+			// Not resolvable yet (the session settles with the first prompt);
+			// re-resolve after each prompt and emit a late session event.
+			i.stablePending = true
+		}
 	}
 	i.cacheNewSessionConfigOptions(result)
 	if err := i.applySessionModel(ctx); err != nil {
 		return err
 	}
 	return i.applyConfigOverrides(ctx, i.cfg.ConfigOverrides)
+}
+
+// protocolSessionID is the id used on the wire for the live session. It falls
+// back to the host-bound id for instances constructed without a raw id.
+func (i *instance) protocolSessionID() string {
+	if i.rawSessionID != "" {
+		return i.rawSessionID
+	}
+	return i.sessionID
+}
+
+// resolveStableSessionID re-attempts a deferred stable-id resolution after a
+// completed prompt. On success it rebinds the host-visible id and emits a late
+// session event so the client addresses follow-up turns by the stable id; on
+// error or an empty id it stays pending for the next turn.
+func (i *instance) resolveStableSessionID(ctx context.Context, emit EventSink) {
+	if !i.stablePending {
+		return
+	}
+	resolver, ok := i.agent.(agentspi.StableSessionResolver)
+	if !ok {
+		i.stablePending = false
+		return
+	}
+	bound, err := resolver.ResolveBoundSessionID(ctx, i.t, i.cwd, i.rawSessionID)
+	if err != nil || strings.TrimSpace(bound) == "" {
+		return
+	}
+	i.stablePending = false
+	bound = strings.TrimSpace(bound)
+	if bound == i.sessionID {
+		return
+	}
+	i.sessionID = bound
+	if emit != nil {
+		_ = emit(TurnEvent{Event: "session", SessionID: bound})
+	}
 }
 
 // cacheNewSessionConfigOptions seeds the config-options cache from the
@@ -338,7 +415,7 @@ func (i *instance) applyConfigOverrides(ctx context.Context, overrides map[strin
 			continue
 		}
 		if _, err := i.t.Request(ctx, "session/set_config_option", map[string]any{
-			"sessionId": i.sessionID,
+			"sessionId": i.protocolSessionID(),
 			"configId":  id,
 			"value":     value,
 		}); err != nil {
@@ -361,7 +438,7 @@ func (i *instance) applySessionModel(ctx context.Context) error {
 	if !ok {
 		return nil
 	}
-	if _, err := selector.SelectSessionModel(ctx, i.t, i.sessionID, i.model, nil); err != nil {
+	if _, err := selector.SelectSessionModel(ctx, i.t, i.protocolSessionID(), i.model, nil); err != nil {
 		return fmt.Errorf("select session model: %w", err)
 	}
 	return nil
@@ -415,7 +492,7 @@ func (i *instance) prompt(ctx context.Context, req TurnRequest, emit EventSink) 
 
 	done := make(chan promptResult, 1)
 	go func() {
-		raw, err := i.t.Request(ctx, "session/prompt", i.agent.PromptParams(i.sessionID, req.Input, firstNonEmpty(strings.TrimSpace(req.Model), i.model)))
+		raw, err := i.t.Request(ctx, "session/prompt", i.agent.PromptParams(i.protocolSessionID(), req.Input, firstNonEmpty(strings.TrimSpace(req.Model), i.model)))
 		done <- promptResult{stopReason: parseStopReason(raw), err: err}
 	}()
 
@@ -439,6 +516,14 @@ func (i *instance) prompt(ctx context.Context, req TurnRequest, emit EventSink) 
 	resultReceived := false
 	var drainTimer <-chan time.Time
 	var idleTimer <-chan time.Time
+
+	// finish completes a successful turn: re-attempt a deferred stable-id
+	// resolution (StableSessionResolver) so the client learns the settled id
+	// via a late session event before the done event.
+	finish := func() (string, error) {
+		i.resolveStableSessionID(ctx, emit)
+		return stopReason, nil
+	}
 
 	for {
 		select {
@@ -466,7 +551,7 @@ func (i *instance) prompt(ctx context.Context, req TurnRequest, emit EventSink) 
 			}
 		case msg, ok := <-updates:
 			if !ok {
-				return stopReason, nil
+				return finish()
 			}
 			if err := emitUpdate(msg); err != nil {
 				i.cancel()
@@ -474,16 +559,16 @@ func (i *instance) prompt(ctx context.Context, req TurnRequest, emit EventSink) 
 			}
 			if resultReceived {
 				if hasTerminal && terminalDetector.IsTerminalUpdate(msg.Params) {
-					return stopReason, nil
+					return finish()
 				}
 				if !hasTerminal {
 					idleTimer = time.After(postResultIdleGrace)
 				}
 			}
 		case <-idleTimer:
-			return stopReason, nil
+			return finish()
 		case <-drainTimer:
-			return stopReason, nil
+			return finish()
 		}
 	}
 }
@@ -522,10 +607,10 @@ func parseStopReason(raw json.RawMessage) string {
 }
 
 func (i *instance) cancel() {
-	if i == nil || i.t == nil || i.sessionID == "" {
+	if i == nil || i.t == nil || i.protocolSessionID() == "" {
 		return
 	}
-	i.agent.Cancel(context.Background(), i.t, i.sessionID)
+	i.agent.Cancel(context.Background(), i.t, i.protocolSessionID())
 }
 
 func (i *instance) close() error {

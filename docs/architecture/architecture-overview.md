@@ -234,7 +234,7 @@ Current status:
   - each pooled instance caches the latest session metadata (config options, slash commands, title, mode, usage) from a lifetime updates subscription; the cache is replayed as snapshot events at every turn start and exposed through the runtime Admin inspection
   - runtime hardening: `PATH` preflight, stderr capture, a setup-handshake timeout, an idle janitor, dead-instance eviction, `fresh_session`, scope rebind (a session-addressed turn adopts the thread's live instance instead of spawning a second process), and `CloseScope`/`CloseThread` teardown
   - permission modes `deny`/`auto_approve`/`interactive`: interactive requests stream as `permission` SSE events and resolve through `POST /<acp-route>/permission` or `POST /admin/acp/runtime/permissions/{request_id}`, failing closed on timeout
-  - verified end to end against the real `opencode acp` and `codex-acp` binaries (deterministic full-lifecycle and interactive-permission integration tests plus gated real-agent handshake, session-lifecycle, and prompt-level real-model smokes); codex stable-session id resolution, crash retry, and the codex app-server bridge (v2) are deferred
+  - verified end to end against the real `opencode acp` and `codex-acp` binaries (deterministic full-lifecycle and interactive-permission integration tests plus gated real-agent handshake, session-lifecycle, and prompt-level real-model smokes); crash retry and the codex app-server bridge (v2) are deferred, and codex stable-session id resolution is a verified non-gap for v1 (the driver seams for v2 are wired)
 - `pkg/llm/memory/`
   - interfaces exist
   - SQLite and Mem0-related code exists
