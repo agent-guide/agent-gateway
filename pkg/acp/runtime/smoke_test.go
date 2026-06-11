@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"strings"
@@ -262,6 +263,87 @@ func TestSmokeOpencodePromptTurn(t *testing.T) {
 		CWD:          cwd,
 		AllowedRoots: []string{cwd},
 	})
+}
+
+// TestSmokeOpencodeInteractivePermission runs a real tool-using turn under
+// permission_mode interactive and answers the agent's permission request the
+// way the dispatcher decision endpoint does. If the agent's own policy does
+// not ask for permission for the prompted action, the test logs that and only
+// verifies the turn completes.
+func TestSmokeOpencodeInteractivePermission(t *testing.T) {
+	requirePromptSmoke(t, "opencode")
+	cwd := t.TempDir()
+	// Project-level opencode config forcing permission prompts for edits and
+	// shell commands, so the agent actually raises session/request_permission.
+	if err := os.WriteFile(cwd+"/opencode.json", []byte(`{"$schema":"https://opencode.ai/config.json","permission":{"edit":"ask","bash":"ask"}}`), 0o644); err != nil {
+		t.Fatalf("write opencode.json: %v", err)
+	}
+	cfg := acpservice.ServiceConfig{
+		ID:             "opencode-perm-smoke",
+		Name:           "opencode",
+		AgentType:      baseacp.AgentTypeOpencode,
+		CWD:            cwd,
+		AllowedRoots:   []string{cwd},
+		PermissionMode: baseacp.PermissionModeInteractive,
+	}
+	cfg.Normalize()
+	m := newTestManager()
+	defer m.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+
+	inst, err := m.resolveInstance(ctx, "smoke-perm", cfg, TurnRequest{ThreadID: "t1", Input: "hi"})
+	if err != nil {
+		t.Fatalf("handshake: %v", err)
+	}
+
+	var permissionEvents int
+	var resolved []string
+	emit := func(ev TurnEvent) error {
+		if ev.Event != "permission" {
+			return nil
+		}
+		permissionEvents++
+		var params struct {
+			Options []struct {
+				OptionID string `json:"optionId"`
+				ID       string `json:"id"`
+				Kind     string `json:"kind"`
+			} `json:"options"`
+		}
+		if err := json.Unmarshal(ev.Data, &params); err != nil {
+			t.Errorf("decode permission params: %v", err)
+			return nil
+		}
+		optionID := ""
+		for _, opt := range params.Options {
+			if strings.Contains(opt.Kind, "allow") {
+				optionID = opt.OptionID
+				if optionID == "" {
+					optionID = opt.ID
+				}
+				break
+			}
+		}
+		if optionID == "" {
+			t.Errorf("no allow option offered: %s", ev.Data)
+			return nil
+		}
+		if err := m.ResolvePermission(PermissionDecision{RequestID: ev.RequestID, Outcome: "selected", OptionID: optionID}); err != nil {
+			t.Errorf("ResolvePermission: %v", err)
+		}
+		resolved = append(resolved, optionID)
+		return nil
+	}
+	stop, err := inst.prompt(ctx, TurnRequest{ThreadID: "t1", Input: "Create a file named hello.txt in the current directory containing exactly the word: hi"}, emit)
+	if err != nil {
+		t.Fatalf("session/prompt: %v", err)
+	}
+	if permissionEvents == 0 {
+		t.Logf("opencode did not request permission for this action (its own policy allowed it); turn completed with stop_reason=%s", stop)
+		return
+	}
+	t.Logf("opencode interactive permission: %d requests resolved with options %v, stop_reason=%s", permissionEvents, resolved, stop)
 }
 
 func TestSmokeCodexPromptTurn(t *testing.T) {

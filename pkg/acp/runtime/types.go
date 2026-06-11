@@ -18,6 +18,7 @@ type TurnRequest struct {
 type TurnEvent struct {
 	Event      string          `json:"-"`
 	SessionID  string          `json:"session_id,omitempty"`
+	RequestID  string          `json:"request_id,omitempty"`
 	Text       string          `json:"text,omitempty"`
 	StopReason string          `json:"stop_reason,omitempty"`
 	Message    string          `json:"message,omitempty"`
@@ -65,6 +66,26 @@ type SessionInfo struct {
 type ListSessionsResponse struct {
 	Sessions   []SessionInfo `json:"sessions"`
 	NextCursor string        `json:"next_cursor,omitempty"`
+}
+
+// PendingPermissionInfo describes one in-flight interactive permission
+// request. Data carries the raw ACP session/request_permission params (tool
+// call context plus the agent's permission options and their exact ids).
+type PendingPermissionInfo struct {
+	RequestID string          `json:"request_id"`
+	ServiceID string          `json:"service_id"`
+	SessionID string          `json:"session_id,omitempty"`
+	CreatedAt time.Time       `json:"created_at"`
+	Data      json.RawMessage `json:"data,omitempty"`
+}
+
+// PermissionDecision is the north-side answer to a pending interactive
+// permission request. Outcome follows the ACP RequestPermissionOutcome
+// discriminators: "selected" (with the chosen option id) or "cancelled".
+type PermissionDecision struct {
+	RequestID string `json:"request_id"`
+	Outcome   string `json:"outcome"`
+	OptionID  string `json:"option_id,omitempty"`
 }
 
 type TranscriptRequest struct {

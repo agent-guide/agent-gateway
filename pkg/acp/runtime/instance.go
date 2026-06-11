@@ -26,6 +26,25 @@ type instance struct {
 
 	meta      sessionMetaCache
 	metaUnsub func()
+
+	// permissions is the manager-level broker for interactive permission
+	// requests; turnEmit is the active turn's event sink (set for the duration
+	// of a prompt so the permission handler can reach the turn client).
+	permissions *permissionBroker
+	emitMu      sync.Mutex
+	turnEmit    EventSink
+}
+
+func (i *instance) setTurnSink(emit EventSink) {
+	i.emitMu.Lock()
+	i.turnEmit = emit
+	i.emitMu.Unlock()
+}
+
+func (i *instance) turnSink() EventSink {
+	i.emitMu.Lock()
+	defer i.emitMu.Unlock()
+	return i.turnEmit
 }
 
 // sessionMetaCache keeps the latest structured session state pushed by the
@@ -98,7 +117,7 @@ func (c *sessionMetaCache) turnStartEvents() []TurnEvent {
 	return events
 }
 
-func newInstance(ctx context.Context, cfg acpservice.ServiceConfig, req TurnRequest) (*instance, error) {
+func newInstance(ctx context.Context, cfg acpservice.ServiceConfig, req TurnRequest, permissions *permissionBroker) (*instance, error) {
 	cwd := strings.TrimSpace(req.CWD)
 	if cwd == "" {
 		cwd = cfg.CWD
@@ -111,11 +130,12 @@ func newInstance(ctx context.Context, cfg acpservice.ServiceConfig, req TurnRequ
 	if err != nil {
 		return nil, err
 	}
-	t, err := agent.Open(ctx, acptransport.Handlers{Permission: permissionHandler(cfg.PermissionMode)})
+	inst := &instance{cfg: cfg, cwd: cwd, model: model, sessionID: strings.TrimSpace(req.SessionID), agent: agent, permissions: permissions}
+	t, err := agent.Open(ctx, acptransport.Handlers{Permission: inst.permissionFunc()})
 	if err != nil {
 		return nil, err
 	}
-	inst := &instance{cfg: cfg, cwd: cwd, model: model, sessionID: strings.TrimSpace(req.SessionID), agent: agent, t: t}
+	inst.t = t
 	// Subscribe for the whole instance lifetime so state pushed outside a turn
 	// is not lost — the real opencode binary pushes available_commands_update
 	// right after session/new, before any prompt.
@@ -364,6 +384,12 @@ var postResultIdleGrace = 250 * time.Millisecond
 var initializeTimeout = 30 * time.Second
 
 func (i *instance) prompt(ctx context.Context, req TurnRequest, emit EventSink) (string, error) {
+	// Serialize sink writes (the interactive permission handler emits from the
+	// transport goroutine) and register the sink for the duration of the turn
+	// so permission requests can reach this turn's client.
+	emit = lockedEventSink(emit)
+	i.setTurnSink(emit)
+	defer i.setTurnSink(nil)
 	if emit != nil && i.sessionID != "" {
 		if err := emit(TurnEvent{Event: "session", SessionID: i.sessionID}); err != nil {
 			return "", err
@@ -546,6 +572,9 @@ func (i *instance) acceptReasoning(params json.RawMessage) bool {
 	return true
 }
 
+// permissionHandler is the configured-decision handler used by transient
+// connections (session/list, transcript replay), which have no turn client to
+// ask: interactive degrades to fail-closed deny there.
 func permissionHandler(mode string) func(context.Context, json.RawMessage) acptransport.PermissionResponse {
 	return func(_ context.Context, params json.RawMessage) acptransport.PermissionResponse {
 		// Fail closed unless the service explicitly opts into auto-approval.
@@ -556,6 +585,61 @@ func permissionHandler(mode string) func(context.Context, json.RawMessage) acptr
 			return acptransport.PermissionResponse{Outcome: acptransport.PermissionOutcomeSelected, SelectedOptionID: id}
 		}
 		return acptransport.PermissionResponse{Outcome: acptransport.PermissionOutcomeCancelled}
+	}
+}
+
+// permissionFunc builds the pooled instance's permission handler. deny and
+// auto_approve are configured decisions; interactive forwards the request to
+// the active turn client as a "permission" SSE event and waits for the
+// decision endpoint to resolve it, failing closed on timeout (the transport's
+// permissionTimeout context), client error, or when no turn is streaming.
+func (i *instance) permissionFunc() func(context.Context, json.RawMessage) acptransport.PermissionResponse {
+	configured := permissionHandler(i.cfg.PermissionMode)
+	if i.cfg.PermissionMode != baseacp.PermissionModeInteractive {
+		return configured
+	}
+	return func(ctx context.Context, params json.RawMessage) acptransport.PermissionResponse {
+		return i.interactivePermission(ctx, params)
+	}
+}
+
+func (i *instance) interactivePermission(ctx context.Context, params json.RawMessage) acptransport.PermissionResponse {
+	cancelled := acptransport.PermissionResponse{Outcome: acptransport.PermissionOutcomeCancelled}
+	emit := i.turnSink()
+	if emit == nil || i.permissions == nil {
+		// No streaming turn client to ask — fail closed.
+		return cancelled
+	}
+	pending, err := i.permissions.create(i.cfg.ID, i.sessionID, params)
+	if err != nil {
+		return cancelled
+	}
+	defer i.permissions.remove(pending.info.RequestID)
+	if err := emit(TurnEvent{Event: "permission", RequestID: pending.info.RequestID, SessionID: i.sessionID, Data: params}); err != nil {
+		return cancelled
+	}
+	select {
+	case resp := <-pending.decision:
+		return resp
+	case <-ctx.Done():
+		// The transport's fail-closed permission timeout (or teardown) fired
+		// before the client answered.
+		return cancelled
+	}
+}
+
+// lockedEventSink serializes writes to a turn's event sink: during an
+// interactive permission wait the permission handler emits from the transport
+// goroutine concurrently with the prompt loop.
+func lockedEventSink(emit EventSink) EventSink {
+	if emit == nil {
+		return nil
+	}
+	var mu sync.Mutex
+	return func(ev TurnEvent) error {
+		mu.Lock()
+		defer mu.Unlock()
+		return emit(ev)
 	}
 }
 

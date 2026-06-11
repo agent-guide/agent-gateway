@@ -2,6 +2,7 @@ package dispatcher
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -34,7 +35,9 @@ func (h *Handler) dispatchACP(w http.ResponseWriter, r *http.Request, next NextH
 	)
 
 	rewritten := RewriteLLMRoutePath(r, route.MatchPolicy.PathPrefix)
-	if rewritten.URL.Path != "/turn" {
+	switch rewritten.URL.Path {
+	case "/turn", "/permission":
+	default:
 		return serveNextOrNotFound(next, w, r)
 	}
 	if rewritten.Method != http.MethodPost {
@@ -44,6 +47,10 @@ func (h *Handler) dispatchACP(w http.ResponseWriter, r *http.Request, next NextH
 	runtimeManager := h.gateway.ACPRuntimeManager()
 	if runtimeManager == nil {
 		return WriteDispatchError(h.logger, string(route.Protocol), route.ID, "", http.StatusServiceUnavailable, w, rewritten, "dispatch acp turn", "acp runtime manager is not configured", fmt.Errorf("acp runtime manager is not configured"))
+	}
+
+	if rewritten.URL.Path == "/permission" {
+		return h.dispatchACPPermission(w, rewritten, runtimeManager)
 	}
 
 	var req acpruntime.TurnRequest
@@ -87,4 +94,20 @@ func (h *Handler) dispatchACP(w http.ResponseWriter, r *http.Request, next NextH
 		return nil
 	}
 	return nil
+}
+
+// dispatchACPPermission answers one pending interactive permission request
+// surfaced to the turn client as a "permission" SSE event.
+func (h *Handler) dispatchACPPermission(w http.ResponseWriter, r *http.Request, runtimeManager *acpruntime.Manager) error {
+	var decision acpruntime.PermissionDecision
+	if err := json.NewDecoder(r.Body).Decode(&decision); err != nil {
+		return httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+	}
+	if err := runtimeManager.ResolvePermission(decision); err != nil {
+		if errors.Is(err, acpruntime.ErrPermissionNotFound) {
+			return httpjson.Error(w, http.StatusNotFound, "permission request not found (already answered or expired)")
+		}
+		return httpjson.Error(w, http.StatusBadRequest, err.Error())
+	}
+	return httpjson.Write(w, http.StatusOK, map[string]string{"status": "resolved"})
 }

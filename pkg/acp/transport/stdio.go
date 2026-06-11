@@ -435,20 +435,25 @@ func autoApprovePermission(params json.RawMessage) PermissionResponse {
 // AllowOptionID returns the id of the permission option that grants access, or
 // "" when none of the offered options is an allow/approve option. It never falls
 // back to an arbitrary option, so callers fail closed when no allow option
-// exists.
+// exists. The ACP v1 PermissionOption id field is "optionId"; the legacy "id"
+// spelling is accepted as a fallback.
 func AllowOptionID(params json.RawMessage) string {
 	var payload struct {
 		Options []struct {
-			ID   string `json:"id"`
-			Kind string `json:"kind"`
-			Name string `json:"name"`
+			OptionID string `json:"optionId"`
+			ID       string `json:"id"`
+			Kind     string `json:"kind"`
+			Name     string `json:"name"`
 		} `json:"options"`
 	}
 	if err := json.Unmarshal(params, &payload); err != nil {
 		return ""
 	}
 	for _, option := range payload.Options {
-		id := strings.TrimSpace(option.ID)
+		id := strings.TrimSpace(option.OptionID)
+		if id == "" {
+			id = strings.TrimSpace(option.ID)
+		}
 		if id == "" {
 			continue
 		}

@@ -118,7 +118,7 @@ func (c ServiceConfig) Validate() error {
 		return err
 	}
 	switch c.PermissionMode {
-	case "", baseacp.PermissionModeDeny, baseacp.PermissionModeAutoApprove:
+	case "", baseacp.PermissionModeDeny, baseacp.PermissionModeAutoApprove, baseacp.PermissionModeInteractive:
 	default:
 		return fmt.Errorf("unsupported permission_mode %q", c.PermissionMode)
 	}

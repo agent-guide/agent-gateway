@@ -224,8 +224,9 @@ Scope:
 
 - supported agent types: `codex`, `opencode`
 - service config store: `acp_services`
-- dispatcher endpoint: `POST /<acp-route>/turn` with SSE events (`session`, `delta`, `reasoning`, `content`, `plan`, `tool_call`, `usage`, `available_commands`, `session_info`, `mode`, `config_options`, `done`, `error`)
-- permission mode defaults to fail-closed `deny`; permission replies use the nested ACP outcome shape, run off the transport read loop, and time out fail-closed
+- dispatcher endpoints: `POST /<acp-route>/turn` with SSE events (`session`, `delta`, `reasoning`, `content`, `plan`, `tool_call`, `usage`, `available_commands`, `session_info`, `mode`, `config_options`, `permission`, `done`, `error`) and `POST /<acp-route>/permission` for interactive permission decisions
+- permission modes are `deny` (default, fail-closed), `auto_approve`, and `interactive`; permission replies use the nested ACP outcome shape, run off the transport read loop, and time out fail-closed
+- `interactive` surfaces `session/request_permission` as a `permission` SSE event (`request_id` + raw ACP params with exact option ids) on the active turn stream and resolves through `POST /<acp-route>/permission` (or the admin escape hatch `POST /admin/acp/runtime/permissions/{request_id}`); no streaming turn client, a decision timeout, or transient connections (session/list, transcript) all fail closed
 - runtime shape: one stdio JSON-RPC driver plus thin agent adapters registered through `pkg/acp/agentspi`; `session/update` parsing lives in `pkg/acp/runtime/acpupdate`
 - process shapes: `opencode` uses fixed `opencode acp --cwd <cwd>`; `codex` uses fixed external ACP adapter binary `codex-acp` by default
 - model selection and `config_overrides` go through `session/set_config_option` (ACP has no `session/set_model`); opencode model selection sets its `model` config option
@@ -235,7 +236,7 @@ Scope:
 - pool lifecycle: idle janitor (`IdleTTL`), dead-instance eviction, `fresh_session`, setup-handshake timeout, `PATH` preflight, stderr capture, `CloseScope`/`CloseThread`, and scope rebind (a session-addressed turn adopts the thread's live instance bound to that session instead of spawning a second process)
 - do not reintroduce a `model`/`modelId` field on `session/new`/`session/prompt`, and do not answer `session/request_permission` with a flat `approved`/`declined` outcome — both are non-conformant with the ACP v1 schema
 - the prompt loop keeps draining after the session/prompt result until the update stream is quiet for a short grace period — the real opencode binary can deliver the final `agent_message_chunk` updates after the result, so a buffered-only drain drops the reply tail
-- deferred: interactive permission workflow, codex stable-session id resolution, crash retry, and the codex app-server bridge (v2)
+- deferred: codex stable-session id resolution, crash retry, and the codex app-server bridge (v2)
 
 ### `pkg/gateway/virtualkey/`
 

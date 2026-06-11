@@ -347,9 +347,42 @@ func (h *Handler) handleGetACPRuntime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{
-		"in_flight": h.acpRuntimeManager.ListInFlight(),
-		"instances": h.acpRuntimeManager.ListInstances(),
+		"in_flight":           h.acpRuntimeManager.ListInFlight(),
+		"instances":           h.acpRuntimeManager.ListInstances(),
+		"pending_permissions": h.acpRuntimeManager.ListPendingPermissions(),
 	})
+}
+
+// handleResolveACPPermission is the operator escape hatch for answering a
+// pending interactive permission request (e.g. when the turn client cannot
+// reach the route-side decision endpoint).
+func (h *Handler) handleResolveACPPermission(w http.ResponseWriter, r *http.Request) {
+	if h.acpRuntimeManager == nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, "acp runtime manager is not configured")
+		return
+	}
+	var decision acpruntime.PermissionDecision
+	if err := httpjson.Decode(r, &decision); err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	requestID := strings.TrimSpace(r.PathValue("request_id"))
+	if decision.RequestID == "" {
+		decision.RequestID = requestID
+	}
+	if decision.RequestID != requestID {
+		_ = httpjson.Error(w, http.StatusBadRequest, "request_id in body must match path")
+		return
+	}
+	if err := h.acpRuntimeManager.ResolvePermission(decision); err != nil {
+		if errors.Is(err, acpruntime.ErrPermissionNotFound) {
+			_ = httpjson.Error(w, http.StatusNotFound, "permission request not found (already answered or expired)")
+			return
+		}
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "resolved"})
 }
 
 func (h *Handler) handleListACPInFlight(w http.ResponseWriter, r *http.Request) {

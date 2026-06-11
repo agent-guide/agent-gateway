@@ -9,13 +9,15 @@ import (
 	"time"
 
 	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
+	acptransport "github.com/agent-guide/agent-gateway/pkg/acp/transport"
 )
 
 const defaultJanitorInterval = 30 * time.Second
 
 type Manager struct {
-	services *acpservice.Manager
-	active   *ActivityTracker
+	services    *acpservice.Manager
+	active      *ActivityTracker
+	permissions *permissionBroker
 
 	janitorInterval time.Duration
 
@@ -36,6 +38,7 @@ func NewManager(services *acpservice.Manager) *Manager {
 	m := &Manager{
 		services:        services,
 		active:          NewActivityTracker(),
+		permissions:     newPermissionBroker(),
 		janitorInterval: defaultJanitorInterval,
 		instances:       map[string]*managedInstance{},
 		done:            make(chan struct{}),
@@ -197,6 +200,39 @@ func (m *Manager) ListSessions(ctx context.Context, serviceID string, req ListSe
 	return listAgentSessions(ctx, cfg, req)
 }
 
+// ResolvePermission answers one pending interactive permission request. The
+// outcome must be the ACP discriminator "selected" (with the chosen option id
+// exactly as offered by the agent) or "cancelled".
+func (m *Manager) ResolvePermission(decision PermissionDecision) error {
+	if m == nil || m.permissions == nil {
+		return fmt.Errorf("acp runtime manager is not configured")
+	}
+	if strings.TrimSpace(decision.RequestID) == "" {
+		return fmt.Errorf("request_id is required")
+	}
+	resp := acptransport.PermissionResponse{Outcome: strings.TrimSpace(decision.Outcome)}
+	switch resp.Outcome {
+	case acptransport.PermissionOutcomeSelected:
+		resp.SelectedOptionID = strings.TrimSpace(decision.OptionID)
+		if resp.SelectedOptionID == "" {
+			return fmt.Errorf("option_id is required when outcome is %q", acptransport.PermissionOutcomeSelected)
+		}
+	case acptransport.PermissionOutcomeCancelled:
+	default:
+		return fmt.Errorf("unsupported outcome %q (want %q or %q)", decision.Outcome, acptransport.PermissionOutcomeSelected, acptransport.PermissionOutcomeCancelled)
+	}
+	return m.permissions.resolve(decision.RequestID, resp)
+}
+
+// ListPendingPermissions returns the in-flight interactive permission
+// requests awaiting a decision.
+func (m *Manager) ListPendingPermissions() []PendingPermissionInfo {
+	if m == nil || m.permissions == nil {
+		return nil
+	}
+	return m.permissions.list()
+}
+
 func (m *Manager) LoadTranscript(ctx context.Context, serviceID string, req TranscriptRequest) (TranscriptResponse, error) {
 	if m == nil || m.services == nil {
 		return TranscriptResponse{}, fmt.Errorf("acp runtime manager is not configured")
@@ -275,7 +311,7 @@ func (m *Manager) resolveInstance(ctx context.Context, scope string, cfg acpserv
 		m.mu.Unlock()
 	}
 
-	inst, err := newInstance(ctx, cfg, req)
+	inst, err := newInstance(ctx, cfg, req, m.permissions)
 	if err != nil {
 		return nil, err
 	}

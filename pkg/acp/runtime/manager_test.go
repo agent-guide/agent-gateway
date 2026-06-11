@@ -84,9 +84,10 @@ func (f *fakePoolTransport) kill() {
 
 func newTestManager() *Manager {
 	return &Manager{
-		active:    NewActivityTracker(),
-		instances: map[string]*managedInstance{},
-		done:      make(chan struct{}),
+		active:      NewActivityTracker(),
+		permissions: newPermissionBroker(),
+		instances:   map[string]*managedInstance{},
+		done:        make(chan struct{}),
 	}
 }
 
