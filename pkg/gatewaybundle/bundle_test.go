@@ -521,3 +521,90 @@ llmRoutes:
 		t.Fatalf("ValidateForStaticConfig() error = %v", err)
 	}
 }
+
+func TestDecodeYAMLWithACPServicesAndRoutes(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+acpServices:
+  - id: codex-main
+    name: Codex
+    agent_type: codex
+    cwd: /tmp/acp-codex-test
+    permission_mode: auto_approve
+acpRoutes:
+  - id: acp-codex
+    service_id: codex-main
+    match_policy:
+      path_prefix: /acp/codex
+    auth_policy:
+      require_virtual_key: false
+`))
+	if err != nil {
+		t.Fatalf("DecodeYAML() error = %v", err)
+	}
+
+	if len(bundle.ACPServices) != 1 {
+		t.Fatalf("len(ACPServices) = %d, want 1", len(bundle.ACPServices))
+	}
+	if bundle.ACPServices[0].ID != "codex-main" {
+		t.Fatalf("ACPServices[0].ID = %q, want codex-main", bundle.ACPServices[0].ID)
+	}
+	if len(bundle.ACPRoutes) != 1 {
+		t.Fatalf("len(ACPRoutes) = %d, want 1", len(bundle.ACPRoutes))
+	}
+	if bundle.ACPRoutes[0].ServiceID != "codex-main" {
+		t.Fatalf("ACPRoutes[0].ServiceID = %q, want codex-main", bundle.ACPRoutes[0].ServiceID)
+	}
+	if err := bundle.ValidateForConfigStore(); err != nil {
+		t.Fatalf("ValidateForConfigStore() error = %v", err)
+	}
+	// Normalize() during validation must stamp the ACP route kind/protocol.
+	if string(bundle.ACPRoutes[0].Kind) != "acp" {
+		t.Fatalf("ACPRoutes[0].Kind = %q, want acp", bundle.ACPRoutes[0].Kind)
+	}
+}
+
+func TestValidateACPServiceRequiresValidConfig(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+acpServices:
+  - name: Missing ID Service
+    agent_type: codex
+    cwd: /tmp/acp-codex-test
+`))
+	if err != nil {
+		t.Fatalf("DecodeYAML() error = %v", err)
+	}
+
+	err = bundle.ValidateForConfigStore()
+	if err == nil {
+		t.Fatal("ValidateForConfigStore() error = nil, want missing id error")
+	}
+	if !strings.Contains(err.Error(), "acpServices[0].id is required") {
+		t.Fatalf("ValidateForConfigStore() error = %v, want id required", err)
+	}
+}
+
+func TestValidateACPRouteRequiresServiceID(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+acpRoutes:
+  - id: acp-codex
+    match_policy:
+      path_prefix: /acp/codex
+`))
+	if err != nil {
+		t.Fatalf("DecodeYAML() error = %v", err)
+	}
+
+	err = bundle.ValidateForConfigStore()
+	if err == nil {
+		t.Fatal("ValidateForConfigStore() error = nil, want service_id required error")
+	}
+	if !strings.Contains(err.Error(), `acpRoutes["acp-codex"]: service_id is required`) {
+		t.Fatalf("ValidateForConfigStore() error = %v, want service_id required", err)
+	}
+}

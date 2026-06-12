@@ -3,6 +3,9 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -384,6 +387,9 @@ type sessionListTransport struct {
 
 var lastSessionListTransport *sessionListTransport
 
+// sessionListPayload overrides the fake session/list response when non-empty.
+var sessionListPayload string
+
 func (s *sessionListTransport) Request(_ context.Context, method string, params any) (json.RawMessage, error) {
 	s.mu.Lock()
 	s.requests = append(s.requests, recordedRequest{method: method, params: params})
@@ -392,6 +398,9 @@ func (s *sessionListTransport) Request(_ context.Context, method string, params 
 	case "initialize":
 		return json.RawMessage(`{"agentCapabilities":{"sessionCapabilities":{"list":{}}}}`), nil
 	case "session/list":
+		if sessionListPayload != "" {
+			return json.RawMessage(sessionListPayload), nil
+		}
 		return json.RawMessage(`{"sessions":[{"sessionId":"s1","cwd":"/tmp/project","title":"Fix ACP","updatedAt":"2026-06-09T10:11:12Z","_meta":{"turns":3}}],"nextCursor":"next"}`), nil
 	default:
 		return json.RawMessage(`{}`), nil
@@ -490,6 +499,52 @@ func TestListAgentSessionsOmitsCWDFilterWhenAbsent(t *testing.T) {
 	}
 	if params["cursor"] != "cur" {
 		t.Fatalf("cursor = %v, want cur", params["cursor"])
+	}
+}
+
+func TestListAgentSessionsFiltersCWDGatewaySide(t *testing.T) {
+	// Stored-cwd shapes differ per real agent: codex-acp stores the session/new
+	// cwd verbatim while opencode stores the canonical symlink-resolved path.
+	// The gateway-side filter must match both, and must never forward the cwd
+	// to the agent.
+	target := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	canonicalTarget, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatalf("eval target: %v", err)
+	}
+	sessionListPayload = fmt.Sprintf(
+		`{"sessions":[{"sessionId":"verbatim","cwd":%q},{"sessionId":"canonical","cwd":%q},{"sessionId":"other","cwd":"/somewhere/else"}]}`,
+		link, canonicalTarget,
+	)
+	defer func() { sessionListPayload = "" }()
+
+	result, err := listAgentSessions(context.Background(), acpservice.ServiceConfig{
+		AgentType: "session-list",
+		CWD:       link,
+	}, ListSessionsRequest{CWD: link})
+	if err != nil {
+		t.Fatalf("listAgentSessions: %v", err)
+	}
+	if len(result.Sessions) != 2 {
+		t.Fatalf("sessions = %+v, want the verbatim and canonical matches", result.Sessions)
+	}
+	if result.Sessions[0].SessionID != "verbatim" || result.Sessions[1].SessionID != "canonical" {
+		t.Fatalf("unexpected filtered sessions: %+v", result.Sessions)
+	}
+	got := lastSessionListTransport.recorded("session/list")
+	if len(got) != 1 {
+		t.Fatalf("session/list calls = %d, want 1", len(got))
+	}
+	params, ok := got[0].params.(map[string]any)
+	if !ok {
+		t.Fatalf("session/list params are %T, want map", got[0].params)
+	}
+	if _, exists := params["cwd"]; exists {
+		t.Fatalf("session/list unexpectedly forwarded cwd filter to the agent: %+v", params)
 	}
 }
 

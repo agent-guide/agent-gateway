@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -23,6 +24,20 @@ type ACPRouteView struct {
 	acproute.ACPRouteConfig
 	Source   string `json:"source"`
 	ReadOnly bool   `json:"read_only"`
+}
+
+// MarshalJSON merges the view fields into the embedded config JSON. Without
+// this the embedded ACPRouteConfig.MarshalJSON is promoted and silently drops
+// source and read_only from admin responses.
+func (v ACPRouteView) MarshalJSON() ([]byte, error) {
+	return marshalRouteView(v.ACPRouteConfig, v.Source, v.ReadOnly)
+}
+
+func (v *ACPRouteView) UnmarshalJSON(data []byte) error {
+	if err := json.Unmarshal(data, &v.ACPRouteConfig); err != nil {
+		return err
+	}
+	return unmarshalRouteViewExtras(data, &v.Source, &v.ReadOnly)
 }
 
 func (h *Handler) handleListACPServices(w http.ResponseWriter, r *http.Request) {

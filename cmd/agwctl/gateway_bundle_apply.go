@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
+	acproute "github.com/agent-guide/agent-gateway/pkg/gateway/acproute"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
@@ -97,6 +99,12 @@ func runGatewayApply(ctx context.Context, path string) error {
 		return err
 	}
 	if err := applyMCPRoutes(ctx, client, bundle, record); err != nil {
+		return err
+	}
+	if err := applyACPServices(ctx, client, bundle, record); err != nil {
+		return err
+	}
+	if err := applyACPRoutes(ctx, client, bundle, record); err != nil {
 		return err
 	}
 
@@ -467,6 +475,101 @@ func applyMCPRoutes(ctx context.Context, client *adminclient.Client, bundle *gat
 		}
 	}
 	return nil
+}
+
+func applyACPServices(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+	items, err := client.ListACPServices(ctx)
+	if err != nil {
+		return err
+	}
+	current := map[string]adminclient.ACPServiceView{}
+	for _, item := range items {
+		current[item.ID] = item
+	}
+	for _, desired := range bundle.ACPServices {
+		desired.Normalize()
+		id := desired.ID
+		item, ok := current[id]
+		if !ok {
+			if _, err := client.CreateACPService(ctx, desired); err != nil {
+				record("acp_service", id, "error", fmt.Errorf("acp_service %q create: %w", id, err))
+			} else {
+				record("acp_service", id, "create", nil)
+			}
+			continue
+		}
+		if item.ReadOnly {
+			record("acp_service", id, "error", fmt.Errorf("acp_service %q is read-only", id))
+			continue
+		}
+		currentNorm := normalizeComparableACPService(item.ServiceConfig)
+		desiredNorm := normalizeComparableACPService(desired)
+		if reflect.DeepEqual(currentNorm, desiredNorm) {
+			record("acp_service", id, "skip", nil)
+			continue
+		}
+		if _, err := client.UpdateACPService(ctx, id, desired); err != nil {
+			record("acp_service", id, "error", fmt.Errorf("acp_service %q update: %w", id, err))
+		} else {
+			record("acp_service", id, "update", nil)
+		}
+	}
+	return nil
+}
+
+func applyACPRoutes(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+	items, err := client.ListACPRoutes(ctx)
+	if err != nil {
+		return err
+	}
+	current := map[string]adminclient.ACPRouteView{}
+	for _, item := range items {
+		current[item.ID] = item
+	}
+	for _, desired := range bundle.ACPRoutes {
+		desired.Normalize()
+		id := desired.ID
+		item, ok := current[id]
+		if !ok {
+			if _, err := client.CreateACPRoute(ctx, desired); err != nil {
+				record("acp_route", id, "error", fmt.Errorf("acp_route %q create: %w", id, err))
+			} else {
+				record("acp_route", id, "create", nil)
+			}
+			continue
+		}
+		if item.ReadOnly {
+			record("acp_route", id, "error", fmt.Errorf("acp_route %q is read-only", id))
+			continue
+		}
+		currentNorm := normalizeComparableACPRoute(item.ACPRouteConfig)
+		desiredNorm := normalizeComparableACPRoute(desired)
+		if reflect.DeepEqual(currentNorm, desiredNorm) {
+			record("acp_route", id, "skip", nil)
+			continue
+		}
+		if _, err := client.UpdateACPRoute(ctx, id, desired); err != nil {
+			record("acp_route", id, "error", fmt.Errorf("acp_route %q update: %w", id, err))
+		} else {
+			record("acp_route", id, "update", nil)
+		}
+	}
+	return nil
+}
+
+func normalizeComparableACPService(cfg acpservice.ServiceConfig) acpservice.ServiceConfig {
+	cfg.Normalize()
+	cfg.CreatedAt = time.Time{}
+	cfg.UpdatedAt = time.Time{}
+	return cfg
+}
+
+func normalizeComparableACPRoute(cfg acproute.ACPRouteConfig) acproute.ACPRouteConfig {
+	cfg.Normalize()
+	cfg.CreatedAt = time.Time{}
+	cfg.UpdatedAt = time.Time{}
+	cfg.TargetPolicy = nil
+	return cfg
 }
 
 func normalizeComparableMCPService(cfg mcpservice.MCPServiceConfig) mcpservice.MCPServiceConfig {

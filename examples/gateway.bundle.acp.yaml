@@ -1,0 +1,51 @@
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+
+# ACP bundle example — codex and opencode coding agents behind the gateway
+#
+# Apply with:
+#   agwctl gateway apply -f examples/gateway.bundle.acp.yaml
+#
+# Prerequisites:
+#   - the agent working directories below must exist before the first turn
+#   - codex: `codex-acp` on PATH (npm install -g @zed-industries/codex-acp)
+#     with codex auth configured
+#   - opencode: `opencode` on PATH with opencode auth configured
+#
+# permission_mode is one of:
+#   deny         — fail-closed default; agent permission requests are rejected
+#   auto_approve — first "allow"-kind option is selected automatically
+#   interactive  — requests surface as `permission` SSE events on the turn
+#                  stream and resolve via POST /<acp-route>/permission or
+#                  `agwctl gateway acp-runtime resolve-permission`
+
+acpServices:
+
+  - id: codex-main
+    name: Codex
+    agent_type: codex
+    cwd: /tmp/acp-codex-test
+    permission_mode: auto_approve
+
+  # - id: opencode-main
+  #   name: OpenCode
+  #   agent_type: opencode
+  #   cwd: /tmp/acp-opencode-test
+  #   permission_mode: auto_approve
+
+acpRoutes:
+
+  # id defaults to acp:<service_id>:<path_prefix> when omitted
+  - id: acp-codex
+    service_id: codex-main
+    match_policy:
+      path_prefix: /acp/codex
+    auth_policy:
+      require_virtual_key: false
+
+  # - id: acp-opencode
+  #   service_id: opencode-main
+  #   match_policy:
+  #     path_prefix: /acp/opencode
+  #   auth_policy:
+  #     require_virtual_key: false

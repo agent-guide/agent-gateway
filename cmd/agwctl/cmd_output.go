@@ -335,6 +335,111 @@ func printGatewayMCPRuntimeHistoryTable(items []adminclient.MCPRuntimeCompletedR
 	printTable(headers, rows)
 }
 
+func printGatewayACPServicesTable(items []adminclient.ACPServiceView) {
+	headers := []string{"ID", "NAME", "AGENT-TYPE", "CWD", "PERMISSION-MODE", "DISABLED", "SOURCE"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			dash(item.ID),
+			dash(item.Name),
+			dash(item.AgentType),
+			dash(item.CWD),
+			dash(item.PermissionMode),
+			boolStr(item.Disabled),
+			dash(item.Source),
+		})
+	}
+	printTable(headers, rows)
+}
+
+func printGatewayACPSessionsTable(resp *adminclient.ACPListSessionsResponse) {
+	headers := []string{"SESSION-ID", "CWD", "TITLE", "UPDATED-AT"}
+	rows := [][]string{}
+	if resp != nil {
+		for _, item := range resp.Sessions {
+			updatedAt := ""
+			if item.UpdatedAt != nil {
+				updatedAt = formatTimestamp(*item.UpdatedAt)
+			}
+			rows = append(rows, []string{
+				dash(item.SessionID),
+				dash(item.CWD),
+				dash(item.Title),
+				dash(updatedAt),
+			})
+		}
+	}
+	printTable(headers, rows)
+	if resp != nil && resp.NextCursor != "" {
+		fmt.Fprintf(os.Stdout, "next cursor: %s\n", resp.NextCursor)
+	}
+}
+
+func printGatewayACPRoutesTable(items []adminclient.ACPRouteView) {
+	headers := []string{"ID", "PATH-PREFIX", "SERVICE-ID", "VIRTUALKEY", "DISABLED", "SOURCE"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			dash(item.ID),
+			dash(item.MatchPolicy.PathPrefix),
+			dash(item.ServiceID),
+			boolStr(item.AuthPolicy.RequireVirtualKey),
+			boolStr(item.Disabled),
+			dash(item.Source),
+		})
+	}
+	printTable(headers, rows)
+}
+
+func printGatewayACPRuntimeOverview(runtime *adminclient.ACPRuntimeView) {
+	if runtime == nil {
+		runtime = &adminclient.ACPRuntimeView{}
+	}
+	printGatewayACPInFlightTable(runtime.InFlight)
+	fmt.Fprintln(os.Stdout)
+	printGatewayACPInstancesTable(runtime.Instances)
+	fmt.Fprintln(os.Stdout)
+	printGatewayACPPendingPermissionsTable(runtime.PendingPermissions)
+}
+
+func printGatewayACPInFlightTable(items []adminclient.ACPInFlightTurn) {
+	headers := []string{"SCOPE"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{dash(item.Scope)})
+	}
+	printTable(headers, rows)
+}
+
+func printGatewayACPInstancesTable(items []adminclient.ACPPooledInstanceInfo) {
+	headers := []string{"SCOPE", "SESSION-ID", "ALIVE", "ACTIVE", "LAST-USED"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			dash(item.Scope),
+			dash(item.SessionID),
+			boolStr(item.Alive),
+			boolStr(item.Active),
+			dash(formatTimestamp(item.LastUsed)),
+		})
+	}
+	printTable(headers, rows)
+}
+
+func printGatewayACPPendingPermissionsTable(items []adminclient.ACPPendingPermissionInfo) {
+	headers := []string{"REQUEST-ID", "SERVICE-ID", "SESSION-ID", "CREATED-AT"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, []string{
+			dash(item.RequestID),
+			dash(item.ServiceID),
+			dash(item.SessionID),
+			dash(formatTimestamp(item.CreatedAt)),
+		})
+	}
+	printTable(headers, rows)
+}
+
 // printGatewayVirtualKeysTable renders a list of VirtualKeyView items.
 // Fields: id, key (truncated), tag, disabled, allowed_route_ids, source.
 func printGatewayVirtualKeysTable(items []adminclient.VirtualKey) {

@@ -224,6 +224,8 @@ func TestGatewayMCPServiceListCommand(t *testing.T) {
 				"token":    "test-token",
 				"username": "admin",
 			})
+		case "/admin/acp/services", "/admin/acp/routes":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/mcp/services":
 			gotAuthHeader = r.Header.Get("Authorization")
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -1088,6 +1090,10 @@ cliAuthAuthenticators:
 			})
 		case r.URL.Path == "/admin/cliauth/authenticators" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/acp/services" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/acp/routes" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/mcp/services" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/mcp/routes" && r.Method == http.MethodGet:
@@ -1240,6 +1246,10 @@ cliAuthAuthenticators:
 		case r.URL.Path == "/admin/cliauth/authenticators/codex" && r.Method == http.MethodPut:
 			authenticatorWriteCount.Add(1)
 			t.Fatalf("unexpected cliauth authenticator update request for unchanged object")
+		case r.URL.Path == "/admin/acp/services" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/acp/routes" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/mcp/services" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/mcp/routes" && r.Method == http.MethodGet:
@@ -1313,6 +1323,10 @@ providers:
 		case r.URL.Path == "/admin/virtual_keys" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/cliauth/authenticators" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/acp/services" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/acp/routes" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/mcp/services" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -1432,6 +1446,8 @@ func TestGatewayExportCommand(t *testing.T) {
 					},
 				},
 			})
+		case "/admin/acp/services", "/admin/acp/routes":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/mcp/services":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/mcp/routes":
@@ -1552,6 +1568,8 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 					},
 				},
 			})
+		case "/admin/acp/services", "/admin/acp/routes":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/mcp/services":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/mcp/routes":
@@ -1600,6 +1618,8 @@ func TestGatewayExportCommandIncludesMCPServicesAndRoutes(t *testing.T) {
 		case "/admin/virtual_keys":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/cliauth/authenticators":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case "/admin/acp/services", "/admin/acp/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/mcp/services":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -1702,6 +1722,10 @@ mcpRoutes:
 		case r.URL.Path == "/admin/virtual_keys" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/cliauth/authenticators" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/acp/services" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.URL.Path == "/admin/acp/routes" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/mcp/services" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})

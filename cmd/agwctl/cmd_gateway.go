@@ -74,6 +74,8 @@ var gatewayValidateCmd = &cobra.Command{
 					"cliauth_authenticators": len(bundle.CLIAuthAuthenticators),
 					"mcp_services":           len(bundle.MCPServices),
 					"mcp_routes":             len(bundle.MCPRoutes),
+					"acp_services":           len(bundle.ACPServices),
+					"acp_routes":             len(bundle.ACPRoutes),
 				},
 			})
 		}

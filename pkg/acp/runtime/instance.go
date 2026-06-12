@@ -318,7 +318,13 @@ func listAgentSessions(ctx context.Context, cfg acpservice.ServiceConfig, req Li
 	if !supportsSessionList(initResult) {
 		return ListSessionsResponse{}, fmt.Errorf("acp agent %q does not advertise session/list", agent.Name())
 	}
-	raw, err := t.Request(ctx, "session/list", lister.SessionListParams(canonicalCWD(req.CWD), req.Cursor))
+	// The cwd filter is applied gateway-side instead of being forwarded to the
+	// agent: stored-cwd shapes differ per agent (the real opencode binary
+	// stores canonical symlink-resolved cwds, the real codex-acp adapter stores
+	// the session/new cwd verbatim), so an agent-side exact match silently
+	// drops sessions for one agent or the other. Comparing both sides through
+	// canonicalCWD is agent-agnostic.
+	raw, err := t.Request(ctx, "session/list", lister.SessionListParams("", req.Cursor))
 	if err != nil {
 		return ListSessionsResponse{}, fmt.Errorf("session/list: %w", err)
 	}
@@ -326,17 +332,24 @@ func listAgentSessions(ctx context.Context, cfg acpservice.ServiceConfig, req Li
 	if err != nil {
 		return ListSessionsResponse{}, err
 	}
+	if filter := canonicalCWD(req.CWD); filter != "" {
+		kept := make([]SessionInfo, 0, len(out.Sessions))
+		for _, session := range out.Sessions {
+			if canonicalCWD(session.CWD) == filter {
+				kept = append(kept, session)
+			}
+		}
+		out.Sessions = kept
+	}
 	if out.Sessions == nil {
 		out.Sessions = []SessionInfo{}
 	}
 	return out, nil
 }
 
-// canonicalCWD resolves symlinks in a cwd filter so it matches the canonical
-// session cwd agents store. Verified against the real opencode binary: it
-// canonicalizes session cwds (macOS /tmp -> /private/tmp) and exact-matches the
-// session/list cwd filter, so an uncanonicalized filter silently returns zero
-// sessions. Unresolvable paths are passed through unchanged.
+// canonicalCWD resolves symlinks in a cwd so both sides of the gateway-side
+// session/list filter compare in canonical form (macOS /tmp -> /private/tmp).
+// Unresolvable paths are passed through unchanged.
 func canonicalCWD(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {

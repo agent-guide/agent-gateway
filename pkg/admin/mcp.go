@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -18,6 +19,57 @@ type MCPRouteView struct {
 	mcproute.MCPRouteConfig
 	Source   string `json:"source"`
 	ReadOnly bool   `json:"read_only"`
+}
+
+// MarshalJSON merges the view fields into the embedded config JSON. Without
+// this the embedded MCPRouteConfig.MarshalJSON is promoted and silently drops
+// source and read_only from admin responses.
+func (v MCPRouteView) MarshalJSON() ([]byte, error) {
+	return marshalRouteView(v.MCPRouteConfig, v.Source, v.ReadOnly)
+}
+
+func (v *MCPRouteView) UnmarshalJSON(data []byte) error {
+	if err := json.Unmarshal(data, &v.MCPRouteConfig); err != nil {
+		return err
+	}
+	return unmarshalRouteViewExtras(data, &v.Source, &v.ReadOnly)
+}
+
+// marshalRouteView marshals a route config through its own MarshalJSON and
+// grafts the admin view fields onto the resulting object.
+func marshalRouteView(config any, source string, readOnly bool) ([]byte, error) {
+	base, err := json.Marshal(config)
+	if err != nil {
+		return nil, err
+	}
+	var merged map[string]json.RawMessage
+	if err := json.Unmarshal(base, &merged); err != nil {
+		return nil, err
+	}
+	sourceJSON, err := json.Marshal(source)
+	if err != nil {
+		return nil, err
+	}
+	readOnlyJSON, err := json.Marshal(readOnly)
+	if err != nil {
+		return nil, err
+	}
+	merged["source"] = sourceJSON
+	merged["read_only"] = readOnlyJSON
+	return json.Marshal(merged)
+}
+
+func unmarshalRouteViewExtras(data []byte, source *string, readOnly *bool) error {
+	var extras struct {
+		Source   string `json:"source"`
+		ReadOnly bool   `json:"read_only"`
+	}
+	if err := json.Unmarshal(data, &extras); err != nil {
+		return err
+	}
+	*source = extras.Source
+	*readOnly = extras.ReadOnly
+	return nil
 }
 
 type MCPServiceView struct {

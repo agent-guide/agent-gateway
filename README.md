@@ -290,13 +290,47 @@ Implemented and verified against the real `opencode acp` and `codex-acp` binarie
 - prompt-level real-model turns, smoke-verified for both agents (`AGW_ACP_SMOKE=1 AGW_ACP_SMOKE_PROMPT=1`): streamed reply, populated transcript replay, and cached usage;
 - complete `session/update` coverage parsed by `pkg/acp/runtime/acpupdate` — text, reasoning (emitted as a separate event), tool calls, plan, usage, available commands, session info, mode, and config options;
 - model selection and `config_overrides` via `session/set_config_option`;
-- Admin `session/list` via `GET /admin/acp/services/{id}/sessions`, with ACP capability checking, optional `cwd` and `cursor` query parameters, and symlink-canonicalized `cwd` filtering;
+- Admin `session/list` via `GET /admin/acp/services/{id}/sessions`, with ACP capability checking, optional `cwd` and `cursor` query parameters, and gateway-side symlink-canonical `cwd` filtering (agents store cwds in different shapes);
 - Admin transcript replay via `GET /admin/acp/services/{id}/sessions/{session_id}/transcript`, replaying the session through `session/load` over a transient connection after checking the `loadSession` capability;
 - a per-instance session metadata cache (config options, slash commands, session info, mode, usage) replayed as snapshot events at every turn start and exposed through `GET /admin/acp/runtime`;
 - spec-correct, fail-closed permission handling (nested ACP outcome, off-loop with a timeout) with three modes: `deny`, `auto_approve`, and `interactive` — the latter surfaces agent permission requests as `permission` SSE events and resolves them via `POST /<acp-route>/permission` or the admin escape hatch;
 - runtime hardening: `PATH` preflight, stderr capture in errors, a setup-handshake timeout, an idle janitor, dead-instance eviction, `fresh_session`, pool scope rebind (a session-addressed turn reuses the thread's live instance bound to that session instead of spawning a second process), and `DELETE /admin/acp/runtime/threads/{service_id}/{thread_id}` for operator teardown.
 
 Deferred (see [docs/design/acp-native-runtime.md](docs/design/acp-native-runtime.md)): crash retry and the in-repo codex app-server bridge (codex v2). Codex stable-session id resolution turned out to be a non-gap for the v1 adapter path — the real `codex-acp` raw session ids are verified stable — and the driver seams a v2 bridge would need (`StableSessionResolver`/`SessionLoadResolver`) are wired.
+
+### Manage ACP via agwctl
+
+ACP services and routes are bundle objects (`acpServices`, `acpRoutes`) and have dedicated `agwctl gateway` subcommands:
+
+```bash
+export AGW_ADMIN_USER=admin
+export AGW_ADMIN_PASSWORD=your-password
+
+# Create the agent working directory, then apply the example bundle
+mkdir -p /tmp/acp-codex-test
+./agwctl gateway apply -f examples/gateway.bundle.acp.yaml
+
+# Inspect config and runtime state
+./agwctl gateway acp-service list
+./agwctl gateway acp-route list
+./agwctl gateway acp-runtime get
+
+# Send a turn (dispatcher endpoint, SSE)
+curl -N -s http://127.0.0.1:8080/acp/codex/turn \
+  -H 'Content-Type: application/json' \
+  -d '{"thread_id":"t-demo-1","input":"Reply with exactly one word: pong"}'
+
+# Agent-side sessions and transcript replay
+./agwctl gateway acp-service sessions codex-main --cwd /tmp/acp-codex-test
+./agwctl gateway acp-service transcript codex-main <session-id>
+
+# Operator actions
+./agwctl gateway acp-runtime inflight
+./agwctl gateway acp-runtime resolve-permission <request-id> --outcome selected --option-id <option-id>
+./agwctl gateway acp-runtime close-thread codex-main t-demo-1
+```
+
+ACP route IDs are auto-generated as `acp:<service_id>:<path_prefix>` when `id` is omitted.
 
 ## Runtimes
 

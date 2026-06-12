@@ -41,6 +41,14 @@ func runGatewayExport(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
+	acpServices, err := client.ListACPServices(ctx)
+	if err != nil {
+		return err
+	}
+	acpRoutes, err := client.ListACPRoutes(ctx)
+	if err != nil {
+		return err
+	}
 
 	bundle := &gatewaybundle.GatewayBundle{
 		APIVersion: gatewaybundle.APIVersionV1Alpha1,
@@ -78,6 +86,12 @@ func runGatewayExport(ctx context.Context, path string) error {
 	}
 	for _, item := range mcpRoutes {
 		bundle.MCPRoutes = append(bundle.MCPRoutes, item.MCPRouteConfig)
+	}
+	for _, item := range acpServices {
+		bundle.ACPServices = append(bundle.ACPServices, item.ServiceConfig)
+	}
+	for _, item := range acpRoutes {
+		bundle.ACPRoutes = append(bundle.ACPRoutes, item.ACPRouteConfig)
 	}
 
 	sortGatewayBundle(bundle)
@@ -126,6 +140,12 @@ func sortGatewayBundle(bundle *gatewaybundle.GatewayBundle) {
 	})
 	sort.Slice(bundle.MCPRoutes, func(i, j int) bool {
 		return bundle.MCPRoutes[i].ID < bundle.MCPRoutes[j].ID
+	})
+	sort.Slice(bundle.ACPServices, func(i, j int) bool {
+		return bundle.ACPServices[i].ID < bundle.ACPServices[j].ID
+	})
+	sort.Slice(bundle.ACPRoutes, func(i, j int) bool {
+		return bundle.ACPRoutes[i].ID < bundle.ACPRoutes[j].ID
 	})
 }
 

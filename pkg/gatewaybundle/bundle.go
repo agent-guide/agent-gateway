@@ -9,7 +9,9 @@ import (
 	"strings"
 	"time"
 
+	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
+	acproute "github.com/agent-guide/agent-gateway/pkg/gateway/acproute"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
@@ -37,6 +39,8 @@ type GatewayBundle struct {
 	CLIAuthAuthenticators []CLIAuthAuthenticator        `json:"cliAuthAuthenticators,omitempty"`
 	MCPServices           []mcpservice.MCPServiceConfig `json:"mcpServices,omitempty"`
 	MCPRoutes             []mcproute.MCPRouteConfig     `json:"mcpRoutes,omitempty"`
+	ACPServices           []acpservice.ServiceConfig    `json:"acpServices,omitempty"`
+	ACPRoutes             []acproute.ACPRouteConfig     `json:"acpRoutes,omitempty"`
 }
 
 type BundleVirtualKey struct {
@@ -301,6 +305,43 @@ func (b *GatewayBundle) validate(_ bool) error {
 		}
 		if b.MCPRoutes[i].ServiceID == "" {
 			errs.Append(fmt.Errorf("mcpRoutes[%q]: service_id is required", id))
+		}
+	}
+	acpServiceIDs := map[string]struct{}{}
+	for i := range b.ACPServices {
+		b.ACPServices[i].Normalize()
+		id := b.ACPServices[i].ID
+		if id == "" {
+			errs.Append(fmt.Errorf("acpServices[%d].id is required", i))
+			continue
+		}
+		if _, exists := acpServiceIDs[id]; exists {
+			errs.Append(fmt.Errorf("acpServices[%q]: duplicate id", id))
+		} else {
+			acpServiceIDs[id] = struct{}{}
+		}
+		if err := b.ACPServices[i].Validate(); err != nil {
+			errs.Append(fmt.Errorf("acpServices[%q]: %w", id, err))
+		}
+	}
+	acpRouteIDs := map[string]struct{}{}
+	for i := range b.ACPRoutes {
+		b.ACPRoutes[i].Normalize()
+		id := b.ACPRoutes[i].ID
+		if id == "" {
+			errs.Append(fmt.Errorf("acpRoutes[%d].id is required", i))
+			continue
+		}
+		if _, exists := acpRouteIDs[id]; exists {
+			errs.Append(fmt.Errorf("acpRoutes[%q]: duplicate id", id))
+		} else {
+			acpRouteIDs[id] = struct{}{}
+		}
+		if b.ACPRoutes[i].Kind != acproute.RouteKindACP {
+			errs.Append(fmt.Errorf("acpRoutes[%q]: kind must be %q", id, acproute.RouteKindACP))
+		}
+		if b.ACPRoutes[i].ServiceID == "" {
+			errs.Append(fmt.Errorf("acpRoutes[%q]: service_id is required", id))
 		}
 	}
 
