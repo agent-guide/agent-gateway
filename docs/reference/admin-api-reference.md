@@ -214,6 +214,29 @@ Implemented MCP admin families include:
 - MCP discovery and execution endpoints
 - MCP dispatcher runtime inspection endpoints
 
+## ACP Admin Families
+
+Implemented ACP admin families include:
+
+- `GET /admin/acp/services`
+- `POST /admin/acp/services`
+- `GET /admin/acp/services/{id}`
+- `PUT /admin/acp/services/{id}`
+- `DELETE /admin/acp/services/{id}`
+- `GET /admin/acp/services/{id}/sessions`
+- `GET /admin/acp/services/{id}/sessions/{session_id}/transcript`
+- `GET /admin/acp/routes`
+- `POST /admin/acp/routes`
+- `GET /admin/acp/routes/{id}`
+- `PUT /admin/acp/routes/{id}`
+- `DELETE /admin/acp/routes/{id}`
+- `GET /admin/acp/runtime`
+- `GET /admin/acp/runtime/inflight`
+- `DELETE /admin/acp/runtime/threads/{service_id}/{thread_id}`
+- `POST /admin/acp/runtime/permissions/{request_id}`
+
+See [acp-api.md](acp-api.md) for request and response shapes.
+
 ## Stubbed Families
 
 These families still contain `501 Not Implemented` endpoints:

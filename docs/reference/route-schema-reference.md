@@ -21,11 +21,15 @@ Current route kinds:
 
 - `llm`
 - `mcp`
+- `acp`
 
-Current LLM route protocols:
+Current route protocols:
 
 - `openai`
 - `anthropic`
+- `cc`
+- `mcp`
+- `acp`
 
 ## `match_policy`
 
@@ -102,6 +106,34 @@ Behavior:
 - the gateway resolves it to one concrete provider and upstream model binding
 - supported through dynamic route management and bundle workflows
 - rejected in Caddyfile routes and `agwd --static-config`
+
+### ACP-Service Mode
+
+ACP routes use an ACP service target. The stored route target policy is:
+
+```json
+{
+  "kind": "acp-service",
+  "service_id": "codex-main"
+}
+```
+
+ACP Admin API and bundle objects expose this as top-level `service_id`:
+
+```json
+{
+  "service_id": "codex-main",
+  "match_policy": {
+    "path_prefix": "/acp/codex"
+  },
+  "auth_policy": {
+    "require_virtual_key": true
+  }
+}
+```
+
+ACP routes normalize to `kind: "acp"` and `protocol: "acp"`. When `id` is
+omitted, it defaults to `acp:<service_id>:<path_prefix>`.
 
 ## Static Config Restrictions
 

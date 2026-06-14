@@ -25,89 +25,9 @@ Build the binaries:
 make build
 ```
 
-There are two ways to get started: static Caddyfile config, or a minimal Caddyfile with all objects managed dynamically via `agwctl`.
+Keep the Caddyfile minimal and declare providers, routes, and VirtualKeys in bundle YAML files applied at runtime via `agwctl gateway apply`.
 
-### Option 1: Static Caddyfile (no VirtualKey required)
-
-Declare the provider and route directly in the Caddyfile with `require_virtual_key false`. No VirtualKey is needed to call the gateway.
-
-Create a `Caddyfile`:
-
-```caddy
-{
-	admin localhost:2019
-
-	agent_gateway {
-		config_store sqlite {
-			path ./data/configstore.db
-		}
-
-		provider_types {
-			openai
-		}
-
-		provider openai-main {
-			provider_type openai
-			api_key {$OPENAI_API_KEY}
-			default_model gpt-4.1
-			# Optional compatibility request shaping: cc, codex, or none.
-			option compact none
-		}
-
-		route openai-chat {
-			protocol openai
-			path_prefix /
-			require_virtual_key false
-			target provider openai-main
-		}
-	}
-}
-
-http://localhost:8019 {
-	route /admin/* {
-		agent_gateway_admin {
-			admin_user admin
-			admin_password_hash <bcrypt-hash>
-		}
-	}
-}
-
-http://127.0.0.1:8080 {
-	agent_route_dispatcher {
-		llm_api openai
-		llm_api anthropic
-		llm_api cc
-		mcp
-		acp
-	}
-}
-```
-
-Generate the admin password hash:
-
-```bash
-./agw hash-password --plaintext 'your-password'
-```
-
-Run the gateway:
-
-```bash
-OPENAI_API_KEY=sk-... ./agw run --config ./Caddyfile
-```
-
-Send a request directly — no API key required:
-
-```bash
-curl http://127.0.0.1:8080/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"gpt-4.1","messages":[{"role":"user","content":"hello"}]}'
-```
-
-### Option 2: Minimal Caddyfile + dynamic config via agwctl
-
-Keep the Caddyfile minimal and declare all providers, routes, and VirtualKeys in a bundle YAML applied at runtime via `agwctl gateway apply`.
-
-Create a minimal `Caddyfile` (no providers or routes):
+Create a minimal `Caddyfile` (no providers or routes). LLM providers and routes can also be declared statically in the Caddyfile; see [docs/getting-started/quickstart-llm.md](docs/getting-started/quickstart-llm.md) for that flow:
 
 ```caddy
 {
@@ -146,6 +66,10 @@ Generate the hash and run the gateway:
 ./agw hash-password --plaintext 'your-password'
 OPENAI_API_KEY=sk-... ./agw run --config ./Caddyfile
 ```
+
+## LLM Quick Start
+
+Declare an LLM provider, route, and VirtualKey in a bundle YAML applied at runtime via `agwctl gateway apply`.
 
 Create a bundle file `gateway.bundle.yaml`:
 
@@ -209,9 +133,9 @@ Provider `options.compact` selects compatibility request shaping. In Caddyfile p
 
 ## MCP Quick Start
 
-The MCP gateway uses the same minimal Caddyfile as LLM Option 2. Enable `mcp` in the dispatcher, then apply an MCP bundle.
+The MCP gateway uses the same minimal Caddyfile as the Quick Start. Enable `mcp` in the dispatcher, then apply an MCP bundle.
 
-Create or reuse the minimal Caddyfile from Option 2 above (the `mcp` directive is already present in `agent_route_dispatcher`). Run the gateway, then create a bundle file `gateway.bundle.mcp.yaml`.
+Create or reuse the minimal Caddyfile from the Quick Start above (the `mcp` directive is already present in `agent_route_dispatcher`). Run the gateway, then create a bundle file `gateway.bundle.mcp.yaml`.
 
 **Streamable HTTP upstream** (remote MCP server over HTTP):
 
@@ -280,57 +204,84 @@ curl -s http://127.0.0.1:8080/mcp \
 
 MCP route IDs are auto-generated as `mcp:<service_id>:<path_prefix>` when `id` is omitted. See [docs/getting-started/quickstart-mcp.md](docs/getting-started/quickstart-mcp.md) for the full walkthrough.
 
-## ACP Status
+## ACP Quick Start
 
-Native ACP support is implemented in this repository without depending on ngent. It adds ACP route/service config, Admin API endpoints, dispatcher routing, a gateway-owned `POST /<acp-route>/turn` SSE contract, and a stdio JSON-RPC runtime with thin agent adapters for `opencode` and `codex`. `opencode` launches the fixed `opencode acp --cwd <cwd>` shape; `codex` launches the fixed external ACP adapter binary `codex-acp` by default instead of a non-existent native `codex acp` subcommand.
+The ACP gateway uses the same minimal Caddyfile as the Quick Start. Enable `acp` in `agent_route_dispatcher`, then apply ACP service and route objects dynamically with `agwctl`.
 
-Implemented and verified against the real `opencode acp` and `codex-acp` binaries:
+Native ACP support is implemented in this repository. The gateway owns ACP route/service config, VirtualKey auth, Admin APIs, `POST /<acp-route>/turn` SSE streaming, runtime pooling, transcript replay, and permission handling. `opencode` launches the fixed `opencode acp --cwd <cwd>` shape; `codex` launches the fixed external ACP adapter binary `codex-acp` by default.
 
-- full lifecycle: `initialize → session/new|load → session/prompt`, with the real `stopReason` and a post-result idle-grace drain (the real opencode binary can deliver the final reply chunks after the prompt result — no truncated responses);
-- prompt-level real-model turns, smoke-verified for both agents (`AGW_ACP_SMOKE=1 AGW_ACP_SMOKE_PROMPT=1`): streamed reply, populated transcript replay, and cached usage;
-- complete `session/update` coverage parsed by `pkg/acp/runtime/acpupdate` — text, reasoning (emitted as a separate event), tool calls, plan, usage, available commands, session info, mode, and config options;
-- model selection and `config_overrides` via `session/set_config_option`;
-- Admin `session/list` via `GET /admin/acp/services/{id}/sessions`, with ACP capability checking, optional `cwd` and `cursor` query parameters, and gateway-side symlink-canonical `cwd` filtering (agents store cwds in different shapes);
-- Admin transcript replay via `GET /admin/acp/services/{id}/sessions/{session_id}/transcript`, replaying the session through `session/load` over a transient connection after checking the `loadSession` capability;
-- a per-instance session metadata cache (config options, slash commands, session info, mode, usage) replayed as snapshot events at every turn start and exposed through `GET /admin/acp/runtime`;
-- spec-correct, fail-closed permission handling (nested ACP outcome, off-loop with a timeout) with three modes: `deny`, `auto_approve`, and `interactive` — the latter surfaces agent permission requests as `permission` SSE events and resolves them via `POST /<acp-route>/permission` or the admin escape hatch;
-- runtime hardening: `PATH` preflight, stderr capture in errors, a setup-handshake timeout, an idle janitor, dead-instance eviction, `fresh_session`, pool scope rebind (a session-addressed turn reuses the thread's live instance bound to that session instead of spawning a second process), and `DELETE /admin/acp/runtime/threads/{service_id}/{thread_id}` for operator teardown.
+For Codex, install the adapter and create the working directory:
 
-Deferred (see [docs/design/acp-native-runtime.md](docs/design/acp-native-runtime.md)): crash retry and the in-repo codex app-server bridge (codex v2). Codex stable-session id resolution turned out to be a non-gap for the v1 adapter path — the real `codex-acp` raw session ids are verified stable — and the driver seams a v2 bridge would need (`StableSessionResolver`/`SessionLoadResolver`) are wired.
+```bash
+npm install -g @zed-industries/codex-acp
+mkdir -p /tmp/acp-codex-test
+```
 
-### Manage ACP via agwctl
+Create a bundle file `gateway.bundle.acp.yaml`:
 
-ACP services and routes are bundle objects (`acpServices`, `acpRoutes`) and have dedicated `agwctl gateway` subcommands:
+```yaml
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+
+acpServices:
+  - id: codex-main
+    name: Codex
+    agent_type: codex
+    cwd: /tmp/acp-codex-test
+    permission_mode: auto_approve
+
+acpRoutes:
+  - id: acp-codex
+    service_id: codex-main
+    match_policy:
+      path_prefix: /acp/codex
+    auth_policy:
+      require_virtual_key: true
+
+virtualKeys:
+  - id: acp-key
+    allowed_route_ids:
+      - acp-codex
+```
+
+Apply and verify:
 
 ```bash
 export AGW_ADMIN_USER=admin
 export AGW_ADMIN_PASSWORD=your-password
 
-# Create the agent working directory, then apply the example bundle
-mkdir -p /tmp/acp-codex-test
-./agwctl gateway apply -f examples/gateway.bundle.acp.yaml
+./agwctl gateway apply -f gateway.bundle.acp.yaml
 
-# Inspect config and runtime state
 ./agwctl gateway acp-service list
 ./agwctl gateway acp-route list
 ./agwctl gateway acp-runtime get
+```
 
-# Send a turn (dispatcher endpoint, SSE)
+Send a streamed turn through the dispatcher:
+
+```bash
+ACP_API_KEY=$(./agwctl gateway virtualkey get acp-key | jq -r '.key')
+
 curl -N -s http://127.0.0.1:8080/acp/codex/turn \
   -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $ACP_API_KEY" \
   -d '{"thread_id":"t-demo-1","input":"Reply with exactly one word: pong"}'
+```
 
-# Agent-side sessions and transcript replay
+Inspect sessions, replay transcripts, or operate on runtime state:
+
+```bash
 ./agwctl gateway acp-service sessions codex-main --cwd /tmp/acp-codex-test
 ./agwctl gateway acp-service transcript codex-main <session-id>
 
-# Operator actions
 ./agwctl gateway acp-runtime inflight
 ./agwctl gateway acp-runtime resolve-permission <request-id> --outcome selected --option-id <option-id>
 ./agwctl gateway acp-runtime close-thread codex-main t-demo-1
 ```
 
-ACP route IDs are auto-generated as `acp:<service_id>:<path_prefix>` when `id` is omitted.
+ACP route IDs are auto-generated as `acp:<service_id>:<path_prefix>` when `id` is omitted. Permission modes are `deny`, `auto_approve`, and `interactive`; interactive requests are surfaced as `permission` SSE events and can be resolved through `POST /<acp-route>/permission` or the Admin API.
+
+See [docs/getting-started/quickstart-acp.md](docs/getting-started/quickstart-acp.md), [docs/architecture/acp-architecture.md](docs/architecture/acp-architecture.md), [docs/reference/acp-technical-spec.md](docs/reference/acp-technical-spec.md), and [docs/reference/acp-api.md](docs/reference/acp-api.md) for the full ACP documentation.
 
 ## Runtimes
 
@@ -345,6 +296,7 @@ See [docs/README.md](docs/README.md) for runtime-specific guides and references.
 - [docs/README.md](docs/README.md): documentation index and split plan
 - [docs/architecture/architecture-overview.md](docs/architecture/architecture-overview.md): current architecture overview
 - [docs/architecture/mcp-architecture.md](docs/architecture/mcp-architecture.md): MCP gateway architecture
+- [docs/architecture/acp-architecture.md](docs/architecture/acp-architecture.md): ACP gateway architecture
 - [docs/architecture/configstore-architecture.md](docs/architecture/configstore-architecture.md): config store architecture
 - [docs/design/gateway-bundle-yaml.md](docs/design/gateway-bundle-yaml.md): bundle YAML design
 
@@ -353,7 +305,7 @@ See [docs/README.md](docs/README.md) for runtime-specific guides and references.
 - OpenAI-compatible chat and Anthropic-compatible messages are the primary mature LLM paths
 - OpenAI embeddings and Anthropic token counting are not fully implemented
 - MCP is active in the dispatcher and Admin API surface, but some adjacent subsystems are still evolving
-- ACP is a functional native route/admin/dispatcher surface with a reusable stdio runtime driver and thin codex/opencode agent adapters; opencode and codex (via the external `codex-acp` adapter binary) are both smoke-verified end to end at the session-lifecycle level, and the interactive permission workflow plus codex v2 bridge remain deferred
+- ACP is a functional native route/admin/dispatcher surface with a reusable stdio runtime driver and thin codex/opencode agent adapters; crash retry and the in-repo Codex app-server bridge remain deferred
 - memory, agents, and metrics Admin API families still contain `501 Not Implemented` endpoints
 
 ## Development
