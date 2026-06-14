@@ -17,6 +17,22 @@ This repository builds three binaries:
 - expose the first native ACP control surface for codex/opencode agent routing
 - run with either a Caddyfile-based runtime or a standalone daemon with a config store
 
+## Architecture
+
+![agent-gateway architecture overview](docs/architecture/assets/agent-gateway-overview.svg)
+
+`agent-gateway` is a multi-protocol gateway that connects, manages, and observes AI agents on a single binary. It exposes two distinct API surfaces, one for each direction of traffic:
+
+- **Agent Control API (ACP / HTTP)** — how consumers reach agents. Users and business apps call the gateway to launch and drive an agent.
+- **Resource Access API (LLM / MCP)** — how agents reach the outside world. An agent calls back through the gateway to use LLM providers and MCP tools.
+
+A typical request flows in four hops: ① a consumer calls the gateway over HTTP / ACP → ② the gateway launches and drives an agent → ③ the agent calls back through the gateway for LLM / MCP → ④ the gateway proxies that call to upstream resources (LLM providers, MCP servers, RAG). Because both directions pass through the gateway, it adds VirtualKey auth, routing, and config across the board, and observability is first-class: every hop is captured as audit logs, token usage, and call-chain traces for multi-agent governance.
+
+The gateway supports two integration paths for the agents themselves:
+
+- **Low-code**: drive off-the-shelf CLI coding agents (Codex, Claude Code, OpenCode) directly over ACP — no custom code required.
+- **Full control**: bring your own agent in any stack and let the gateway manage and observe it.
+
 ## Quick Start
 
 Build the binaries:
