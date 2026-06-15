@@ -152,6 +152,7 @@ func ResponsesToChatRequest(req *ResponsesRequest) (*ChatRequest, error) {
 	if err != nil {
 		return nil, err
 	}
+	messages = coalesceResponsesToolCalls(messages)
 
 	chatReq := &ChatRequest{
 		Model:    req.Model,
@@ -380,6 +381,36 @@ func responsesInputToMessages(input any) ([]*schema.Message, error) {
 	default:
 		return nil, statuserr.New(http.StatusBadRequest, "unsupported input type for responses api")
 	}
+}
+
+// coalesceResponsesToolCalls merges a run of consecutive assistant messages
+// that carry tool calls into a single assistant message. The Responses API
+// emits one function_call input item per parallel tool call, which
+// responseInputItemToMessage turns into one assistant message each. Chat
+// Completions instead requires a single assistant message whose tool_calls are
+// all answered by the tool messages that immediately follow; leaving them split
+// makes strict upstreams (e.g. deepseek) reject the request because the first
+// assistant tool_calls message is followed by another assistant message instead
+// of its tool replies.
+func coalesceResponsesToolCalls(messages []*schema.Message) []*schema.Message {
+	out := make([]*schema.Message, 0, len(messages))
+	for _, msg := range messages {
+		if msg != nil && msg.Role == schema.Assistant && len(msg.ToolCalls) > 0 && len(out) > 0 {
+			if prev := out[len(out)-1]; prev.Role == schema.Assistant && len(prev.ToolCalls) > 0 {
+				prev.ToolCalls = append(prev.ToolCalls, msg.ToolCalls...)
+				if text := strings.TrimSpace(msg.Content); text != "" {
+					if strings.TrimSpace(prev.Content) != "" {
+						prev.Content += "\n" + msg.Content
+					} else {
+						prev.Content = msg.Content
+					}
+				}
+				continue
+			}
+		}
+		out = append(out, msg)
+	}
+	return out
 }
 
 func splitInstructionsAndInput(messages []*schema.Message) (string, []any) {

@@ -198,6 +198,59 @@ func TestResponsesToChatRequestParsesToolCallHistory(t *testing.T) {
 	}
 }
 
+func TestResponsesToChatRequestCoalescesParallelToolCalls(t *testing.T) {
+	req := &ResponsesRequest{
+		Model: "deepseek-v4-pro",
+		Input: []any{
+			map[string]any{
+				"type":      "function_call",
+				"call_id":   "call_1",
+				"name":      "shell",
+				"arguments": `{"cmd":"cat a.txt"}`,
+			},
+			map[string]any{
+				"type":      "function_call",
+				"call_id":   "call_2",
+				"name":      "shell",
+				"arguments": `{"cmd":"cat b.txt"}`,
+			},
+			map[string]any{
+				"type":    "function_call_output",
+				"call_id": "call_1",
+				"output":  "alpha",
+			},
+			map[string]any{
+				"type":    "function_call_output",
+				"call_id": "call_2",
+				"output":  "beta",
+			},
+		},
+	}
+
+	chatReq, err := ResponsesToChatRequest(req)
+	if err != nil {
+		t.Fatalf("ResponsesToChatRequest() error = %v", err)
+	}
+	// The two parallel function_call items must collapse into one assistant
+	// message so each tool_call_id is answered by the tool messages that follow.
+	if len(chatReq.Messages) != 3 {
+		t.Fatalf("message count = %d, want 3", len(chatReq.Messages))
+	}
+	call := chatReq.Messages[0]
+	if call.Role != schema.Assistant || len(call.ToolCalls) != 2 {
+		t.Fatalf("first message = %+v, want assistant with 2 tool calls", call)
+	}
+	if call.ToolCalls[0].ID != "call_1" || call.ToolCalls[1].ID != "call_2" {
+		t.Fatalf("tool call ids = %q,%q, want call_1,call_2", call.ToolCalls[0].ID, call.ToolCalls[1].ID)
+	}
+	if chatReq.Messages[1].Role != schema.Tool || chatReq.Messages[1].ToolCallID != "call_1" {
+		t.Fatalf("second message = %+v, want tool output for call_1", chatReq.Messages[1])
+	}
+	if chatReq.Messages[2].Role != schema.Tool || chatReq.Messages[2].ToolCallID != "call_2" {
+		t.Fatalf("third message = %+v, want tool output for call_2", chatReq.Messages[2])
+	}
+}
+
 func TestResponsesToChatRequestAcceptsAssistantOutputText(t *testing.T) {
 	req := &ResponsesRequest{
 		Model: "gpt-4.1",

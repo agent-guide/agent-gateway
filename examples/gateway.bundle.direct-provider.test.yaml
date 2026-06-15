@@ -18,7 +18,7 @@ providers:
 
 llmRoutes:
   - id: chat
-    protocol: cc
+    protocol: openai
     match_policy:
       path_prefix: /
       methods:
