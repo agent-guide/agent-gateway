@@ -100,6 +100,36 @@ type testStatusError struct {
 func (e testStatusError) Error() string   { return e.msg }
 func (e testStatusError) StatusCode() int { return e.status }
 
+type flushRecorder struct {
+	*httptest.ResponseRecorder
+	flushes int
+}
+
+func (r *flushRecorder) Flush() {
+	r.flushes++
+	r.ResponseRecorder.Flush()
+}
+
+type wrappedResponseWriter struct {
+	inner *flushRecorder
+}
+
+func (w *wrappedResponseWriter) Header() http.Header {
+	return w.inner.Header()
+}
+
+func (w *wrappedResponseWriter) Write(p []byte) (int, error) {
+	return w.inner.Write(p)
+}
+
+func (w *wrappedResponseWriter) WriteHeader(status int) {
+	w.inner.WriteHeader(status)
+}
+
+func (w *wrappedResponseWriter) Unwrap() http.ResponseWriter {
+	return w.inner
+}
+
 type testCredentialMarkingProvider struct {
 	base      provider.Provider
 	scheduler sched.CredentialScheduler
@@ -702,19 +732,26 @@ func TestServeLLMApiStreamsOpenAIChunks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
 	}
-	rec := httptest.NewRecorder()
+	inner := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
+	rec := &wrappedResponseWriter{inner: inner}
+	if _, ok := any(rec).(http.Flusher); ok {
+		t.Fatal("wrapped response writer must not directly implement http.Flusher")
+	}
 
 	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
 		t.Fatalf("ServeLLMApi returned error: %v", err)
 	}
-	if rec.Code != http.StatusOK {
-		t.Fatalf("unexpected status code: got %d want %d", rec.Code, http.StatusOK)
+	if inner.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d want %d", inner.Code, http.StatusOK)
 	}
 	if prov.lastStreamReq == nil {
 		t.Fatal("expected provider Stream to be called")
 	}
+	if inner.flushes == 0 {
+		t.Fatal("expected stream to flush through wrapped response writer Unwrap chain")
+	}
 
-	bodyText := rec.Body.String()
+	bodyText := inner.Body.String()
 	if !strings.Contains(bodyText, "data: [DONE]") {
 		t.Fatalf("expected done marker in stream body, got %q", bodyText)
 	}

@@ -310,7 +310,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 
-	flusher, canFlush := w.(http.Flusher)
+	flusher := dispatcher.NewResponseFlusher(w)
 	chunkCount := 0
 	for {
 		chunk, err := stream.Recv()
@@ -335,9 +335,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 			break
 		}
 		fmt.Fprintf(w, "data: %s\n\n", payload)
-		if canFlush {
-			flusher.Flush()
-		}
+		flusher.Flush()
 	}
 	h.logger.Debug("openai: stream completed",
 		zap.String("request_type", string(provider.LLMApiRequestTypeChat)),
@@ -345,9 +343,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 		zap.Int("chunks", chunkCount),
 	)
 	fmt.Fprint(w, "data: [DONE]\n\n")
-	if canFlush {
-		flusher.Flush()
-	}
+	flusher.Flush()
 }
 
 func (h *Handler) writeProviderResponsesStream(w http.ResponseWriter, r *http.Request, stream *schema.StreamReader[*provider.ResponsesStreamEvent], model string) {
@@ -358,7 +354,7 @@ func (h *Handler) writeProviderResponsesStream(w http.ResponseWriter, r *http.Re
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 
-	flusher, canFlush := w.(http.Flusher)
+	flusher := dispatcher.NewResponseFlusher(w)
 	eventCount := 0
 	for {
 		event, err := stream.Recv()
@@ -383,9 +379,7 @@ func (h *Handler) writeProviderResponsesStream(w http.ResponseWriter, r *http.Re
 			)
 			break
 		}
-		if canFlush {
-			flusher.Flush()
-		}
+		flusher.Flush()
 	}
 	h.logger.Debug("openai: responses stream completed",
 		zap.String("request_type", string(provider.LLMApiRequestTypeResponses)),

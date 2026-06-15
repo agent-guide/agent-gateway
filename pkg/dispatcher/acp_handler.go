@@ -64,16 +64,27 @@ func (h *Handler) dispatchACP(w http.ResponseWriter, r *http.Request, next NextH
 		return httpjson.Error(w, http.StatusBadRequest, "input is required")
 	}
 
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		return httpjson.Error(w, http.StatusInternalServerError, "streaming is not supported")
-	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 
-	emit := func(event acpruntime.TurnEvent) error {
+	emit := newACPSSESink(w)
+
+	if err := runtimeManager.ServeTurn(rewritten.Context(), route.ServiceID, req, emit); err != nil {
+		_ = emit(acpruntime.TurnEvent{Event: "error", Message: err.Error()})
+		return nil
+	}
+	return nil
+}
+
+// newACPSSESink builds the SSE EventSink used by the ACP turn handler. It writes
+// one "event:/data:" frame per TurnEvent and flushes through the ResponseController
+// Unwrap chain so frames reach the client incrementally; Caddy (v2.7+) wraps the
+// ResponseWriter so a direct http.Flusher assertion no longer succeeds.
+func newACPSSESink(w http.ResponseWriter) acpruntime.EventSink {
+	flusher := NewResponseFlusher(w)
+	return func(event acpruntime.TurnEvent) error {
 		name := strings.TrimSpace(event.Event)
 		if name == "" {
 			name = "delta"
@@ -88,12 +99,6 @@ func (h *Handler) dispatchACP(w http.ResponseWriter, r *http.Request, next NextH
 		flusher.Flush()
 		return nil
 	}
-
-	if err := runtimeManager.ServeTurn(rewritten.Context(), route.ServiceID, req, emit); err != nil {
-		_ = emit(acpruntime.TurnEvent{Event: "error", Message: err.Error()})
-		return nil
-	}
-	return nil
 }
 
 // dispatchACPPermission answers one pending interactive permission request

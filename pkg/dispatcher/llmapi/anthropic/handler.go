@@ -191,7 +191,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 
-	flusher, canFlush := w.(http.Flusher)
+	flusher := dispatcher.NewResponseFlusher(w)
 	msgID := fmt.Sprintf("msg_%d", time.Now().UnixNano())
 
 	writeSSEEvent(w, "message_start", map[string]any{
@@ -203,9 +203,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 			"usage":       map[string]int{"input_tokens": 0, "output_tokens": 0},
 		},
 	})
-	if canFlush {
-		flusher.Flush()
-	}
+	flusher.Flush()
 
 	stream, err := prov.StreamChat(ctx, chatReq)
 	if err != nil {
@@ -220,9 +218,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 				Message: err.Error(),
 			},
 		})
-		if canFlush {
-			flusher.Flush()
-		}
+		flusher.Flush()
 		return
 	}
 	defer stream.Close()
@@ -263,9 +259,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 					Message: err.Error(),
 				},
 			})
-			if canFlush {
-				flusher.Flush()
-			}
+			flusher.Flush()
 			return
 		}
 		chunkCount++
@@ -284,9 +278,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 				"type": "content_block_delta", "index": textBlockIndex,
 				"delta": map[string]string{"type": "text_delta", "text": text},
 			})
-			if canFlush {
-				flusher.Flush()
-			}
+			flusher.Flush()
 		}
 
 		// Accumulate streamed tool-call fragments into one content block per
@@ -313,9 +305,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 				writeSSEEvent(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": idx})
 				finalStopReason = "tool_use"
 				emittedToolUse = true
-				if canFlush {
-					flusher.Flush()
-				}
+				flusher.Flush()
 				continue
 			}
 			block, ok := toolBlocks[*tc.Index]
@@ -339,9 +329,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 					"delta": map[string]any{"type": "input_json_delta", "partial_json": tc.Function.Arguments},
 				})
 			}
-			if canFlush {
-				flusher.Flush()
-			}
+			flusher.Flush()
 		}
 
 		if chunk != nil && chunk.ResponseMeta != nil {
@@ -377,9 +365,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 		"usage": map[string]int{"output_tokens": finalOutputTokens},
 	})
 	writeSSEEvent(w, "message_stop", map[string]any{"type": "message_stop"})
-	if canFlush {
-		flusher.Flush()
-	}
+	flusher.Flush()
 }
 
 func (h *Handler) handleCountTokens(w http.ResponseWriter, r *http.Request, prepared *dispatcher.PreparedLLMApiRequest) {

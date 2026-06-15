@@ -47,6 +47,36 @@ func (p *testStreamingProvider) Config() provider.ProviderConfig {
 	return p.cfg
 }
 
+type flushRecorder struct {
+	*httptest.ResponseRecorder
+	flushes int
+}
+
+func (r *flushRecorder) Flush() {
+	r.flushes++
+	r.ResponseRecorder.Flush()
+}
+
+type wrappedResponseWriter struct {
+	inner *flushRecorder
+}
+
+func (w *wrappedResponseWriter) Header() http.Header {
+	return w.inner.Header()
+}
+
+func (w *wrappedResponseWriter) Write(p []byte) (int, error) {
+	return w.inner.Write(p)
+}
+
+func (w *wrappedResponseWriter) WriteHeader(status int) {
+	w.inner.WriteHeader(status)
+}
+
+func (w *wrappedResponseWriter) Unwrap() http.ResponseWriter {
+	return w.inner
+}
+
 func TestHandlerName(t *testing.T) {
 	handler := NewHandler(nil)
 	if handler.Name() != "cc" {
@@ -129,13 +159,20 @@ func TestServeLLMApiStreamPassesThroughStatefulClaudeCodeToolUse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
 	}
-	rec := httptest.NewRecorder()
+	inner := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
+	rec := &wrappedResponseWriter{inner: inner}
+	if _, ok := any(rec).(http.Flusher); ok {
+		t.Fatal("wrapped response writer must not directly implement http.Flusher")
+	}
 
 	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
 		t.Fatalf("ServeLLMApi returned error: %v", err)
 	}
+	if inner.flushes == 0 {
+		t.Fatal("expected stream to flush through wrapped response writer Unwrap chain")
+	}
 
-	payload, err := io.ReadAll(rec.Result().Body)
+	payload, err := io.ReadAll(inner.Result().Body)
 	if err != nil {
 		t.Fatalf("read body: %v", err)
 	}
