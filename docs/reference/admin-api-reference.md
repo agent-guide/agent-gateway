@@ -235,6 +235,12 @@ Implemented ACP admin families include:
 - `DELETE /admin/acp/runtime/threads/{service_id}/{thread_id}`
 - `POST /admin/acp/runtime/permissions/{request_id}`
 
+The dispatcher also exposes consumer-facing route-scoped ACP session endpoints
+under `/<acp-route>/sessions` and
+`/<acp-route>/sessions/{session_id}/transcript`; those are not Admin API
+families because they resolve the service from the matched route and use the
+route's VirtualKey policy.
+
 See [acp-api.md](acp-api.md) for request and response shapes.
 
 ## Stubbed Families

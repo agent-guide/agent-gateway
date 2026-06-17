@@ -155,11 +155,7 @@ func (h *Handler) handleListACPSessions(w http.ResponseWriter, r *http.Request) 
 		Cursor: strings.TrimSpace(r.URL.Query().Get("cursor")),
 	})
 	if err != nil {
-		if errors.Is(err, acpservice.ErrServiceNotConfigured) || errors.Is(err, configstore.ErrNotFound) {
-			_ = httpjson.Error(w, http.StatusNotFound, "acp service not found")
-			return
-		}
-		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		_ = httpjson.Error(w, acpRequestErrorStatus(err), err.Error())
 		return
 	}
 	_ = httpjson.Write(w, http.StatusOK, result)
@@ -175,14 +171,24 @@ func (h *Handler) handleGetACPSessionTranscript(w http.ResponseWriter, r *http.R
 		CWD:       strings.TrimSpace(r.URL.Query().Get("cwd")),
 	})
 	if err != nil {
-		if errors.Is(err, acpservice.ErrServiceNotConfigured) || errors.Is(err, configstore.ErrNotFound) {
-			_ = httpjson.Error(w, http.StatusNotFound, "acp service not found")
-			return
-		}
-		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		_ = httpjson.Error(w, acpRequestErrorStatus(err), err.Error())
 		return
 	}
 	_ = httpjson.Write(w, http.StatusOK, result)
+}
+
+// acpRequestErrorStatus maps a session/transcript error to an HTTP status: 404
+// when the service is not configured, 400 for a client-correctable request
+// problem, and 502 for an upstream agent/transport failure.
+func acpRequestErrorStatus(err error) int {
+	switch {
+	case errors.Is(err, acpservice.ErrServiceNotConfigured) || errors.Is(err, configstore.ErrNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, acpruntime.ErrInvalidRequest):
+		return http.StatusBadRequest
+	default:
+		return http.StatusBadGateway
+	}
 }
 
 func (h *Handler) handleListACPRoutes(w http.ResponseWriter, r *http.Request) {

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -13,6 +14,12 @@ import (
 )
 
 const defaultJanitorInterval = 30 * time.Second
+
+// ErrInvalidRequest marks a client-correctable problem with a session or
+// transcript request (a disabled service, a cwd outside allowed_roots, or a
+// missing session id). Callers map it to HTTP 400; service-not-found maps to
+// 404 and unwrapped agent/transport failures map to 502.
+var ErrInvalidRequest = errors.New("invalid acp request")
 
 type Manager struct {
 	services    *acpservice.Manager
@@ -190,11 +197,11 @@ func (m *Manager) ListSessions(ctx context.Context, serviceID string, req ListSe
 		return ListSessionsResponse{}, err
 	}
 	if cfg.Disabled {
-		return ListSessionsResponse{}, fmt.Errorf("acp service %q is disabled", cfg.ID)
+		return ListSessionsResponse{}, fmt.Errorf("%w: acp service %q is disabled", ErrInvalidRequest, cfg.ID)
 	}
 	if req.CWD = strings.TrimSpace(req.CWD); req.CWD != "" {
 		if err := acpservice.ValidateCWDAllowed(req.CWD, cfg.AllowedRoots); err != nil {
-			return ListSessionsResponse{}, err
+			return ListSessionsResponse{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 		}
 	}
 	return listAgentSessions(ctx, cfg, req)
@@ -242,11 +249,11 @@ func (m *Manager) LoadTranscript(ctx context.Context, serviceID string, req Tran
 		return TranscriptResponse{}, err
 	}
 	if cfg.Disabled {
-		return TranscriptResponse{}, fmt.Errorf("acp service %q is disabled", cfg.ID)
+		return TranscriptResponse{}, fmt.Errorf("%w: acp service %q is disabled", ErrInvalidRequest, cfg.ID)
 	}
 	if req.CWD = strings.TrimSpace(req.CWD); req.CWD != "" {
 		if err := acpservice.ValidateCWDAllowed(req.CWD, cfg.AllowedRoots); err != nil {
-			return TranscriptResponse{}, err
+			return TranscriptResponse{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 		}
 	}
 	return loadAgentTranscript(ctx, cfg, req)

@@ -21,7 +21,7 @@ import (
 func loadAgentTranscript(ctx context.Context, cfg acpservice.ServiceConfig, req TranscriptRequest) (TranscriptResponse, error) {
 	sessionID := strings.TrimSpace(req.SessionID)
 	if sessionID == "" {
-		return TranscriptResponse{}, fmt.Errorf("session_id is required")
+		return TranscriptResponse{}, fmt.Errorf("%w: session_id is required", ErrInvalidRequest)
 	}
 	openCWD := strings.TrimSpace(req.CWD)
 	if openCWD == "" {

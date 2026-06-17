@@ -107,7 +107,7 @@ The HTTP handler is `http.handlers.agent_route_dispatcher`, and it loads LLM pro
 
 The `cc` handler is the Claude Code CLI-compatible ingress profile. It uses the Anthropic Messages wire format and keeps Claude Code-specific behavior out of the generic Anthropic handler and provider implementations.
 
-MCP handling is enabled with the dispatcher-local `mcp` option instead of a separate HTTP handler module. ACP handling is enabled the same way with `acp`; it uses a gateway-owned turn endpoint and routes to `pkg/acp` instead of the LLM provider interface.
+MCP handling is enabled with the dispatcher-local `mcp` option instead of a separate HTTP handler module. ACP handling is enabled the same way with `acp`; it uses gateway-owned route endpoints for turns, permission decisions, route-scoped session listing, and transcript replay, then routes to `pkg/acp` instead of the LLM provider interface.
 
 The runtime dispatcher in `pkg/dispatcher` does not define route policy inline. Instead, it asks the shared gateway route manager to match the HTTP request against `AgentRoute.match`, strips the matched route path prefix, selects the route's `protocol`, and resolves the matched route and target provider.
 
@@ -135,11 +135,11 @@ Today it exposes working endpoints for:
 - async CLI login and login status
 - MCP service discovery and execution endpoints
 - MCP dispatcher runtime inspection endpoints
-- ACP runtime inspection endpoints
+- ACP runtime inspection and operator escape-hatch endpoints
 
 The same route table still defines memory, agent, and metrics endpoints that are not yet implemented.
 
-This means the admin package is now the active control-plane entrypoint for LLM, MCP, and ACP configuration, while memory, agent, and metrics remain future work.
+This means the admin package is now the active control-plane entrypoint for LLM, MCP, and ACP configuration, while memory, agent, and metrics remain future work. ACP consumer runtime APIs that should be scoped by route and VirtualKey, such as turns, permission decisions, session listing, and transcript replay, stay under the dispatcher route prefix rather than under `/admin/acp`.
 
 ### 4.4 `pkg/llm/provider/`: Provider Abstraction
 
@@ -230,7 +230,7 @@ Current status:
   - first-version service config allows only `codex` and `opencode`
   - `opencode` uses the fixed `opencode acp --cwd <cwd>` stdio process shape
   - `codex` uses the fixed external ACP adapter binary `codex-acp` by default; it does not launch `codex acp`
-  - the runtime driver handles `initialize`, `session/new`, `session/load`, `session/prompt`, full `session/update` parsing (`pkg/acp/runtime/acpupdate`: text, reasoning, tool calls, plan, usage, available commands, session info, mode, config options), Admin `session/list` and transcript replay (`session/load` over a transient connection) after ACP capability checking, model selection and `config_overrides` via `session/set_config_option`, and spec-correct fail-closed permission replies with an off-loop timeout
+  - the runtime driver handles `initialize`, `session/new`, `session/load`, `session/prompt`, full `session/update` parsing (`pkg/acp/runtime/acpupdate`: text, reasoning, tool calls, plan, usage, available commands, session info, mode, config options), route-scoped and Admin `session/list` and transcript replay (`session/load` over a transient connection) after ACP capability checking, model selection and `config_overrides` via `session/set_config_option`, and spec-correct fail-closed permission replies with an off-loop timeout
   - each pooled instance caches the latest session metadata (config options, slash commands, title, mode, usage) from a lifetime updates subscription; the cache is replayed as snapshot events at every turn start and exposed through the runtime Admin inspection
   - runtime hardening: `PATH` preflight, stderr capture, a setup-handshake timeout, an idle janitor, dead-instance eviction, `fresh_session`, scope rebind (a session-addressed turn adopts the thread's live instance instead of spawning a second process), and `CloseScope`/`CloseThread` teardown
   - permission modes `deny`/`auto_approve`/`interactive`: interactive requests stream as `permission` SSE events and resolve through `POST /<acp-route>/permission` or `POST /admin/acp/runtime/permissions/{request_id}`, failing closed on timeout

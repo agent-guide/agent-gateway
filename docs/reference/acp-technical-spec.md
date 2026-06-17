@@ -224,6 +224,27 @@ Valid outcomes:
 
 Unknown, expired, or already answered requests return `404`.
 
+## Route-Scoped Sessions And Transcripts
+
+Consumer-facing session APIs are exposed under each ACP route prefix:
+
+```http
+GET /<acp-route>/sessions?cwd=/tmp/acp-codex-test&cursor=...
+GET /<acp-route>/sessions/{session_id}/transcript?cwd=/tmp/acp-codex-test
+```
+
+These endpoints use the matched route's VirtualKey policy and resolve the
+target service from the route. They do not accept a caller-supplied
+`service_id`. The optional `cwd` parameter is validated against the ACP
+service's `allowed_roots`, matching the admin session and transcript behavior.
+
+Error status codes are shared with the admin session and transcript endpoints:
+`404` when the resolved service is not configured, `400` for a
+client-correctable request (a disabled service, a `cwd` outside
+`allowed_roots`, or a missing session id), and `502` for an upstream
+agent/transport failure (capability not advertised, `initialize`/`session/load`
+failure, or a dropped connection).
+
 ## Runtime State
 
 `GET /admin/acp/runtime` returns:
@@ -262,6 +283,8 @@ pooled instances and returns:
 ```
 
 ## Session Listing And Transcript Replay
+
+Admin session APIs remain service-scoped operator endpoints.
 
 Session listing:
 
@@ -309,4 +332,3 @@ Response:
 ```
 
 Roles are `user`, `assistant`, or `reasoning`.
-

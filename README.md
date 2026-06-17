@@ -284,6 +284,16 @@ curl -N -s http://127.0.0.1:8080/acp/codex/turn \
   -d '{"thread_id":"t-demo-1","input":"Reply with exactly one word: pong"}'
 ```
 
+List sessions or replay a transcript through the same ACP route and VirtualKey:
+
+```bash
+curl -s "http://127.0.0.1:8080/acp/codex/sessions?cwd=/tmp/acp-codex-test" \
+  -H "Authorization: Bearer $ACP_API_KEY"
+
+curl -s "http://127.0.0.1:8080/acp/codex/sessions/<session-id>/transcript" \
+  -H "Authorization: Bearer $ACP_API_KEY"
+```
+
 Inspect sessions, replay transcripts, or operate on runtime state:
 
 ```bash

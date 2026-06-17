@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	acpruntime "github.com/agent-guide/agent-gateway/pkg/acp/runtime"
+	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	"go.uber.org/zap"
 )
@@ -35,22 +38,38 @@ func (h *Handler) dispatchACP(w http.ResponseWriter, r *http.Request, next NextH
 	)
 
 	rewritten := RewriteLLMRoutePath(r, route.MatchPolicy.PathPrefix)
-	switch rewritten.URL.Path {
-	case "/turn", "/permission":
-	default:
+	endpoint, sessionID, matched := matchACPRouteEndpoint(rewritten.URL.Path)
+	if !matched {
 		return serveNextOrNotFound(next, w, r)
-	}
-	if rewritten.Method != http.MethodPost {
-		return httpjson.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 
 	runtimeManager := h.gateway.ACPRuntimeManager()
 	if runtimeManager == nil {
-		return WriteDispatchError(h.logger, string(route.Protocol), route.ID, "", http.StatusServiceUnavailable, w, rewritten, "dispatch acp turn", "acp runtime manager is not configured", fmt.Errorf("acp runtime manager is not configured"))
+		return WriteDispatchError(h.logger, string(route.Protocol), route.ID, "", http.StatusServiceUnavailable, w, rewritten, "dispatch acp request", "acp runtime manager is not configured", fmt.Errorf("acp runtime manager is not configured"))
 	}
 
-	if rewritten.URL.Path == "/permission" {
+	switch endpoint {
+	case "turn":
+		if rewritten.Method != http.MethodPost {
+			return httpjson.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	case "permission":
+		if rewritten.Method != http.MethodPost {
+			return httpjson.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
 		return h.dispatchACPPermission(w, rewritten, runtimeManager)
+	case "sessions":
+		if rewritten.Method != http.MethodGet {
+			return httpjson.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+		return h.dispatchACPSessions(w, rewritten, runtimeManager, route.ServiceID)
+	case "transcript":
+		if rewritten.Method != http.MethodGet {
+			return httpjson.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+		return h.dispatchACPTranscript(w, rewritten, runtimeManager, route.ServiceID, sessionID)
+	default:
+		return serveNextOrNotFound(next, w, r)
 	}
 
 	var req acpruntime.TurnRequest
@@ -76,6 +95,30 @@ func (h *Handler) dispatchACP(w http.ResponseWriter, r *http.Request, next NextH
 		return nil
 	}
 	return nil
+}
+
+func matchACPRouteEndpoint(path string) (endpoint string, sessionID string, matched bool) {
+	switch path {
+	case "/turn":
+		return "turn", "", true
+	case "/permission":
+		return "permission", "", true
+	case "/sessions":
+		return "sessions", "", true
+	}
+	if !strings.HasPrefix(path, "/sessions/") || !strings.HasSuffix(path, "/transcript") {
+		return "", "", false
+	}
+	rawID := strings.TrimSuffix(strings.TrimPrefix(path, "/sessions/"), "/transcript")
+	rawID = strings.Trim(rawID, "/")
+	if rawID == "" || strings.Contains(rawID, "/") {
+		return "", "", false
+	}
+	id, err := url.PathUnescape(rawID)
+	if err != nil || strings.TrimSpace(id) == "" {
+		return "", "", false
+	}
+	return "transcript", strings.TrimSpace(id), true
 }
 
 // newACPSSESink builds the SSE EventSink used by the ACP turn handler. It writes
@@ -115,4 +158,40 @@ func (h *Handler) dispatchACPPermission(w http.ResponseWriter, r *http.Request, 
 		return httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}
 	return httpjson.Write(w, http.StatusOK, map[string]string{"status": "resolved"})
+}
+
+func (h *Handler) dispatchACPSessions(w http.ResponseWriter, r *http.Request, runtimeManager *acpruntime.Manager, serviceID string) error {
+	result, err := runtimeManager.ListSessions(r.Context(), serviceID, acpruntime.ListSessionsRequest{
+		CWD:    strings.TrimSpace(r.URL.Query().Get("cwd")),
+		Cursor: strings.TrimSpace(r.URL.Query().Get("cursor")),
+	})
+	if err != nil {
+		return httpjson.Error(w, acpRequestErrorStatus(err), err.Error())
+	}
+	return httpjson.Write(w, http.StatusOK, result)
+}
+
+func (h *Handler) dispatchACPTranscript(w http.ResponseWriter, r *http.Request, runtimeManager *acpruntime.Manager, serviceID, sessionID string) error {
+	result, err := runtimeManager.LoadTranscript(r.Context(), serviceID, acpruntime.TranscriptRequest{
+		SessionID: sessionID,
+		CWD:       strings.TrimSpace(r.URL.Query().Get("cwd")),
+	})
+	if err != nil {
+		return httpjson.Error(w, acpRequestErrorStatus(err), err.Error())
+	}
+	return httpjson.Write(w, http.StatusOK, result)
+}
+
+// acpRequestErrorStatus maps a session/transcript error to an HTTP status: 404
+// when the route's service is not configured, 400 for a client-correctable
+// request problem, and 502 for an upstream agent/transport failure.
+func acpRequestErrorStatus(err error) int {
+	switch {
+	case errors.Is(err, acpservice.ErrServiceNotConfigured) || errors.Is(err, configstore.ErrNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, acpruntime.ErrInvalidRequest):
+		return http.StatusBadRequest
+	default:
+		return http.StatusBadGateway
+	}
 }

@@ -185,6 +185,18 @@ curl -N -s http://127.0.0.1:8080/acp/codex/turn \
 
 ## 10. Inspect Sessions And Transcript
 
+Use the route-scoped consumer API with the same VirtualKey:
+
+```bash
+curl -s "http://127.0.0.1:8080/acp/codex/sessions?cwd=/tmp/acp-codex-test" \
+  -H "Authorization: Bearer $ACP_API_KEY"
+
+curl -s "http://127.0.0.1:8080/acp/codex/sessions/<session-id>/transcript?cwd=/tmp/acp-codex-test" \
+  -H "Authorization: Bearer $ACP_API_KEY"
+```
+
+Or use the Admin API through `agwctl` for service-scoped operator inspection:
+
 ```bash
 ./agwctl gateway acp-service sessions codex-main --cwd /tmp/acp-codex-test
 ./agwctl gateway acp-service transcript codex-main <session-id> --cwd /tmp/acp-codex-test

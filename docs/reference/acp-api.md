@@ -70,6 +70,51 @@ Response:
 
 Use `outcome: "cancelled"` to deny the request.
 
+### List Route Sessions
+
+```http
+GET /<acp-route>/sessions?cwd=/tmp/acp-codex-test&cursor=...
+Authorization: Bearer <virtual-key>
+```
+
+Response:
+
+```json
+{
+  "sessions": [
+    {
+      "session_id": "sess-...",
+      "cwd": "/tmp/acp-codex-test",
+      "title": "Fix ACP",
+      "updated_at": "2026-06-09T10:11:12Z"
+    }
+  ],
+  "next_cursor": "optional-cursor"
+}
+```
+
+This is the consumer-facing form of session discovery. It resolves the ACP
+service from the matched route instead of accepting a `service_id` in the URL.
+
+### Replay Route Session Transcript
+
+```http
+GET /<acp-route>/sessions/{session_id}/transcript?cwd=/tmp/acp-codex-test
+Authorization: Bearer <virtual-key>
+```
+
+Response:
+
+```json
+{
+  "session_id": "sess-...",
+  "messages": [
+    { "role": "user", "text": "hello" },
+    { "role": "assistant", "text": "pong" }
+  ]
+}
+```
+
 ## ACP Services
 
 ### List Services
@@ -312,4 +357,3 @@ Response:
 ./agwctl gateway acp-runtime close-thread <service-id> <thread-id>
 ./agwctl gateway acp-runtime resolve-permission <request-id> --outcome selected --option-id <option-id>
 ```
-
