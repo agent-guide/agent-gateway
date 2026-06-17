@@ -68,6 +68,9 @@ coverage.html
 # Vendor
 vendor/
 
+# code cli
+.claude
+
 # Editor/IDE
 # .idea/
 # .vscode/
