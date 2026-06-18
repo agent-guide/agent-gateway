@@ -20,9 +20,8 @@ List gateway LLM routes through the gateway Admin API:
 
 ```bash
 ./agwctl gateway --admin-addr http://localhost:8019 \
-  route list \
-  --admin-user admin \
-  --admin-password your-password
+  --admin-basic-auth admin:your-password \
+  llm-route list
 ```
 
 List Caddy HTTP servers through the Caddy admin API directly:
@@ -37,8 +36,7 @@ Start a local CLI auth login flow and list gateway-stored CLI auth credentials:
 ./agwctl cliauth login --authenticator codex --provider-id openai-main
 
 ./agwctl gateway --admin-addr http://localhost:8019 \
-  --admin-user admin \
-  --admin-password your-password \
+  --admin-basic-auth admin:your-password \
   credential list \
   --type cliauth_token
 ```
@@ -47,15 +45,13 @@ List remote gateway CLI auth authenticators and refresher status:
 
 ```bash
 ./agwctl gateway --admin-addr http://localhost:8019 \
-  --admin-user admin \
-  --admin-password your-password \
+  --admin-basic-auth admin:your-password \
   cliauth authenticators list
 ```
 
 ```bash
 ./agwctl gateway --admin-addr http://localhost:8019 \
-  --admin-user admin \
-  --admin-password your-password \
+  --admin-basic-auth admin:your-password \
   cliauth refresher status
 ```
 
@@ -69,8 +65,7 @@ Apply a gateway bundle YAML file through the Admin API:
 
 ```bash
 ./agwctl gateway --admin-addr http://localhost:8019 \
-  --admin-user admin \
-  --admin-password your-password \
+  --admin-basic-auth admin:your-password \
   apply -f ./examples/gateway.bundle.minimal.yaml
 ```
 
@@ -78,8 +73,7 @@ Export remote gateway objects as bundle YAML:
 
 ```bash
 ./agwctl gateway --admin-addr http://localhost:8019 \
-  --admin-user admin \
-  --admin-password your-password \
+  --admin-basic-auth admin:your-password \
   export -f ./gateway.bundle.yaml
 ```
 

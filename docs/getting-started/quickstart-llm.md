@@ -50,10 +50,10 @@ Declare the provider and route in the Caddyfile with `require_virtual_key false`
 
 http://localhost:8019 {
 	route /admin/* {
-		agent_gateway_admin {
-			admin_user admin
-			admin_password_hash <bcrypt-hash>
+		basic_auth {
+			admin <hashed-password>
 		}
+		agent_gateway_admin
 	}
 }
 
@@ -119,10 +119,10 @@ No providers or routes are declared here — they will be applied dynamically:
 
 http://localhost:8019 {
 	route /admin/* {
-		agent_gateway_admin {
-			admin_user admin
-			admin_password_hash <bcrypt-hash>
+		basic_auth {
+			admin <hashed-password>
 		}
+		agent_gateway_admin
 	}
 }
 
@@ -184,8 +184,7 @@ The `${OPENAI_API_KEY}` placeholder is expanded from the environment when `agwct
 Set the admin credentials as environment variables, then apply:
 
 ```bash
-export AGW_ADMIN_USER=admin
-export AGW_ADMIN_PASSWORD=your-password
+export AGW_ADMIN_BASIC_AUTH=admin:your-password
 
 OPENAI_API_KEY=sk-... ./agwctl gateway apply -f gateway.bundle.yaml
 ```
@@ -223,7 +222,7 @@ AGW_API_KEY=$(./agwctl gateway virtualkey get test-key | jq -r '.key')
 ## Notes
 
 - In both options the admin API is served at `http://localhost:8019`. The LLM API is at `http://127.0.0.1:8080`.
-- Admin sessions are in memory. Restarting the gateway invalidates existing tokens.
+- The Admin API has no built-in sessions; authentication is handled by the HTTP mount layer.
 - In Option 2, the VirtualKey can be sent as `Authorization: Bearer <key>` or `x-api-key: <key>`.
 - Run `agwctl gateway export` to dump the current gateway state as a bundle YAML.
 

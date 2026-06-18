@@ -1,73 +1,83 @@
 # Admin API Auth
 
-This guide covers how the gateway Admin API is exposed, how login works, and how to use the resulting session token.
+The gateway Admin API does not implement login, sessions, or bearer session
+tokens. Protect the path where `agent_gateway_admin` is mounted with the HTTP
+deployment boundary: Caddy `basic_auth`, mTLS, a reverse proxy authenticator, an
+OAuth2 proxy, or a private loopback listener.
 
-## Admin Handler
-
-The Admin API is mounted with `agent_gateway_admin`.
-
-Example:
+## Caddy Mode
 
 ```caddy
-http://localhost:2019 {
+http://localhost:8019 {
 	route /admin/* {
-		agent_gateway_admin {
-			admin_user admin
-			admin_password_hash <bcrypt-hash>
+		# Exempt the public health probe and CORS preflight (which carries no
+		# credentials) so browser admin UIs and health checks keep working.
+		@needauth {
+			not path /admin/health
+			not method OPTIONS
 		}
+		basic_auth @needauth {
+			admin <hashed-password>
+		}
+		agent_gateway_admin
 	}
 }
 ```
 
-Protected Admin API routes require:
+`GET /admin/health` and CORS preflight (`OPTIONS`) stay public so health probes
+and browser admin UIs keep working; everything else requires Basic Auth.
 
-1. an `admin_user`
-2. an `admin_password_hash`
-3. a session token from `POST /admin/auth/login`
-
-Generate the bcrypt hash with Caddy:
+Generate a Caddy-compatible password hash:
 
 ```bash
 ./agw hash-password --plaintext 'your-password'
 ```
 
-## Login
+Admin API clients then send standard Basic Auth:
 
 ```bash
-TOKEN=$(
-  curl -s -X POST http://localhost:2019/admin/auth/login \
-    -H 'Content-Type: application/json' \
-    -d '{"username":"admin","password":"your-password"}' |
-    jq -r '.token'
-)
+curl -u admin:your-password http://localhost:8019/admin/health
 ```
 
-The login endpoint returns a session token used as:
+`agwctl` can send the same credentials:
 
 ```bash
--H "Authorization: Bearer $TOKEN"
+export AGW_ADMIN_BASIC_AUTH=admin:your-password
+./agwctl gateway provider list
 ```
 
-## Session Lifecycle
+For proxy-based auth, use repeated `--admin-header 'Name: value'` flags instead.
 
-- Admin sessions are stored in memory
-- restarting the service invalidates existing tokens
-- except for health and login, Admin API routes require a valid bearer session token
+## Standalone Mode
 
-Useful session endpoints:
-
-- `GET /admin/health`
-- `POST /admin/auth/login`
-- `POST /admin/auth/logout`
-- `GET /admin/auth/me`
-
-## First Authenticated Call
-
-Create a VirtualKey after login:
+`agwd` defaults the Admin API listener to `localhost:8019`. Keep it on loopback
+when another local process manages the gateway. To enable standalone Basic Auth:
 
 ```bash
-curl -X POST http://localhost:2019/admin/virtual_keys \
-  -H "Authorization: Bearer $TOKEN" \
+AGW_ADMIN_BASIC_AUTH_HASH=admin:<hashed-password> ./agwd
+```
+
+The equivalent flag is:
+
+```bash
+./agwd --admin-basic-auth-hash admin:<hashed-password>
+```
+
+The standalone wrapper also keeps `GET /admin/health` and `OPTIONS` preflight
+public; all other admin routes require Basic Auth.
+
+`AGW_ADMIN_BASIC_AUTH_HASH` is validated at startup: a value that is not
+`username:bcrypt-hash` (for example a plaintext password) fails the daemon fast
+instead of erroring per request. When no hash is set and `--admin-addr` is bound
+beyond loopback, the daemon logs a warning because the Admin API is then exposed
+without authentication.
+
+## First Admin Call
+
+Create a VirtualKey:
+
+```bash
+curl -u admin:your-password -X POST http://localhost:8019/admin/virtual_keys \
   -H 'Content-Type: application/json' \
   -d '{
     "id": "demo-key",
@@ -75,19 +85,5 @@ curl -X POST http://localhost:2019/admin/virtual_keys \
   }'
 ```
 
-Example response:
-
-```json
-{
-  "id": "demo-key",
-  "key": "vk-...",
-  "allowed_route_ids": ["openai-chat"]
-}
-```
-
-The `id` is the management identifier. The `key` is the bearer value that clients send on request traffic.
-
-## Related Docs
-
-- [../getting-started/quickstart-llm.md](../getting-started/quickstart-llm.md)
-- [../reference/admin-api-reference.md](../reference/admin-api-reference.md)
+The `id` is the management identifier. The response `key` is the bearer value
+that clients send on request traffic.

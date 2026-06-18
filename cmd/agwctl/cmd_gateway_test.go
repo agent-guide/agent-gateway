@@ -38,7 +38,7 @@ func TestLocalAndGatewayCLIAuthHelpAreDistinct(t *testing.T) {
 }
 
 func TestGatewayCredentialListCommandUsesTypeFilterAndDisplaysType(t *testing.T) {
-	var gotAuthHeader string
+	var gotBasicAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/admin/auth/login":
@@ -47,7 +47,10 @@ func TestGatewayCredentialListCommandUsesTypeFilterAndDisplaysType(t *testing.T)
 				"username": "admin",
 			})
 		case "/admin/credentials":
-			gotAuthHeader = r.Header.Get("Authorization")
+			user, pass, ok := r.BasicAuth()
+			if ok {
+				gotBasicAuth = user + ":" + pass
+			}
 			if r.URL.Query().Get("type") != "cliauth_token" {
 				t.Fatalf("type query = %q, want cliauth_token", r.URL.Query().Get("type"))
 			}
@@ -77,8 +80,7 @@ func TestGatewayCredentialListCommandUsesTypeFilterAndDisplaysType(t *testing.T)
 		t,
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"credential", "list",
 		"--type", "cliauth_token",
 		"--provider-type", "openai",
@@ -87,8 +89,8 @@ func TestGatewayCredentialListCommandUsesTypeFilterAndDisplaysType(t *testing.T)
 	if err != nil {
 		t.Fatalf("gateway credential list: %v\nstderr=%s", err, stderr)
 	}
-	if gotAuthHeader != "Bearer test-token" {
-		t.Fatalf("Authorization = %q, want Bearer test-token", gotAuthHeader)
+	if gotBasicAuth != "admin:secret" {
+		t.Fatalf("Basic Auth = %q, want admin:secret", gotBasicAuth)
 	}
 	if !strings.Contains(stdout, "TYPE") || !strings.Contains(stdout, "cliauth_token") {
 		t.Fatalf("stdout missing type column or value:\n%s", stdout)
@@ -98,7 +100,7 @@ func TestGatewayCredentialListCommandUsesTypeFilterAndDisplaysType(t *testing.T)
 func TestGatewayCredentialListCommandSurfacesAdminAuthErrors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/admin/auth/login":
+		case "/admin/credentials":
 			w.WriteHeader(http.StatusUnauthorized)
 			_ = json.NewEncoder(w).Encode(map[string]string{
 				"error": "invalid credentials",
@@ -113,8 +115,7 @@ func TestGatewayCredentialListCommandSurfacesAdminAuthErrors(t *testing.T) {
 		t,
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "wrong-secret",
+		"--admin-basic-auth", "admin:wrong-secret",
 		"credential", "list",
 		"--type", "cliauth_token",
 	)
@@ -130,7 +131,7 @@ func TestGatewayCredentialListCommandSurfacesAdminAuthErrors(t *testing.T) {
 }
 
 func TestGatewayProviderTypesListCommand(t *testing.T) {
-	var gotAuthHeader string
+	var gotBasicAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/admin/auth/login":
@@ -139,7 +140,10 @@ func TestGatewayProviderTypesListCommand(t *testing.T) {
 				"username": "admin",
 			})
 		case "/admin/provider_types":
-			gotAuthHeader = r.Header.Get("Authorization")
+			user, pass, ok := r.BasicAuth()
+			if ok {
+				gotBasicAuth = user + ":" + pass
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{"provider_type": "openai", "enabled": true},
@@ -156,15 +160,14 @@ func TestGatewayProviderTypesListCommand(t *testing.T) {
 		"--output", "json",
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"provider-type", "list",
 	)
 	if err != nil {
 		t.Fatalf("provider-type list: %v\nstderr=%s", err, stderr)
 	}
-	if gotAuthHeader != "Bearer test-token" {
-		t.Fatalf("Authorization = %q, want Bearer test-token", gotAuthHeader)
+	if gotBasicAuth != "admin:secret" {
+		t.Fatalf("Basic Auth = %q, want admin:secret", gotBasicAuth)
 	}
 	if !strings.Contains(stdout, `"provider_type": "openai"`) {
 		t.Fatalf("stdout missing provider type:\n%s", stdout)
@@ -203,8 +206,7 @@ func TestGatewayCLIAuthAuthenticatorsListCommand(t *testing.T) {
 		"--output", "json",
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"cliauth", "authenticators", "list",
 	)
 	if err != nil {
@@ -216,7 +218,7 @@ func TestGatewayCLIAuthAuthenticatorsListCommand(t *testing.T) {
 }
 
 func TestGatewayMCPServiceListCommand(t *testing.T) {
-	var gotAuthHeader string
+	var gotBasicAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/admin/auth/login":
@@ -227,7 +229,10 @@ func TestGatewayMCPServiceListCommand(t *testing.T) {
 		case "/admin/acp/services", "/admin/acp/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/mcp/services":
-			gotAuthHeader = r.Header.Get("Authorization")
+			user, pass, ok := r.BasicAuth()
+			if ok {
+				gotBasicAuth = user + ":" + pass
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
@@ -250,15 +255,14 @@ func TestGatewayMCPServiceListCommand(t *testing.T) {
 		t,
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-service", "list",
 	)
 	if err != nil {
 		t.Fatalf("gateway mcp-service list: %v\nstderr=%s", err, stderr)
 	}
-	if gotAuthHeader != "Bearer test-token" {
-		t.Fatalf("Authorization = %q, want Bearer test-token", gotAuthHeader)
+	if gotBasicAuth != "admin:secret" {
+		t.Fatalf("Basic Auth = %q, want admin:secret", gotBasicAuth)
 	}
 	if !strings.Contains(stdout, "TRANSPORT") || !strings.Contains(stdout, "My MCP Service") {
 		t.Fatalf("stdout missing mcp service table data:\n%s", stdout)
@@ -301,8 +305,7 @@ func TestGatewayMCPServiceGetAndDeleteCommands(t *testing.T) {
 		"--output", "json",
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-service", "get", "svc-1",
 	)
 	if err != nil {
@@ -317,8 +320,7 @@ func TestGatewayMCPServiceGetAndDeleteCommands(t *testing.T) {
 		"--output", "json",
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-service", "delete", "svc-1",
 	)
 	if err != nil {
@@ -466,8 +468,7 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		t,
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-service", "session", "svc-1",
 	)
 	if err != nil {
@@ -482,8 +483,7 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		"--output", "json",
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-service", "capabilities", "svc-1",
 	)
 	if err != nil {
@@ -497,8 +497,7 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		t,
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-service", "tools", "svc-1",
 	)
 	if err != nil {
@@ -513,8 +512,7 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		"--output", "json",
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-service", "tool-call", "svc-1", "echo",
 		"--arguments", `{"input":"hello"}`,
 	)
@@ -532,8 +530,7 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		t,
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-service", "resources", "svc-1",
 	)
 	if err != nil {
@@ -547,8 +544,7 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		t,
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-service", "resource-templates", "svc-1",
 	)
 	if err != nil {
@@ -563,8 +559,7 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		"--output", "json",
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-service", "resource-read", "svc-1", "file:///tmp/example.txt",
 	)
 	if err != nil {
@@ -581,8 +576,7 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		t,
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-service", "prompts", "svc-1",
 	)
 	if err != nil {
@@ -597,8 +591,7 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		"--output", "json",
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-service", "prompt-get", "svc-1", "summarize",
 		"--arguments", `{"topic":"logs"}`,
 	)
@@ -672,8 +665,7 @@ func TestGatewayMCPRouteListGetAndDeleteCommands(t *testing.T) {
 		t,
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-route", "list",
 	)
 	if err != nil {
@@ -688,8 +680,7 @@ func TestGatewayMCPRouteListGetAndDeleteCommands(t *testing.T) {
 		"--output", "json",
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-route", "get", "mcp:svc-1:/mcp",
 	)
 	if err != nil {
@@ -704,8 +695,7 @@ func TestGatewayMCPRouteListGetAndDeleteCommands(t *testing.T) {
 		"--output", "json",
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-route", "delete", "mcp:svc-1:/mcp",
 	)
 	if err != nil {
@@ -812,8 +802,7 @@ func TestGatewayMCPRuntimeCommands(t *testing.T) {
 		t,
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-runtime", "get",
 	)
 	if err != nil {
@@ -827,8 +816,7 @@ func TestGatewayMCPRuntimeCommands(t *testing.T) {
 		t,
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-runtime", "inflight",
 	)
 	if err != nil {
@@ -842,8 +830,7 @@ func TestGatewayMCPRuntimeCommands(t *testing.T) {
 		t,
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-runtime", "progress",
 	)
 	if err != nil {
@@ -857,8 +844,7 @@ func TestGatewayMCPRuntimeCommands(t *testing.T) {
 		t,
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"mcp-runtime", "history",
 		"--route-id", "route-a",
 	)
@@ -1134,8 +1120,7 @@ cliAuthAuthenticators:
 		"--output", "json",
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"apply",
 		"-f", path,
 	)
@@ -1265,8 +1250,7 @@ cliAuthAuthenticators:
 		"--output", "json",
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"apply",
 		"-f", path,
 	)
@@ -1343,8 +1327,7 @@ providers:
 		"--output", "json",
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"apply",
 		"-f", path,
 	)
@@ -1462,8 +1445,7 @@ func TestGatewayExportCommand(t *testing.T) {
 		t,
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"export",
 	)
 	if err != nil {
@@ -1584,8 +1566,7 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 		t,
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"export",
 		"-f", exportPath,
 	)
@@ -1663,8 +1644,7 @@ func TestGatewayExportCommandIncludesMCPServicesAndRoutes(t *testing.T) {
 		t,
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"export",
 	)
 	if err != nil {
@@ -1764,8 +1744,7 @@ mcpRoutes:
 		"--output", "json",
 		"gateway",
 		"--admin-addr", srv.URL,
-		"--admin-user", "admin",
-		"--admin-password", "secret",
+		"--admin-basic-auth", "admin:secret",
 		"apply",
 		"-f", path,
 	)

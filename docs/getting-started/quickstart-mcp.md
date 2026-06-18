@@ -31,10 +31,10 @@ No MCP services or routes are declared here — they are applied dynamically:
 
 http://localhost:8019 {
 	route /admin/* {
-		agent_gateway_admin {
-			admin_user admin
-			admin_password_hash <bcrypt-hash>
+		basic_auth {
+			admin <hashed-password>
 		}
+		agent_gateway_admin
 	}
 }
 
@@ -130,8 +130,7 @@ virtualKeys:
 Set admin credentials as environment variables, then apply:
 
 ```bash
-export AGW_ADMIN_USER=admin
-export AGW_ADMIN_PASSWORD=your-password
+export AGW_ADMIN_BASIC_AUTH=admin:your-password
 
 # Option A
 MCP_SERVICE_URL=https://your-mcp-server/mcp ./agwctl gateway apply -f gateway.bundle.mcp.yaml
@@ -198,7 +197,7 @@ For a complete Python-based end-to-end client, see [`examples/test_mcp_gateway_c
 - The MCP dispatcher is enabled by the `mcp` directive inside `agent_route_dispatcher`. LLM routes and MCP routes share the same dispatcher and config store.
 - MCP route IDs are auto-generated as `mcp:<service_id>:<path_prefix>` when `id` is omitted in the bundle.
 - The gateway initializes an upstream session on first use and caches it. Inspect session state with `agwctl gateway mcp-service session <id>`.
-- Admin sessions are in memory. Restarting the gateway invalidates existing tokens.
+- The Admin API has no built-in sessions; authentication is handled by the HTTP mount layer.
 - Run `agwctl gateway export` to dump the current gateway state as a bundle YAML.
 
 ## Next

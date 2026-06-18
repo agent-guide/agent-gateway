@@ -58,10 +58,10 @@ Create a minimal `Caddyfile` (no providers or routes). LLM providers and routes 
 
 http://localhost:8019 {
 	route /admin/* {
-		agent_gateway_admin {
-			admin_user admin
-			admin_password_hash <bcrypt-hash>
+		basic_auth {
+			admin <hashed-password>
 		}
+		agent_gateway_admin
 	}
 }
 
@@ -76,7 +76,7 @@ http://127.0.0.1:8080 {
 }
 ```
 
-Generate the hash and run the gateway:
+Generate the hash with `./agw hash-password --plaintext 'your-password'` and run the gateway:
 
 ```bash
 ./agw hash-password --plaintext 'your-password'
@@ -115,11 +115,10 @@ virtualKeys:
       - openai-chat
 ```
 
-Set the admin credentials as environment variables, then apply the bundle:
+Set the admin Basic Auth credentials for agwctl as an environment variable, then apply the bundle:
 
 ```bash
-export AGW_ADMIN_USER=admin
-export AGW_ADMIN_PASSWORD=your-password
+export AGW_ADMIN_BASIC_AUTH=admin:your-password
 
 OPENAI_API_KEY=sk-... ./agwctl gateway apply -f gateway.bundle.yaml
 ```
@@ -201,8 +200,7 @@ virtualKeys:
 Apply and verify:
 
 ```bash
-export AGW_ADMIN_USER=admin
-export AGW_ADMIN_PASSWORD=your-password
+export AGW_ADMIN_BASIC_AUTH=admin:your-password
 
 MCP_SERVICE_URL=https://your-mcp-server/mcp ./agwctl gateway apply -f gateway.bundle.mcp.yaml
 
@@ -264,8 +262,7 @@ virtualKeys:
 Apply and verify:
 
 ```bash
-export AGW_ADMIN_USER=admin
-export AGW_ADMIN_PASSWORD=your-password
+export AGW_ADMIN_BASIC_AUTH=admin:your-password
 
 ./agwctl gateway apply -f gateway.bundle.acp.yaml
 

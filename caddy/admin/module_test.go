@@ -16,25 +16,26 @@ func TestAgentGatewayAdminHandlerModuleID(t *testing.T) {
 
 func TestParseAgentGatewayAdminFromCaddyfile(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`
-	agent_gateway_admin {
-		admin_user alice
-		admin_password_hash bcrypt-hash
-	}
+	agent_gateway_admin
 	`)
 
 	handler, err := parseAgentGatewayAdmin(httpcaddyfile.Helper{Dispenser: d})
 	if err != nil {
 		t.Fatalf("parse admin handler: %v", err)
 	}
-
-	adminHandler, ok := handler.(*AgentGatewayAdminHandler)
-	if !ok {
+	if _, ok := handler.(*AgentGatewayAdminHandler); !ok {
 		t.Fatalf("handler type = %T, want *AgentGatewayAdminHandler", handler)
 	}
-	if adminHandler.AdminUsername != "alice" {
-		t.Fatalf("admin username = %q, want %q", adminHandler.AdminUsername, "alice")
+}
+
+func TestParseAgentGatewayAdminRejectsEmbeddedAuthOptions(t *testing.T) {
+	d := caddyfile.NewTestDispenser(`
+	agent_gateway_admin {
+		admin_user alice
 	}
-	if adminHandler.AdminPasswordHash != "bcrypt-hash" {
-		t.Fatalf("admin password hash = %q, want %q", adminHandler.AdminPasswordHash, "bcrypt-hash")
+	`)
+
+	if _, err := parseAgentGatewayAdmin(httpcaddyfile.Helper{Dispenser: d}); err == nil {
+		t.Fatal("expected embedded admin auth option to be rejected")
 	}
 }

@@ -77,8 +77,7 @@ After login, inspect gateway-stored CLI-auth credentials:
 
 ```bash
 ./agwctl gateway --admin-addr http://localhost:8019 \
-  --admin-user admin \
-  --admin-password your-password \
+  --admin-basic-auth admin:your-password \
   credential list \
   --type cliauth_token
 ```
@@ -87,15 +86,13 @@ Inspect remote authenticator and refresher status:
 
 ```bash
 ./agwctl gateway --admin-addr http://localhost:8019 \
-  --admin-user admin \
-  --admin-password your-password \
+  --admin-basic-auth admin:your-password \
   cliauth authenticators list
 ```
 
 ```bash
 ./agwctl gateway --admin-addr http://localhost:8019 \
-  --admin-user admin \
-  --admin-password your-password \
+  --admin-basic-auth admin:your-password \
   cliauth refresher status
 ```
 

@@ -43,10 +43,10 @@ gateway app, Admin API, and dispatcher with `acp` enabled:
 
 http://localhost:8019 {
 	route /admin/* {
-		agent_gateway_admin {
-			admin_user admin
-			admin_password_hash <bcrypt-hash>
+		basic_auth {
+			admin <hashed-password>
 		}
+		agent_gateway_admin
 	}
 }
 
@@ -120,8 +120,7 @@ Permission modes:
 ## 7. Apply The Bundle
 
 ```bash
-export AGW_ADMIN_USER=admin
-export AGW_ADMIN_PASSWORD=your-password
+export AGW_ADMIN_BASIC_AUTH=admin:your-password
 
 ./agwctl gateway apply -f gateway.bundle.acp.yaml
 ```
@@ -245,8 +244,8 @@ Or answer as an operator:
 - `codex` uses `codex-acp` by default. There is no native `codex acp`
   subcommand path in this gateway.
 - `opencode` services use the fixed `opencode acp --cwd <cwd>` launch shape.
-- Admin sessions are in memory. Restarting the gateway invalidates existing
-  admin tokens.
+- The Admin API has no built-in sessions; authentication is handled by the HTTP
+  mount layer.
 
 ## Next
 

@@ -12,9 +12,9 @@ import (
 )
 
 type Config struct {
-	BaseURL  string
-	Username string
-	Password string
+	BaseURL   string
+	BasicAuth string
+	Headers   []string
 }
 
 type Manager struct {
@@ -23,9 +23,9 @@ type Manager struct {
 
 func New(cfg Config) (*Manager, error) {
 	client := adminclient.New(adminclient.Config{
-		BaseURL:  strings.TrimSpace(cfg.BaseURL),
-		Username: strings.TrimSpace(cfg.Username),
-		Password: cfg.Password,
+		BaseURL:   strings.TrimSpace(cfg.BaseURL),
+		BasicAuth: cfg.BasicAuth,
+		Headers:   cfg.Headers,
 	})
 	if client == nil {
 		return nil, fmt.Errorf("cliauth store: admin client is nil")

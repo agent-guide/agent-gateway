@@ -40,10 +40,9 @@ type LLMApiHandlerTypeView struct {
 
 // Route defines an admin API route.
 type Route struct {
-	Method      string
-	Path        string
-	Handler     http.HandlerFunc
-	RequireAuth bool
+	Method  string
+	Path    string
+	Handler http.HandlerFunc
 }
 
 // Routes returns all admin API routes.
@@ -52,120 +51,115 @@ func (h *Handler) Routes() []Route {
 		// Health — public
 		{Method: http.MethodGet, Path: "/admin/health", Handler: h.handleHealth},
 
-		// Auth — login is public; logout and me require a valid session
-		{Method: http.MethodPost, Path: "/admin/auth/login", Handler: h.handleLogin},
-		{Method: http.MethodPost, Path: "/admin/auth/logout", Handler: h.handleLogout, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/auth/me", Handler: h.handleMe, RequireAuth: true},
-
 		// Provider names
-		{Method: http.MethodGet, Path: "/admin/provider_types", Handler: h.handleListProviderTypes, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/provider_types", Handler: h.handleListProviderTypes},
 
 		// LLM API handler types
-		{Method: http.MethodGet, Path: "/admin/llm_api_handler_types", Handler: h.handleListLLMApiHandlerTypes, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/llm_api_handler_types", Handler: h.handleListLLMApiHandlerTypes},
 
 		// Providers
-		{Method: http.MethodGet, Path: "/admin/providers", Handler: h.handleListProviders, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/providers", Handler: h.handleCreateProvider, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/providers/{id}", Handler: h.handleGetProvider, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/providers/{id}", Handler: h.handleUpdateProvider, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/providers/{id}/enable", Handler: h.handleEnableProvider, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/providers/{id}/disable", Handler: h.handleDisableProvider, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/providers/{id}", Handler: h.handleDeleteProvider, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/models/providers/{provider_id}/discovered", Handler: h.handleListDiscoveredModels, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/models/providers/{provider_id}/refresh", Handler: h.handleRefreshProviderModels, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/models/managed", Handler: h.handleListManagedModels, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/models/managed", Handler: h.handleCreateManagedModel, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/models/managed/{provider_id}/{upstream_model}", Handler: h.handleGetManagedModel, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/models/managed/{provider_id}/{upstream_model}", Handler: h.handleUpdateManagedModel, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/models/managed/{provider_id}/{upstream_model}", Handler: h.handleDeleteManagedModel, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/llm/routes", Handler: h.handleListLLMRoutes, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/llm/routes", Handler: h.handleCreateLLMRoute, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/llm/routes/{id}", Handler: h.handleGetLLMRoute, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/llm/routes/{id}", Handler: h.handleUpdateLLMRoute, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/llm/routes/{id}/enable", Handler: h.handleEnableLLMRoute, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/llm/routes/{id}/disable", Handler: h.handleDisableLLMRoute, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/llm/routes/{id}", Handler: h.handleDeleteLLMRoute, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/virtual_keys", Handler: h.handleListVirtualKeys, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/virtual_keys", Handler: h.handleCreateVirtualKey, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/virtual_keys/{id}", Handler: h.handleGetVirtualKey, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/virtual_keys/{id}", Handler: h.handleUpdateVirtualKey, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/virtual_keys/{id}/enable", Handler: h.handleEnableVirtualKey, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/virtual_keys/{id}/disable", Handler: h.handleDisableVirtualKey, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/virtual_keys/{id}", Handler: h.handleDeleteVirtualKey, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/providers", Handler: h.handleListProviders},
+		{Method: http.MethodPost, Path: "/admin/providers", Handler: h.handleCreateProvider},
+		{Method: http.MethodGet, Path: "/admin/providers/{id}", Handler: h.handleGetProvider},
+		{Method: http.MethodPut, Path: "/admin/providers/{id}", Handler: h.handleUpdateProvider},
+		{Method: http.MethodPost, Path: "/admin/providers/{id}/enable", Handler: h.handleEnableProvider},
+		{Method: http.MethodPost, Path: "/admin/providers/{id}/disable", Handler: h.handleDisableProvider},
+		{Method: http.MethodDelete, Path: "/admin/providers/{id}", Handler: h.handleDeleteProvider},
+		{Method: http.MethodGet, Path: "/admin/models/providers/{provider_id}/discovered", Handler: h.handleListDiscoveredModels},
+		{Method: http.MethodPost, Path: "/admin/models/providers/{provider_id}/refresh", Handler: h.handleRefreshProviderModels},
+		{Method: http.MethodGet, Path: "/admin/models/managed", Handler: h.handleListManagedModels},
+		{Method: http.MethodPost, Path: "/admin/models/managed", Handler: h.handleCreateManagedModel},
+		{Method: http.MethodGet, Path: "/admin/models/managed/{provider_id}/{upstream_model}", Handler: h.handleGetManagedModel},
+		{Method: http.MethodPut, Path: "/admin/models/managed/{provider_id}/{upstream_model}", Handler: h.handleUpdateManagedModel},
+		{Method: http.MethodDelete, Path: "/admin/models/managed/{provider_id}/{upstream_model}", Handler: h.handleDeleteManagedModel},
+		{Method: http.MethodGet, Path: "/admin/llm/routes", Handler: h.handleListLLMRoutes},
+		{Method: http.MethodPost, Path: "/admin/llm/routes", Handler: h.handleCreateLLMRoute},
+		{Method: http.MethodGet, Path: "/admin/llm/routes/{id}", Handler: h.handleGetLLMRoute},
+		{Method: http.MethodPut, Path: "/admin/llm/routes/{id}", Handler: h.handleUpdateLLMRoute},
+		{Method: http.MethodPost, Path: "/admin/llm/routes/{id}/enable", Handler: h.handleEnableLLMRoute},
+		{Method: http.MethodPost, Path: "/admin/llm/routes/{id}/disable", Handler: h.handleDisableLLMRoute},
+		{Method: http.MethodDelete, Path: "/admin/llm/routes/{id}", Handler: h.handleDeleteLLMRoute},
+		{Method: http.MethodGet, Path: "/admin/virtual_keys", Handler: h.handleListVirtualKeys},
+		{Method: http.MethodPost, Path: "/admin/virtual_keys", Handler: h.handleCreateVirtualKey},
+		{Method: http.MethodGet, Path: "/admin/virtual_keys/{id}", Handler: h.handleGetVirtualKey},
+		{Method: http.MethodPut, Path: "/admin/virtual_keys/{id}", Handler: h.handleUpdateVirtualKey},
+		{Method: http.MethodPost, Path: "/admin/virtual_keys/{id}/enable", Handler: h.handleEnableVirtualKey},
+		{Method: http.MethodPost, Path: "/admin/virtual_keys/{id}/disable", Handler: h.handleDisableVirtualKey},
+		{Method: http.MethodDelete, Path: "/admin/virtual_keys/{id}", Handler: h.handleDeleteVirtualKey},
 		// Credentials (api_key and cliauth)
-		{Method: http.MethodGet, Path: "/admin/credentials", Handler: h.handleListCredentials, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/credentials", Handler: h.handleCreateCredential, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/credentials/{credential_id}", Handler: h.handleGetCredential, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/credentials/{credential_id}", Handler: h.handleUpdateCredential, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/credentials/{credential_id}", Handler: h.handleDeleteCredential, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/credentials", Handler: h.handleListCredentials},
+		{Method: http.MethodPost, Path: "/admin/credentials", Handler: h.handleCreateCredential},
+		{Method: http.MethodGet, Path: "/admin/credentials/{credential_id}", Handler: h.handleGetCredential},
+		{Method: http.MethodPut, Path: "/admin/credentials/{credential_id}", Handler: h.handleUpdateCredential},
+		{Method: http.MethodDelete, Path: "/admin/credentials/{credential_id}", Handler: h.handleDeleteCredential},
 
 		// CLI Auth Authenticators
-		{Method: http.MethodGet, Path: "/admin/cliauth/authenticators", Handler: h.handleListCLIAuthAuthenticators, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/cliauth/authenticators/{authenticator_name}", Handler: h.handleGetCLIAuthAuthenticator, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/cliauth/authenticators/{authenticator_name}", Handler: h.handleUpdateCLIAuthAuthenticator, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/cliauth/authenticators/{authenticator_name}/login", Handler: h.handleStartCLIAuthAuthenticatorLogin, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/cliauth/refresher", Handler: h.handleGetCLIAuthRefresherStatus, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/cliauth/refresher/enable", Handler: h.handleEnableCLIAuthRefresher, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/cliauth/refresher/disable", Handler: h.handleDisableCLIAuthRefresher, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/cliauth/logins/{login_id}", Handler: h.handleGetCLIAuthLoginStatus, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/cliauth/authenticators", Handler: h.handleListCLIAuthAuthenticators},
+		{Method: http.MethodGet, Path: "/admin/cliauth/authenticators/{authenticator_name}", Handler: h.handleGetCLIAuthAuthenticator},
+		{Method: http.MethodPut, Path: "/admin/cliauth/authenticators/{authenticator_name}", Handler: h.handleUpdateCLIAuthAuthenticator},
+		{Method: http.MethodPost, Path: "/admin/cliauth/authenticators/{authenticator_name}/login", Handler: h.handleStartCLIAuthAuthenticatorLogin},
+		{Method: http.MethodGet, Path: "/admin/cliauth/refresher", Handler: h.handleGetCLIAuthRefresherStatus},
+		{Method: http.MethodPost, Path: "/admin/cliauth/refresher/enable", Handler: h.handleEnableCLIAuthRefresher},
+		{Method: http.MethodPost, Path: "/admin/cliauth/refresher/disable", Handler: h.handleDisableCLIAuthRefresher},
+		{Method: http.MethodGet, Path: "/admin/cliauth/logins/{login_id}", Handler: h.handleGetCLIAuthLoginStatus},
 
 		// MCP
-		{Method: http.MethodGet, Path: "/admin/mcp/services", Handler: h.handlerListMCPServices, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/mcp/services", Handler: h.handlerAddMCPService, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}", Handler: h.handlerGetMCPService, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/mcp/services/{id}", Handler: h.handlerUpdateMCPService, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/mcp/services/{id}", Handler: h.handlerRemoveMCPService, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/capabilities", Handler: h.handleGetMCPServiceCapabilities, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/mcp/routes", Handler: h.handleListMCPRoutes, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/mcp/routes", Handler: h.handleCreateMCPRoute, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/mcp/routes/{id}", Handler: h.handleGetMCPRoute, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/mcp/routes/{id}", Handler: h.handleUpdateMCPRoute, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/mcp/routes/{id}", Handler: h.handleDeleteMCPRoute, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/mcp/runtime", Handler: h.handleGetMCPDispatcherRuntime, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/mcp/runtime/inflight", Handler: h.handleListMCPDispatcherInFlight, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/mcp/runtime/progress", Handler: h.handleListMCPDispatcherProgress, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/mcp/runtime/history", Handler: h.handleListMCPDispatcherHistory, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/sessions", Handler: h.handleListMCPServiceSessions, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/tools", Handler: h.handleListMCPTools, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/mcp/services/{id}/tools/call", Handler: h.handleCallMCPTool, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/resources", Handler: h.handleListMCPResources, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/resource-templates", Handler: h.handleListMCPResourceTemplates, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/mcp/services/{id}/resources/read", Handler: h.handleReadMCPResource, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/prompts", Handler: h.handleListMCPPrompts, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/mcp/services/{id}/prompts/get", Handler: h.handleGetMCPPrompt, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/mcp/services", Handler: h.handlerListMCPServices},
+		{Method: http.MethodPost, Path: "/admin/mcp/services", Handler: h.handlerAddMCPService},
+		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}", Handler: h.handlerGetMCPService},
+		{Method: http.MethodPut, Path: "/admin/mcp/services/{id}", Handler: h.handlerUpdateMCPService},
+		{Method: http.MethodDelete, Path: "/admin/mcp/services/{id}", Handler: h.handlerRemoveMCPService},
+		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/capabilities", Handler: h.handleGetMCPServiceCapabilities},
+		{Method: http.MethodGet, Path: "/admin/mcp/routes", Handler: h.handleListMCPRoutes},
+		{Method: http.MethodPost, Path: "/admin/mcp/routes", Handler: h.handleCreateMCPRoute},
+		{Method: http.MethodGet, Path: "/admin/mcp/routes/{id}", Handler: h.handleGetMCPRoute},
+		{Method: http.MethodPut, Path: "/admin/mcp/routes/{id}", Handler: h.handleUpdateMCPRoute},
+		{Method: http.MethodDelete, Path: "/admin/mcp/routes/{id}", Handler: h.handleDeleteMCPRoute},
+		{Method: http.MethodGet, Path: "/admin/mcp/runtime", Handler: h.handleGetMCPDispatcherRuntime},
+		{Method: http.MethodGet, Path: "/admin/mcp/runtime/inflight", Handler: h.handleListMCPDispatcherInFlight},
+		{Method: http.MethodGet, Path: "/admin/mcp/runtime/progress", Handler: h.handleListMCPDispatcherProgress},
+		{Method: http.MethodGet, Path: "/admin/mcp/runtime/history", Handler: h.handleListMCPDispatcherHistory},
+		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/sessions", Handler: h.handleListMCPServiceSessions},
+		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/tools", Handler: h.handleListMCPTools},
+		{Method: http.MethodPost, Path: "/admin/mcp/services/{id}/tools/call", Handler: h.handleCallMCPTool},
+		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/resources", Handler: h.handleListMCPResources},
+		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/resource-templates", Handler: h.handleListMCPResourceTemplates},
+		{Method: http.MethodPost, Path: "/admin/mcp/services/{id}/resources/read", Handler: h.handleReadMCPResource},
+		{Method: http.MethodGet, Path: "/admin/mcp/services/{id}/prompts", Handler: h.handleListMCPPrompts},
+		{Method: http.MethodPost, Path: "/admin/mcp/services/{id}/prompts/get", Handler: h.handleGetMCPPrompt},
 
 		// ACP
-		{Method: http.MethodGet, Path: "/admin/acp/services", Handler: h.handleListACPServices, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/acp/services", Handler: h.handleCreateACPService, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/acp/services/{id}", Handler: h.handleGetACPService, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/acp/services/{id}", Handler: h.handleUpdateACPService, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/acp/services/{id}", Handler: h.handleDeleteACPService, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/acp/services/{id}/sessions", Handler: h.handleListACPSessions, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/acp/services/{id}/sessions/{session_id}/transcript", Handler: h.handleGetACPSessionTranscript, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/acp/routes", Handler: h.handleListACPRoutes, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/acp/routes", Handler: h.handleCreateACPRoute, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/acp/routes/{id}", Handler: h.handleGetACPRoute, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/acp/routes/{id}", Handler: h.handleUpdateACPRoute, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/acp/routes/{id}", Handler: h.handleDeleteACPRoute, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/acp/runtime", Handler: h.handleGetACPRuntime, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/acp/runtime/inflight", Handler: h.handleListACPInFlight, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/acp/runtime/threads/{service_id}/{thread_id}", Handler: h.handleCloseACPThread, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/acp/runtime/permissions/{request_id}", Handler: h.handleResolveACPPermission, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/acp/services", Handler: h.handleListACPServices},
+		{Method: http.MethodPost, Path: "/admin/acp/services", Handler: h.handleCreateACPService},
+		{Method: http.MethodGet, Path: "/admin/acp/services/{id}", Handler: h.handleGetACPService},
+		{Method: http.MethodPut, Path: "/admin/acp/services/{id}", Handler: h.handleUpdateACPService},
+		{Method: http.MethodDelete, Path: "/admin/acp/services/{id}", Handler: h.handleDeleteACPService},
+		{Method: http.MethodGet, Path: "/admin/acp/services/{id}/sessions", Handler: h.handleListACPSessions},
+		{Method: http.MethodGet, Path: "/admin/acp/services/{id}/sessions/{session_id}/transcript", Handler: h.handleGetACPSessionTranscript},
+		{Method: http.MethodGet, Path: "/admin/acp/routes", Handler: h.handleListACPRoutes},
+		{Method: http.MethodPost, Path: "/admin/acp/routes", Handler: h.handleCreateACPRoute},
+		{Method: http.MethodGet, Path: "/admin/acp/routes/{id}", Handler: h.handleGetACPRoute},
+		{Method: http.MethodPut, Path: "/admin/acp/routes/{id}", Handler: h.handleUpdateACPRoute},
+		{Method: http.MethodDelete, Path: "/admin/acp/routes/{id}", Handler: h.handleDeleteACPRoute},
+		{Method: http.MethodGet, Path: "/admin/acp/runtime", Handler: h.handleGetACPRuntime},
+		{Method: http.MethodGet, Path: "/admin/acp/runtime/inflight", Handler: h.handleListACPInFlight},
+		{Method: http.MethodDelete, Path: "/admin/acp/runtime/threads/{service_id}/{thread_id}", Handler: h.handleCloseACPThread},
+		{Method: http.MethodPost, Path: "/admin/acp/runtime/permissions/{request_id}", Handler: h.handleResolveACPPermission},
 
 		// Memory
-		{Method: http.MethodGet, Path: "/admin/memory/config", Handler: h.handleGetMemoryConfig, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/memory/config", Handler: h.handleSetMemoryConfig, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/memory/search", Handler: h.handleSearchMemory, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/memory/config", Handler: h.handleGetMemoryConfig},
+		{Method: http.MethodPut, Path: "/admin/memory/config", Handler: h.handleSetMemoryConfig},
+		{Method: http.MethodGet, Path: "/admin/memory/search", Handler: h.handleSearchMemory},
 
 		// Agents
-		{Method: http.MethodGet, Path: "/admin/agents", Handler: h.handleListAgents, RequireAuth: true},
-		{Method: http.MethodPost, Path: "/admin/agents", Handler: h.handleCreateAgent, RequireAuth: true},
-		{Method: http.MethodGet, Path: "/admin/agents/{id}", Handler: h.handleGetAgent, RequireAuth: true},
-		{Method: http.MethodPut, Path: "/admin/agents/{id}", Handler: h.handleUpdateAgent, RequireAuth: true},
-		{Method: http.MethodDelete, Path: "/admin/agents/{id}", Handler: h.handleDeleteAgent, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/agents", Handler: h.handleListAgents},
+		{Method: http.MethodPost, Path: "/admin/agents", Handler: h.handleCreateAgent},
+		{Method: http.MethodGet, Path: "/admin/agents/{id}", Handler: h.handleGetAgent},
+		{Method: http.MethodPut, Path: "/admin/agents/{id}", Handler: h.handleUpdateAgent},
+		{Method: http.MethodDelete, Path: "/admin/agents/{id}", Handler: h.handleDeleteAgent},
 
 		// Metrics
-		{Method: http.MethodGet, Path: "/admin/metrics", Handler: h.handleMetrics, RequireAuth: true},
+		{Method: http.MethodGet, Path: "/admin/metrics", Handler: h.handleMetrics},
 	}
 }
 
@@ -400,12 +394,6 @@ func (h *Handler) handleListVirtualKeys(w http.ResponseWriter, r *http.Request) 
 	}
 
 	tag := r.URL.Query().Get("tag")
-	sessionUsername := h.sessionUsername(r)
-	if sessionUsername == "" {
-		_ = httpjson.Error(w, http.StatusForbidden, "forbidden")
-		return
-	}
-
 	items, err := manager.List(r.Context(), virtualkeypkg.VirtualKeyListOptions{Tag: tag})
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
@@ -428,11 +416,6 @@ func (h *Handler) handleCreateVirtualKey(w http.ResponseWriter, r *http.Request)
 	var key virtualkeypkg.VirtualKey
 	if err := httpjson.Decode(r, &key); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
-		return
-	}
-
-	if h.sessionUsername(r) == "" {
-		_ = httpjson.Error(w, http.StatusForbidden, "forbidden")
 		return
 	}
 

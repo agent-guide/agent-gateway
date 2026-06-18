@@ -29,10 +29,16 @@
 http://localhost:8019 {
 	# Admin routes
 	route /admin/* {
-		agent_gateway_admin {
-			admin_user default
-			admin_password_hash $2a$14$Qxwz94t//fcaF.lyVzsIee0ZZuSNgS841WmLUo/NKGN5LlQzNg5Me # dummy
+		# Exempt the public health probe and CORS preflight (which carries no
+		# credentials) so browser admin UIs and health checks keep working.
+		@needauth {
+			not path /admin/health
+			not method OPTIONS
 		}
+		basic_auth @needauth {
+			default $2a$14$Qxwz94t//fcaF.lyVzsIee0ZZuSNgS841WmLUo/NKGN5LlQzNg5Me # dummy
+		}
+		agent_gateway_admin
 	}
 }
 

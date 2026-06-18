@@ -11,23 +11,17 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 )
 
-func TestListProvidersAutoLogin(t *testing.T) {
+func TestListProvidersUsesBasicAuth(t *testing.T) {
 	t.Parallel()
 
-	loginCalls := 0
 	providerCalls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/admin/auth/login":
-			loginCalls++
-			if r.Method != http.MethodPost {
-				t.Fatalf("unexpected login method: %s", r.Method)
-			}
-			_ = json.NewEncoder(w).Encode(LoginResponse{Token: "test-token", Username: "admin"})
 		case "/admin/providers":
 			providerCalls++
-			if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
-				t.Fatalf("unexpected auth header: %q", got)
+			user, pass, ok := r.BasicAuth()
+			if !ok || user != "admin" || pass != "secret" {
+				t.Fatalf("unexpected basic auth: ok=%v user=%q pass=%q", ok, user, pass)
 			}
 			_ = json.NewEncoder(w).Encode(itemsResponse[Provider]{
 				Items: []Provider{{ProviderConfig: ProviderConfig{Id: "openai-main", ProviderType: "openai"}}},
@@ -39,9 +33,8 @@ func TestListProvidersAutoLogin(t *testing.T) {
 	defer srv.Close()
 
 	client := New(Config{
-		BaseURL:  srv.URL,
-		Username: "admin",
-		Password: "secret",
+		BaseURL:   srv.URL,
+		BasicAuth: "admin:secret",
 	})
 
 	items, err := client.ListProviders(context.Background(), ProviderListOptions{})
@@ -51,11 +44,27 @@ func TestListProvidersAutoLogin(t *testing.T) {
 	if len(items) != 1 || items[0].Id != "openai-main" {
 		t.Fatalf("unexpected providers: %+v", items)
 	}
-	if loginCalls != 1 {
-		t.Fatalf("expected 1 login call, got %d", loginCalls)
-	}
 	if providerCalls != 1 {
 		t.Fatalf("expected 1 provider call, got %d", providerCalls)
+	}
+}
+
+func TestRejectsBasicAuthAndTokenTogether(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("request must not reach the server: %s", r.URL.Path)
+	}))
+	defer srv.Close()
+
+	client := New(Config{
+		BaseURL:   srv.URL,
+		BasicAuth: "admin:secret",
+		Token:     "bearer-token",
+	})
+
+	if _, err := client.ListProviders(context.Background(), ProviderListOptions{}); err == nil {
+		t.Fatal("expected error when both Basic Auth and a bearer token are configured")
 	}
 }
 
@@ -68,8 +77,8 @@ func TestCreateProvider(t *testing.T) {
 			if r.Method != http.MethodPost {
 				t.Fatalf("unexpected method: %s", r.Method)
 			}
-			if got := r.Header.Get("Authorization"); got != "Bearer preset-token" {
-				t.Fatalf("unexpected auth header: %q", got)
+			if got := r.Header.Get("X-Test-Admin"); got != "yes" {
+				t.Fatalf("unexpected X-Test-Admin header: %q", got)
 			}
 			var req ProviderConfig
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -91,7 +100,7 @@ func TestCreateProvider(t *testing.T) {
 
 	client := New(Config{
 		BaseURL: srv.URL,
-		Token:   "preset-token",
+		Headers: []string{"X-Test-Admin: yes"},
 	})
 
 	created, err := client.CreateProvider(context.Background(), ProviderConfig{

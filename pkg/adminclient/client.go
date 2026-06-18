@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
@@ -20,20 +19,19 @@ const (
 
 type Config struct {
 	BaseURL    string
-	Username   string
-	Password   string
+	BasicAuth  string
 	Token      string
+	Headers    []string
 	HTTPClient *http.Client
 }
 
 type Client struct {
-	baseURL  string
-	username string
-	password string
-	client   *http.Client
-
-	mu    sync.Mutex
-	token string
+	baseURL   string
+	basicUser string
+	basicPass string
+	token     string
+	headers   []string
+	client    *http.Client
 }
 
 type Error struct {
@@ -64,12 +62,14 @@ func New(cfg Config) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
+	basicUser, basicPass := parseBasicAuth(cfg.BasicAuth)
 	return &Client{
-		baseURL:  baseURL,
-		username: strings.TrimSpace(cfg.Username),
-		password: cfg.Password,
-		token:    strings.TrimSpace(cfg.Token),
-		client:   httpClient,
+		baseURL:   baseURL,
+		basicUser: basicUser,
+		basicPass: basicPass,
+		token:     strings.TrimSpace(cfg.Token),
+		headers:   append([]string(nil), cfg.Headers...),
+		client:    httpClient,
 	}
 }
 
@@ -80,79 +80,22 @@ func (c *Client) BaseURL() string {
 	return c.baseURL
 }
 
-func (c *Client) SetToken(token string) {
-	if c == nil {
-		return
+func parseBasicAuth(raw string) (string, string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.token = strings.TrimSpace(token)
-}
-
-type LoginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-type LoginResponse struct {
-	Token    string `json:"token"`
-	Username string `json:"username"`
-}
-
-type MeResponse struct {
-	Username  string    `json:"username"`
-	CreatedAt time.Time `json:"created_at"`
+	user, pass, ok := strings.Cut(raw, ":")
+	if !ok {
+		return strings.TrimSpace(raw), ""
+	}
+	return strings.TrimSpace(user), pass
 }
 
 type StatusResponse struct {
 	Status string `json:"status"`
 	ID     string `json:"id,omitempty"`
 	Key    string `json:"key,omitempty"`
-}
-
-func (c *Client) Login(ctx context.Context) (*LoginResponse, error) {
-	if c == nil {
-		return nil, fmt.Errorf("admin client is nil")
-	}
-	if c.username == "" {
-		return nil, fmt.Errorf("admin client username is required")
-	}
-	if c.password == "" {
-		return nil, fmt.Errorf("admin client password is required")
-	}
-
-	resp := &LoginResponse{}
-	if err := c.do(ctx, http.MethodPost, "/admin/auth/login", LoginRequest{
-		Username: c.username,
-		Password: c.password,
-	}, resp, false, http.StatusOK); err != nil {
-		return nil, err
-	}
-	if resp.Token == "" {
-		return nil, fmt.Errorf("admin login succeeded but returned an empty token")
-	}
-	c.SetToken(resp.Token)
-	return resp, nil
-}
-
-func (c *Client) Logout(ctx context.Context) error {
-	if c == nil {
-		return fmt.Errorf("admin client is nil")
-	}
-	var resp StatusResponse
-	if err := c.do(ctx, http.MethodPost, "/admin/auth/logout", nil, &resp, true, http.StatusOK); err != nil {
-		return err
-	}
-	c.SetToken("")
-	return nil
-}
-
-func (c *Client) Me(ctx context.Context) (*MeResponse, error) {
-	var resp MeResponse
-	if err := c.do(ctx, http.MethodGet, "/admin/auth/me", nil, &resp, true, http.StatusOK); err != nil {
-		return nil, err
-	}
-	return &resp, nil
 }
 
 func (c *Client) do(ctx context.Context, method, path string, reqBody any, out any, auth bool, okStatuses ...int) error {
@@ -178,11 +121,9 @@ func (c *Client) do(ctx context.Context, method, path string, reqBody any, out a
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if auth {
-		token, err := c.ensureToken(ctx)
-		if err != nil {
+		if err := c.applyAuth(req); err != nil {
 			return err
 		}
-		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	resp, err := c.client.Do(req)
@@ -212,18 +153,31 @@ func (c *Client) do(ctx context.Context, method, path string, reqBody any, out a
 	return nil
 }
 
-func (c *Client) ensureToken(ctx context.Context) (string, error) {
-	c.mu.Lock()
-	token := c.token
-	c.mu.Unlock()
-	if token != "" {
-		return token, nil
+func (c *Client) applyAuth(req *http.Request) error {
+	if c == nil {
+		return fmt.Errorf("admin client is nil")
 	}
-	resp, err := c.Login(ctx)
-	if err != nil {
-		return "", err
+	hasBasic := c.basicUser != "" || c.basicPass != ""
+	if hasBasic && c.token != "" {
+		// Both set the Authorization header; refuse rather than silently
+		// letting one clobber the other.
+		return fmt.Errorf("admin client cannot use both Basic Auth and a bearer token; configure only one")
 	}
-	return resp.Token, nil
+	switch {
+	case hasBasic:
+		req.SetBasicAuth(c.basicUser, c.basicPass)
+	case c.token != "":
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	for _, raw := range c.headers {
+		name, value, ok := strings.Cut(raw, ":")
+		name = strings.TrimSpace(name)
+		if !ok || name == "" {
+			return fmt.Errorf("invalid admin header %q, want Name: value", raw)
+		}
+		req.Header.Set(name, strings.TrimSpace(value))
+	}
+	return nil
 }
 
 func statusAllowed(statusCode int, okStatuses []int) bool {

@@ -20,9 +20,7 @@ func init() {
 
 // AgentGatewayAdminHandler is the Caddy HTTP middleware for the agent gateway admin API.
 type AgentGatewayAdminHandler struct {
-	handler           *adminpkg.Handler
-	AdminUsername     string `json:"admin_username,omitempty"`
-	AdminPasswordHash string `json:"admin_password_hash,omitempty"`
+	handler *adminpkg.Handler
 }
 
 // CaddyModule returns the Caddy module information.
@@ -39,7 +37,7 @@ func (h *AgentGatewayAdminHandler) Provision(ctx caddy.Context) error {
 	if err != nil {
 		return fmt.Errorf("agent_gateway_admin: get agent_gateway app: %w", err)
 	}
-	h.handler = adminpkg.NewHandler(app.AgentGateway(), ctx.Logger(h), h.AdminUsername, h.AdminPasswordHash)
+	h.handler = adminpkg.NewHandler(app.AgentGateway(), ctx.Logger(h))
 	return nil
 }
 
@@ -51,27 +49,11 @@ func (h AgentGatewayAdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 
 // UnmarshalCaddyfile implements caddyfile.Unmarshaler.
 //
-//	agent_gateway_admin {
-//	    admin_user     <username>
-//	    admin_password_hash  <bcrypt-hash>
-//	}
+//	agent_gateway_admin
 func (h *AgentGatewayAdminHandler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	for d.Next() {
 		for d.NextBlock(0) {
-			switch d.Val() {
-			case "admin_user":
-				if !d.NextArg() {
-					return d.ArgErr()
-				}
-				h.AdminUsername = d.Val()
-			case "admin_password_hash":
-				if !d.NextArg() {
-					return d.ArgErr()
-				}
-				h.AdminPasswordHash = d.Val()
-			default:
-				return d.Errf("unrecognized agent_gateway_admin option: %s", d.Val())
-			}
+			return d.Errf("unrecognized agent_gateway_admin option: %s", d.Val())
 		}
 	}
 	return nil

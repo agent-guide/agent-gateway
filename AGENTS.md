@@ -118,7 +118,9 @@ These modules are not standalone `http.handlers.*` modules. They are loaded by `
 
 Responsibilities:
 
-- session login with `POST /admin/auth/login`
+- expose Admin API handlers; authentication is delegated to the HTTP mount layer
+  such as Caddy `basic_auth`, mTLS, a reverse proxy authenticator, or standalone
+  `--admin-basic-auth-hash`
 - CRUD for providers, routes, virtual keys, and credentials
 - CRUD for `mcp_services` and MCP routes
 - CRUD for `acp_services` and ACP routes
@@ -429,7 +431,6 @@ Important current directives:
 
 Implemented families:
 
-- `/admin/auth/...`
 - `/admin/providers/...`
 - `/admin/provider_types` read-only listing
 - `/admin/llm_api_handler_types`

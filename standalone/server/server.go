@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -25,18 +27,18 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const shutdownTimeout = 10 * time.Second
 
 type Options struct {
-	Addr              string
-	AdminAddr         string
-	ConfigStorePath   string
-	StaticConfigPath  string
-	ProviderTypes     []string
-	AdminUser         string
-	AdminPasswordHash string
+	Addr               string
+	AdminAddr          string
+	ConfigStorePath    string
+	StaticConfigPath   string
+	ProviderTypes      []string
+	AdminBasicAuthHash string
 }
 
 func (o *Options) setDefaults() {
@@ -73,7 +75,11 @@ func Run(ctx context.Context, opts Options) error {
 		defer cliauthRefresher.Stop()
 	}
 
-	adminHandler := admin.NewHandler(agentGateway, logger.Named("admin"), opts.AdminUser, opts.AdminPasswordHash)
+	adminHandler, err := protectAdminHandler(admin.NewHandler(agentGateway, logger.Named("admin")), opts.AdminBasicAuthHash)
+	if err != nil {
+		return fmt.Errorf("configure admin auth: %w", err)
+	}
+	warnIfAdminUnprotected(logger, opts.AdminAddr, opts.AdminBasicAuthHash)
 	dispatchHandler, err := newDispatchHandler(agentGateway, logger.Named("dispatcher"))
 	if err != nil {
 		return err
@@ -269,6 +275,82 @@ func newAdminRouter(adminHandler http.Handler) http.Handler {
 	router := baseRouter()
 	mountAdmin(router, adminHandler)
 	return router
+}
+
+// protectAdminHandler wraps the admin handler with Basic Auth when basicAuth is
+// configured as "username:bcrypt-hash". A malformed value is rejected here so
+// the daemon fails fast at startup instead of returning errors per request. An
+// empty value disables auth and returns the handler unwrapped.
+func protectAdminHandler(next http.Handler, basicAuth string) (http.Handler, error) {
+	basicAuth = strings.TrimSpace(basicAuth)
+	if basicAuth == "" {
+		return next, nil
+	}
+	username, passwordHash, ok := strings.Cut(basicAuth, ":")
+	username = strings.TrimSpace(username)
+	passwordHash = strings.TrimSpace(passwordHash)
+	if !ok || username == "" || passwordHash == "" {
+		return nil, fmt.Errorf("admin basic auth must be configured as username:bcrypt-hash")
+	}
+	if _, err := bcrypt.Cost([]byte(passwordHash)); err != nil {
+		return nil, fmt.Errorf("admin basic auth password is not a valid bcrypt hash: %w", err)
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if adminAuthExempt(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		gotUser, gotPassword, ok := r.BasicAuth()
+		passwordErr := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(gotPassword))
+		if !ok ||
+			subtle.ConstantTimeCompare([]byte(gotUser), []byte(username)) != 1 ||
+			passwordErr != nil {
+			w.Header().Set("WWW-Authenticate", `Basic realm="agent-gateway-admin"`)
+			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	}), nil
+}
+
+// adminAuthExempt reports whether a request must bypass Basic Auth. CORS
+// preflight requests carry no credentials by browser spec, and the health
+// probe is intentionally public, so both must reach the handler unauthenticated.
+func adminAuthExempt(r *http.Request) bool {
+	return r.Method == http.MethodOptions || r.URL.Path == "/admin/health"
+}
+
+// warnIfAdminUnprotected logs a loud warning when the admin API has no Basic
+// Auth and is reachable beyond loopback, which exposes full admin access to
+// anyone who can reach the listener.
+func warnIfAdminUnprotected(logger *zap.Logger, adminAddr, basicAuth string) {
+	if strings.TrimSpace(basicAuth) != "" {
+		return
+	}
+	if isLoopbackListenAddr(adminAddr) {
+		return
+	}
+	logger.Warn("admin API has no Basic Auth and is bound to a non-loopback address; anyone who can reach it has full admin access. Set AGW_ADMIN_BASIC_AUTH_HASH (or bind --admin-addr to loopback)",
+		zap.String("admin_addr", adminAddr))
+}
+
+// isLoopbackListenAddr reports whether a host:port listen address is restricted
+// to the loopback interface. A wildcard or unknown host is treated as exposed.
+func isLoopbackListenAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil {
+		host = strings.TrimSpace(addr)
+	}
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
 
 func baseRouter() *gin.Engine {

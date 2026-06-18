@@ -21,10 +21,10 @@ Typical server block:
 ```caddy
 http://127.0.0.1:8080 {
 	route /admin/* {
-		agent_gateway_admin {
-			admin_user admin
-			admin_password_hash <bcrypt-hash>
+		basic_auth {
+			admin <hashed-password>
 		}
+		agent_gateway_admin
 	}
 
 	agent_route_dispatcher {
@@ -157,15 +157,21 @@ Admin handler example:
 
 ```caddy
 route /admin/* {
-	agent_gateway_admin {
-		admin_user admin
-		admin_password_hash <bcrypt-hash>
+	@needauth {
+		not path /admin/health
+		not method OPTIONS
 	}
+	basic_auth @needauth {
+		admin <hashed-password>
+	}
+	agent_gateway_admin
 }
 ```
 
-- `admin_user` is required for protected admin routes
-- `admin_password_hash` is a bcrypt hash generated with `./agw hash-password`
+- `agent_gateway_admin` mounts the Admin API
+- protect the mount with standard Caddy middleware such as `basic_auth`, mTLS, or an upstream auth gateway
+- scope the auth matcher to skip `GET /admin/health` (a public probe) and `OPTIONS` (CORS preflight carries no credentials) so health checks and browser admin UIs keep working
+- generate a Basic Auth hash with `./agw hash-password --plaintext 'your-password'`
 
 ## VirtualKey Notes
 

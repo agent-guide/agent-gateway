@@ -13,7 +13,6 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
-	"golang.org/x/crypto/bcrypt"
 )
 
 type testAuthenticator struct {
@@ -86,11 +85,6 @@ func cliAuthLoginBody(providerID, scope string) *bytes.Buffer {
 }
 
 func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	credMgr := credentialmgr.NewManager(nil)
 	cliauthMgr := cliauth.NewManager()
 	cliauthRefresher := cliauth.NewAutoRefresher(cliauth.WrapSharedCredentialManager(credMgr), cliauthMgr)
@@ -111,7 +105,7 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil, map[string]provider.Provider{
 		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai"}},
-	}), nil, "admin", string(passwordHash))
+	}), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 	req := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", cliAuthLoginBody("openai-main", "type:openai"))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -156,16 +150,11 @@ func TestCLIAuthResolvesAuthenticatorAndRegistersCredential(t *testing.T) {
 }
 
 func TestCLIAuthReturnsNotFoundForUnknownCliname(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	cliauthMgr := cliauth.NewManager()
 	cliauthRefresher := cliauth.NewAutoRefresher(nil, cliauthMgr)
 	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil, map[string]provider.Provider{
 		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai"}},
-	}), nil, "admin", string(passwordHash))
+	}), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 	req := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/unknown/login", cliAuthLoginBody("openai-main", ""))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -180,11 +169,6 @@ func TestCLIAuthReturnsNotFoundForUnknownCliname(t *testing.T) {
 }
 
 func TestCLIAuthStatusReportsCompletion(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	cliauthMgr := cliauth.NewManager()
 	cliauthRefresher := cliauth.NewAutoRefresher(nil, cliauthMgr)
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
@@ -198,7 +182,7 @@ func TestCLIAuthStatusReportsCompletion(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil, map[string]provider.Provider{
 		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai"}},
-	}), nil, "admin", string(passwordHash))
+	}), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	startReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", cliAuthLoginBody("openai-main", ""))
@@ -252,11 +236,6 @@ func TestCLIAuthStatusReportsCompletion(t *testing.T) {
 }
 
 func TestCLIAuthStatusIncludesInteractiveInstructions(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	release := make(chan struct{})
 	cliauthMgr := cliauth.NewManager()
 	cliauthRefresher := cliauth.NewAutoRefresher(nil, cliauthMgr)
@@ -276,7 +255,7 @@ func TestCLIAuthStatusIncludesInteractiveInstructions(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil, map[string]provider.Provider{
 		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai"}},
-	}), nil, "admin", string(passwordHash))
+	}), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	startReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", cliAuthLoginBody("openai-main", ""))
@@ -329,13 +308,8 @@ func TestCLIAuthStatusIncludesInteractiveInstructions(t *testing.T) {
 }
 
 func TestCLIAuthRefresherEnableDisable(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	cliauthRefresher := cliauth.NewAutoRefresher(nil, nil)
-	handler := NewHandler(newTestAgentGateway(nil, nil, cliauthRefresher, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, nil, cliauthRefresher, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	getStatus := func() cliAuthRefresherStatus {
@@ -417,11 +391,6 @@ func TestCLIAuthRefresherEnableDisable(t *testing.T) {
 }
 
 func TestCLIAuthRejectsConcurrentLoginForSameAuthenticator(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	release := make(chan struct{})
 	cliauthMgr := cliauth.NewManager()
 	cliauthRefresher := cliauth.NewAutoRefresher(nil, cliauthMgr)
@@ -441,7 +410,7 @@ func TestCLIAuthRejectsConcurrentLoginForSameAuthenticator(t *testing.T) {
 
 	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, cliauthRefresher, nil, nil, map[string]provider.Provider{
 		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai"}},
-	}), nil, "admin", string(passwordHash))
+	}), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	firstReq := httptest.NewRequest(http.MethodPost, "/admin/cliauth/authenticators/codex/login", cliAuthLoginBody("openai-main", ""))
@@ -477,18 +446,13 @@ func TestCLIAuthRejectsConcurrentLoginForSameAuthenticator(t *testing.T) {
 }
 
 func TestCLIAuthEnableAndListAuthenticators(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	const authName = "test-admin-authenticator"
 	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
 		return &testAuthenticator{}, nil
 	})
 
 	cliauthMgr := cliauth.NewManager()
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	enableReq := httptest.NewRequest(http.MethodPut, "/admin/cliauth/authenticators/"+authName, strings.NewReader(`{"enabled":true,"config":{}}`))
@@ -531,18 +495,13 @@ func TestCLIAuthEnableAndListAuthenticators(t *testing.T) {
 }
 
 func TestCLIAuthUpdateAuthenticatorRequiresRequestBody(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	const authName = "test-admin-required-config-authenticator"
 	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
 		return &testAuthenticator{}, nil
 	})
 
 	cliauthMgr := cliauth.NewManager()
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	enableReq := httptest.NewRequest(http.MethodPut, "/admin/cliauth/authenticators/"+authName, nil)
@@ -556,18 +515,13 @@ func TestCLIAuthUpdateAuthenticatorRequiresRequestBody(t *testing.T) {
 }
 
 func TestCLIAuthUpdateAuthenticatorRequiresConfigWhenEnabling(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	const authName = "test-admin-required-config-field-authenticator"
 	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
 		return &testAuthenticator{}, nil
 	})
 
 	cliauthMgr := cliauth.NewManager()
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	enableReq := httptest.NewRequest(http.MethodPut, "/admin/cliauth/authenticators/"+authName, strings.NewReader(`{"enabled":true}`))
@@ -582,11 +536,6 @@ func TestCLIAuthUpdateAuthenticatorRequiresConfigWhenEnabling(t *testing.T) {
 }
 
 func TestCLIAuthListAuthenticatorsReturnsDefaultConfigForDisabledItems(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	const enabledAuthName = "test-admin-list-enabled-authenticator"
 	cliauth.RegisterAuthenticatorFactory(enabledAuthName, func() (cliauth.Authenticator, error) {
 		return &testAuthenticator{
@@ -608,7 +557,7 @@ func TestCLIAuthListAuthenticatorsReturnsDefaultConfigForDisabledItems(t *testin
 	})
 
 	cliauthMgr := cliauth.NewManager()
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	enableBody := strings.NewReader(`{"config":{"callback_port":9002,"no_browser":true}}`)
@@ -665,18 +614,13 @@ func TestCLIAuthListAuthenticatorsReturnsDefaultConfigForDisabledItems(t *testin
 }
 
 func TestCLIAuthEnableAuthenticatorAcceptsConfig(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	const authName = "test-admin-configurable-enable-authenticator"
 	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
 		return &testAuthenticator{}, nil
 	})
 
 	cliauthMgr := cliauth.NewManager()
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body := strings.NewReader(`{"enabled":true,"config":{"callback_port":9002,"no_browser":true,"device_flow":true}}`)
@@ -701,18 +645,13 @@ func TestCLIAuthEnableAuthenticatorAcceptsConfig(t *testing.T) {
 }
 
 func TestCLIAuthUpdateAuthenticatorUsesUpdateSemantics(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	const authName = "test-admin-update-authenticator"
 	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
 		return &testAuthenticator{}, nil
 	})
 
 	cliauthMgr := cliauth.NewManager()
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body := strings.NewReader(`{"enabled":true,"config":{"callback_port":9002,"no_browser":true,"device_flow":true}}`)
@@ -742,11 +681,6 @@ func TestCLIAuthUpdateAuthenticatorUsesUpdateSemantics(t *testing.T) {
 }
 
 func TestCLIAuthUpdateAuthenticatorReplacesExistingConfig(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	const authName = "test-admin-replace-config-authenticator"
 	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
 		return &testAuthenticator{
@@ -764,7 +698,7 @@ func TestCLIAuthUpdateAuthenticatorReplacesExistingConfig(t *testing.T) {
 		t.Fatalf("initial enable: %v", err)
 	}
 
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body := strings.NewReader(`{"enabled":true,"config":{"callback_port":9002,"no_browser":false}}`)
@@ -795,11 +729,6 @@ func TestCLIAuthUpdateAuthenticatorReplacesExistingConfig(t *testing.T) {
 }
 
 func TestCLIAuthUpdateAuthenticatorCanDisable(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	cliauthMgr := cliauth.NewManager()
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
 		config: cliauth.AuthenticatorConfig{
@@ -807,7 +736,7 @@ func TestCLIAuthUpdateAuthenticatorCanDisable(t *testing.T) {
 		},
 	})
 
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodPut, "/admin/cliauth/authenticators/codex", strings.NewReader(`{"enabled":false}`))
@@ -825,11 +754,6 @@ func TestCLIAuthUpdateAuthenticatorCanDisable(t *testing.T) {
 }
 
 func TestCLIAuthGetAuthenticatorReturnsConfig(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	cliauthMgr := cliauth.NewManager()
 	cliauthMgr.RegisterAuthenticator("codex", &testAuthenticator{
 		config: cliauth.AuthenticatorConfig{
@@ -839,7 +763,7 @@ func TestCLIAuthGetAuthenticatorReturnsConfig(t *testing.T) {
 		},
 	})
 
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/cliauth/authenticators/codex", nil)
@@ -864,11 +788,6 @@ func TestCLIAuthGetAuthenticatorReturnsConfig(t *testing.T) {
 }
 
 func TestCLIAuthGetDisabledAuthenticatorReturnsDefaultConfig(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	const authName = "test-admin-disabled-authenticator"
 	cliauth.RegisterAuthenticatorFactory(authName, func() (cliauth.Authenticator, error) {
 		return &testAuthenticator{
@@ -881,7 +800,7 @@ func TestCLIAuthGetDisabledAuthenticatorReturnsDefaultConfig(t *testing.T) {
 	})
 
 	cliauthMgr := cliauth.NewManager()
-	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(nil, cliauthMgr, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/cliauth/authenticators/"+authName, nil)

@@ -75,8 +75,7 @@ func TestGatewayACPServiceCommands(t *testing.T) {
 		return append([]string{
 			"gateway",
 			"--admin-addr", srv.URL,
-			"--admin-user", "admin",
-			"--admin-password", "secret",
+			"--admin-basic-auth", "admin:secret",
 		}, args...)
 	}
 
@@ -176,8 +175,7 @@ func TestGatewayACPRouteCommands(t *testing.T) {
 		return append([]string{
 			"gateway",
 			"--admin-addr", srv.URL,
-			"--admin-user", "admin",
-			"--admin-password", "secret",
+			"--admin-basic-auth", "admin:secret",
 		}, args...)
 	}
 
@@ -257,8 +255,7 @@ func TestGatewayACPRuntimeCommands(t *testing.T) {
 		return append([]string{
 			"gateway",
 			"--admin-addr", srv.URL,
-			"--admin-user", "admin",
-			"--admin-password", "secret",
+			"--admin-basic-auth", "admin:secret",
 		}, args...)
 	}
 

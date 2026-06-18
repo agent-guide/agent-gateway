@@ -7,12 +7,11 @@ import (
 )
 
 func TestLoadRuntimeEnvPriority(t *testing.T) {
-	t.Setenv("AGW_ADMIN_USER", "from-shell")
-	unsetEnv(t, "AGW_ADMIN_PASSWORD_HASH")
+	t.Setenv("AGW_ADMIN_BASIC_AUTH_HASH", "shell:hash")
 
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, ".env"), "AGW_ADMIN_USER=from-dotenv\nAGW_ADMIN_PASSWORD_HASH=from-dotenv-hash\n")
-	writeFile(t, filepath.Join(dir, ".env.local"), "AGW_ADMIN_USER=from-dotenv-local\n")
+	writeFile(t, filepath.Join(dir, ".env"), "AGW_ADMIN_BASIC_AUTH_HASH=dotenv:hash\n")
+	writeFile(t, filepath.Join(dir, ".env.local"), "AGW_ADMIN_BASIC_AUTH_HASH=dotenv-local:hash\n")
 
 	prev, err := os.Getwd()
 	if err != nil {
@@ -31,11 +30,8 @@ func TestLoadRuntimeEnvPriority(t *testing.T) {
 		t.Fatalf("loadRuntimeEnv() error = %v", err)
 	}
 
-	if got := os.Getenv("AGW_ADMIN_USER"); got != "from-shell" {
-		t.Fatalf("AGW_ADMIN_USER = %q, want %q", got, "from-shell")
-	}
-	if got := os.Getenv("AGW_ADMIN_PASSWORD_HASH"); got != "from-dotenv-hash" {
-		t.Fatalf("AGW_ADMIN_PASSWORD_HASH = %q, want %q", got, "from-dotenv-hash")
+	if got := os.Getenv("AGW_ADMIN_BASIC_AUTH_HASH"); got != "shell:hash" {
+		t.Fatalf("AGW_ADMIN_BASIC_AUTH_HASH = %q, want %q", got, "shell:hash")
 	}
 }
 

@@ -48,9 +48,9 @@ var cliauthLoginCmd = &cobra.Command{
 		}
 
 		credMgr, err := cliauthstore.New(cliauthstore.Config{
-			BaseURL:  globalGatewayAddr,
-			Username: gwUser,
-			Password: gwPassword,
+			BaseURL:   globalGatewayAddr,
+			BasicAuth: gwAdminBasicAuth,
+			Headers:   gwAdminHeaders,
 		})
 		if err != nil {
 			return err
@@ -63,9 +63,9 @@ var cliauthLoginCmd = &cobra.Command{
 			return fmt.Errorf("provider-id is required")
 		}
 		adminClient := adminclient.New(adminclient.Config{
-			BaseURL:  globalGatewayAddr,
-			Username: gwUser,
-			Password: gwPassword,
+			BaseURL:   globalGatewayAddr,
+			BasicAuth: gwAdminBasicAuth,
+			Headers:   gwAdminHeaders,
 		})
 		providerCfg, err := adminClient.GetProvider(context.Background(), strings.TrimSpace(loginProviderID))
 		if err != nil {
@@ -219,8 +219,8 @@ func validateLoginAuthenticator(cmd *cobra.Command, raw string) (string, error) 
 
 func init() {
 	cliauthCmd.PersistentFlags().StringVar(&globalGatewayAddr, "agw-admin-addr", envOr("AGW_ADMIN_ADDR", cliauthstore.DefaultGatewayAddr()), "agent-gateway admin API address")
-	cliauthCmd.PersistentFlags().StringVar(&gwUser, "agw-admin-user", envOr("AGW_ADMIN_USER", ""), "gateway admin username")
-	cliauthCmd.PersistentFlags().StringVar(&gwPassword, "agw-admin-password", envOr("AGW_ADMIN_PASSWORD", ""), "gateway admin password")
+	cliauthCmd.PersistentFlags().StringVar(&gwAdminBasicAuth, "agw-admin-basic-auth", envOr("AGW_ADMIN_BASIC_AUTH", ""), "gateway admin Basic Auth request credentials as username:password")
+	cliauthCmd.PersistentFlags().StringArrayVar(&gwAdminHeaders, "agw-admin-header", nil, "extra gateway admin API header as 'Name: value'; repeat to send multiple headers")
 
 	cliauthLoginCmd.Flags().StringVar(&loginAuthenticator, "authenticator", "", "authenticator type: claudecode, codex, gemini (required)")
 	cliauthLoginCmd.Flags().StringVar(&loginProviderID, "provider-id", "", "provider ID to bind the credential to")

@@ -115,6 +115,54 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 
 }
 
+func TestParseAppProviderTypesBlockDoesNotBreakFollowingDirectives(t *testing.T) {
+	// Regression: parsing the provider_types block must not disturb the shared
+	// dispenser's block bookkeeping, otherwise the next provider/route directive
+	// fails to parse.
+	d := caddyfile.NewTestDispenser(`
+	agent_gateway {
+		config_store sqlite {
+			path /tmp/agent-gateway.db
+		}
+
+		provider_types {
+			zhipu
+		}
+
+		provider zhipu-test {
+			provider_type zhipu
+			default_model glm-4.7
+		}
+
+		route code-test {
+			protocol anthropic
+			path_prefix /codetest
+			require_virtual_key false
+			target provider zhipu-test
+		}
+	}
+	`)
+
+	val, err := parseApp(d, nil)
+	if err != nil {
+		t.Fatalf("parseApp() error = %v", err)
+	}
+
+	var app App
+	if err := json.Unmarshal(val.(httpcaddyfile.App).Value, &app); err != nil {
+		t.Fatalf("unmarshal app json: %v", err)
+	}
+	if len(app.ProviderTypes) != 1 || app.ProviderTypes[0].ProviderType != "zhipu" {
+		t.Fatalf("provider_types = %#v, want one zhipu entry", app.ProviderTypes)
+	}
+	if _, ok := app.Providers["zhipu-test"]; !ok {
+		t.Fatalf("provider zhipu-test missing; providers = %#v", app.Providers)
+	}
+	if len(app.LLMRoutes) != 1 || app.LLMRoutes[0].ID != "code-test" {
+		t.Fatalf("routes = %#v, want one code-test route", app.LLMRoutes)
+	}
+}
+
 func TestParseAppRejectsUnknownConfigStore(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`
 	agent_gateway {

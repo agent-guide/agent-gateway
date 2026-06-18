@@ -46,14 +46,11 @@ type Handler struct {
 	cliAuthMu               sync.RWMutex
 	cliAuthSessions         map[string]cliAuthStatus // login_id -> cliAuthStatus
 	cliAuthActive           map[string]string        // cliname -> login_id
-	sessions                *sessionStore
-	adminUsername           string
-	adminPasswordHash       string
 }
 
 // NewHandler constructs an admin Handler.
 // logger may be nil (a no-op logger is used in that case).
-func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUser, adminPasswordHash string) *Handler {
+func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -110,17 +107,13 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, adminUse
 		logger:                  logger,
 		cliAuthSessions:         map[string]cliAuthStatus{},
 		cliAuthActive:           map[string]string{},
-		sessions:                newSessionStore(),
-		adminUsername:           adminUser,
-		adminPasswordHash:       adminPasswordHash,
 	}
 	h.mux = http.NewServeMux()
+	// The Admin API does not authenticate requests itself; protect the mount
+	// with the HTTP deployment boundary (Caddy basic_auth, mTLS, a reverse
+	// proxy authenticator, or the standalone daemon's Basic Auth wrapper).
 	for _, route := range h.Routes() {
-		handler := route.Handler
-		if route.RequireAuth {
-			handler = h.requireAuth(handler)
-		}
-		h.mux.HandleFunc(route.Method+" "+route.Path, handler)
+		h.mux.HandleFunc(route.Method+" "+route.Path, route.Handler)
 	}
 	return h
 }

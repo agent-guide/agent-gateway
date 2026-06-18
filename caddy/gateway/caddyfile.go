@@ -223,22 +223,29 @@ func parseProviderTypes(d *caddyfile.Dispenser, app *App) error {
 	if len(app.ProviderTypes) > 0 {
 		return d.Err("provider_types already configured")
 	}
-	if d.NextArg() {
-		return d.ArgErr()
+	// Parse the block on an isolated segment so iterating its inner tokens does
+	// not disturb the shared dispenser's block bookkeeping for the surrounding
+	// agent_gateway directive loop.
+	seg := d.NewFromNextSegment()
+	if !seg.Next() {
+		return d.Err("expected provider_types directive")
+	}
+	if seg.NextArg() {
+		return seg.ArgErr()
 	}
 	seen := map[string]struct{}{}
-	for d.NextBlock(0) {
-		providerType := strings.ToLower(strings.TrimSpace(d.Val()))
+	for seg.NextBlock(0) {
+		providerType := strings.ToLower(strings.TrimSpace(seg.Val()))
 		if providerType == "" {
-			return d.Err("provider type is required")
+			return seg.Err("provider type is required")
 		}
 		// Listing a provider type enables it. Every registered type that is
 		// not listed is disabled (exclusive policy applied at startup).
-		if d.NextArg() {
-			return d.ArgErr()
+		if seg.NextArg() {
+			return seg.ArgErr()
 		}
 		if _, exists := seen[providerType]; exists {
-			return d.Errf("duplicate provider type %q", providerType)
+			return seg.Errf("duplicate provider type %q", providerType)
 		}
 		seen[providerType] = struct{}{}
 		app.ProviderTypes = append(app.ProviderTypes, provider.ProviderTypeSetting{

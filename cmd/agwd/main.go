@@ -49,8 +49,7 @@ func main() {
 	}
 	rootCmd.Flags().StringVar(&opts.Addr, "addr", "127.0.0.1:8080", "LLM gateway listen address")
 	rootCmd.Flags().StringVar(&opts.AdminAddr, "admin-addr", "localhost:8019", "Admin API listen address")
-	rootCmd.Flags().StringVar(&opts.AdminUser, "admin-user", os.Getenv("AGW_ADMIN_USER"), "admin username")
-	rootCmd.Flags().StringVar(&opts.AdminPasswordHash, "admin-password-hash", os.Getenv("AGW_ADMIN_PASSWORD_HASH"), "bcrypt hash of admin password")
+	rootCmd.Flags().StringVar(&opts.AdminBasicAuthHash, "admin-basic-auth-hash", os.Getenv("AGW_ADMIN_BASIC_AUTH_HASH"), "admin Basic Auth configuration as username:bcrypt-hash")
 	rootCmd.Flags().StringVar(&opts.ConfigStorePath, "config-store", "./data/configstore.db", "SQLite config store file")
 	rootCmd.Flags().StringVar(&opts.StaticConfigPath, "static-config", "", "gateway bundle YAML file loaded as read-only static configuration")
 	rootCmd.Flags().StringArrayVar(&opts.ProviderTypes, "provider-type", nil, "provider type enabled for this process; repeat to allow multiple types")

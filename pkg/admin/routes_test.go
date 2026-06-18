@@ -28,7 +28,6 @@ import (
 	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
 	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 	"github.com/cloudwego/eino/schema"
-	"golang.org/x/crypto/bcrypt"
 )
 
 type testConfigStore struct {
@@ -641,14 +640,9 @@ func (s *testVirtualKeyStore) GetByIndex(_ context.Context, indexName string, va
 }
 
 func TestLLMRouteCRUD(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testRouteStore{items: map[string]*routecore.AgentRouteConfig{}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	createBody, err := json.Marshal(llmroutepkg.LLMRoute{
@@ -715,11 +709,6 @@ func TestLLMRouteCRUD(t *testing.T) {
 }
 
 func TestLLMRouteUpdatePreservesCreatedAt(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	createdAt := time.Now().UTC().Add(-time.Hour).Round(0)
 	updatedAt := createdAt
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
@@ -736,7 +725,7 @@ func TestLLMRouteUpdatePreservesCreatedAt(t *testing.T) {
 				},
 			}),
 		}, tags: map[string]string{"chat-prod": defaultLLMRouteTag}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	updateBody, err := json.Marshal(llmroutepkg.LLMRoute{
@@ -770,14 +759,9 @@ func TestLLMRouteUpdatePreservesCreatedAt(t *testing.T) {
 }
 
 func TestLLMRouteCreateRejectsClientManagedTimestamps(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testRouteStore{items: map[string]*routecore.AgentRouteConfig{}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body, err := json.Marshal(llmroutepkg.LLMRoute{
@@ -805,14 +789,9 @@ func TestLLMRouteCreateRejectsClientManagedTimestamps(t *testing.T) {
 }
 
 func TestMCPRouteCRUD(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testMCPRouteStore{items: map[string]*routecore.AgentRouteConfig{}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	createBody, err := json.Marshal(mcproute.MCPRouteConfig{
@@ -852,11 +831,6 @@ func TestMCPRouteCRUD(t *testing.T) {
 }
 
 func TestListMCPRoutes(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testMCPRouteStore{items: map[string]*routecore.AgentRouteConfig{
 			"mcp-route-1": mustMCPRouteConfig(t, mcproute.MCPRouteConfig{
@@ -867,7 +841,7 @@ func TestListMCPRoutes(t *testing.T) {
 				ServiceID: "svc-main",
 			}),
 		}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/mcp/routes", nil)
@@ -890,11 +864,6 @@ func TestListMCPRoutes(t *testing.T) {
 }
 
 func TestListRoutesExcludesMCPRoutesFromSharedStore(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testRouteStore{items: map[string]*routecore.AgentRouteConfig{
 			"chat-prod": mustRouteConfig(t, llmroutepkg.LLMRoute{
@@ -915,7 +884,7 @@ func TestListRoutesExcludesMCPRoutesFromSharedStore(t *testing.T) {
 				ServiceID: "svc-main",
 			}),
 		}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/llm/routes", nil)
@@ -938,11 +907,6 @@ func TestListRoutesExcludesMCPRoutesFromSharedStore(t *testing.T) {
 }
 
 func TestListMCPRoutesExcludesLLMRoutesFromSharedStore(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testRouteStore{items: map[string]*routecore.AgentRouteConfig{
 			"chat-prod": mustRouteConfig(t, llmroutepkg.LLMRoute{
@@ -963,7 +927,7 @@ func TestListMCPRoutesExcludesLLMRoutesFromSharedStore(t *testing.T) {
 				ServiceID: "svc-main",
 			}),
 		}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/mcp/routes", nil)
@@ -986,11 +950,6 @@ func TestListMCPRoutesExcludesLLMRoutesFromSharedStore(t *testing.T) {
 }
 
 func TestGetMCPDispatcherRuntime(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	agentGateway := newTestAgentGateway(&testConfigStore{}, nil, nil, nil, nil)
 	registry := agentGateway.MCPRuntimeRegistry()
 	routeID := "mcp:test"
@@ -999,7 +958,7 @@ func TestGetMCPDispatcherRuntime(t *testing.T) {
 	total := float64(10)
 	registry.StoreProgress(routeID, "progress-1", 3, &total, "working")
 
-	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
+	handler := NewHandler(agentGateway, nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/mcp/runtime", nil)
@@ -1023,11 +982,6 @@ func TestGetMCPDispatcherRuntime(t *testing.T) {
 }
 
 func TestListMCPDispatcherHistory(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	agentGateway := newTestAgentGateway(&testConfigStore{}, nil, nil, nil, nil)
 	registry := agentGateway.MCPRuntimeRegistry()
 
@@ -1037,7 +991,7 @@ func TestListMCPDispatcherHistory(t *testing.T) {
 	_, finishB := registry.BeginRequest(context.Background(), "route-b", "req-2", "ping", nil)
 	finishB(nil)
 
-	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
+	handler := NewHandler(agentGateway, nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	// no filter: both entries
@@ -1078,12 +1032,7 @@ func TestListMCPDispatcherHistory(t *testing.T) {
 }
 
 func TestMCPServiceEndpointsRequireSharedManager(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
-	handler := NewHandler(nil, nil, "admin", string(passwordHash))
+	handler := NewHandler(nil, nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/mcp/services", nil)
@@ -1110,14 +1059,9 @@ func TestMCPServiceEndpointsRequireSharedManager(t *testing.T) {
 }
 
 func TestVirtualKeyCRUD(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body, err := json.Marshal(virtualkeypkg.VirtualKey{
@@ -1193,14 +1137,9 @@ func TestVirtualKeyCRUD(t *testing.T) {
 }
 
 func TestVirtualKeyCreateRejectsClientManagedTimestamps(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body, err := json.Marshal(virtualkeypkg.VirtualKey{
@@ -1222,14 +1161,9 @@ func TestVirtualKeyCreateRejectsClientManagedTimestamps(t *testing.T) {
 }
 
 func TestProviderCRUD(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body, err := json.Marshal(provider.ProviderConfig{
@@ -1274,16 +1208,11 @@ func TestProviderCRUD(t *testing.T) {
 }
 
 func TestProviderEnableDisable(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
 			"openai-main": {Id: "openai-main", ProviderType: "openai"},
 		}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	disableReq := httptest.NewRequest(http.MethodPost, "/admin/providers/openai-main/disable", nil)
@@ -1324,13 +1253,7 @@ func TestProviderTypeList(t *testing.T) {
 	provider.RegisterProviderFactory(providerType, func(cfg provider.ProviderConfig) (provider.Provider, error) {
 		return &stubAdminProvider{cfg: cfg}, nil
 	})
-
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
-	handler := NewHandler(nil, nil, "admin", string(passwordHash))
+	handler := NewHandler(nil, nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	listReq := httptest.NewRequest(http.MethodGet, "/admin/provider_types", nil)
@@ -1365,13 +1288,7 @@ func TestProviderTypeList(t *testing.T) {
 func TestLLMApiHandlerTypeList(t *testing.T) {
 	const handlerType = "test-admin-llm-api-handler"
 	dispatcherpkg.RegisterLLMApiHandlerType(handlerType)
-
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
-	handler := NewHandler(nil, nil, "admin", string(passwordHash))
+	handler := NewHandler(nil, nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	listReq := httptest.NewRequest(http.MethodGet, "/admin/llm_api_handler_types", nil)
@@ -1401,11 +1318,6 @@ func TestLLMApiHandlerTypeList(t *testing.T) {
 }
 
 func TestLLMRouteEnableDisable(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testRouteStore{items: map[string]*routecore.AgentRouteConfig{
 			"chat-prod": mustRouteConfig(t, llmroutepkg.LLMRoute{
@@ -1415,7 +1327,7 @@ func TestLLMRouteEnableDisable(t *testing.T) {
 				},
 			}),
 		}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	disableReq := httptest.NewRequest(http.MethodPost, "/admin/llm/routes/chat-prod/disable", nil)
@@ -1452,18 +1364,13 @@ func TestLLMRouteEnableDisable(t *testing.T) {
 }
 
 func TestVirtualKeyEnableDisable(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	createdAt := time.Now().UTC().Add(-time.Hour).Round(0)
 	updatedAt := createdAt
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{
 			"vk-test": {ID: "vk-test", Key: "lk-test", Tag: "admin", CreatedAt: createdAt, UpdatedAt: updatedAt},
 		}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	disableReq := httptest.NewRequest(http.MethodPost, "/admin/virtual_keys/vk-test/disable", nil)
@@ -1513,18 +1420,13 @@ func TestVirtualKeyEnableDisable(t *testing.T) {
 }
 
 func TestProviderGetMarksStaticProviderAsReadOnly(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
 			"openai-main": {Id: "openai-main", ProviderType: "openai", BaseURL: "https://dynamic.example"},
 		}},
 	}, nil, nil, nil, nil, map[string]provider.Provider{
 		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai", BaseURL: "https://static.example"}},
-	}), nil, "admin", string(passwordHash))
+	}), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/providers/openai-main", nil)
@@ -1549,18 +1451,13 @@ func TestProviderGetMarksStaticProviderAsReadOnly(t *testing.T) {
 }
 
 func TestProviderListMarksStaticProvidersAsReadOnly(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
 			"openai-dynamic": {Id: "openai-dynamic", ProviderType: "openai"},
 		}},
 	}, nil, nil, nil, nil, map[string]provider.Provider{
 		"anthropic-static": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "anthropic-static", ProviderType: "anthropic"}},
-	}), nil, "admin", string(passwordHash))
+	}), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
@@ -1595,11 +1492,6 @@ func TestProviderListMarksStaticProvidersAsReadOnly(t *testing.T) {
 }
 
 func TestCredentialListShowsOnlyManagedCredentials(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	credMgr := credentialmgr.NewManager(nil)
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
@@ -1628,7 +1520,7 @@ func TestCredentialListShowsOnlyManagedCredentials(t *testing.T) {
 		t.Fatalf("register managed credential: %v", err)
 	}
 
-	handler := NewHandler(agentGateway, nil, "admin", string(passwordHash))
+	handler := NewHandler(agentGateway, nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/credentials", nil)
@@ -1655,17 +1547,12 @@ func TestCredentialListShowsOnlyManagedCredentials(t *testing.T) {
 }
 
 func TestCredentialCreateUsesProviderID(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	credMgr := credentialmgr.NewManager(nil)
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
 			"openai-main": {Id: "openai-main", ProviderType: "openai"},
 		}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 	handler.credentialManager = credMgr
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -1709,15 +1596,10 @@ func TestCredentialCreateUsesProviderID(t *testing.T) {
 }
 
 func TestCredentialCreateRejectsUnknownProviderID(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	credMgr := credentialmgr.NewManager(nil)
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 	handler.credentialManager = credMgr
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -1743,15 +1625,10 @@ func TestCredentialCreateRejectsUnknownProviderID(t *testing.T) {
 }
 
 func TestProviderCreateDoesNotSyncProviderConfigCredential(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	credMgr := credentialmgr.NewManager(nil)
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 	handler.credentialManager = credMgr
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -1780,16 +1657,11 @@ func TestProviderCreateDoesNotSyncProviderConfigCredential(t *testing.T) {
 }
 
 func TestProviderDeleteRejectsStaticProvider(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		providerStore: &testProviderConfigStore{items: map[string]*provider.ProviderConfig{}},
 	}, nil, nil, nil, nil, map[string]provider.Provider{
 		"openai-main": &stubAdminProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai"}},
-	}), nil, "admin", string(passwordHash))
+	}), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodDelete, "/admin/providers/openai-main", nil)
@@ -1802,28 +1674,23 @@ func TestProviderDeleteRejectsStaticProvider(t *testing.T) {
 	}
 }
 
-func TestProtectedRouteRejectsRequestsWhenAdminAuthIsNotConfigured(t *testing.T) {
+func TestProtectedRouteAllowsRequestsWithoutEmbeddedAdminAuth(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{}},
-	}, nil, nil, nil, nil), nil, "", "")
+	}, nil, nil, nil, nil), nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/virtual_keys", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("unexpected list status: got %d want %d", rec.Code, http.StatusUnauthorized)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected list status: got %d want %d", rec.Code, http.StatusOK)
 	}
 }
 
 func TestCreateVirtualKeyDoesNotBindTagToSessionUser(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -1853,17 +1720,12 @@ func TestCreateVirtualKeyDoesNotBindTagToSessionUser(t *testing.T) {
 }
 
 func TestListVirtualKeysFiltersByTag(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		virtualKeyStore: &testVirtualKeyStore{items: map[string]*virtualkeypkg.VirtualKey{
 			"vk-admin": {ID: "vk-admin", Key: "lk-admin", Tag: "admin"},
 			"vk-other": {ID: "vk-other", Key: "lk-other", Tag: "someone-else"},
 		}},
-	}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	}, nil, nil, nil, nil), nil)
 
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -1887,11 +1749,6 @@ func TestListVirtualKeysFiltersByTag(t *testing.T) {
 }
 
 func TestLLMRouteGetPrefersStaticRouteConfigManager(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	store := &testRouteStore{
 		items: map[string]*routecore.AgentRouteConfig{
 			"chat-prod": mustRouteConfig(t, llmroutepkg.LLMRoute{
@@ -1907,7 +1764,7 @@ func TestLLMRouteGetPrefersStaticRouteConfigManager(t *testing.T) {
 		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
 			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "anthropic"},
 		},
-	}}, nil), nil, "admin", string(passwordHash))
+	}}, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/llm/routes/chat-prod", nil)
@@ -1932,11 +1789,6 @@ func TestLLMRouteGetPrefersStaticRouteConfigManager(t *testing.T) {
 }
 
 func TestLLMRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	store := &testRouteStore{
 		items: map[string]*routecore.AgentRouteConfig{
 			"chat-dynamic": mustRouteConfig(t, llmroutepkg.LLMRoute{
@@ -1952,7 +1804,7 @@ func TestLLMRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
 			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "anthropic"},
 		},
-	}}, nil), nil, "admin", string(passwordHash))
+	}}, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/llm/routes", nil)
@@ -1987,11 +1839,6 @@ func TestLLMRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 }
 
 func TestManagedModelViewIncludesResolvedAndSnapshotFields(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		modelStore: &testModelStore{
 			items: map[string]*modelcatalog.ManagedModel{
@@ -2015,7 +1862,7 @@ func TestManagedModelViewIncludesResolvedAndSnapshotFields(t *testing.T) {
 				},
 			}},
 		},
-	}), nil, "admin", string(passwordHash))
+	}), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/models/managed/openai-main/gpt-4.1-mini", nil)
@@ -2046,13 +1893,8 @@ func TestManagedModelViewIncludesResolvedAndSnapshotFields(t *testing.T) {
 }
 
 func TestCreateManagedModelUsesStoreCreate(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	store := &testModelStore{}
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{modelStore: store}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{modelStore: store}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body := bytes.NewBufferString(`{"provider_id":"openai-main","upstream_model":"gpt-4.1","enabled":true}`)
@@ -2071,11 +1913,6 @@ func TestCreateManagedModelUsesStoreCreate(t *testing.T) {
 }
 
 func TestUpdateManagedModelUsesStoreUpdate(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
 	store := &testModelStore{
 		items: map[string]*modelcatalog.ManagedModel{
 			"openai-main\x00gpt-4.1": {
@@ -2085,7 +1922,7 @@ func TestUpdateManagedModelUsesStoreUpdate(t *testing.T) {
 			},
 		},
 	}
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{modelStore: store}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{modelStore: store}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body := bytes.NewBufferString(`{"enabled":true}`)
@@ -2104,12 +1941,7 @@ func TestUpdateManagedModelUsesStoreUpdate(t *testing.T) {
 }
 
 func TestUpdateManagedModelReturnsNotFoundWhenMissing(t *testing.T) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret-pass"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("generate password hash: %v", err)
-	}
-
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{modelStore: &testModelStore{}}, nil, nil, nil, nil), nil, "admin", string(passwordHash))
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{modelStore: &testModelStore{}}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body := bytes.NewBufferString(`{"enabled":true}`)
@@ -2126,31 +1958,8 @@ func TestUpdateManagedModelReturnsNotFoundWhenMissing(t *testing.T) {
 
 func loginForTest(t *testing.T, handler *Handler, username string, password string) string {
 	t.Helper()
-
-	loginBody, err := json.Marshal(map[string]string{
-		"username": username,
-		"password": password,
-	})
-	if err != nil {
-		t.Fatalf("marshal login body: %v", err)
-	}
-
-	loginReq := httptest.NewRequest(http.MethodPost, "/admin/auth/login", bytes.NewReader(loginBody))
-	loginReq.Header.Set("Content-Type", "application/json")
-	loginRec := httptest.NewRecorder()
-	handler.ServeHTTP(loginRec, loginReq)
-	if loginRec.Code != http.StatusOK {
-		t.Fatalf("unexpected login status: got %d want %d", loginRec.Code, http.StatusOK)
-	}
-
-	var loginResp struct {
-		Token string `json:"token"`
-	}
-	if err := json.NewDecoder(loginRec.Body).Decode(&loginResp); err != nil {
-		t.Fatalf("decode login response: %v", err)
-	}
-	if loginResp.Token == "" {
-		t.Fatal("login token is empty")
-	}
-	return loginResp.Token
+	_ = handler
+	_ = username
+	_ = password
+	return "external-auth"
 }

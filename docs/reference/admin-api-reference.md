@@ -1,13 +1,10 @@
 # Admin API Reference
 
-All endpoints below are under the path where `agent_gateway_admin` is mounted. Except for health and login, they require `Authorization: Bearer $TOKEN`.
+All endpoints below are under the path where `agent_gateway_admin` is mounted. The Admin API does not implement login or sessions; protect this mount with Caddy `basic_auth`, mTLS, a reverse proxy authenticator, or the standalone daemon's `--admin-basic-auth-hash` wrapper.
 
-## Public And Session
+## Health
 
 - `GET /admin/health`
-- `POST /admin/auth/login`
-- `POST /admin/auth/logout`
-- `GET /admin/auth/me`
 
 ## Providers
 
@@ -24,8 +21,7 @@ All endpoints below are under the path where `agent_gateway_admin` is mounted. E
 Create a provider:
 
 ```bash
-curl -X POST http://localhost:8019/admin/providers \
-  -H "Authorization: Bearer $TOKEN" \
+curl -u admin:your-password -X POST http://localhost:8019/admin/providers \
   -H 'Content-Type: application/json' \
   -d '{
     "id": "openrouter-main",
@@ -61,8 +57,7 @@ Provider notes:
 Create a route:
 
 ```bash
-curl -X POST http://localhost:8019/admin/llm/routes \
-  -H "Authorization: Bearer $TOKEN" \
+curl -u admin:your-password -X POST http://localhost:8019/admin/llm/routes \
   -H 'Content-Type: application/json' \
   -d '{
     "id": "chat-prod",
@@ -190,23 +185,17 @@ CLI auth behavior:
 Examples:
 
 ```bash
-curl -X PUT http://localhost:8019/admin/cliauth/authenticators/codex \
-  -H 'Authorization: Bearer <token>' \
-  -H 'Content-Type: application/json' \
+curl -X PUT http://localhost:8019/admin/cliauth/authenticators/codex \  -H 'Content-Type: application/json' \
   --data '{"enabled":true,"config":{}}'
 ```
 
 ```bash
-curl -X PUT http://localhost:8019/admin/cliauth/authenticators/codex \
-  -H 'Authorization: Bearer <token>' \
-  -H 'Content-Type: application/json' \
+curl -X PUT http://localhost:8019/admin/cliauth/authenticators/codex \  -H 'Content-Type: application/json' \
   --data '{"enabled":true,"config":{"callback_port":9002,"no_browser":true,"device_flow":true}}'
 ```
 
 ```bash
-curl -X POST http://localhost:8019/admin/cliauth/authenticators/codex/login \
-  -H 'Authorization: Bearer <token>' \
-  -H 'Content-Type: application/json' \
+curl -X POST http://localhost:8019/admin/cliauth/authenticators/codex/login \  -H 'Content-Type: application/json' \
   --data '{"provider_id":"openai-main","scope":"type:openai"}'
 ```
 
