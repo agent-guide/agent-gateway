@@ -137,6 +137,10 @@ Important files:
 - `agentgateway.go`: runtime route, VirtualKey, and provider resolution
 - `providerresolver.go`: static and dynamic provider resolution
 
+Dynamic provider configs are cached after first load and invalidated through
+the manager's create/update/delete paths. Do not put config-store reads back in
+the per-request provider resolution hot path.
+
 `AgentGateway` is the main runtime object. It resolves routes, validates VirtualKeys, and selects providers. It does not own the HTTP protocol details.
 
 ### `caddy/gateway/`
@@ -164,6 +168,10 @@ Current route modes:
 
 - model-target mode: `target_policy.model_targets` with optional `default_model`
 - direct-provider mode: `target_policy.provider_target.provider_id`
+
+Runtime route matching uses the in-memory manager snapshot. Bootstrap and
+route manager create/update/delete/refresh keep that snapshot populated; do not
+reintroduce per-request config-store `List` calls for matching.
 
 Static config restriction:
 
@@ -235,7 +243,7 @@ Scope:
 - both surfaces of session/list and transcript share one error-status contract: service-not-found is `404`, a client-correctable request (disabled service, `cwd` outside `allowed_roots`, missing session id) is `400` and surfaces through the `acpruntime.ErrInvalidRequest` sentinel, and an upstream agent/transport failure is `502`
 - each pooled instance caches the latest session metadata (config options, slash commands, session info, mode, usage) from a lifetime updates subscription, replays it as snapshot events at every turn start, and exposes it through `GET /admin/acp/runtime`
 - codex-acp (verified live against v0.16.0) does NOT push `session_info_update`, so the `session_info` SSE event never fires for codex and its cached session info stays empty; the session title for a codex session is only available through `session/list` (`GET /<acp-route>/sessions` or `GET /admin/acp/services/{id}/sessions` → `sessions[].title`, parsed by `parseListSessionsResponse` into `SessionInfo.Title`), which codex auto-derives from the first user message. The `session_info` snapshot/SSE path remains for agents that do emit `session_info_update`.
-- pool lifecycle: idle janitor (`IdleTTL`), dead-instance eviction, `fresh_session`, setup-handshake timeout, `PATH` preflight, stderr capture, `CloseScope`/`CloseThread`, and scope rebind (a session-addressed turn adopts the thread's live instance bound to that session instead of spawning a second process)
+- pool lifecycle: idle janitor (`IdleTTL`), optional per-service `MaxInstances` cap, dead-instance eviction, `fresh_session`, setup-handshake timeout, `PATH` preflight, stderr capture, `CloseScope`/`CloseThread`, and scope rebind (a session-addressed turn adopts the thread's live instance bound to that session instead of spawning a second process)
 - do not reintroduce a `model`/`modelId` field on `session/new`/`session/prompt`, and do not answer `session/request_permission` with a flat `approved`/`declined` outcome — both are non-conformant with the ACP v1 schema
 - the prompt loop keeps draining after the session/prompt result until the update stream is quiet for a short grace period — the real opencode binary can deliver the final `agent_message_chunk` updates after the result, so a buffered-only drain drops the reply tail
 - session ids: the driver splits the raw protocol id (wire calls) from the host-bound id (session events, scope adoption) with `StableSessionResolver`/`SessionLoadResolver` seams for agents whose ids differ; no built-in agent implements them — the real `codex-acp` adapter's raw ids are verified stable (listable and loadable from a fresh process after the first turn)

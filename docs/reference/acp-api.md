@@ -7,6 +7,8 @@ All Admin API endpoints below are under the path where
 Dispatcher endpoints are under the configured ACP route prefix and require a
 VirtualKey when the route has `auth_policy.require_virtual_key: true`.
 
+ACP dispatcher JSON request bodies are limited to 4 MiB.
+
 ## Dispatcher
 
 ### Start Or Continue A Turn
@@ -134,6 +136,7 @@ Response:
       "agent_type": "codex",
       "cwd": "/tmp/acp-codex-test",
       "allowed_roots": ["/tmp/acp-codex-test"],
+      "max_instances": 4,
       "permission_mode": "auto_approve",
       "source": "config_store",
       "read_only": false
@@ -154,6 +157,7 @@ POST /admin/acp/services
   "name": "Codex",
   "agent_type": "codex",
   "cwd": "/tmp/acp-codex-test",
+  "max_instances": 4,
   "permission_mode": "auto_approve"
 }
 ```

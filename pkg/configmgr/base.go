@@ -200,6 +200,78 @@ func (m *BaseConfigManager[T]) List(ctx context.Context, query ListQuery) ([]T, 
 	return mapValues(out), nil
 }
 
+func (m *BaseConfigManager[T]) Snapshot(query ListQuery) []T {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	out := make([]T, 0, len(m.static)+len(m.dynamic))
+	seen := make(map[string]struct{}, len(m.static)+len(m.dynamic))
+	if m.def.ShouldIncludeStatic == nil || m.def.ShouldIncludeStatic(query) {
+		for id, item := range m.static {
+			if m.def.MatchesListQuery != nil && !m.def.MatchesListQuery(item, query) {
+				continue
+			}
+			out = append(out, item)
+			seen[id] = struct{}{}
+		}
+	}
+	for id, item := range m.dynamic {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		if m.def.MatchesListQuery != nil && !m.def.MatchesListQuery(item, query) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func (m *BaseConfigManager[T]) Refresh(ctx context.Context, query ListQuery) error {
+	m.mu.RLock()
+	store := m.store
+	m.mu.RUnlock()
+	if store == nil {
+		return nil
+	}
+
+	var (
+		raws []any
+		err  error
+	)
+	if query.TagPrefix != "" {
+		raws, err = store.ListByTagPrefix(ctx, query.TagPrefix)
+	} else {
+		raws, err = store.ListByTag(ctx, query.Tag)
+	}
+	if err != nil {
+		return err
+	}
+
+	cached := make(map[string]T, len(raws))
+	for _, raw := range raws {
+		item, err := m.def.Decode("", raw)
+		if err != nil {
+			return err
+		}
+		id := m.def.GetID(item)
+		if id != "" {
+			cached[id] = item
+		}
+	}
+
+	m.mu.Lock()
+	m.dynamic = map[string]T{}
+	for id, item := range cached {
+		if m.def.Clone != nil {
+			item = m.def.Clone(item)
+		}
+		m.dynamic[id] = item
+	}
+	m.mu.Unlock()
+	return nil
+}
+
 func (m *BaseConfigManager[T]) Create(ctx context.Context, item T) error {
 	id := m.def.GetID(item)
 	if id == "" {

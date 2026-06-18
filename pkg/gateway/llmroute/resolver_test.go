@@ -141,6 +141,39 @@ func TestLLMRouteResolverGetCachesDecodedRoute(t *testing.T) {
 	}
 }
 
+func TestLLMRouteResolverResolveCachesByFingerprint(t *testing.T) {
+	resolver := NewLLMRouteResolver(routecore.NewAgentRouteConfigManager(nil))
+
+	base := mustConfigFromRoute(t, testLLMRoute(AgentRouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteDirectProviderPolicy{
+		ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
+	}))
+	base.UpdatedAt = time.Unix(1000, 0).UTC()
+
+	first, err := resolver.Resolve(context.Background(), base)
+	if err != nil {
+		t.Fatalf("first Resolve returned error: %v", err)
+	}
+	second, err := resolver.Resolve(context.Background(), base)
+	if err != nil {
+		t.Fatalf("second Resolve returned error: %v", err)
+	}
+	if first != second {
+		t.Fatal("unchanged config did not reuse the cached route instance")
+	}
+
+	// A changed UpdatedAt must rebuild even without an explicit Invalidate, so a
+	// resolver that missed invalidation still self-heals on the next request.
+	bumped := base
+	bumped.UpdatedAt = time.Unix(2000, 0).UTC()
+	third, err := resolver.Resolve(context.Background(), bumped)
+	if err != nil {
+		t.Fatalf("third Resolve returned error: %v", err)
+	}
+	if third == first {
+		t.Fatal("changed UpdatedAt reused the stale cached route instance")
+	}
+}
+
 func TestLLMRouteResolverGetPrefersStaticRoute(t *testing.T) {
 	store := &testManagedRouteStore{
 		items: map[string]*routecore.AgentRouteConfig{

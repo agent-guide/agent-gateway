@@ -76,7 +76,7 @@ func (h *Handler) MatchLLMApi(r *http.Request) bool {
 func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLMApiRequest, llmroutepkg.RequestRequirements, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return nil, llmroutepkg.RequestRequirements{}, fmt.Errorf("failed to read request body")
+		return nil, llmroutepkg.RequestRequirements{}, fmt.Errorf("failed to read request body: %w", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 

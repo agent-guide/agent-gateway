@@ -26,6 +26,7 @@ type ServiceConfig struct {
 	DefaultModel    string            `json:"default_model,omitempty"`
 	ConfigOverrides map[string]string `json:"config_overrides,omitempty"`
 	IdleTTL         time.Duration     `json:"idle_ttl,omitempty"`
+	MaxInstances    int               `json:"max_instances,omitempty"`
 	PermissionMode  string            `json:"permission_mode,omitempty"`
 	Disabled        bool              `json:"disabled"`
 	Description     string            `json:"description,omitempty"`
@@ -121,6 +122,9 @@ func (c ServiceConfig) Validate() error {
 	case "", baseacp.PermissionModeDeny, baseacp.PermissionModeAutoApprove, baseacp.PermissionModeInteractive:
 	default:
 		return fmt.Errorf("unsupported permission_mode %q", c.PermissionMode)
+	}
+	if c.MaxInstances < 0 {
+		return fmt.Errorf("max_instances must be non-negative")
 	}
 	if c.AgentType == baseacp.AgentTypeCodex && c.Codex != nil {
 		switch c.Codex.Mode {

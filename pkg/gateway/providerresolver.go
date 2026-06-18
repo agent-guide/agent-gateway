@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
@@ -65,9 +66,10 @@ func NewProviderManager(store configstore.ConfigStore) *ProviderManager {
 					return nil, provider.ProviderConfig{}, err
 				}
 				cfg = provider.NormalizeConfig(cfg, cfg.Id, "")
+				cfg = normalizeProviderConfigTimestamps(cfg, time.Now().UTC(), true)
 				return &cfg, cfg, nil
 			},
-			PrepareUpdate: func(providerID string, _ provider.ProviderConfig, cfg provider.ProviderConfig) (any, provider.ProviderConfig, error) {
+			PrepareUpdate: func(providerID string, current provider.ProviderConfig, cfg provider.ProviderConfig) (any, provider.ProviderConfig, error) {
 				if cfg.ProviderType == "" {
 					return nil, provider.ProviderConfig{}, fmt.Errorf("provider_type is required")
 				}
@@ -76,6 +78,8 @@ func NewProviderManager(store configstore.ConfigStore) *ProviderManager {
 				}
 				cfg.Id = providerID
 				cfg = provider.NormalizeConfig(cfg, providerID, "")
+				cfg.CreatedAt = current.CreatedAt
+				cfg = normalizeProviderConfigTimestamps(cfg, time.Now().UTC(), false)
 				return &cfg, cfg, nil
 			},
 			MatchesListQuery: func(cfg provider.ProviderConfig, query configmgr.ListQuery) bool {
@@ -190,12 +194,9 @@ func (m *ProviderManager) DeleteConfig(ctx context.Context, providerID string) e
 
 // ResolveProvider resolves a provider ID to a live provider instance.
 //
-// For dynamic (store-backed) providers, the store is consulted on every call to detect
-// config changes at runtime. If the config fingerprint has not changed since the last
-// call, the cached provider instance is reused to avoid re-establishing connections.
-// This is intentionally different from the route config manager and virtual key manager, which skip the
-// store on cache hit, because provider config changes (API keys, base URLs) must take
-// effect without a gateway restart.
+// Dynamic provider configs are cached after first load and invalidated by the
+// manager's CreateConfig/UpdateConfig/DeleteConfig paths. This keeps config
+// store reads out of the request hot path while preserving Admin API updates.
 func (m *ProviderManager) ResolveProvider(ctx context.Context, providerID string) (provider.Provider, error) {
 	if providerID == "" {
 		return nil, fmt.Errorf("provider id is required")
@@ -229,7 +230,7 @@ func newDynamicProviderRuntimeResolver(manager *ProviderManager) *runtimecore.Re
 				if manager == nil || manager.configs == nil {
 					return provider.ProviderConfig{}, fmt.Errorf("provider manager is not configured")
 				}
-				cfg, err := manager.configs.GetFresh(ctx, providerID)
+				cfg, err := manager.configs.Get(ctx, providerID)
 				if err != nil {
 					if errors.Is(err, configstore.ErrNotFound) {
 						return provider.ProviderConfig{}, fmt.Errorf("%w: %q", ErrProviderNotConfigured, providerID)
@@ -249,7 +250,7 @@ func newDynamicProviderRuntimeResolver(manager *ProviderManager) *runtimecore.Re
 			return cfg.Id
 		},
 		func(cfg provider.ProviderConfig) (string, error) {
-			return runtimecore.FingerprintJSON(cfg.Id, "provider config", cfg)
+			return cfg.Fingerprint(), nil
 		},
 		func(cfg provider.ProviderConfig) (provider.Provider, error) {
 			return buildProvider(cfg)
@@ -312,4 +313,20 @@ func cloneProviderConfig(cfg provider.ProviderConfig) provider.ProviderConfig {
 
 func providerConfigID(cfg provider.ProviderConfig) string {
 	return cfg.Id
+}
+
+// normalizeProviderConfigTimestamps stamps CreatedAt on create and always bumps
+// UpdatedAt so the runtime resolver fingerprint changes on every persisted write.
+func normalizeProviderConfigTimestamps(cfg provider.ProviderConfig, now time.Time, create bool) provider.ProviderConfig {
+	if create {
+		if cfg.CreatedAt.IsZero() {
+			cfg.CreatedAt = now
+		}
+		if cfg.UpdatedAt.IsZero() {
+			cfg.UpdatedAt = now
+		}
+		return cfg
+	}
+	cfg.UpdatedAt = now
+	return cfg
 }

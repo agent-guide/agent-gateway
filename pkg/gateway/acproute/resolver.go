@@ -40,7 +40,7 @@ func NewACPRouteResolver(configManager *routecore.AgentRouteConfigManager) *ACPR
 				return cfg.ID
 			},
 			func(cfg routecore.AgentRouteConfig) (string, error) {
-				return runtimecore.FingerprintJSON(cfg.ID, "route config", cfg)
+				return cfg.Fingerprint(), nil
 			},
 			func(cfg routecore.AgentRouteConfig) (*ACPRoute, error) {
 				route, err := NewACPRouteFromConfig(cfg)

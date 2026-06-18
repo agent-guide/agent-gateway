@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/httpclient"
 	"github.com/cloudwego/eino/schema"
@@ -93,6 +95,22 @@ type ProviderConfig struct {
 	Network NetworkConfig `json:"network"`
 	// Options holds provider-specific extra configuration.
 	Options map[string]any `json:"options,omitempty"`
+	// CreatedAt is set when the dynamic provider config is first persisted.
+	CreatedAt time.Time `json:"created_at"`
+	// UpdatedAt is bumped on every persisted create/update. It is used as the
+	// runtime resolver's cache fingerprint so a config change rebuilds the
+	// provider instance even if explicit invalidation was missed.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Fingerprint returns a cheap version string for the provider config used as the
+// runtime resolver materializer key. UpdatedAt is bumped on every persisted
+// create/update, so it changes whenever the stored config changes. Static
+// providers have a zero UpdatedAt, which is a stable per-id constant and matches
+// their immutable-at-runtime nature. Avoid marshaling the whole config here; this
+// runs on every resolved request.
+func (c ProviderConfig) Fingerprint() string {
+	return strconv.FormatInt(c.UpdatedAt.UnixNano(), 10)
 }
 
 // NetworkConfig re-exports the shared HTTP network config type for provider configs.

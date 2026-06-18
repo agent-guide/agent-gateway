@@ -102,6 +102,20 @@ func (r *PreparedLLMApiRequest) SetModel(model string) {
 
 const StatusClientClosedRequest = 499
 
+const (
+	MaxLLMRequestBodyBytes = 16 << 20
+	MaxMCPRequestBodyBytes = 4 << 20
+	MaxACPRequestBodyBytes = 4 << 20
+)
+
+func RequestBodyErrorStatus(err error, fallback int) int {
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		return http.StatusRequestEntityTooLarge
+	}
+	return fallback
+}
+
 func WriteDispatchError(logger *zap.Logger, protocol, routeID, model string, status int, w http.ResponseWriter, r *http.Request, phase string, clientMessage string, err error, fields ...zap.Field) error {
 	if status <= 0 {
 		status = statuserr.StatusCode(err, http.StatusBadGateway)

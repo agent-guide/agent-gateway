@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -121,6 +122,34 @@ func TestResolveInstanceReusesLiveInstance(t *testing.T) {
 	}
 	if first != second {
 		t.Fatal("expected the live instance to be reused")
+	}
+	if got := atomic.LoadInt32(&fakeOpenCount); got != 1 {
+		t.Fatalf("agent opened %d times, want 1", got)
+	}
+}
+
+func TestResolveInstanceEnforcesServiceMaxInstances(t *testing.T) {
+	atomic.StoreInt32(&fakeOpenCount, 0)
+	m := newTestManager()
+	cfg := testServiceConfig(t)
+	cfg.MaxInstances = 1
+	ctx := context.Background()
+
+	firstScope := buildScope(cfg.ID, cfg.CWD, "t1", "", "")
+	if _, err := m.resolveInstance(ctx, firstScope, cfg, TurnRequest{ThreadID: "t1", Input: "hi"}); err != nil {
+		t.Fatalf("first resolveInstance: %v", err)
+	}
+
+	secondScope := buildScope(cfg.ID, cfg.CWD, "t2", "", "")
+	_, err := m.resolveInstance(ctx, secondScope, cfg, TurnRequest{ThreadID: "t2", Input: "hi"})
+	if !errors.Is(err, ErrCapacityExceeded) {
+		t.Fatalf("second resolveInstance error = %v, want ErrCapacityExceeded", err)
+	}
+	m.mu.Lock()
+	_, secondPresent := m.instances[secondScope]
+	m.mu.Unlock()
+	if secondPresent {
+		t.Fatal("capacity-rejected instance was stored in the pool")
 	}
 	if got := atomic.LoadInt32(&fakeOpenCount); got != 1 {
 		t.Fatalf("agent opened %d times, want 1", got)

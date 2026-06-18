@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
@@ -204,11 +205,43 @@ func TestProviderManagerResolveCachesDynamicProvider(t *testing.T) {
 	if first.Config().Id != "test-provider" {
 		t.Fatalf("provider id = %q, want test-provider", first.Config().Id)
 	}
-	if store.getCalls != 2 {
-		t.Fatalf("store get calls = %d, want 2", store.getCalls)
+	if store.getCalls != 1 {
+		t.Fatalf("store get calls = %d, want 1", store.getCalls)
 	}
 	if got := currentCountingProviderNextID() - before; got != 1 {
 		t.Fatalf("provider factory calls = %d, want 1", got)
+	}
+}
+
+func TestProviderManagerResolveRebuildsWhenFingerprintChanges(t *testing.T) {
+	registerCountingProviderFactory()
+
+	store := &testManagedProviderStore{
+		items: map[string]*provider.ProviderConfig{
+			"test-provider": {Id: "test-provider", ProviderType: "test-counting-provider", BaseURL: "https://v1.example", UpdatedAt: time.Unix(1000, 0).UTC()},
+		},
+	}
+	manager := NewProviderManager(store)
+
+	first, err := manager.ResolveProvider(context.Background(), "test-provider")
+	if err != nil {
+		t.Fatalf("first ResolveProvider returned error: %v", err)
+	}
+
+	// Refresh the config cache with a newer UpdatedAt while deliberately skipping
+	// the materializer Invalidate that UpdateConfig would normally trigger. The
+	// resolver must still rebuild because the fingerprint changed (self-heal).
+	manager.configs.Cache(provider.ProviderConfig{Id: "test-provider", ProviderType: "test-counting-provider", BaseURL: "https://v2.example", UpdatedAt: time.Unix(2000, 0).UTC()})
+
+	second, err := manager.ResolveProvider(context.Background(), "test-provider")
+	if err != nil {
+		t.Fatalf("second ResolveProvider returned error: %v", err)
+	}
+	if first == second {
+		t.Fatal("provider instance was not rebuilt after fingerprint change")
+	}
+	if got := second.Config().BaseURL; got != "https://v2.example" {
+		t.Fatalf("rebuilt provider base_url = %q, want https://v2.example", got)
 	}
 }
 
@@ -227,9 +260,9 @@ func TestProviderManagerResolveRefreshesProviderWhenConfigChanges(t *testing.T) 
 		t.Fatalf("first ResolveProvider returned error: %v", err)
 	}
 
-	store.mu.Lock()
-	store.items["test-provider"] = &provider.ProviderConfig{Id: "test-provider", ProviderType: "test-counting-provider", BaseURL: "https://v2.example"}
-	store.mu.Unlock()
+	if err := manager.UpdateConfig(context.Background(), "test-provider", provider.ProviderConfig{ProviderType: "test-counting-provider", BaseURL: "https://v2.example"}); err != nil {
+		t.Fatalf("UpdateConfig returned error: %v", err)
+	}
 
 	second, err := manager.ResolveProvider(context.Background(), "test-provider")
 	if err != nil {

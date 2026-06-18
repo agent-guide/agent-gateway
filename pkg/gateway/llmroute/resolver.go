@@ -40,7 +40,7 @@ func NewLLMRouteResolver(configManager *routecore.AgentRouteConfigManager) *LLMR
 				return cfg.ID
 			},
 			func(cfg routecore.AgentRouteConfig) (string, error) {
-				return runtimecore.FingerprintJSON(cfg.ID, "route config", cfg)
+				return cfg.Fingerprint(), nil
 			},
 			func(cfg routecore.AgentRouteConfig) (*LLMRoute, error) {
 				routeCfg, err := NewLLMRouteConfigFromConfig(cfg)

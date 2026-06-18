@@ -2,6 +2,7 @@ package routecore
 
 import (
 	"encoding/json"
+	"strconv"
 	"time"
 )
 
@@ -43,6 +44,16 @@ type AgentRouteConfig struct {
 	TargetPolicy json.RawMessage  `json:"target_policy"`
 	CreatedAt    time.Time        `json:"created_at"`
 	UpdatedAt    time.Time        `json:"updated_at"`
+}
+
+// Fingerprint returns a cheap version string for the route config used as the
+// runtime resolver materializer key. UpdatedAt is bumped on every Create/Update,
+// so it changes whenever the stored config changes. This is a secondary cache
+// signal only: the route resolvers also explicitly Invalidate on every mutation,
+// so the fingerprint exists to self-heal any resolver that missed invalidation.
+// Avoid marshaling the whole config here; this runs on every matched request.
+func (c AgentRouteConfig) Fingerprint() string {
+	return strconv.FormatInt(c.UpdatedAt.UnixNano(), 10)
 }
 
 // RouteMatchPolicy contains transport-facing match fields for binding requests to a route.

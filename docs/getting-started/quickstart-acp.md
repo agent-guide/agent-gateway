@@ -93,6 +93,7 @@ acpServices:
     name: Codex
     agent_type: codex
     cwd: /tmp/acp-codex-test
+    max_instances: 4
     permission_mode: auto_approve
 
 acpRoutes:

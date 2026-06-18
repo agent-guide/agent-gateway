@@ -73,8 +73,11 @@ func (h *Handler) dispatchACP(w http.ResponseWriter, r *http.Request, next NextH
 	}
 
 	var req acpruntime.TurnRequest
+	if rewritten.Body != nil {
+		rewritten.Body = http.MaxBytesReader(w, rewritten.Body, MaxACPRequestBodyBytes)
+	}
 	if err := json.NewDecoder(rewritten.Body).Decode(&req); err != nil {
-		return httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+		return httpjson.Error(w, RequestBodyErrorStatus(err, http.StatusBadRequest), fmt.Sprintf("decode request: %v", err))
 	}
 	if strings.TrimSpace(req.ThreadID) == "" {
 		return httpjson.Error(w, http.StatusBadRequest, "thread_id is required")
@@ -148,8 +151,11 @@ func newACPSSESink(w http.ResponseWriter) acpruntime.EventSink {
 // surfaced to the turn client as a "permission" SSE event.
 func (h *Handler) dispatchACPPermission(w http.ResponseWriter, r *http.Request, runtimeManager *acpruntime.Manager) error {
 	var decision acpruntime.PermissionDecision
+	if r.Body != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, MaxACPRequestBodyBytes)
+	}
 	if err := json.NewDecoder(r.Body).Decode(&decision); err != nil {
-		return httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+		return httpjson.Error(w, RequestBodyErrorStatus(err, http.StatusBadRequest), fmt.Sprintf("decode request: %v", err))
 	}
 	if err := runtimeManager.ResolvePermission(decision); err != nil {
 		if errors.Is(err, acpruntime.ErrPermissionNotFound) {

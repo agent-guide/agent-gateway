@@ -36,6 +36,7 @@ bundle YAML under `acpServices`.
     "model": "example"
   },
   "idle_ttl": 0,
+  "max_instances": 4,
   "permission_mode": "auto_approve",
   "disabled": false,
   "description": "",
@@ -59,6 +60,8 @@ Fields:
   `session/set_config_option` when supported by the agent.
 - `config_overrides`: optional service-level ACP config option values.
 - `idle_ttl`: optional Go duration value in JSON. Zero disables idle expiry.
+- `max_instances`: optional per-service pooled process limit. Zero means no
+  limit.
 - `permission_mode`: optional; defaults to `deny`.
 - `disabled`: prevents use when true.
 - `codex`: optional Codex-specific settings.

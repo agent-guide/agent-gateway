@@ -56,6 +56,9 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 	if r.Method != http.MethodPost {
 		return httpjson.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+	if r.Body != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, MaxMCPRequestBodyBytes)
+	}
 
 	serviceManager := h.gateway.MCPServiceManager()
 	if serviceManager == nil {
@@ -64,7 +67,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 
 	var msg transport.Message
 	if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
-		return writeMCPError(w, nil, http.StatusBadRequest, -32700, fmt.Sprintf("decode json-rpc request: %v", err))
+		return writeMCPError(w, nil, RequestBodyErrorStatus(err, http.StatusBadRequest), -32700, fmt.Sprintf("decode json-rpc request: %v", err))
 	}
 	if msg.JSONRPC == "" {
 		msg.JSONRPC = "2.0"

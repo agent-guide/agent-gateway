@@ -151,6 +151,9 @@ func (h *Handler) dispatchLLM(w http.ResponseWriter, r *http.Request, next NextH
 	if !apiHandler.MatchLLMApi(rewritten) {
 		return serveNextOrNotFound(next, w, r)
 	}
+	if rewritten.Body != nil {
+		rewritten.Body = http.MaxBytesReader(w, rewritten.Body, MaxLLMRequestBodyBytes)
+	}
 	logRequestPhase(h.logger, "dispatcher: llm api matched", rewritten,
 		zap.String("route_id", route.ID),
 		zap.String("llm_api", apiHandler.Name()),
@@ -162,7 +165,7 @@ func (h *Handler) dispatchLLM(w http.ResponseWriter, r *http.Request, next NextH
 		if prepared != nil {
 			model = prepared.Model()
 		}
-		return WriteDispatchError(h.logger, apiHandler.Name(), route.ID, model, 0, w, rewritten, "prepare request", "", err)
+		return WriteDispatchError(h.logger, apiHandler.Name(), route.ID, model, RequestBodyErrorStatus(err, 0), w, rewritten, "prepare request", "", err)
 	}
 	if !prepared.IsValid() {
 		return WriteDispatchError(h.logger, apiHandler.Name(), route.ID, "", 0, w, rewritten, "prepare request", "", fmt.Errorf("llm api handler returned invalid prepared request"))

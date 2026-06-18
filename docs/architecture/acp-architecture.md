@@ -86,6 +86,7 @@ An ACP service describes one agent backend:
 - optional `default_model`
 - optional `config_overrides`
 - optional `idle_ttl`
+- optional `max_instances`
 - `permission_mode` (`deny`, `auto_approve`, or `interactive`)
 - optional `codex` adapter settings
 
@@ -197,4 +198,3 @@ Operational capabilities:
 
 `agwctl gateway acp-service`, `agwctl gateway acp-route`, and
 `agwctl gateway acp-runtime` wrap these Admin APIs.
-

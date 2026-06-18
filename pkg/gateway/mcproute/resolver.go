@@ -40,7 +40,7 @@ func NewMCPRouteResolver(configManager *routecore.AgentRouteConfigManager) *MCPR
 				return cfg.ID
 			},
 			func(cfg routecore.AgentRouteConfig) (string, error) {
-				return runtimecore.FingerprintJSON(cfg.ID, "route config", cfg)
+				return cfg.Fingerprint(), nil
 			},
 			func(cfg routecore.AgentRouteConfig) (*MCPRoute, error) {
 				route, err := NewMCPRouteFromConfig(cfg)

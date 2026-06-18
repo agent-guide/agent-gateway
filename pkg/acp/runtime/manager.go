@@ -21,6 +21,8 @@ const defaultJanitorInterval = 30 * time.Second
 // 404 and unwrapped agent/transport failures map to 502.
 var ErrInvalidRequest = errors.New("invalid acp request")
 
+var ErrCapacityExceeded = errors.New("acp instance capacity exceeded")
+
 type Manager struct {
 	services    *acpservice.Manager
 	active      *ActivityTracker
@@ -315,6 +317,10 @@ func (m *Manager) resolveInstance(ctx context.Context, scope string, cfg acpserv
 		m.mu.Unlock()
 		return inst, nil
 	} else {
+		if cfg.MaxInstances > 0 && m.serviceInstanceCountLocked(cfg.ID) >= cfg.MaxInstances {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("%w: service %q reached max_instances %d", ErrCapacityExceeded, cfg.ID, cfg.MaxInstances)
+		}
 		m.mu.Unlock()
 	}
 
@@ -324,9 +330,28 @@ func (m *Manager) resolveInstance(ctx context.Context, scope string, cfg acpserv
 	}
 
 	m.mu.Lock()
+	if cfg.MaxInstances > 0 && m.serviceInstanceCountLocked(cfg.ID) >= cfg.MaxInstances {
+		m.mu.Unlock()
+		_ = inst.close()
+		return nil, fmt.Errorf("%w: service %q reached max_instances %d", ErrCapacityExceeded, cfg.ID, cfg.MaxInstances)
+	}
 	m.instances[scope] = &managedInstance{instance: inst, idleTTL: cfg.IdleTTL, lastUsed: time.Now().UTC()}
 	m.mu.Unlock()
 	return inst, nil
+}
+
+func (m *Manager) serviceInstanceCountLocked(serviceID string) int {
+	count := 0
+	for scope, item := range m.instances {
+		if item == nil || item.instance == nil {
+			continue
+		}
+		parts := strings.Split(scope, scopeSep)
+		if len(parts) == 5 && parts[0] == serviceID {
+			count++
+		}
+	}
+	return count
 }
 
 // adoptSessionInstanceLocked rebinds the thread's empty-session-scope instance

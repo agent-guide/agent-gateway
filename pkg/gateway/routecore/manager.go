@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/configmgr"
@@ -27,6 +28,9 @@ type RouteListOptions struct {
 
 type AgentRouteConfigManager struct {
 	base *configmgr.BaseConfigManager[AgentRouteConfig]
+
+	mu            sync.RWMutex
+	dynamicLoaded bool
 }
 
 func NewAgentRouteConfigManager(store configstore.ConfigStore) *AgentRouteConfigManager {
@@ -66,6 +70,9 @@ func NewAgentRouteConfigManager(store configstore.ConfigStore) *AgentRouteConfig
 
 func (m *AgentRouteConfigManager) Reset() {
 	m.base.Reset()
+	m.mu.Lock()
+	m.dynamicLoaded = false
+	m.mu.Unlock()
 }
 
 func (m *AgentRouteConfigManager) InitStaticRoutes(routes []AgentRouteConfig) {
@@ -101,14 +108,34 @@ func (m *AgentRouteConfigManager) List(ctx context.Context, opts RouteListOption
 	})
 }
 
+func (m *AgentRouteConfigManager) Refresh(ctx context.Context) error {
+	if err := m.base.Refresh(ctx, configmgr.ListQuery{}); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.dynamicLoaded = true
+	m.mu.Unlock()
+	return nil
+}
+
 // Match resolves the most specific route config whose MatchPolicy accepts the request.
 func (m *AgentRouteConfigManager) Match(ctx context.Context, r *http.Request) (AgentRouteConfig, bool, error) {
-	routes, err := m.List(ctx, RouteListOptions{})
-	if err != nil {
+	if err := m.ensureDynamicLoaded(ctx); err != nil {
 		return AgentRouteConfig{}, false, err
 	}
+	routes := m.base.Snapshot(configmgr.ListQuery{})
 	matched, ok := matchRouteConfigs(routes, r)
 	return matched, ok, nil
+}
+
+func (m *AgentRouteConfigManager) ensureDynamicLoaded(ctx context.Context) error {
+	m.mu.RLock()
+	loaded := m.dynamicLoaded
+	m.mu.RUnlock()
+	if loaded {
+		return nil
+	}
+	return m.Refresh(ctx)
 }
 
 func MatchManagers(ctx context.Context, r *http.Request, managers ...*AgentRouteConfigManager) (AgentRouteConfig, bool, error) {
@@ -117,11 +144,10 @@ func MatchManagers(ctx context.Context, r *http.Request, managers ...*AgentRoute
 		if manager == nil {
 			continue
 		}
-		items, err := manager.List(ctx, RouteListOptions{})
-		if err != nil {
+		if err := manager.ensureDynamicLoaded(ctx); err != nil {
 			return AgentRouteConfig{}, false, err
 		}
-		routes = append(routes, items...)
+		routes = append(routes, manager.base.Snapshot(configmgr.ListQuery{})...)
 	}
 
 	matched, ok := matchRouteConfigs(routes, r)
@@ -157,21 +183,39 @@ func (m *AgentRouteConfigManager) Create(ctx context.Context, route AgentRouteCo
 		return fmt.Errorf("route id is required")
 	}
 	route = normalizeRouteConfigTimestamps(route, time.Now().UTC(), true)
-	return m.base.CreatePrepared(ctx, route.ID, storedRouteConfig{route: route, tag: tag}, route)
+	if err := m.base.CreatePrepared(ctx, route.ID, storedRouteConfig{route: route, tag: tag}, route); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.dynamicLoaded = true
+	m.mu.Unlock()
+	return nil
 }
 
 func (m *AgentRouteConfigManager) Update(ctx context.Context, routeID string, route AgentRouteConfig) error {
 	if routeID == "" {
 		return fmt.Errorf("route id is required")
 	}
-	return m.base.Update(ctx, routeID, route)
+	if err := m.base.Update(ctx, routeID, route); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.dynamicLoaded = true
+	m.mu.Unlock()
+	return nil
 }
 
 func (m *AgentRouteConfigManager) Delete(ctx context.Context, routeID string) error {
 	if routeID == "" {
 		return fmt.Errorf("route id is required")
 	}
-	return m.base.Delete(ctx, routeID)
+	if err := m.base.Delete(ctx, routeID); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.dynamicLoaded = true
+	m.mu.Unlock()
+	return nil
 }
 
 type storedRouteConfig struct {

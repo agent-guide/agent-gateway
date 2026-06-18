@@ -43,6 +43,11 @@ curl -X POST http://localhost:8019/admin/providers \
   }'
 ```
 
+Provider notes:
+
+- `id` and `provider_type` are required
+- `created_at` and `updated_at` are server-managed fields
+
 ## LLM Routes
 
 - `GET /admin/llm/routes`

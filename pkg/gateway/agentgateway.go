@@ -361,6 +361,9 @@ func (g *AgentGateway) configureRouteResolver(ctx context.Context, configStoreBa
 	}
 	g.routeConfigManager = routecore.NewAgentRouteConfigManager(routeStore)
 	g.routeConfigManager.InitStaticRoutes(staticRoutes)
+	if err := g.routeConfigManager.Refresh(ctx); err != nil {
+		return fmt.Errorf("load route configs: %w", err)
+	}
 	g.llmRouteResolver = llmroutepkg.NewLLMRouteResolver(g.routeConfigManager)
 	g.mcpRouteResolver = mcproutepkg.NewMCPRouteResolver(g.routeConfigManager)
 	g.acpRouteResolver = acproutepkg.NewACPRouteResolver(g.routeConfigManager)
