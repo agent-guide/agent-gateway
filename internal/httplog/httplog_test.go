@@ -14,7 +14,7 @@ import (
 func TestResponseErrorLogsOnlyErrors(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
-	req := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/llm/providers", nil)
 
 	okRecorder := httpcapture.NewResponseRecorder(httptest.NewRecorder())
 	okRecorder.WriteHeader(http.StatusOK)

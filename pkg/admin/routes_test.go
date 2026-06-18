@@ -1176,7 +1176,7 @@ func TestProviderCRUD(t *testing.T) {
 		t.Fatalf("marshal provider config: %v", err)
 	}
 
-	createReq := httptest.NewRequest(http.MethodPost, "/admin/providers", bytes.NewReader(body))
+	createReq := httptest.NewRequest(http.MethodPost, "/admin/llm/providers", bytes.NewReader(body))
 	createReq.Header.Set("Authorization", "Bearer "+token)
 	createRec := httptest.NewRecorder()
 	handler.ServeHTTP(createRec, createReq)
@@ -1184,7 +1184,7 @@ func TestProviderCRUD(t *testing.T) {
 		t.Fatalf("unexpected create status: got %d want %d", createRec.Code, http.StatusCreated)
 	}
 
-	getReq := httptest.NewRequest(http.MethodGet, "/admin/providers/openai-main", nil)
+	getReq := httptest.NewRequest(http.MethodGet, "/admin/llm/providers/openai-main", nil)
 	getReq.Header.Set("Authorization", "Bearer "+token)
 	getRec := httptest.NewRecorder()
 	handler.ServeHTTP(getRec, getReq)
@@ -1215,7 +1215,7 @@ func TestProviderEnableDisable(t *testing.T) {
 	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	disableReq := httptest.NewRequest(http.MethodPost, "/admin/providers/openai-main/disable", nil)
+	disableReq := httptest.NewRequest(http.MethodPost, "/admin/llm/providers/openai-main/disable", nil)
 	disableReq.Header.Set("Authorization", "Bearer "+token)
 	disableRec := httptest.NewRecorder()
 	handler.ServeHTTP(disableRec, disableReq)
@@ -1231,7 +1231,7 @@ func TestProviderEnableDisable(t *testing.T) {
 		t.Fatal("provider disabled = false, want true")
 	}
 
-	enableReq := httptest.NewRequest(http.MethodPost, "/admin/providers/openai-main/enable", nil)
+	enableReq := httptest.NewRequest(http.MethodPost, "/admin/llm/providers/openai-main/enable", nil)
 	enableReq.Header.Set("Authorization", "Bearer "+token)
 	enableRec := httptest.NewRecorder()
 	handler.ServeHTTP(enableRec, enableReq)
@@ -1256,7 +1256,7 @@ func TestProviderTypeList(t *testing.T) {
 	handler := NewHandler(nil, nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	listReq := httptest.NewRequest(http.MethodGet, "/admin/provider_types", nil)
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/llm/provider_types", nil)
 	listReq.Header.Set("Authorization", "Bearer "+token)
 	listRec := httptest.NewRecorder()
 	handler.ServeHTTP(listRec, listReq)
@@ -1291,7 +1291,7 @@ func TestLLMApiHandlerTypeList(t *testing.T) {
 	handler := NewHandler(nil, nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	listReq := httptest.NewRequest(http.MethodGet, "/admin/llm_api_handler_types", nil)
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/llm/api_handler_types", nil)
 	listReq.Header.Set("Authorization", "Bearer "+token)
 	listRec := httptest.NewRecorder()
 	handler.ServeHTTP(listRec, listReq)
@@ -1429,7 +1429,7 @@ func TestProviderGetMarksStaticProviderAsReadOnly(t *testing.T) {
 	}), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/providers/openai-main", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/llm/providers/openai-main", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -1460,7 +1460,7 @@ func TestProviderListMarksStaticProvidersAsReadOnly(t *testing.T) {
 	}), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/llm/providers", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -1642,7 +1642,7 @@ func TestProviderCreateDoesNotSyncProviderConfigCredential(t *testing.T) {
 		t.Fatalf("marshal create request: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/admin/providers", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/admin/llm/providers", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -1664,7 +1664,7 @@ func TestProviderDeleteRejectsStaticProvider(t *testing.T) {
 	}), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	req := httptest.NewRequest(http.MethodDelete, "/admin/providers/openai-main", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/admin/llm/providers/openai-main", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -1865,7 +1865,7 @@ func TestManagedModelViewIncludesResolvedAndSnapshotFields(t *testing.T) {
 	}), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/models/managed/openai-main/gpt-4.1-mini", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/llm/models/managed/openai-main/gpt-4.1-mini", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -1898,7 +1898,7 @@ func TestCreateManagedModelUsesStoreCreate(t *testing.T) {
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body := bytes.NewBufferString(`{"provider_id":"openai-main","upstream_model":"gpt-4.1","enabled":true}`)
-	req := httptest.NewRequest(http.MethodPost, "/admin/models/managed", body)
+	req := httptest.NewRequest(http.MethodPost, "/admin/llm/models/managed", body)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -1926,7 +1926,7 @@ func TestUpdateManagedModelUsesStoreUpdate(t *testing.T) {
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body := bytes.NewBufferString(`{"enabled":true}`)
-	req := httptest.NewRequest(http.MethodPut, "/admin/models/managed/openai-main/gpt-4.1", body)
+	req := httptest.NewRequest(http.MethodPut, "/admin/llm/models/managed/openai-main/gpt-4.1", body)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -1945,7 +1945,7 @@ func TestUpdateManagedModelReturnsNotFoundWhenMissing(t *testing.T) {
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body := bytes.NewBufferString(`{"enabled":true}`)
-	req := httptest.NewRequest(http.MethodPut, "/admin/models/managed/openai-main/gpt-4.1", body)
+	req := httptest.NewRequest(http.MethodPut, "/admin/llm/models/managed/openai-main/gpt-4.1", body)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()

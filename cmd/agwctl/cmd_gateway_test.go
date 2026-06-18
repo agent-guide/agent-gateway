@@ -139,7 +139,7 @@ func TestGatewayProviderTypesListCommand(t *testing.T) {
 				"token":    "test-token",
 				"username": "admin",
 			})
-		case "/admin/provider_types":
+		case "/admin/llm/provider_types":
 			user, pass, ok := r.BasicAuth()
 			if ok {
 				gotBasicAuth = user + ":" + pass
@@ -1029,9 +1029,9 @@ cliAuthAuthenticators:
 				"token":    "test-token",
 				"username": "admin",
 			})
-		case r.URL.Path == "/admin/provider_types":
+		case r.URL.Path == "/admin/llm/provider_types":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{{"provider_type": "openai", "enabled": true}, {"provider_type": "codex", "enabled": true}}})
-		case r.URL.Path == "/admin/providers" && r.Method == http.MethodGet:
+		case r.URL.Path == "/admin/llm/providers" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
@@ -1043,7 +1043,7 @@ cliAuthAuthenticators:
 					},
 				},
 			})
-		case r.URL.Path == "/admin/providers/openai-main" && r.Method == http.MethodPut:
+		case r.URL.Path == "/admin/llm/providers/openai-main" && r.Method == http.MethodPut:
 			providerUpdated.Store(true)
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -1051,7 +1051,7 @@ cliAuthAuthenticators:
 				"provider_type": "openai",
 				"default_model": "gpt-4.1",
 			})
-		case r.URL.Path == "/admin/models/managed":
+		case r.URL.Path == "/admin/llm/models/managed":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/llm/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -1178,9 +1178,9 @@ cliAuthAuthenticators:
 				"token":    "test-token",
 				"username": "admin",
 			})
-		case r.URL.Path == "/admin/provider_types":
+		case r.URL.Path == "/admin/llm/provider_types":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{{"provider_type": "openai", "enabled": true}, {"provider_type": "codex", "enabled": true}}})
-		case r.URL.Path == "/admin/providers" && r.Method == http.MethodGet:
+		case r.URL.Path == "/admin/llm/providers" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
@@ -1192,10 +1192,10 @@ cliAuthAuthenticators:
 					},
 				},
 			})
-		case r.URL.Path == "/admin/providers/openai-main" && r.Method == http.MethodPut:
+		case r.URL.Path == "/admin/llm/providers/openai-main" && r.Method == http.MethodPut:
 			providerWriteCount.Add(1)
 			t.Fatalf("unexpected provider update request for unchanged object")
-		case r.URL.Path == "/admin/models/managed":
+		case r.URL.Path == "/admin/llm/models/managed":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/llm/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -1286,9 +1286,9 @@ providers:
 				"token":    "test-token",
 				"username": "admin",
 			})
-		case r.URL.Path == "/admin/provider_types":
+		case r.URL.Path == "/admin/llm/provider_types":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{{"provider_type": "openai", "enabled": true}, {"provider_type": "codex", "enabled": true}}})
-		case r.URL.Path == "/admin/providers" && r.Method == http.MethodGet:
+		case r.URL.Path == "/admin/llm/providers" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
@@ -1300,7 +1300,7 @@ providers:
 					},
 				},
 			})
-		case r.URL.Path == "/admin/models/managed":
+		case r.URL.Path == "/admin/llm/models/managed":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/llm/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -1353,13 +1353,13 @@ func TestGatewayExportCommand(t *testing.T) {
 				"token":    "test-token",
 				"username": "admin",
 			})
-		case "/admin/provider_types":
+		case "/admin/llm/provider_types":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{"provider_type": "openai", "enabled": true},
 				},
 			})
-		case "/admin/providers":
+		case "/admin/llm/providers":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
@@ -1371,7 +1371,7 @@ func TestGatewayExportCommand(t *testing.T) {
 					},
 				},
 			})
-		case "/admin/models/managed":
+		case "/admin/llm/models/managed":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
@@ -1482,13 +1482,13 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 				"token":    "test-token",
 				"username": "admin",
 			})
-		case "/admin/provider_types":
+		case "/admin/llm/provider_types":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{"provider_type": "openai", "enabled": true},
 				},
 			})
-		case "/admin/providers":
+		case "/admin/llm/providers":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
@@ -1500,7 +1500,7 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 					},
 				},
 			})
-		case "/admin/models/managed":
+		case "/admin/llm/models/managed":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/llm/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -1588,11 +1588,11 @@ func TestGatewayExportCommandIncludesMCPServicesAndRoutes(t *testing.T) {
 		switch r.URL.Path {
 		case "/admin/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]string{"token": "test-token", "username": "admin"})
-		case "/admin/provider_types":
+		case "/admin/llm/provider_types":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{{"provider_type": "openai", "enabled": true}, {"provider_type": "codex", "enabled": true}}})
-		case "/admin/providers":
+		case "/admin/llm/providers":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case "/admin/models/managed":
+		case "/admin/llm/models/managed":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/llm/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -1691,11 +1691,11 @@ mcpRoutes:
 		switch {
 		case r.URL.Path == "/admin/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]string{"token": "test-token", "username": "admin"})
-		case r.URL.Path == "/admin/provider_types":
+		case r.URL.Path == "/admin/llm/provider_types":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{{"provider_type": "openai", "enabled": true}, {"provider_type": "codex", "enabled": true}}})
-		case r.URL.Path == "/admin/providers" && r.Method == http.MethodGet:
+		case r.URL.Path == "/admin/llm/providers" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case r.URL.Path == "/admin/models/managed":
+		case r.URL.Path == "/admin/llm/models/managed":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/llm/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})

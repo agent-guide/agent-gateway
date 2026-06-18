@@ -17,7 +17,7 @@ func TestListProvidersUsesBasicAuth(t *testing.T) {
 	providerCalls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/admin/providers":
+		case "/admin/llm/providers":
 			providerCalls++
 			user, pass, ok := r.BasicAuth()
 			if !ok || user != "admin" || pass != "secret" {
@@ -73,7 +73,7 @@ func TestCreateProvider(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/admin/providers":
+		case "/admin/llm/providers":
 			if r.Method != http.MethodPost {
 				t.Fatalf("unexpected method: %s", r.Method)
 			}
@@ -143,7 +143,7 @@ func TestListProviderTypes(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/admin/provider_types" {
+		if r.URL.Path != "/admin/llm/provider_types" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		_ = json.NewEncoder(w).Encode(itemsResponse[ProviderType]{
@@ -166,7 +166,7 @@ func TestRefreshProviderModels(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/admin/models/providers/openai-main/refresh" {
+		if r.URL.Path != "/admin/llm/models/providers/openai-main/refresh" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		_ = json.NewEncoder(w).Encode(RefreshDiscoveredModelsResponse{
@@ -235,7 +235,7 @@ func TestCreateManagedModel(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("unexpected method: %s", r.Method)
 		}
-		if r.URL.Path != "/admin/models/managed" {
+		if r.URL.Path != "/admin/llm/models/managed" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		var req modelcatalog.ManagedModel
@@ -274,7 +274,7 @@ func TestUpdateManagedModel(t *testing.T) {
 		if r.Method != http.MethodPut {
 			t.Fatalf("unexpected method: %s", r.Method)
 		}
-		if r.URL.Path != "/admin/models/managed/openai-main/gpt-4.1" {
+		if r.URL.Path != "/admin/llm/models/managed/openai-main/gpt-4.1" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		var req modelcatalog.ManagedModel

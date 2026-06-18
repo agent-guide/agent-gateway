@@ -51,27 +51,27 @@ func (h *Handler) Routes() []Route {
 		// Health — public
 		{Method: http.MethodGet, Path: "/admin/health", Handler: h.handleHealth},
 
-		// Provider names
-		{Method: http.MethodGet, Path: "/admin/provider_types", Handler: h.handleListProviderTypes},
+		// LLM provider types
+		{Method: http.MethodGet, Path: "/admin/llm/provider_types", Handler: h.handleListProviderTypes},
 
 		// LLM API handler types
-		{Method: http.MethodGet, Path: "/admin/llm_api_handler_types", Handler: h.handleListLLMApiHandlerTypes},
+		{Method: http.MethodGet, Path: "/admin/llm/api_handler_types", Handler: h.handleListLLMApiHandlerTypes},
 
-		// Providers
-		{Method: http.MethodGet, Path: "/admin/providers", Handler: h.handleListProviders},
-		{Method: http.MethodPost, Path: "/admin/providers", Handler: h.handleCreateProvider},
-		{Method: http.MethodGet, Path: "/admin/providers/{id}", Handler: h.handleGetProvider},
-		{Method: http.MethodPut, Path: "/admin/providers/{id}", Handler: h.handleUpdateProvider},
-		{Method: http.MethodPost, Path: "/admin/providers/{id}/enable", Handler: h.handleEnableProvider},
-		{Method: http.MethodPost, Path: "/admin/providers/{id}/disable", Handler: h.handleDisableProvider},
-		{Method: http.MethodDelete, Path: "/admin/providers/{id}", Handler: h.handleDeleteProvider},
-		{Method: http.MethodGet, Path: "/admin/models/providers/{provider_id}/discovered", Handler: h.handleListDiscoveredModels},
-		{Method: http.MethodPost, Path: "/admin/models/providers/{provider_id}/refresh", Handler: h.handleRefreshProviderModels},
-		{Method: http.MethodGet, Path: "/admin/models/managed", Handler: h.handleListManagedModels},
-		{Method: http.MethodPost, Path: "/admin/models/managed", Handler: h.handleCreateManagedModel},
-		{Method: http.MethodGet, Path: "/admin/models/managed/{provider_id}/{upstream_model}", Handler: h.handleGetManagedModel},
-		{Method: http.MethodPut, Path: "/admin/models/managed/{provider_id}/{upstream_model}", Handler: h.handleUpdateManagedModel},
-		{Method: http.MethodDelete, Path: "/admin/models/managed/{provider_id}/{upstream_model}", Handler: h.handleDeleteManagedModel},
+		// LLM providers and models
+		{Method: http.MethodGet, Path: "/admin/llm/providers", Handler: h.handleListProviders},
+		{Method: http.MethodPost, Path: "/admin/llm/providers", Handler: h.handleCreateProvider},
+		{Method: http.MethodGet, Path: "/admin/llm/providers/{id}", Handler: h.handleGetProvider},
+		{Method: http.MethodPut, Path: "/admin/llm/providers/{id}", Handler: h.handleUpdateProvider},
+		{Method: http.MethodPost, Path: "/admin/llm/providers/{id}/enable", Handler: h.handleEnableProvider},
+		{Method: http.MethodPost, Path: "/admin/llm/providers/{id}/disable", Handler: h.handleDisableProvider},
+		{Method: http.MethodDelete, Path: "/admin/llm/providers/{id}", Handler: h.handleDeleteProvider},
+		{Method: http.MethodGet, Path: "/admin/llm/models/providers/{provider_id}/discovered", Handler: h.handleListDiscoveredModels},
+		{Method: http.MethodPost, Path: "/admin/llm/models/providers/{provider_id}/refresh", Handler: h.handleRefreshProviderModels},
+		{Method: http.MethodGet, Path: "/admin/llm/models/managed", Handler: h.handleListManagedModels},
+		{Method: http.MethodPost, Path: "/admin/llm/models/managed", Handler: h.handleCreateManagedModel},
+		{Method: http.MethodGet, Path: "/admin/llm/models/managed/{provider_id}/{upstream_model}", Handler: h.handleGetManagedModel},
+		{Method: http.MethodPut, Path: "/admin/llm/models/managed/{provider_id}/{upstream_model}", Handler: h.handleUpdateManagedModel},
+		{Method: http.MethodDelete, Path: "/admin/llm/models/managed/{provider_id}/{upstream_model}", Handler: h.handleDeleteManagedModel},
 		{Method: http.MethodGet, Path: "/admin/llm/routes", Handler: h.handleListLLMRoutes},
 		{Method: http.MethodPost, Path: "/admin/llm/routes", Handler: h.handleCreateLLMRoute},
 		{Method: http.MethodGet, Path: "/admin/llm/routes/{id}", Handler: h.handleGetLLMRoute},

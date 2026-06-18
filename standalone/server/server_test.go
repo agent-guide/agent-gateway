@@ -115,7 +115,7 @@ func TestProtectAdminHandlerUsesHashedConfiguredPassword(t *testing.T) {
 		t.Fatalf("protectAdminHandler() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/llm/providers", nil)
 	req.SetBasicAuth("admin", "secret")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -139,7 +139,7 @@ func TestProtectAdminHandlerRejectsHashAsRequestPassword(t *testing.T) {
 		t.Fatalf("protectAdminHandler() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/llm/providers", nil)
 	req.SetBasicAuth("admin", string(hash))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -159,7 +159,7 @@ func TestProtectAdminHandlerExemptsHealthAndPreflight(t *testing.T) {
 		path   string
 	}{
 		{name: "health probe", method: http.MethodGet, path: "/admin/health"},
-		{name: "cors preflight", method: http.MethodOptions, path: "/admin/providers"},
+		{name: "cors preflight", method: http.MethodOptions, path: "/admin/llm/providers"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -212,7 +212,7 @@ func TestProtectAdminHandlerEmptyConfigDisablesAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("protectAdminHandler() error = %v", err)
 	}
-	req := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/llm/providers", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {

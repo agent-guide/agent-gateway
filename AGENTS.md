@@ -431,16 +431,15 @@ Important current directives:
 
 Implemented families:
 
-- `/admin/providers/...`
-- `/admin/provider_types` read-only listing
-- `/admin/llm_api_handler_types`
+- `/admin/llm/providers/...`
+- `/admin/llm/provider_types` read-only listing
+- `/admin/llm/api_handler_types`
 - `/admin/llm/routes/...`
 - `/admin/virtual_keys/...`
 - `/admin/credentials/...`
-- `/admin/models/providers/{provider_id}/discovered`
-- `/admin/models/providers/{provider_id}/refresh`
-- `/admin/models/managed/...`
-- `/admin/models/logical/...`
+- `/admin/llm/models/providers/{provider_id}/discovered`
+- `/admin/llm/models/providers/{provider_id}/refresh`
+- `/admin/llm/models/managed/...`
 - `/admin/cliauth/authenticators/...`
 - `/admin/cliauth/refresher/...`
 - `/admin/cliauth/logins/...`

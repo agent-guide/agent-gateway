@@ -284,26 +284,24 @@ Transient runtime state is not persisted in the model store. Provider discovery 
 
 ## 14. Administrative APIs
 
-The gateway Admin API exposes model catalog operations under `/admin/models/...`.
+The gateway Admin API exposes model catalog operations under `/admin/llm/models/...`.
 
 Current API families:
 
-- `GET /admin/models/providers/{provider_id}/discovered`
+- `GET /admin/llm/models/providers/{provider_id}/discovered`
   - list provider snapshots for one provider
-- `POST /admin/models/providers/{provider_id}/refresh`
+- `POST /admin/llm/models/providers/{provider_id}/refresh`
   - refresh provider model discovery
-- `GET /admin/models/managed`
+- `GET /admin/llm/models/managed`
   - list managed models
-- `GET /admin/models/managed/{provider_id}/{upstream_model}`
+- `GET /admin/llm/models/managed/{provider_id}/{upstream_model}`
   - read one managed model
-- `POST /admin/models/managed`
+- `POST /admin/llm/models/managed`
   - create one managed model
-- `PUT /admin/models/managed/{provider_id}/{upstream_model}`
+- `PUT /admin/llm/models/managed/{provider_id}/{upstream_model}`
   - update one managed model
-- `DELETE /admin/models/managed/{provider_id}/{upstream_model}`
+- `DELETE /admin/llm/models/managed/{provider_id}/{upstream_model}`
   - delete one managed model
-- `GET /admin/models/logical`
-  - logical model view endpoint family registered by the admin surface
 
 The gateway Admin API does not expose Caddy server management APIs. Model catalog administration is part of the gateway control plane, not the Caddy control plane.
 

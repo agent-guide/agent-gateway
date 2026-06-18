@@ -8,20 +8,20 @@ All endpoints below are under the path where `agent_gateway_admin` is mounted. T
 
 ## Providers
 
-- `GET /admin/provider_types`
-- `GET /admin/llm_api_handler_types`
-- `GET /admin/providers`
-- `POST /admin/providers`
-- `GET /admin/providers/{id}`
-- `PUT /admin/providers/{id}`
-- `POST /admin/providers/{id}/enable`
-- `POST /admin/providers/{id}/disable`
-- `DELETE /admin/providers/{id}`
+- `GET /admin/llm/provider_types`
+- `GET /admin/llm/api_handler_types`
+- `GET /admin/llm/providers`
+- `POST /admin/llm/providers`
+- `GET /admin/llm/providers/{id}`
+- `PUT /admin/llm/providers/{id}`
+- `POST /admin/llm/providers/{id}/enable`
+- `POST /admin/llm/providers/{id}/disable`
+- `DELETE /admin/llm/providers/{id}`
 
 Create a provider:
 
 ```bash
-curl -u admin:your-password -X POST http://localhost:8019/admin/providers \
+curl -u admin:your-password -X POST http://localhost:8019/admin/llm/providers \
   -H 'Content-Type: application/json' \
   -d '{
     "id": "openrouter-main",
@@ -160,11 +160,10 @@ Credential notes:
 
 ## Models
 
-- `GET /admin/models/providers/{provider_id}/discovered`
-- `POST /admin/models/providers/{provider_id}/refresh`
-- `GET /admin/models/managed`
-- `PUT /admin/models/managed/{provider_id}/{upstream_model}`
-- `GET /admin/models/logical`
+- `GET /admin/llm/models/providers/{provider_id}/discovered`
+- `POST /admin/llm/models/providers/{provider_id}/refresh`
+- `GET /admin/llm/models/managed`
+- `PUT /admin/llm/models/managed/{provider_id}/{upstream_model}`
 
 ## CLI Auth
 

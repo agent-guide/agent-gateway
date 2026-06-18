@@ -93,11 +93,11 @@ providerTypes:
 
 ## Admin API
 
-`GET /admin/provider_types` remains available as a read-only inspection endpoint.
+`GET /admin/llm/provider_types` remains available as a read-only inspection endpoint.
 
 Provider type mutation endpoints are not part of the current behavior:
 
-- `POST /admin/provider_types/{provider_type}/enable`
-- `POST /admin/provider_types/{provider_type}/disable`
+- `POST /admin/llm/provider_types/{provider_type}/enable`
+- `POST /admin/llm/provider_types/{provider_type}/disable`
 
 Provider creation and update reject unknown or disabled provider types.

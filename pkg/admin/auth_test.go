@@ -9,7 +9,7 @@ import (
 func TestProtectedRoutesDelegateAuthenticationToMountLayer(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{}, nil, nil, nil, nil), nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/llm/providers", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
