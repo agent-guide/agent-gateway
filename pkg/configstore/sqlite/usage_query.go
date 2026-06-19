@@ -1,0 +1,489 @@
+package sqlite
+
+import (
+	"database/sql"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/agent-guide/agent-gateway/pkg/metrics/usage"
+	"gorm.io/gorm"
+)
+
+type UsageQueries struct {
+	db *gorm.DB
+}
+
+func NewUsageQueries(db *gorm.DB) *UsageQueries {
+	return &UsageQueries{db: db}
+}
+
+func (q *UsageQueries) Summary() (usage.Summary, error) {
+	var out usage.Summary
+	if q == nil || q.db == nil {
+		return out, nil
+	}
+	if err := q.db.Raw(`SELECT COUNT(*), COALESCE(SUM(success),0), COALESCE(SUM(CASE WHEN success=0 THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0), COALESCE(SUM(total_tokens),0), COALESCE(AVG(latency_ms),0)
+		FROM llm_usage_events`).Row().Scan(&out.LLM.RequestCount, &out.LLM.SuccessCount, &out.LLM.FailureCount, &out.LLM.InputTokens, &out.LLM.OutputTokens, &out.LLM.TotalTokens, &out.LLM.AvgLatencyMS); err != nil {
+		return out, err
+	}
+	if err := q.db.Raw(`SELECT COUNT(*), COALESCE(SUM(success),0), COALESCE(SUM(CASE WHEN success=0 THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN method='tools/call' THEN 1 ELSE 0 END),0), COALESCE(AVG(latency_ms),0)
+		FROM mcp_usage_events`).Row().Scan(&out.MCP.RequestCount, &out.MCP.SuccessCount, &out.MCP.FailureCount, &out.MCP.ToolsCallCount, &out.MCP.AvgLatencyMS); err != nil {
+		return out, err
+	}
+	if err := q.db.Raw(`SELECT COUNT(*), COALESCE(SUM(CASE WHEN operation='turn' THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(success),0), COALESCE(SUM(CASE WHEN success=0 THEN 1 ELSE 0 END),0), COALESCE(AVG(latency_ms),0)
+		FROM acp_usage_events`).Row().Scan(&out.ACP.RequestCount, &out.ACP.TurnCount, &out.ACP.SuccessCount, &out.ACP.FailureCount, &out.ACP.AvgLatencyMS); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+func (q *UsageQueries) ListEvents(kind string, opts usage.EventListOptions) (usage.EventListResponse, error) {
+	table, filters, err := eventTable(kind)
+	if err != nil {
+		return usage.EventListResponse{}, err
+	}
+	return q.listRows("SELECT * FROM "+table, table, filters, opts)
+}
+
+func (q *UsageQueries) ListInteractions(opts usage.EventListOptions) (usage.EventListResponse, error) {
+	filters := map[string]string{
+		"route_kind": "route_kind", "route_protocol": "route_protocol", "route_id": "route_id",
+		"virtual_key_id": "virtual_key_id", "trace_id": "trace_id", "parent_span_id": "parent_span_id",
+		"agent_depth": "agent_depth",
+	}
+	baseCols := `event_id, trace_id, span_id, parent_span_id, agent_depth, started_at, finished_at,
+		route_id, route_kind, route_protocol, virtual_key_id, success, status_code, error_type, latency_ms`
+	query := "SELECT * FROM (" +
+		"SELECT " + baseCols + " FROM llm_usage_events UNION ALL " +
+		"SELECT " + baseCols + " FROM mcp_usage_events UNION ALL " +
+		"SELECT " + baseCols + " FROM acp_usage_events) interactions"
+	return q.listRows(query, "interactions", filters, opts)
+}
+
+func (q *UsageQueries) LLMTimeseries(opts usage.TimeseriesOptions) (usage.SeriesResponse, error) {
+	bucket := strings.ToLower(strings.TrimSpace(opts.Bucket))
+	if bucket == "" {
+		bucket = "hour"
+	}
+	bucketMS, err := bucketMillis(bucket)
+	if err != nil {
+		return usage.SeriesResponse{}, err
+	}
+	groupCol := ""
+	if opts.GroupBy != "" {
+		groupCol, err = allowedGroupBy(opts.GroupBy, map[string]string{
+			"route_id": "route_id", "provider_id": "provider_id", "virtual_key_id": "virtual_key_id", "upstream_model": "upstream_model", "llm_api": "llm_api",
+		})
+		if err != nil {
+			return usage.SeriesResponse{}, err
+		}
+	}
+	selectGroup := "'' AS group_value"
+	groupBy := "bucket_ms"
+	if groupCol != "" {
+		selectGroup = groupCol + " AS group_value"
+		groupBy += ", " + groupCol
+	}
+	where, args, err := buildTimeWhere(opts.From, opts.To)
+	if err != nil {
+		return usage.SeriesResponse{}, err
+	}
+	for key, value := range opts.Filters {
+		if value == "" {
+			continue
+		}
+		col, ok := map[string]string{"route_id": "route_id", "provider_id": "provider_id", "virtual_key_id": "virtual_key_id", "upstream_model": "upstream_model", "llm_api": "llm_api"}[key]
+		if !ok {
+			continue
+		}
+		where = append(where, col+" = ?")
+		args = append(args, value)
+	}
+	query := `SELECT CAST(started_at / ? AS INTEGER) * ? AS bucket_ms, ` + selectGroup + `,
+		COUNT(*) AS request_count, COALESCE(SUM(success),0) AS success_count,
+		COALESCE(SUM(CASE WHEN success=0 THEN 1 ELSE 0 END),0) AS failure_count,
+		COALESCE(SUM(input_tokens),0) AS input_tokens, COALESCE(SUM(output_tokens),0) AS output_tokens,
+		COALESCE(SUM(total_tokens),0) AS total_tokens, COALESCE(AVG(latency_ms),0) AS avg_latency_ms
+		FROM llm_usage_events`
+	allArgs := []any{bucketMS, bucketMS}
+	allArgs = append(allArgs, args...)
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	query += " GROUP BY " + groupBy + " ORDER BY bucket_ms ASC"
+	items, err := q.rawItems(query, allArgs...)
+	if err != nil {
+		return usage.SeriesResponse{}, err
+	}
+	formatBucketItems(items)
+	return usage.SeriesResponse{Bucket: bucket, GroupBy: opts.GroupBy, Items: items}, nil
+}
+
+func (q *UsageQueries) LLMBreakdown(opts usage.BreakdownOptions) (usage.BreakdownResponse, error) {
+	return q.breakdown(`llm_usage_events`, opts, map[string]string{
+		"route_id": "route_id", "provider_id": "provider_id", "virtual_key_id": "virtual_key_id", "upstream_model": "upstream_model", "llm_api": "llm_api",
+	}, `COUNT(*) AS request_count, COALESCE(SUM(success),0) AS success_count,
+		COALESCE(SUM(CASE WHEN success=0 THEN 1 ELSE 0 END),0) AS failure_count,
+		COALESCE(SUM(input_tokens),0) AS input_tokens, COALESCE(SUM(output_tokens),0) AS output_tokens,
+		COALESCE(SUM(total_tokens),0) AS total_tokens, COALESCE(AVG(latency_ms),0) AS avg_latency_ms`)
+}
+
+func (q *UsageQueries) MCPToolsSummary(opts usage.SummaryOptions) (usage.BreakdownResponse, error) {
+	bo := usage.BreakdownOptions{From: opts.From, To: opts.To, GroupBy: "tool_name", Limit: opts.Limit, Filters: opts.Filters, OrderBy: "request_count"}
+	return q.breakdown(`mcp_usage_events`, bo, map[string]string{"tool_name": "tool_name", "route_id": "route_id", "service_id": "service_id"}, `COUNT(*) AS request_count,
+		COALESCE(SUM(success),0) AS success_count, COALESCE(SUM(CASE WHEN success=0 THEN 1 ELSE 0 END),0) AS failure_count,
+		COALESCE(AVG(latency_ms),0) AS avg_latency_ms`)
+}
+
+func (q *UsageQueries) ACPSummary(opts usage.BreakdownOptions) (usage.BreakdownResponse, error) {
+	return q.breakdown(`acp_usage_events`, opts, map[string]string{
+		"route_id": "route_id", "service_id": "service_id", "agent_type": "agent_type", "operation": "operation",
+	}, `COUNT(*) AS request_count, COALESCE(SUM(CASE WHEN operation='turn' THEN 1 ELSE 0 END),0) AS turn_count,
+		COALESCE(SUM(success),0) AS success_count, COALESCE(SUM(CASE WHEN success=0 THEN 1 ELSE 0 END),0) AS failure_count,
+		COALESCE(AVG(latency_ms),0) AS avg_latency_ms`)
+}
+
+func (q *UsageQueries) InteractionsSummary(opts usage.BreakdownOptions) (usage.BreakdownResponse, error) {
+	groupCol, err := allowedGroupBy(opts.GroupBy, map[string]string{
+		"route_kind": "route_kind", "route_protocol": "route_protocol", "route_id": "route_id", "virtual_key_id": "virtual_key_id",
+	})
+	if err != nil {
+		return usage.BreakdownResponse{}, err
+	}
+	if groupCol == "" {
+		groupCol = "route_kind"
+		opts.GroupBy = "route_kind"
+	}
+	baseCols := `event_id, started_at, route_kind, route_protocol, route_id, virtual_key_id, success, latency_ms`
+	query := "SELECT " + groupCol + ` AS group_value, COUNT(*) AS request_count, COALESCE(SUM(success),0) AS success_count,
+		COALESCE(SUM(CASE WHEN success=0 THEN 1 ELSE 0 END),0) AS failure_count, COALESCE(AVG(latency_ms),0) AS avg_latency_ms
+		FROM (` +
+		"SELECT " + baseCols + " FROM llm_usage_events UNION ALL " +
+		"SELECT " + baseCols + " FROM mcp_usage_events UNION ALL " +
+		"SELECT " + baseCols + " FROM acp_usage_events) interactions"
+	where, args, err := buildTimeWhere(opts.From, opts.To)
+	if err != nil {
+		return usage.BreakdownResponse{}, err
+	}
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	query += " GROUP BY " + groupCol + " ORDER BY request_count DESC LIMIT ?"
+	limit := normalizedLimit(opts.Limit)
+	args = append(args, limit)
+	items, err := q.rawItems(query, args...)
+	return usage.BreakdownResponse{GroupBy: opts.GroupBy, Items: items, Limit: limit}, err
+}
+
+func (q *UsageQueries) listRows(baseQuery, table string, allowedFilters map[string]string, opts usage.EventListOptions) (usage.EventListResponse, error) {
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	resp := usage.EventListResponse{Limit: limit}
+	if q == nil || q.db == nil {
+		return resp, nil
+	}
+	where, args, err := buildEventWhere(allowedFilters, opts)
+	if err != nil {
+		return resp, err
+	}
+	query := baseQuery
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	query += " ORDER BY started_at DESC LIMIT ?"
+	args = append(args, limit)
+	rows, err := q.db.Raw(query, args...).Rows()
+	if err != nil {
+		return resp, err
+	}
+	defer rows.Close()
+	items, err := scanRows(rows)
+	if err != nil {
+		return resp, err
+	}
+	resp.Items = items
+	return resp, nil
+}
+
+func (q *UsageQueries) breakdown(table string, opts usage.BreakdownOptions, allowedGroups map[string]string, measures string) (usage.BreakdownResponse, error) {
+	groupCol, err := allowedGroupBy(opts.GroupBy, allowedGroups)
+	if err != nil {
+		return usage.BreakdownResponse{}, err
+	}
+	if groupCol == "" {
+		for key, col := range allowedGroups {
+			opts.GroupBy = key
+			groupCol = col
+			break
+		}
+	}
+	where, args, err := buildTimeWhere(opts.From, opts.To)
+	if err != nil {
+		return usage.BreakdownResponse{}, err
+	}
+	for key, value := range opts.Filters {
+		if value == "" || key == opts.GroupBy {
+			continue
+		}
+		col, ok := allowedGroups[key]
+		if !ok {
+			continue
+		}
+		where = append(where, col+" = ?")
+		args = append(args, value)
+	}
+	query := "SELECT " + groupCol + " AS group_value, " + measures + " FROM " + table
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	query += " GROUP BY " + groupCol + " ORDER BY " + orderByMetric(opts.OrderBy) + " DESC LIMIT ?"
+	limit := normalizedLimit(opts.Limit)
+	args = append(args, limit)
+	items, err := q.rawItems(query, args...)
+	return usage.BreakdownResponse{GroupBy: opts.GroupBy, Items: items, Limit: limit}, err
+}
+
+func eventTable(kind string) (string, map[string]string, error) {
+	switch kind {
+	case "llm":
+		return "llm_usage_events", map[string]string{
+			"route_id": "route_id", "provider_id": "provider_id", "virtual_key_id": "virtual_key_id",
+			"logical_model": "logical_model", "upstream_model": "upstream_model", "llm_api": "llm_api",
+			"api_operation": "api_operation", "request_tool_name": "request_tool_names", "has_tool_use": "tool_call_count",
+		}, nil
+	case "mcp":
+		return "mcp_usage_events", map[string]string{
+			"route_id": "route_id", "service_id": "service_id", "virtual_key_id": "virtual_key_id",
+			"method": "method", "tool_name": "tool_name", "resource_uri": "resource_uri",
+			"prompt_name": "prompt_name", "completion_ref_type": "completion_ref_type",
+			"completion_argument": "completion_argument", "result_status": "result_status",
+		}, nil
+	case "acp":
+		return "acp_usage_events", map[string]string{
+			"route_id": "route_id", "service_id": "service_id", "virtual_key_id": "virtual_key_id",
+			"agent_type": "agent_type", "operation": "operation", "thread_id": "thread_id", "session_id": "session_id",
+		}, nil
+	default:
+		return "", nil, fmt.Errorf("unknown usage event kind %q", kind)
+	}
+}
+
+func buildEventWhere(allowed map[string]string, opts usage.EventListOptions) ([]string, []any, error) {
+	var where []string
+	var args []any
+	if opts.From != "" {
+		t, err := time.Parse(time.RFC3339, opts.From)
+		if err != nil {
+			return nil, nil, fmt.Errorf("from must be RFC3339")
+		}
+		where = append(where, "started_at >= ?")
+		args = append(args, unixMillis(t))
+	}
+	if opts.To != "" {
+		t, err := time.Parse(time.RFC3339, opts.To)
+		if err != nil {
+			return nil, nil, fmt.Errorf("to must be RFC3339")
+		}
+		where = append(where, "started_at <= ?")
+		args = append(args, unixMillis(t))
+	}
+	if opts.Success != nil {
+		where = append(where, "success = ?")
+		args = append(args, boolInt(*opts.Success))
+	}
+	for key, value := range opts.Filters {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		col, ok := allowed[key]
+		if !ok {
+			continue
+		}
+		if key == "request_tool_name" {
+			where = append(where, col+" LIKE ?")
+			args = append(args, "%"+value+"%")
+			continue
+		}
+		if key == "has_tool_use" {
+			hasToolUse, err := strconv.ParseBool(value)
+			if err != nil {
+				return nil, nil, fmt.Errorf("has_tool_use must be a boolean")
+			}
+			if hasToolUse {
+				where = append(where, col+" > 0")
+			} else {
+				where = append(where, col+" = 0")
+			}
+			continue
+		}
+		where = append(where, col+" = ?")
+		args = append(args, value)
+	}
+	return where, args, nil
+}
+
+func scanRows(rows *sql.Rows) ([]map[string]any, error) {
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	var out []map[string]any
+	for rows.Next() {
+		values := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range values {
+			ptrs[i] = &values[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			return nil, err
+		}
+		item := make(map[string]any, len(cols))
+		for i, col := range cols {
+			item[col] = normalizeSQLValue(col, values[i])
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (q *UsageQueries) rawItems(query string, args ...any) ([]map[string]any, error) {
+	if q == nil || q.db == nil {
+		return nil, nil
+	}
+	rows, err := q.db.Raw(query, args...).Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanRows(rows)
+}
+
+func buildTimeWhere(from, to string) ([]string, []any, error) {
+	var where []string
+	var args []any
+	if strings.TrimSpace(from) != "" {
+		t, err := time.Parse(time.RFC3339, strings.TrimSpace(from))
+		if err != nil {
+			return nil, nil, fmt.Errorf("from must be RFC3339")
+		}
+		where = append(where, "started_at >= ?")
+		args = append(args, unixMillis(t))
+	}
+	if strings.TrimSpace(to) != "" {
+		t, err := time.Parse(time.RFC3339, strings.TrimSpace(to))
+		if err != nil {
+			return nil, nil, fmt.Errorf("to must be RFC3339")
+		}
+		where = append(where, "started_at <= ?")
+		args = append(args, unixMillis(t))
+	}
+	return where, args, nil
+}
+
+func bucketMillis(bucket string) (int64, error) {
+	switch strings.ToLower(strings.TrimSpace(bucket)) {
+	case "hour", "":
+		return int64(time.Hour / time.Millisecond), nil
+	case "day":
+		return int64(24 * time.Hour / time.Millisecond), nil
+	default:
+		return 0, fmt.Errorf("bucket must be hour or day")
+	}
+}
+
+func allowedGroupBy(groupBy string, allowed map[string]string) (string, error) {
+	groupBy = strings.TrimSpace(groupBy)
+	if groupBy == "" {
+		return "", nil
+	}
+	col, ok := allowed[groupBy]
+	if !ok {
+		return "", fmt.Errorf("unsupported group_by %q", groupBy)
+	}
+	return col, nil
+}
+
+func normalizedLimit(limit int) int {
+	if limit <= 0 {
+		return 100
+	}
+	if limit > 1000 {
+		return 1000
+	}
+	return limit
+}
+
+func orderByMetric(orderBy string) string {
+	switch strings.TrimSpace(orderBy) {
+	case "total_tokens":
+		return "total_tokens"
+	case "failure_count":
+		return "failure_count"
+	case "avg_latency_ms":
+		return "avg_latency_ms"
+	default:
+		return "request_count"
+	}
+}
+
+func formatBucketItems(items []map[string]any) {
+	for _, item := range items {
+		switch v := item["bucket_ms"].(type) {
+		case int64:
+			item["bucket"] = time.UnixMilli(v).UTC().Format(time.RFC3339Nano)
+		case int:
+			item["bucket"] = time.UnixMilli(int64(v)).UTC().Format(time.RFC3339Nano)
+		}
+	}
+}
+
+func normalizeSQLValue(col string, v any) any {
+	switch x := v.(type) {
+	case []byte:
+		return string(x)
+	case int64:
+		switch col {
+		case "started_at", "finished_at", "bucket_ms":
+			if x <= 0 {
+				return ""
+			}
+			if col == "bucket_ms" {
+				return x
+			}
+			return time.UnixMilli(x).UTC().Format(time.RFC3339Nano)
+		case "success", "stream", "usage_finalized", "cancelled", "fresh_session":
+			return x != 0
+		default:
+			return x
+		}
+	case nil:
+		return nil
+	default:
+		return v
+	}
+}
+
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+func unixMillis(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UTC().UnixNano() / int64(time.Millisecond)
+}

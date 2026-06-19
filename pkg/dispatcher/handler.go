@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/agent-guide/agent-gateway/internal/httpcapture"
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/metrics/usage"
 	"go.uber.org/zap"
 )
 
@@ -85,8 +87,24 @@ func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request, next NextHand
 		)
 		return serveNextOrNotFound(next, w, r)
 	}
+	rec := httpcapture.NewResponseRecorder(w)
+	traceCtx := extractTraceContext(r)
+	writeTraceHeaders(rec, traceCtx)
+	if maxDepth := h.gateway.UsageConfig().MaxAgentDepth; maxDepth > 0 && traceCtx.AgentDepth >= maxDepth {
+		span, _ := h.gateway.UsageObserver().Begin(r.Context(), usage.InteractionDimensions{
+			TraceID: traceCtx.TraceID, SpanID: traceCtx.SpanID, ParentSpanID: traceCtx.ParentSpanID, AgentDepth: traceCtx.AgentDepth,
+			RouteID: cfg.ID, RouteKind: string(cfg.Kind), RouteProtocol: string(cfg.Protocol),
+		})
+		defer span.Finish(usage.InteractionOutcome{Success: false, StatusCode: http.StatusForbidden, ErrorType: "agent_depth_exceeded"})
+		return httpjson.Error(rec, http.StatusForbidden, "agent depth limit exceeded")
+	}
 	if cfg.Disabled {
-		return httpjson.Error(w, http.StatusForbidden, fmt.Sprintf("route %q is disabled", cfg.ID))
+		span, _ := h.gateway.UsageObserver().Begin(r.Context(), usage.InteractionDimensions{
+			TraceID: traceCtx.TraceID, SpanID: traceCtx.SpanID, ParentSpanID: traceCtx.ParentSpanID, AgentDepth: traceCtx.AgentDepth,
+			RouteID: cfg.ID, RouteKind: string(cfg.Kind), RouteProtocol: string(cfg.Protocol),
+		})
+		defer span.Finish(usage.InteractionOutcome{Success: false, StatusCode: http.StatusForbidden, ErrorType: "route_disabled"})
+		return httpjson.Error(rec, http.StatusForbidden, fmt.Sprintf("route %q is disabled", cfg.ID))
 	}
 
 	logRequestPhase(h.logger, "dispatcher: matched route", r,
@@ -97,8 +115,14 @@ func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request, next NextHand
 		zap.Bool("require_virtual_key", cfg.AuthPolicy.RequireVirtualKey),
 	)
 
-	if _, err := h.gateway.ResolveVirtualKey(r.Context(), r, cfg); err != nil {
-		return WriteDispatchError(h.logger, "", cfg.ID, "", 0, w, r, "resolve virtual key", "", err,
+	virtualKey, err := h.gateway.ResolveVirtualKey(r.Context(), r, cfg)
+	if err != nil {
+		span, _ := h.gateway.UsageObserver().Begin(r.Context(), usage.InteractionDimensions{
+			TraceID: traceCtx.TraceID, SpanID: traceCtx.SpanID, ParentSpanID: traceCtx.ParentSpanID, AgentDepth: traceCtx.AgentDepth,
+			RouteID: cfg.ID, RouteKind: string(cfg.Kind), RouteProtocol: string(cfg.Protocol),
+		})
+		defer span.Finish(usage.InteractionOutcome{Success: false, StatusCode: statuserr.StatusCode(err, http.StatusUnauthorized), ErrorType: "virtual_key_rejected"})
+		return WriteDispatchError(h.logger, "", cfg.ID, "", 0, rec, r, "resolve virtual key", "", err,
 			zap.Bool("require_virtual_key", cfg.AuthPolicy.RequireVirtualKey),
 			zap.Bool("auth_header_present", strings.TrimSpace(r.Header.Get("Authorization")) != ""),
 			zap.Bool("x_api_key_present", strings.TrimSpace(r.Header.Get("x-api-key")) != ""),
@@ -111,16 +135,30 @@ func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request, next NextHand
 		zap.String("route_kind", string(cfg.Kind)),
 		zap.String("route_protocol", string(cfg.Protocol)),
 	)
+	virtualKeyID := ""
+	if virtualKey != nil {
+		virtualKeyID = virtualKey.ID
+	}
+	span, spanCtx := h.gateway.UsageObserver().Begin(r.Context(), usage.InteractionDimensions{
+		TraceID: traceCtx.TraceID, SpanID: traceCtx.SpanID, ParentSpanID: traceCtx.ParentSpanID, AgentDepth: traceCtx.AgentDepth,
+		RouteID: cfg.ID, RouteKind: string(cfg.Kind), RouteProtocol: string(cfg.Protocol), VirtualKeyID: virtualKeyID,
+	})
+	r = r.WithContext(spanCtx)
+	defer func() {
+		status := rec.StatusCode()
+		success := status < 400
+		span.Finish(usage.InteractionOutcome{Success: success, StatusCode: status})
+	}()
 
 	switch cfg.Kind {
 	case routecore.RouteKindLLM:
-		return h.dispatchLLM(w, r, next, cfg)
+		return h.dispatchLLM(rec, r, next, cfg)
 	case routecore.RouteKindMCP:
-		return h.dispatchMCP(w, r, next, cfg)
+		return h.dispatchMCP(rec, r, next, cfg)
 	case routecore.RouteKindACP:
-		return h.dispatchACP(w, r, next, cfg)
+		return h.dispatchACP(rec, r, next, cfg)
 	default:
-		return WriteDispatchError(h.logger, string(cfg.Protocol), cfg.ID, "", http.StatusServiceUnavailable, w, r, "dispatch route", "route kind is not configured", fmt.Errorf("route %q kind %q is not configured", cfg.ID, cfg.Kind))
+		return WriteDispatchError(h.logger, string(cfg.Protocol), cfg.ID, "", http.StatusServiceUnavailable, rec, r, "dispatch route", "route kind is not configured", fmt.Errorf("route %q kind %q is not configured", cfg.ID, cfg.Kind))
 	}
 }
 

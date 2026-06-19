@@ -13,6 +13,7 @@ import (
 	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
+	"github.com/agent-guide/agent-gateway/pkg/metrics/usage"
 	"go.uber.org/zap"
 )
 
@@ -42,6 +43,18 @@ func (h *Handler) dispatchACP(w http.ResponseWriter, r *http.Request, next NextH
 	if !matched {
 		return serveNextOrNotFound(next, w, r)
 	}
+	agentType := ""
+	if svcMgr := h.gateway.ACPServiceManager(); svcMgr != nil {
+		if cfg, err := svcMgr.Get(rewritten.Context(), route.ServiceID); err == nil {
+			agentType = strings.TrimSpace(cfg.AgentType)
+		}
+	}
+	usage.SpanFromContext(rewritten.Context()).SetExtension(usage.ACPExtension{
+		ServiceID: route.ServiceID,
+		AgentType: agentType,
+		Operation: endpoint,
+		SessionID: sessionID,
+	})
 
 	runtimeManager := h.gateway.ACPRuntimeManager()
 	if runtimeManager == nil {
@@ -92,11 +105,21 @@ func (h *Handler) dispatchACP(w http.ResponseWriter, r *http.Request, next NextH
 	w.WriteHeader(http.StatusOK)
 
 	emit := newACPSSESink(w)
+	counts := map[string]int{}
+	emit = wrapACPEventSinkForUsage(rewritten, emit, counts)
+	usage.SpanFromContext(rewritten.Context()).SetExtension(usage.ACPExtension{
+		ThreadID:     strings.TrimSpace(req.ThreadID),
+		SessionID:    strings.TrimSpace(req.SessionID),
+		FreshSession: usage.Bool(req.FreshSession),
+		ResultStatus: "success",
+	})
 
 	if err := runtimeManager.ServeTurn(rewritten.Context(), route.ServiceID, req, emit); err != nil {
 		_ = emit(acpruntime.TurnEvent{Event: "error", Message: err.Error()})
+		usage.SpanFromContext(rewritten.Context()).SetExtension(usage.ACPExtension{ResultStatus: "error", EventCounts: counts})
 		return nil
 	}
+	usage.SpanFromContext(rewritten.Context()).SetExtension(usage.ACPExtension{EventCounts: counts})
 	return nil
 }
 
@@ -147,6 +170,25 @@ func newACPSSESink(w http.ResponseWriter) acpruntime.EventSink {
 	}
 }
 
+func wrapACPEventSinkForUsage(r *http.Request, next acpruntime.EventSink, counts map[string]int) acpruntime.EventSink {
+	return func(event acpruntime.TurnEvent) error {
+		name := strings.TrimSpace(event.Event)
+		if name == "" {
+			name = "delta"
+		}
+		counts[name]++
+		ext := usage.ACPExtension{EventCounts: counts}
+		if name == "usage" && len(event.Data) > 0 {
+			ext.UsageJSON = string(event.Data)
+		}
+		if event.SessionID != "" {
+			ext.SessionID = event.SessionID
+		}
+		usage.SpanFromContext(r.Context()).SetExtension(ext)
+		return next(event)
+	}
+}
+
 // dispatchACPPermission answers one pending interactive permission request
 // surfaced to the turn client as a "permission" SSE event.
 func (h *Handler) dispatchACPPermission(w http.ResponseWriter, r *http.Request, runtimeManager *acpruntime.Manager) error {
@@ -157,12 +199,14 @@ func (h *Handler) dispatchACPPermission(w http.ResponseWriter, r *http.Request, 
 	if err := json.NewDecoder(r.Body).Decode(&decision); err != nil {
 		return httpjson.Error(w, RequestBodyErrorStatus(err, http.StatusBadRequest), fmt.Sprintf("decode request: %v", err))
 	}
+	usage.SpanFromContext(r.Context()).SetExtension(usage.ACPExtension{PermissionRequestID: strings.TrimSpace(decision.RequestID)})
 	if err := runtimeManager.ResolvePermission(decision); err != nil {
 		if errors.Is(err, acpruntime.ErrPermissionNotFound) {
 			return httpjson.Error(w, http.StatusNotFound, "permission request not found (already answered or expired)")
 		}
 		return httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}
+	usage.SpanFromContext(r.Context()).SetExtension(usage.ACPExtension{ResultStatus: "success"})
 	return httpjson.Write(w, http.StatusOK, map[string]string{"status": "resolved"})
 }
 
@@ -174,6 +218,7 @@ func (h *Handler) dispatchACPSessions(w http.ResponseWriter, r *http.Request, ru
 	if err != nil {
 		return httpjson.Error(w, acpRequestErrorStatus(err), err.Error())
 	}
+	usage.SpanFromContext(r.Context()).SetExtension(usage.ACPExtension{ResultStatus: "success"})
 	return httpjson.Write(w, http.StatusOK, result)
 }
 
@@ -185,6 +230,7 @@ func (h *Handler) dispatchACPTranscript(w http.ResponseWriter, r *http.Request, 
 	if err != nil {
 		return httpjson.Error(w, acpRequestErrorStatus(err), err.Error())
 	}
+	usage.SpanFromContext(r.Context()).SetExtension(usage.ACPExtension{SessionID: sessionID, ResultStatus: "success"})
 	return httpjson.Write(w, http.StatusOK, result)
 }
 

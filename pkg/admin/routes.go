@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
@@ -14,6 +15,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/pkg/metrics/usage"
 	"gorm.io/gorm"
 )
 
@@ -160,6 +162,16 @@ func (h *Handler) Routes() []Route {
 
 		// Metrics
 		{Method: http.MethodGet, Path: "/admin/metrics", Handler: h.handleMetrics},
+		{Method: http.MethodGet, Path: "/admin/metrics/prometheus", Handler: h.handlePrometheusMetrics},
+		{Method: http.MethodGet, Path: "/admin/metrics/llm/events", Handler: h.handleListLLMMetricsEvents},
+		{Method: http.MethodGet, Path: "/admin/metrics/llm/timeseries", Handler: h.handleLLMMetricsTimeseries},
+		{Method: http.MethodGet, Path: "/admin/metrics/llm/breakdown", Handler: h.handleLLMMetricsBreakdown},
+		{Method: http.MethodGet, Path: "/admin/metrics/mcp/events", Handler: h.handleListMCPMetricsEvents},
+		{Method: http.MethodGet, Path: "/admin/metrics/mcp/tools/summary", Handler: h.handleMCPMetricsToolsSummary},
+		{Method: http.MethodGet, Path: "/admin/metrics/acp/events", Handler: h.handleListACPMetricsEvents},
+		{Method: http.MethodGet, Path: "/admin/metrics/acp/summary", Handler: h.handleACPMetricsSummary},
+		{Method: http.MethodGet, Path: "/admin/metrics/interactions", Handler: h.handleListMetricInteractions},
+		{Method: http.MethodGet, Path: "/admin/metrics/interactions/summary", Handler: h.handleMetricInteractionsSummary},
 	}
 }
 
@@ -600,8 +612,318 @@ func (h *Handler) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 
+type metricsResponse struct {
+	usage.Summary
+	Pipeline pipelineStats `json:"pipeline"`
+}
+
+type pipelineStats struct {
+	DroppedEvents uint64 `json:"dropped_events"`
+	WriteFailures uint64 `json:"write_failures"`
+}
+
+func (h *Handler) pipelineStats() pipelineStats {
+	if h.usageStats == nil {
+		return pipelineStats{}
+	}
+	return pipelineStats{
+		DroppedEvents: h.usageStats.DroppedEvents(),
+		WriteFailures: h.usageStats.WriteFailures(),
+	}
+}
+
+func (h *Handler) handlePrometheusMetrics(w http.ResponseWriter, r *http.Request) {
+	var snap usage.PrometheusSnapshot
+	if h.usagePrometheus != nil {
+		snap = h.usagePrometheus.PrometheusSnapshot()
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(usage.RenderPrometheus(snap, h.usageStats)))
+}
+
 func (h *Handler) handleMetrics(w http.ResponseWriter, r *http.Request) {
-	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
+	resp := metricsResponse{Pipeline: h.pipelineStats()}
+	if h.usageQuery == nil {
+		_ = httpjson.Write(w, http.StatusOK, resp)
+		return
+	}
+	summary, err := h.usageQuery.Summary()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp.Summary = summary
+	_ = httpjson.Write(w, http.StatusOK, resp)
+}
+
+func (h *Handler) handleListLLMMetricsEvents(w http.ResponseWriter, r *http.Request) {
+	h.handleListMetricsEvents(w, r, "llm", []string{
+		"route_id", "provider_id", "virtual_key_id", "logical_model", "upstream_model", "llm_api", "api_operation",
+		"request_tool_name", "has_tool_use",
+	})
+}
+
+func (h *Handler) handleLLMMetricsTimeseries(w http.ResponseWriter, r *http.Request) {
+	opts := metricTimeseriesOptions(r, []string{"route_id", "provider_id", "virtual_key_id", "upstream_model", "llm_api"})
+	if h.usageQuery == nil {
+		_ = httpjson.Write(w, http.StatusOK, usage.SeriesResponse{Bucket: opts.Bucket, GroupBy: opts.GroupBy})
+		return
+	}
+	resp, err := h.usageQuery.LLMTimeseries(opts)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if opts.GroupBy == "" {
+		opts.GroupBy = "route_id"
+	}
+	_ = httpjson.Write(w, http.StatusOK, resp)
+}
+
+func (h *Handler) handleLLMMetricsBreakdown(w http.ResponseWriter, r *http.Request) {
+	opts, err := metricBreakdownOptions(r, []string{"route_id", "provider_id", "virtual_key_id", "upstream_model", "llm_api"})
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if opts.GroupBy == "" {
+		opts.GroupBy = "route_id"
+	}
+	if h.usageQuery == nil {
+		_ = httpjson.Write(w, http.StatusOK, usage.BreakdownResponse{GroupBy: opts.GroupBy, Limit: opts.Limit})
+		return
+	}
+	resp, err := h.usageQuery.LLMBreakdown(opts)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if opts.GroupBy == "" {
+		opts.GroupBy = "route_kind"
+	}
+	_ = httpjson.Write(w, http.StatusOK, resp)
+}
+
+func (h *Handler) handleListMCPMetricsEvents(w http.ResponseWriter, r *http.Request) {
+	h.handleListMetricsEvents(w, r, "mcp", []string{
+		"route_id", "service_id", "virtual_key_id", "method", "tool_name", "resource_uri", "prompt_name", "result_status",
+		"completion_ref_type", "completion_argument",
+	})
+}
+
+func (h *Handler) handleMCPMetricsToolsSummary(w http.ResponseWriter, r *http.Request) {
+	opts, err := metricSummaryOptions(r, []string{"route_id", "service_id"})
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if h.usageQuery == nil {
+		_ = httpjson.Write(w, http.StatusOK, usage.BreakdownResponse{GroupBy: "tool_name", Limit: opts.Limit})
+		return
+	}
+	resp, err := h.usageQuery.MCPToolsSummary(opts)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, resp)
+}
+
+func (h *Handler) handleListACPMetricsEvents(w http.ResponseWriter, r *http.Request) {
+	h.handleListMetricsEvents(w, r, "acp", []string{
+		"route_id", "service_id", "virtual_key_id", "agent_type", "operation", "thread_id", "session_id",
+	})
+}
+
+func (h *Handler) handleACPMetricsSummary(w http.ResponseWriter, r *http.Request) {
+	opts, err := metricBreakdownOptions(r, []string{"route_id", "service_id", "agent_type", "operation"})
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if h.usageQuery == nil {
+		_ = httpjson.Write(w, http.StatusOK, usage.BreakdownResponse{GroupBy: opts.GroupBy, Limit: opts.Limit})
+		return
+	}
+	resp, err := h.usageQuery.ACPSummary(opts)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, resp)
+}
+
+func (h *Handler) handleListMetricInteractions(w http.ResponseWriter, r *http.Request) {
+	opts, err := metricEventListOptions(r, []string{
+		"route_kind", "route_protocol", "route_id", "virtual_key_id", "trace_id", "parent_span_id", "agent_depth",
+	})
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if h.usageQuery == nil {
+		_ = httpjson.Write(w, http.StatusOK, usage.EventListResponse{Limit: opts.Limit})
+		return
+	}
+	resp, err := h.usageQuery.ListInteractions(opts)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, resp)
+}
+
+func (h *Handler) handleMetricInteractionsSummary(w http.ResponseWriter, r *http.Request) {
+	opts, err := metricBreakdownOptions(r, []string{"route_kind", "route_protocol", "route_id", "virtual_key_id"})
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if h.usageQuery == nil {
+		_ = httpjson.Write(w, http.StatusOK, usage.BreakdownResponse{GroupBy: opts.GroupBy, Limit: opts.Limit})
+		return
+	}
+	resp, err := h.usageQuery.InteractionsSummary(opts)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, resp)
+}
+
+func (h *Handler) handleListMetricsEvents(w http.ResponseWriter, r *http.Request, kind string, filterKeys []string) {
+	opts, err := metricEventListOptions(r, filterKeys)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if h.usageQuery == nil {
+		_ = httpjson.Write(w, http.StatusOK, usage.EventListResponse{Limit: opts.Limit})
+		return
+	}
+	resp, err := h.usageQuery.ListEvents(kind, opts)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, resp)
+}
+
+func metricEventListOptions(r *http.Request, filterKeys []string) (usage.EventListOptions, error) {
+	q := r.URL.Query()
+	limit := 100
+	if raw := strings.TrimSpace(q.Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			return usage.EventListOptions{}, fmt.Errorf("limit must be an integer")
+		}
+		limit = parsed
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	var success *bool
+	if raw := strings.TrimSpace(q.Get("success")); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			return usage.EventListOptions{}, fmt.Errorf("success must be a boolean")
+		}
+		success = &parsed
+	}
+	filters := map[string]string{}
+	for _, key := range filterKeys {
+		if value := strings.TrimSpace(q.Get(key)); value != "" {
+			filters[key] = value
+		}
+	}
+	return usage.EventListOptions{
+		From:    strings.TrimSpace(q.Get("from")),
+		To:      strings.TrimSpace(q.Get("to")),
+		Limit:   limit,
+		Filters: filters,
+		Success: success,
+	}, nil
+}
+
+func metricTimeseriesOptions(r *http.Request, filterKeys []string) usage.TimeseriesOptions {
+	q := r.URL.Query()
+	filters := map[string]string{}
+	for _, key := range filterKeys {
+		if value := strings.TrimSpace(q.Get(key)); value != "" {
+			filters[key] = value
+		}
+	}
+	return usage.TimeseriesOptions{
+		From:    strings.TrimSpace(q.Get("from")),
+		To:      strings.TrimSpace(q.Get("to")),
+		Bucket:  strings.TrimSpace(q.Get("bucket")),
+		GroupBy: strings.TrimSpace(q.Get("group_by")),
+		Filters: filters,
+	}
+}
+
+func metricBreakdownOptions(r *http.Request, filterKeys []string) (usage.BreakdownOptions, error) {
+	q := r.URL.Query()
+	limit, err := metricLimit(q.Get("limit"))
+	if err != nil {
+		return usage.BreakdownOptions{}, err
+	}
+	filters := map[string]string{}
+	for _, key := range filterKeys {
+		if value := strings.TrimSpace(q.Get(key)); value != "" {
+			filters[key] = value
+		}
+	}
+	return usage.BreakdownOptions{
+		From:    strings.TrimSpace(q.Get("from")),
+		To:      strings.TrimSpace(q.Get("to")),
+		GroupBy: strings.TrimSpace(q.Get("group_by")),
+		OrderBy: strings.TrimSpace(q.Get("order_by")),
+		Limit:   limit,
+		Filters: filters,
+	}, nil
+}
+
+func metricSummaryOptions(r *http.Request, filterKeys []string) (usage.SummaryOptions, error) {
+	q := r.URL.Query()
+	limit, err := metricLimit(q.Get("limit"))
+	if err != nil {
+		return usage.SummaryOptions{}, err
+	}
+	filters := map[string]string{}
+	for _, key := range filterKeys {
+		if value := strings.TrimSpace(q.Get(key)); value != "" {
+			filters[key] = value
+		}
+	}
+	return usage.SummaryOptions{
+		From:    strings.TrimSpace(q.Get("from")),
+		To:      strings.TrimSpace(q.Get("to")),
+		Limit:   limit,
+		Filters: filters,
+	}, nil
+}
+
+func metricLimit(raw string) (int, error) {
+	limit := 100
+	if raw = strings.TrimSpace(raw); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			return 0, fmt.Errorf("limit must be an integer")
+		}
+		limit = parsed
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	return limit, nil
 }
 
 func (h *Handler) providerStore() configstore.ConfigStore {

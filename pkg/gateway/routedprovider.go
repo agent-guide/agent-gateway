@@ -12,6 +12,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	credentialmgrscheduler "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/pkg/metrics/usage"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -50,6 +51,11 @@ func (p *RoutedProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*
 		if err == nil {
 			req.Model = cloned.Model
 			out = resp
+			var tokens provider.Usage
+			if resp != nil {
+				tokens = provider.UsageFromMessage(resp.Message)
+			}
+			recordProviderUsage(ctx, attempt, tokens)
 		}
 		return err
 	})
@@ -65,6 +71,7 @@ func (p *RoutedProvider) StreamChat(ctx context.Context, req *provider.ChatReque
 		if err == nil {
 			req.Model = cloned.Model
 			out = stream
+			recordProviderUsage(ctx, attempt, provider.Usage{})
 		}
 		return err
 	})
@@ -84,6 +91,11 @@ func (p *RoutedProvider) CreateResponses(ctx context.Context, req *provider.Resp
 		if err == nil {
 			req.Model = cloned.Model
 			out = resp
+			if resp != nil && resp.Usage != nil {
+				recordProviderUsage(ctx, attempt, provider.Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens})
+			} else {
+				recordProviderUsage(ctx, attempt, provider.Usage{})
+			}
 		}
 		return err
 	})
@@ -103,10 +115,33 @@ func (p *RoutedProvider) StreamResponses(ctx context.Context, req *provider.Resp
 		if err == nil {
 			req.Model = cloned.Model
 			out = stream
+			recordProviderUsage(ctx, attempt, provider.Usage{})
 		}
 		return err
 	})
 	return out, err
+}
+
+func recordProviderUsage(ctx context.Context, attempt *resolvedAttempt, tokens provider.Usage) {
+	if attempt == nil || attempt.target == nil {
+		return
+	}
+	ext := usage.LLMExtension{
+		ProviderID:       attempt.target.ProviderID,
+		ProviderType:     attempt.target.ProviderType,
+		LogicalModel:     attempt.target.LogicalModel,
+		UpstreamModel:    attempt.target.UpstreamModel,
+		InputTokens:      usage.Int(tokens.InputTokens),
+		OutputTokens:     usage.Int(tokens.OutputTokens),
+		TotalTokens:      usage.Int(tokens.InputTokens + tokens.OutputTokens),
+		UsageFinalized:   usage.Bool(tokens.InputTokens > 0 || tokens.OutputTokens > 0),
+		CredentialSource: "static",
+	}
+	if attempt.cred != nil {
+		ext.CredentialSource = attempt.cred.Type
+		ext.CredentialID = attempt.cred.ID
+	}
+	usage.SpanFromContext(ctx).SetExtension(ext)
 }
 
 func (p *RoutedProvider) ListModels(ctx context.Context) ([]provider.ModelInfo, error) {

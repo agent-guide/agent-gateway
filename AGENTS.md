@@ -12,7 +12,7 @@ The current primary LLM path is:
 5. in logical-model routes, the model catalog resolves the logical model to one concrete `(provider_id, upstream_model)` binding
 6. the selected provider executes `Generate` or `Stream`
 
-MCP is also active now through `agent_route_dispatcher` with MCP enabled, `pkg/gateway/mcproute`, `pkg/mcp/service`, and MCP Admin APIs. ACP is being implemented natively through `pkg/acp`, `pkg/gateway/acproute`, dispatcher turn handling, and ACP Admin APIs. Memory, agent, and metrics areas still exist as earlier-stage subsystems.
+MCP is also active now through `agent_route_dispatcher` with MCP enabled, `pkg/gateway/mcproute`, `pkg/mcp/service`, and MCP Admin APIs. ACP is being implemented natively through `pkg/acp`, `pkg/gateway/acproute`, dispatcher turn handling, and ACP Admin APIs. Metrics now persist LLM/MCP/ACP usage events and expose Admin summaries/events; memory and agent areas still exist as earlier-stage subsystems.
 
 ## Change Policy
 
@@ -128,7 +128,8 @@ Responsibilities:
 - list startup-enabled provider types and LLM API handler types
 - configure and trigger CLI auth authenticators
 - start CLI auth logins bound to one `provider_id` and optional credential scope
-- expose stubbed memory, agent, and metrics endpoints
+- expose metrics summaries (with pipeline health counters), breakdowns, recent interaction events, and a Prometheus exposition endpoint
+- expose stubbed memory and agent endpoints
 
 ## Key Packages
 
@@ -357,6 +358,19 @@ Current persisted backend:
 
 - `sqlite`
 
+### `pkg/metrics/`
+
+Owns durable usage events and query helpers.
+
+Important packages:
+
+- `pkg/metrics/usage`: event models, observer/span interfaces, no-op observer, usage service, Prometheus exposition rendering, and metrics config (`retention_days`, `max_agent_depth`)
+- `pkg/metrics/pipeline`: buffered event pipeline, SQLite sink (with a background retention janitor), the in-process Prometheus counter sink, and an `OpenTelemetrySink` adapter seam (push exporter is deployment-supplied)
+
+SQLite usage tables are typed event tables (`llm_usage_events`, `mcp_usage_events`, `acp_usage_events`) created by the metrics sink through the sqlite backend's `UsageDB()` capability. They are separate from generic JSON config stores. Time-series and breakdown queries scan these event tables directly; there are no internal rollup tables. Use the Prometheus exposition (`GET /admin/metrics/prometheus`) plus an external system (Prometheus/Grafana) for high-volume aggregation, trends, and alerting.
+
+The `metrics` Caddyfile block and `agwd` flags configure usage retention cleanup and agent-depth enforcement. Retention is applied at startup and by a periodic janitor in the SQLite sink. The dispatcher rejects requests when inbound `X-Agent-Depth` reaches the configured `max_agent_depth`; `0` disables the gate.
+
 ## Runtime Request Flow
 
 ```text
@@ -460,7 +474,6 @@ Stubbed families currently return `501 Not Implemented`:
 
 - `/admin/memory/...`
 - `/admin/agents/...`
-- `/admin/metrics/...`
 
 ## Files To Check Before Large Changes
 

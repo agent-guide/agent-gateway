@@ -330,7 +330,8 @@ See [docs/README.md](docs/README.md) for runtime-specific guides and references.
 - OpenAI embeddings and Anthropic token counting are not fully implemented
 - MCP is active in the dispatcher and Admin API surface, but some adjacent subsystems are still evolving
 - ACP is a functional native route/admin/dispatcher surface with a reusable stdio runtime driver and thin codex/opencode agent adapters; crash retry and the in-repo Codex app-server bridge remain deferred
-- memory, agents, and metrics Admin API families still contain `501 Not Implemented` endpoints
+- metrics Admin APIs expose durable SQLite-backed summaries (with pipeline drop/failure counters), recent LLM/MCP/ACP interaction events, and aggregate breakdowns; a Prometheus exposition endpoint (`GET /admin/metrics/prometheus`) serves O(1) in-process counters, and an `OpenTelemetrySink` adapter seam remains available for a deployment-supplied push exporter
+- memory and agents Admin API families still contain `501 Not Implemented` endpoints
 
 ## Development
 

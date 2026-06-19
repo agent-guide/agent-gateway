@@ -53,6 +53,8 @@ func main() {
 	rootCmd.Flags().StringVar(&opts.ConfigStorePath, "config-store", "./data/configstore.db", "SQLite config store file")
 	rootCmd.Flags().StringVar(&opts.StaticConfigPath, "static-config", "", "gateway bundle YAML file loaded as read-only static configuration")
 	rootCmd.Flags().StringArrayVar(&opts.ProviderTypes, "provider-type", nil, "provider type enabled for this process; repeat to allow multiple types")
+	rootCmd.Flags().IntVar(&opts.Metrics.RetentionDays, "metrics-retention-days", 30, "retention window in days for persisted usage events")
+	rootCmd.Flags().IntVar(&opts.Metrics.MaxAgentDepth, "max-agent-depth", 0, "maximum inbound X-Agent-Depth allowed before rejecting a request; 0 disables enforcement")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

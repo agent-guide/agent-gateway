@@ -46,6 +46,7 @@ Primary detailed documents:
 - [design/route-target-policy.md](design/route-target-policy.md): route target policy architecture
 - [design/memory.md](design/memory.md): memory subsystem design
 - [design/observability.md](design/observability.md): observability design
+- [design/observability-implementation.md](design/observability-implementation.md): observability implementation plan
 - [design/protocol-support-roadmap.md](design/protocol-support-roadmap.md): protocol support roadmap
 - [development/llm-refactor-collaboration-templates.md](development/llm-refactor-collaboration-templates.md): contributor collaboration templates
 

@@ -23,17 +23,22 @@ type MCPServiceConfig struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
 	Transport   TransportType     `json:"transport"`
-	Command     string            `json:"command,omitempty"` // stdio only
-	Args        []string          `json:"args,omitempty"`    // stdio only
-	URL         string            `json:"url,omitempty"`     // remote transports
+	Command     string            `json:"command,omitempty"`  // stdio only
+	Args        []string          `json:"args,omitempty"`     // stdio only
+	URL         string            `json:"url,omitempty"`      // remote transports
 	PostURL     string            `json:"post_url,omitempty"` // SSE only; if empty, derived from url
 	Env         map[string]string `json:"env,omitempty"`
 	AutoAuth    bool              `json:"auto_auth,omitempty"`
 	AuthConfig  *AuthConfig       `json:"auth,omitempty"`
+	Audit       AuditConfig       `json:"audit,omitempty"`
 	Disabled    bool              `json:"disabled"`
 	Description string            `json:"description,omitempty"`
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
+}
+
+type AuditConfig struct {
+	CaptureToolArgs bool `json:"capture_tool_args,omitempty"`
 }
 
 // AuthConfig contains MCP authentication configuration.

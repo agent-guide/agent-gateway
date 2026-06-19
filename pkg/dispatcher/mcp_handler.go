@@ -15,6 +15,7 @@ import (
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 	"github.com/agent-guide/agent-gateway/pkg/mcp/transport"
+	"github.com/agent-guide/agent-gateway/pkg/metrics/usage"
 	"go.uber.org/zap"
 )
 
@@ -85,6 +86,11 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		zap.Bool("is_notification", isNotification(msg)),
 		zap.Bool("has_request_id", msg.ID != nil),
 	)
+	usage.SpanFromContext(r.Context()).SetExtension(usage.MCPExtension{
+		RequestID: jsonRPCIDString(msg.ID),
+		ServiceID: route.ServiceID,
+		Method:    strings.TrimSpace(msg.Method),
+	})
 	if isNotification(msg) {
 		return h.dispatchNotification(w, r, route, msg)
 	}
@@ -101,7 +107,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		result, err := serviceManager.Initialize(requestCtx, route.ServiceID)
 		if err != nil {
 			upstreamErr = err
-			return h.writeRequestError(w, route, msg, err)
+			return h.writeRequestError(w, r, route, msg, err)
 		}
 		logRequestPhase(h.logger, "dispatcher: mcp initialize completed", r,
 			zap.String("route_id", route.ID),
@@ -125,7 +131,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		result, err := serviceManager.ListToolsPage(requestCtx, route.ServiceID, cursor)
 		if err != nil {
 			upstreamErr = err
-			return h.writeRequestError(w, route, msg, err)
+			return h.writeRequestError(w, r, route, msg, err)
 		}
 		return writeMCPResult(w, msg.ID, result)
 	case "resources/list":
@@ -141,7 +147,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		result, err := serviceManager.ListResourcesPage(requestCtx, route.ServiceID, cursor)
 		if err != nil {
 			upstreamErr = err
-			return h.writeRequestError(w, route, msg, err)
+			return h.writeRequestError(w, r, route, msg, err)
 		}
 		return writeMCPResult(w, msg.ID, result)
 	case "resources/templates/list":
@@ -157,7 +163,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		result, err := serviceManager.ListResourceTemplatesPage(requestCtx, route.ServiceID, cursor)
 		if err != nil {
 			upstreamErr = err
-			return h.writeRequestError(w, route, msg, err)
+			return h.writeRequestError(w, r, route, msg, err)
 		}
 		return writeMCPResult(w, msg.ID, result)
 	case "prompts/list":
@@ -173,7 +179,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		result, err := serviceManager.ListPromptsPage(requestCtx, route.ServiceID, cursor)
 		if err != nil {
 			upstreamErr = err
-			return h.writeRequestError(w, route, msg, err)
+			return h.writeRequestError(w, r, route, msg, err)
 		}
 		return writeMCPResult(w, msg.ID, result)
 	case "tools/call":
@@ -189,6 +195,18 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		if err != nil {
 			return writeMCPError(w, msg.ID, http.StatusBadRequest, -32602, err.Error())
 		}
+		argCount := len(args)
+		ext := usage.MCPExtension{
+			ToolName:     strings.TrimSpace(name),
+			ArgCount:     usage.Int(argCount),
+			ResultStatus: "success",
+		}
+		if captureMCPToolArgs(r.Context(), serviceManager, route.ServiceID) {
+			if data, err := json.Marshal(args); err == nil {
+				ext.ToolArgsJSON = string(data)
+			}
+		}
+		usage.SpanFromContext(r.Context()).SetExtension(ext)
 		logRequestPhase(h.logger, "dispatcher: mcp tools/call upstream", r,
 			zap.String("route_id", route.ID),
 			zap.String("service_id", route.ServiceID),
@@ -200,7 +218,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		h.drainUpstreamProgress(route, progressCh)
 		if err != nil {
 			upstreamErr = err
-			return h.writeRequestError(w, route, msg, err)
+			return h.writeRequestError(w, r, route, msg, err)
 		}
 		return writeMCPResult(w, msg.ID, result)
 	case "resources/read":
@@ -212,6 +230,10 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		if err != nil {
 			return writeMCPError(w, msg.ID, http.StatusBadRequest, -32602, err.Error())
 		}
+		usage.SpanFromContext(r.Context()).SetExtension(usage.MCPExtension{
+			ResourceURI:  strings.TrimSpace(uri),
+			ResultStatus: "success",
+		})
 		logRequestPhase(h.logger, "dispatcher: mcp resources/read upstream", r,
 			zap.String("route_id", route.ID),
 			zap.String("service_id", route.ServiceID),
@@ -223,7 +245,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		h.drainUpstreamProgress(route, progressCh)
 		if err != nil {
 			upstreamErr = err
-			return h.writeRequestError(w, route, msg, err)
+			return h.writeRequestError(w, r, route, msg, err)
 		}
 		return writeMCPResult(w, msg.ID, result)
 	case "prompts/get":
@@ -235,6 +257,10 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		if err != nil {
 			return writeMCPError(w, msg.ID, http.StatusBadRequest, -32602, err.Error())
 		}
+		usage.SpanFromContext(r.Context()).SetExtension(usage.MCPExtension{
+			PromptName:   strings.TrimSpace(name),
+			ResultStatus: "success",
+		})
 		args, err := mapParam(params, "arguments")
 		if err != nil {
 			return writeMCPError(w, msg.ID, http.StatusBadRequest, -32602, err.Error())
@@ -250,7 +276,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		h.drainUpstreamProgress(route, progressCh)
 		if err != nil {
 			upstreamErr = err
-			return h.writeRequestError(w, route, msg, err)
+			return h.writeRequestError(w, r, route, msg, err)
 		}
 		return writeMCPResult(w, msg.ID, result)
 	case "completion/complete":
@@ -262,6 +288,12 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		if err != nil {
 			return writeMCPError(w, msg.ID, http.StatusBadRequest, -32602, err.Error())
 		}
+		usage.SpanFromContext(r.Context()).SetExtension(usage.MCPExtension{
+			CompletionRefType:  strings.TrimSpace(ref.Type),
+			CompletionArgument: strings.TrimSpace(argument.Name),
+			ArgCount:           usage.Int(len(args)),
+			ResultStatus:       "success",
+		})
 		logRequestPhase(h.logger, "dispatcher: mcp completion upstream", r,
 			zap.String("route_id", route.ID),
 			zap.String("service_id", route.ServiceID),
@@ -271,7 +303,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		result, err := serviceManager.Complete(requestCtx, route.ServiceID, ref, argument, args)
 		if err != nil {
 			upstreamErr = err
-			return h.writeRequestError(w, route, msg, err)
+			return h.writeRequestError(w, r, route, msg, err)
 		}
 		return writeMCPResult(w, msg.ID, result)
 	default:
@@ -391,8 +423,12 @@ func (h *Handler) storeProgressNotification(route *mcproute.MCPRoute, token any,
 	}
 }
 
-func (h *Handler) writeRequestError(w http.ResponseWriter, route *mcproute.MCPRoute, msg transport.Message, err error) error {
+func (h *Handler) writeRequestError(w http.ResponseWriter, r *http.Request, route *mcproute.MCPRoute, msg transport.Message, err error) error {
 	if errors.Is(err, context.Canceled) {
+		usage.SpanFromContext(r.Context()).SetExtension(usage.MCPExtension{
+			ResultStatus: "cancelled",
+			Cancelled:    usage.Bool(true),
+		})
 		reason := h.cancelReason(route, msg.ID)
 		message := "request cancelled"
 		if reason != "" {
@@ -403,6 +439,7 @@ func (h *Handler) writeRequestError(w http.ResponseWriter, route *mcproute.MCPRo
 			"method":    msg.Method,
 		})
 	}
+	usage.SpanFromContext(r.Context()).SetExtension(usage.MCPExtension{ResultStatus: "error"})
 	return writeMCPError(w, msg.ID, http.StatusBadGateway, -32002, err.Error())
 }
 
@@ -615,4 +652,33 @@ func writeMCPErrorWithData(w http.ResponseWriter, id any, status int, code int, 
 			"data":    data,
 		},
 	})
+}
+
+func jsonRPCIDString(id any) string {
+	if id == nil {
+		return ""
+	}
+	switch v := id.(type) {
+	case string:
+		return v
+	case float64:
+		return fmt.Sprintf("%.0f", v)
+	default:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprintf("%v", v)
+		}
+		return string(data)
+	}
+}
+
+func captureMCPToolArgs(ctx context.Context, manager *mcpservice.Manager, serviceID string) bool {
+	if manager == nil || strings.TrimSpace(serviceID) == "" {
+		return false
+	}
+	cfg, err := manager.Get(ctx, serviceID)
+	if err != nil {
+		return false
+	}
+	return cfg.Audit.CaptureToolArgs
 }

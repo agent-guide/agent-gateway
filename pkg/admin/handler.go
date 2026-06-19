@@ -21,6 +21,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
 	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
+	"github.com/agent-guide/agent-gateway/pkg/metrics/usage"
 	"go.uber.org/zap"
 )
 
@@ -41,6 +42,10 @@ type Handler struct {
 	modelCatalog            modelcatalog.Service
 	mcpRuntimeRegistry      *mcpruntime.Registry
 	acpRuntimeManager       *acpruntime.Manager
+	usageObserver           usage.InteractionObserver
+	usageQuery              usage.QueryService
+	usageStats              usage.RuntimeStats
+	usagePrometheus         usage.PrometheusProvider
 	mux                     *http.ServeMux
 	logger                  *zap.Logger
 	cliAuthMu               sync.RWMutex
@@ -70,6 +75,10 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 	var modelCatalogSvc modelcatalog.Service
 	var mcpRuntimeRegistry *mcpruntime.Registry
 	var acpRuntimeManager *acpruntime.Manager
+	var usageObserver usage.InteractionObserver
+	var usageQuery usage.QueryService
+	var usageStats usage.RuntimeStats
+	var usagePrometheus usage.PrometheusProvider
 	if agentGateway != nil {
 		cliauthMgr = agentGateway.CLIAuthManager()
 		cliauthRefresher = agentGateway.CLIAuthRefresher()
@@ -86,6 +95,10 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 		modelCatalogSvc = agentGateway.ModelCatalog()
 		mcpRuntimeRegistry = agentGateway.MCPRuntimeRegistry()
 		acpRuntimeManager = agentGateway.ACPRuntimeManager()
+		usageObserver = agentGateway.UsageObserver()
+		usageQuery = agentGateway.UsageQuery()
+		usageStats = agentGateway.UsageStats()
+		usagePrometheus = agentGateway.UsagePrometheus()
 	}
 
 	h := &Handler{
@@ -104,6 +117,10 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 		modelCatalog:            modelCatalogSvc,
 		mcpRuntimeRegistry:      mcpRuntimeRegistry,
 		acpRuntimeManager:       acpRuntimeManager,
+		usageObserver:           usageObserver,
+		usageQuery:              usageQuery,
+		usageStats:              usageStats,
+		usagePrometheus:         usagePrometheus,
 		logger:                  logger,
 		cliAuthSessions:         map[string]cliAuthStatus{},
 		cliAuthActive:           map[string]string{},

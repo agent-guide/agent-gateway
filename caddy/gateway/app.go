@@ -17,6 +17,8 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	credentialmgrscheduler "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/pkg/metrics/pipeline"
+	"github.com/agent-guide/agent-gateway/pkg/metrics/usage"
 )
 
 func init() {
@@ -34,6 +36,8 @@ type App struct {
 	ProviderTypes []provider.ProviderTypeSetting `json:"provider_types,omitempty"`
 	// LLMRoutes lists statically configured gateway LLM route configs from the Caddyfile app block.
 	LLMRoutes []routecore.AgentRouteConfig `json:"llm_routes,omitempty"`
+	// Metrics configures observability retention and agent-chain governance.
+	Metrics usage.Config `json:"metrics,omitempty"`
 
 	logger           *zap.Logger
 	cliauthManager   *cliauth.Manager
@@ -43,6 +47,7 @@ type App struct {
 	configBackend    configstore.ConfigStoreBackend
 	providers        map[string]provider.Provider
 	agentGateway     *runtimegateway.AgentGateway
+	usageService     *usage.UsageService
 }
 
 // CaddyModule returns the Caddy module information.
@@ -61,6 +66,7 @@ func (a *App) Provision(ctx caddy.Context) error {
 	if err := a.provisionConfigStore(ctx); err != nil {
 		return fmt.Errorf("init config store: %w", err)
 	}
+	a.provisionUsageService()
 	// Provider type availability is startup-only. Always reconfigure so a
 	// reload that omits provider_types resets to "all enabled" instead of
 	// inheriting the previous process state.
@@ -102,6 +108,11 @@ func (a *App) Provision(ctx caddy.Context) error {
 		CLIAuthRefresher:    a.cliauthRefresher,
 		CredentialManager:   a.credentialMgr,
 		CredentialScheduler: a.credentialSched,
+		UsageObserver:       a.usageService.Observer(),
+		UsageQuery:          a.usageService.Query(),
+		UsageStats:          a.usageService,
+		UsagePrometheus:     a.usageService.Prometheus(),
+		UsageConfig:         a.Metrics.Normalized(),
 		Logger:              a.logger,
 	}); err != nil {
 		return fmt.Errorf("configure agent gateway: %w", err)
@@ -152,6 +163,9 @@ func (a *App) Validate() error {
 
 // Start starts the app.
 func (a *App) Start() error {
+	if a.usageService != nil {
+		a.usageService.Start()
+	}
 	if a.cliauthRefresher != nil {
 		a.cliauthRefresher.Start(context.Background())
 	}
@@ -167,7 +181,30 @@ func (a *App) Stop() error {
 	if a.agentGateway != nil {
 		a.agentGateway.Close()
 	}
+	if a.usageService != nil {
+		if err := a.usageService.Close(); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (a *App) provisionUsageService() {
+	dbProvider, ok := a.configBackend.(usage.SQLDBProvider)
+	if !ok {
+		a.usageService = usage.NewUsageService(nil, nil)
+		return
+	}
+	sink, query, err := pipeline.NewSQLiteSink(dbProvider, a.Metrics)
+	if err != nil {
+		a.logger.Warn("usage metrics sqlite sink unavailable", zap.Error(err))
+		a.usageService = usage.NewUsageService(nil, nil)
+		return
+	}
+	promSink := pipeline.NewPrometheusSink()
+	svc := usage.NewUsageService(pipeline.NewEventPipeline(4096, sink, promSink), query)
+	svc.AttachPrometheus(promSink)
+	a.usageService = svc
 }
 
 // GetApp retrieves the agent gateway app from the Caddy context.

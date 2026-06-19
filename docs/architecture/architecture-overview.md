@@ -136,10 +136,11 @@ Today it exposes working endpoints for:
 - MCP service discovery and execution endpoints
 - MCP dispatcher runtime inspection endpoints
 - ACP runtime inspection and operator escape-hatch endpoints
+- metrics summary, event, timeseries, breakdown, and Prometheus exposition endpoints
 
-The same route table still defines memory, agent, and metrics endpoints that are not yet implemented.
+The same route table still defines memory and agent endpoints that are not yet implemented.
 
-This means the admin package is now the active control-plane entrypoint for LLM, MCP, and ACP configuration, while memory, agent, and metrics remain future work. ACP consumer runtime APIs that should be scoped by route and VirtualKey, such as turns, permission decisions, session listing, and transcript replay, stay under the dispatcher route prefix rather than under `/admin/acp`.
+This means the admin package is now the active control-plane entrypoint for LLM, MCP, ACP, and metrics inspection, while memory and agent admin families remain future work. ACP consumer runtime APIs that should be scoped by route and VirtualKey, such as turns, permission decisions, session listing, and transcript replay, stay under the dispatcher route prefix rather than under `/admin/acp`.
 
 ### 4.4 `pkg/llm/provider/`: Provider Abstraction
 
@@ -438,14 +439,15 @@ The following are implemented enough to be production-shape code, even if still 
 - CLI login orchestration
 - OpenAI-compatible and Anthropic-compatible ingress handlers
 - MCP dispatcher, upstream discovery, upstream execution, and runtime inspection
+- SQLite-backed usage metrics summaries and recent interaction event inspection
 
 The following are partial or placeholder:
 
 - memory admin APIs
 - agent admin APIs
-- metrics endpoint
 - first-class non-HTTP MCP transports such as stdio in the active request path
 - full upstream progress relay back to MCP clients
+- operator-facing metrics exporter wiring
 - full memory retrieval and writeback in request path
 - complete agent orchestration loop
 - richer static Caddyfile route syntax for all route fields
@@ -520,7 +522,8 @@ The most coherent next steps for the architecture are:
 
 - extend MCP runtime beyond the current Streamable HTTP and request-scoped cancellation model
 - include MCP objects in bundle/export/apply flows
-- finish the missing admin handlers for memory, agents, and metrics
+- finish the missing admin handlers for memory and agents
+- wire operator-facing metrics exporters
 - expand enforcement of route policy beyond the currently active subset
 - integrate memory into the request path
 - complete the agent orchestrator tool-call loop

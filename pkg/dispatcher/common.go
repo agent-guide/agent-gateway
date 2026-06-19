@@ -13,6 +13,7 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/pkg/metrics/usage"
 	"go.uber.org/zap"
 )
 
@@ -131,6 +132,9 @@ func WriteDispatchError(logger *zap.Logger, protocol, routeID, model string, sta
 	if clientMessage == "" && err != nil {
 		clientMessage = err.Error()
 	}
+	if r != nil {
+		usage.SpanFromContext(r.Context()).AddAnnotation("error_type", dispatchErrorType(phase, err))
+	}
 	return httpjson.Error(w, status, clientMessage)
 }
 
@@ -165,7 +169,32 @@ func WriteProviderErrorLog(logger *zap.Logger, w http.ResponseWriter, r *http.Re
 		fmt.Errorf("%s error: %w", phase, err),
 		fields...,
 	)
+	errorType := "provider_request_failed"
+	if strings.Contains(strings.ToLower(phase), "stream") {
+		errorType = "provider_stream_failed"
+	}
+	if r != nil {
+		usage.SpanFromContext(r.Context()).AddAnnotation("error_type", errorType)
+	}
 	return status, errmsg
+}
+
+func dispatchErrorType(phase string, err error) string {
+	phase = strings.ToLower(phase)
+	switch {
+	case strings.Contains(phase, "virtual key"):
+		return "virtual_key_rejected"
+	case strings.Contains(phase, "prepare"):
+		return "protocol_validation_failed"
+	case strings.Contains(phase, "provider"):
+		return "provider_not_configured"
+	case strings.Contains(phase, "route"):
+		return "route_not_found"
+	case err != nil && IsClientCanceled(err):
+		return "client_cancelled"
+	default:
+		return "internal_error"
+	}
 }
 
 func requestLogFields(r *http.Request) []zap.Field {

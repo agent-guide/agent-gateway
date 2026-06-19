@@ -236,13 +236,41 @@ route's VirtualKey policy.
 
 See [acp-api.md](acp-api.md) for request and response shapes.
 
+## Metrics
+
+- `GET /admin/metrics`
+- `GET /admin/metrics/prometheus`
+- `GET /admin/metrics/llm/events`
+- `GET /admin/metrics/llm/timeseries`
+- `GET /admin/metrics/llm/breakdown`
+- `GET /admin/metrics/mcp/events`
+- `GET /admin/metrics/mcp/tools/summary`
+- `GET /admin/metrics/acp/events`
+- `GET /admin/metrics/acp/summary`
+- `GET /admin/metrics/interactions`
+- `GET /admin/metrics/interactions/summary`
+
+Metrics are backed by SQLite usage event tables when the sqlite config store
+backend is active. `GET /admin/metrics` returns per-kind summaries plus a
+`pipeline` object with `dropped_events` and `write_failures` counters.
+`GET /admin/metrics/prometheus` renders an O(1) in-process counter snapshot in
+Prometheus text exposition format (request/failure/token totals by kind plus the
+pipeline health counters); point an external Prometheus scrape at it (behind the
+admin auth boundary) for trends, aggregation, and alerting. Event listing
+endpoints support `from`, `to`, `limit`, `success`, and family-specific filters
+such as route, provider/service, model, method, tool, operation, thread,
+session, and trace identifiers. Aggregate endpoints support `from`, `to`,
+`limit`, `group_by`, and endpoint-specific filters. LLM timeseries supports
+`bucket=hour|day`. Usage-event retention is configured through the Caddyfile
+`metrics` block or the `agwd` `--metrics-retention-days` flag and is enforced at
+startup and by a periodic background janitor.
+
 ## Stubbed Families
 
 These families still contain `501 Not Implemented` endpoints:
 
 - memory
 - agents
-- metrics
 
 ## Caddy Integration Notes
 

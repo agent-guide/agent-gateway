@@ -23,6 +23,11 @@
 		config_store sqlite {
 			path ./data/configstore.db
 		}
+
+		metrics {
+			retention_days 30
+			max_agent_depth 0
+		}
 	}
 }
 

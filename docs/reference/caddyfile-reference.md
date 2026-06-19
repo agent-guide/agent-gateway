@@ -10,6 +10,7 @@ The gateway is configured in the global `agent_gateway` block:
 {
 	agent_gateway {
 		config_store sqlite { ... }
+		metrics { ... }
 		provider <provider-id> { ... }
 		route <route-id> { ... }
 	}
@@ -45,6 +46,20 @@ config_store sqlite {
 
 - `path` sets the SQLite database path
 - if `path` is omitted in `agw`, the store defaults to Caddy's app data directory under `agent-gateway/configstore.db`
+
+## `metrics`
+
+```caddy
+metrics {
+	retention_days 30
+	max_agent_depth 0
+}
+```
+
+- `retention_days <days>` sets the usage-event retention window; omitted or `0` uses the 30-day default
+- `max_agent_depth <depth>` rejects requests whose inbound `X-Agent-Depth` is greater than or equal to this value; `0` disables the depth gate
+
+The gateway always records usage events through the configured SQLite store when the store exposes the metrics database capability. Metrics are queried through the Admin API under `/admin/metrics*`.
 
 ## `provider <provider-id>`
 
@@ -143,13 +158,16 @@ Dispatcher example:
 agent_route_dispatcher {
 	llm_api openai
 	llm_api anthropic
+	llm_api cc
 	mcp
+	acp
 }
 ```
 
 - `llm_api <name>` enables a protocol handler
-- current LLM handler names are `openai` and `anthropic`
+- current LLM handler names are `openai`, `anthropic`, and `cc`
 - `mcp` enables MCP protocol handling in the dispatcher
+- `acp` enables ACP turn, permission, session-list, and transcript handling in the dispatcher
 
 ## `agent_gateway_admin`
 

@@ -15,6 +15,7 @@ import (
 	dispatcher "github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/pkg/metrics/usage"
 	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
 )
@@ -103,6 +104,13 @@ func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLM
 		Model:            req.Model,
 		RequireStreaming: req.Stream,
 	}
+	usage.SpanFromContext(r.Context()).SetExtension(usage.LLMExtension{
+		LLMAPI:           h.Name(),
+		APIOperation:     "messages",
+		Stream:           usage.Bool(req.Stream),
+		RequestToolCount: usage.Int(len(req.Tools)),
+		RequestToolNames: anthropicToolNames(req.Tools),
+	})
 	return prepared, requestRequirements, nil
 }
 
@@ -168,6 +176,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request, prov pr
 	if resp != nil && resp.Message != nil {
 		contentLen = len(resp.Message.Content)
 		finishReason = provider.FinishReason(resp.Message)
+		recordAnthropicToolCalls(r, resp.Message.ToolCalls)
 	}
 	h.logger.Debug(h.Name()+": provider response received",
 		zap.String("model", chatReq.Model),
@@ -231,9 +240,12 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 	textBlockStarted := false
 	textBlockIndex := -1
 	finalStopReason := "end_turn"
+	finalInputTokens := 0
 	finalOutputTokens := 0
+	usageFinalized := false
 	nextBlockIndex := 0
 	emittedToolUse := false
+	toolNames := map[string]struct{}{}
 	// Streamed tool calls arrive as fragments: the first fragment for a tool-call
 	// index carries id+name, later fragments carry argument deltas. Accumulate
 	// them into one Anthropic tool_use content block per index instead of emitting
@@ -286,6 +298,9 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 		// fragment and stream argument deltas afterward; emitting a block per
 		// fragment would corrupt the tool call into many empty tool_use blocks.
 		for _, tc := range chunk.ToolCalls {
+			if name := strings.TrimSpace(tc.Function.Name); name != "" {
+				toolNames[name] = struct{}{}
+			}
 			if tc.Index == nil {
 				// Provider delivered the whole tool call in a single fragment.
 				idx := nextBlockIndex
@@ -344,6 +359,11 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 			}
 			if chunk.ResponseMeta.Usage != nil && chunk.ResponseMeta.Usage.CompletionTokens > 0 {
 				finalOutputTokens = chunk.ResponseMeta.Usage.CompletionTokens
+				usageFinalized = true
+			}
+			if chunk.ResponseMeta.Usage != nil && chunk.ResponseMeta.Usage.PromptTokens > 0 {
+				finalInputTokens = chunk.ResponseMeta.Usage.PromptTokens
+				usageFinalized = true
 			}
 		}
 	}
@@ -366,6 +386,51 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 	})
 	writeSSEEvent(w, "message_stop", map[string]any{"type": "message_stop"})
 	flusher.Flush()
+	recordAnthropicToolNameSet(r, toolNames)
+	usage.SpanFromContext(r.Context()).SetExtension(usage.LLMExtension{
+		InputTokens:    usage.Int(finalInputTokens),
+		OutputTokens:   usage.Int(finalOutputTokens),
+		TotalTokens:    usage.Int(finalInputTokens + finalOutputTokens),
+		UsageFinalized: usage.Bool(usageFinalized),
+	})
+}
+
+func anthropicToolNames(tools []ToolDefinition) []string {
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		if name := strings.TrimSpace(tool.Name); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func recordAnthropicToolCalls(r *http.Request, calls []schema.ToolCall) {
+	names := map[string]struct{}{}
+	for _, call := range calls {
+		if name := strings.TrimSpace(call.Function.Name); name != "" {
+			names[name] = struct{}{}
+		}
+	}
+	recordAnthropicToolNameSet(r, names)
+}
+
+func recordAnthropicToolNameSet(r *http.Request, set map[string]struct{}) {
+	if r == nil {
+		return
+	}
+	if len(set) == 0 {
+		usage.SpanFromContext(r.Context()).SetExtension(usage.LLMExtension{ToolCallCount: usage.Int(0)})
+		return
+	}
+	names := make([]string, 0, len(set))
+	for name := range set {
+		names = append(names, name)
+	}
+	usage.SpanFromContext(r.Context()).SetExtension(usage.LLMExtension{
+		ToolCallCount: usage.Int(len(names)),
+		ToolNames:     names,
+	})
 }
 
 func (h *Handler) handleCountTokens(w http.ResponseWriter, r *http.Request, prepared *dispatcher.PreparedLLMApiRequest) {

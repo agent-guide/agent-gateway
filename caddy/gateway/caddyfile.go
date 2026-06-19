@@ -48,6 +48,10 @@ func parseApp(d *caddyfile.Dispenser, existingVal any) (any, error) {
 			if err := parseRoute(d, app); err != nil {
 				return nil, err
 			}
+		case "metrics":
+			if err := parseMetrics(d, app); err != nil {
+				return nil, err
+			}
 		case "logical_model":
 			return nil, d.Err("logical_model is no longer supported; define model targets inline within route blocks")
 		case "virtualkey":
@@ -61,6 +65,47 @@ func parseApp(d *caddyfile.Dispenser, existingVal any) (any, error) {
 		Name:  "agent_gateway",
 		Value: caddyconfig.JSON(app, nil),
 	}, nil
+}
+
+func parseMetrics(d *caddyfile.Dispenser, app *App) error {
+	seg := d.NewFromNextSegment()
+	if !seg.Next() {
+		return d.Err("expected metrics directive")
+	}
+	if seg.NextArg() {
+		return seg.ArgErr()
+	}
+	for seg.NextBlock(0) {
+		switch seg.Val() {
+		case "retention_days":
+			if !seg.NextArg() {
+				return seg.ArgErr()
+			}
+			v, err := strconv.Atoi(seg.Val())
+			if err != nil || v < 0 {
+				return seg.Err("retention_days must be a non-negative integer")
+			}
+			if seg.NextArg() {
+				return seg.ArgErr()
+			}
+			app.Metrics.RetentionDays = v
+		case "max_agent_depth":
+			if !seg.NextArg() {
+				return seg.ArgErr()
+			}
+			v, err := strconv.Atoi(seg.Val())
+			if err != nil || v < 0 {
+				return seg.Err("max_agent_depth must be a non-negative integer")
+			}
+			if seg.NextArg() {
+				return seg.ArgErr()
+			}
+			app.Metrics.MaxAgentDepth = v
+		default:
+			return seg.Errf("unknown metrics subdirective: %s", seg.Val())
+		}
+	}
+	return nil
 }
 
 func parseProvider(d *caddyfile.Dispenser, app *App) error {

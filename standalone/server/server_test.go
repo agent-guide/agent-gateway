@@ -83,7 +83,7 @@ llmRoutes:
         provider_id: openai-main
 `)
 
-	gw, refresher, err := bootstrapGateway(context.Background(), Options{
+	gw, refresher, usageService, err := bootstrapGateway(context.Background(), Options{
 		ConfigStorePath:  dbPath,
 		StaticConfigPath: bundlePath,
 	}, zap.NewNop())
@@ -92,6 +92,9 @@ llmRoutes:
 	}
 	if refresher == nil {
 		t.Fatal("bootstrapGateway() refresher = nil")
+	}
+	if usageService == nil {
+		t.Fatal("bootstrapGateway() usageService = nil")
 	}
 	if gw.ProviderManager() == nil || !gw.ProviderManager().IsStatic("openai-main") {
 		t.Fatal("expected static provider openai-main")

@@ -8,6 +8,8 @@ import (
 
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	configstoresqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
+	"github.com/agent-guide/agent-gateway/pkg/metrics/usage"
+	"gorm.io/gorm"
 )
 
 type SQLiteConfigStoreBackend struct {
@@ -69,9 +71,18 @@ func (s *SQLiteConfigStoreBackend) Get(name string) (configstore.ConfigStore, er
 	return s.backend.Get(name)
 }
 
+func (s *SQLiteConfigStoreBackend) UsageDB() *gorm.DB {
+	provider, ok := s.backend.(usage.SQLDBProvider)
+	if !ok {
+		return nil
+	}
+	return provider.UsageDB()
+}
+
 var (
 	_ caddy.Module                   = (*SQLiteConfigStoreBackend)(nil)
 	_ caddy.Provisioner              = (*SQLiteConfigStoreBackend)(nil)
 	_ caddyfile.Unmarshaler          = (*SQLiteConfigStoreBackend)(nil)
 	_ configstore.ConfigStoreBackend = (*SQLiteConfigStoreBackend)(nil)
+	_ usage.SQLDBProvider            = (*SQLiteConfigStoreBackend)(nil)
 )

@@ -12,6 +12,7 @@ import (
 	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	acproute "github.com/agent-guide/agent-gateway/pkg/gateway/acproute"
+	"github.com/agent-guide/agent-gateway/pkg/metrics/usage"
 )
 
 type ACPServiceView struct {
@@ -152,32 +153,45 @@ func (h *Handler) handleDeleteACPService(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) handleListACPSessions(w http.ResponseWriter, r *http.Request) {
+	serviceID := strings.TrimSpace(r.PathValue("id"))
+	span := h.beginACPAdminAudit(r, serviceID, "sessions", "")
+	defer finishAdminAudit(span, http.StatusOK, "")
 	if h.acpRuntimeManager == nil {
+		finishAdminAudit(span, http.StatusServiceUnavailable, "service_unavailable")
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, "acp runtime manager is not configured")
 		return
 	}
-	result, err := h.acpRuntimeManager.ListSessions(r.Context(), strings.TrimSpace(r.PathValue("id")), acpruntime.ListSessionsRequest{
+	result, err := h.acpRuntimeManager.ListSessions(r.Context(), serviceID, acpruntime.ListSessionsRequest{
 		CWD:    strings.TrimSpace(r.URL.Query().Get("cwd")),
 		Cursor: strings.TrimSpace(r.URL.Query().Get("cursor")),
 	})
 	if err != nil {
-		_ = httpjson.Error(w, acpRequestErrorStatus(err), err.Error())
+		status := acpRequestErrorStatus(err)
+		finishAdminAudit(span, status, "upstream_error")
+		_ = httpjson.Error(w, status, err.Error())
 		return
 	}
 	_ = httpjson.Write(w, http.StatusOK, result)
 }
 
 func (h *Handler) handleGetACPSessionTranscript(w http.ResponseWriter, r *http.Request) {
+	serviceID := strings.TrimSpace(r.PathValue("id"))
+	sessionID := strings.TrimSpace(r.PathValue("session_id"))
+	span := h.beginACPAdminAudit(r, serviceID, "transcript", sessionID)
+	defer finishAdminAudit(span, http.StatusOK, "")
 	if h.acpRuntimeManager == nil {
+		finishAdminAudit(span, http.StatusServiceUnavailable, "service_unavailable")
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, "acp runtime manager is not configured")
 		return
 	}
-	result, err := h.acpRuntimeManager.LoadTranscript(r.Context(), strings.TrimSpace(r.PathValue("id")), acpruntime.TranscriptRequest{
-		SessionID: strings.TrimSpace(r.PathValue("session_id")),
+	result, err := h.acpRuntimeManager.LoadTranscript(r.Context(), serviceID, acpruntime.TranscriptRequest{
+		SessionID: sessionID,
 		CWD:       strings.TrimSpace(r.URL.Query().Get("cwd")),
 	})
 	if err != nil {
-		_ = httpjson.Error(w, acpRequestErrorStatus(err), err.Error())
+		status := acpRequestErrorStatus(err)
+		finishAdminAudit(span, status, "upstream_error")
+		_ = httpjson.Error(w, status, err.Error())
 		return
 	}
 	_ = httpjson.Write(w, http.StatusOK, result)
@@ -369,7 +383,10 @@ func (h *Handler) handleDeleteACPRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetACPRuntime(w http.ResponseWriter, r *http.Request) {
+	span := h.beginACPAdminAudit(r, "", "runtime", "")
+	defer finishAdminAudit(span, http.StatusOK, "")
 	if h.acpRuntimeManager == nil {
+		finishAdminAudit(span, http.StatusServiceUnavailable, "service_unavailable")
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, "acp runtime manager is not configured")
 		return
 	}
@@ -384,7 +401,12 @@ func (h *Handler) handleGetACPRuntime(w http.ResponseWriter, r *http.Request) {
 // pending interactive permission request (e.g. when the turn client cannot
 // reach the route-side decision endpoint).
 func (h *Handler) handleResolveACPPermission(w http.ResponseWriter, r *http.Request) {
+	requestID := strings.TrimSpace(r.PathValue("request_id"))
+	span := h.beginACPAdminAudit(r, "", "permission", "")
+	span.SetExtension(usage.ACPExtension{PermissionRequestID: requestID})
+	defer finishAdminAudit(span, http.StatusOK, "")
 	if h.acpRuntimeManager == nil {
+		finishAdminAudit(span, http.StatusServiceUnavailable, "service_unavailable")
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, "acp runtime manager is not configured")
 		return
 	}
@@ -393,19 +415,21 @@ func (h *Handler) handleResolveACPPermission(w http.ResponseWriter, r *http.Requ
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}
-	requestID := strings.TrimSpace(r.PathValue("request_id"))
 	if decision.RequestID == "" {
 		decision.RequestID = requestID
 	}
 	if decision.RequestID != requestID {
+		finishAdminAudit(span, http.StatusBadRequest, "invalid_request")
 		_ = httpjson.Error(w, http.StatusBadRequest, "request_id in body must match path")
 		return
 	}
 	if err := h.acpRuntimeManager.ResolvePermission(decision); err != nil {
 		if errors.Is(err, acpruntime.ErrPermissionNotFound) {
+			finishAdminAudit(span, http.StatusNotFound, "permission_not_found")
 			_ = httpjson.Error(w, http.StatusNotFound, "permission request not found (already answered or expired)")
 			return
 		}
+		finishAdminAudit(span, http.StatusBadRequest, "invalid_request")
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -413,7 +437,10 @@ func (h *Handler) handleResolveACPPermission(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *Handler) handleListACPInFlight(w http.ResponseWriter, r *http.Request) {
+	span := h.beginACPAdminAudit(r, "", "runtime_inflight", "")
+	defer finishAdminAudit(span, http.StatusOK, "")
 	if h.acpRuntimeManager == nil {
+		finishAdminAudit(span, http.StatusServiceUnavailable, "service_unavailable")
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, "acp runtime manager is not configured")
 		return
 	}
@@ -421,17 +448,51 @@ func (h *Handler) handleListACPInFlight(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) handleCloseACPThread(w http.ResponseWriter, r *http.Request) {
+	serviceID := strings.TrimSpace(r.PathValue("service_id"))
+	threadID := strings.TrimSpace(r.PathValue("thread_id"))
+	span := h.beginACPAdminAudit(r, serviceID, "thread_close", "")
+	span.SetExtension(usage.ACPExtension{ThreadID: threadID})
+	defer finishAdminAudit(span, http.StatusOK, "")
 	if h.acpRuntimeManager == nil {
+		finishAdminAudit(span, http.StatusServiceUnavailable, "service_unavailable")
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, "acp runtime manager is not configured")
 		return
 	}
-	serviceID := strings.TrimSpace(r.PathValue("service_id"))
-	threadID := strings.TrimSpace(r.PathValue("thread_id"))
 	if serviceID == "" || threadID == "" {
+		finishAdminAudit(span, http.StatusBadRequest, "invalid_request")
 		_ = httpjson.Error(w, http.StatusBadRequest, "service_id and thread_id are required")
 		return
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"closed": h.acpRuntimeManager.CloseThread(serviceID, threadID)})
+}
+
+func (h *Handler) beginACPAdminAudit(r *http.Request, serviceID, operation, sessionID string) usage.InteractionSpan {
+	observer := h.usageObserver
+	if observer == nil {
+		return usage.NoopSpan{}
+	}
+	span, _ := observer.Begin(r.Context(), usage.InteractionDimensions{
+		RouteID:       "/admin/acp",
+		RouteKind:     "acp",
+		RouteProtocol: "admin",
+	})
+	span.SetExtension(usage.ACPExtension{
+		ServiceID:    serviceID,
+		Operation:    operation,
+		SessionID:    sessionID,
+		ResultStatus: "success",
+	})
+	return span
+}
+
+func finishAdminAudit(span usage.InteractionSpan, status int, errorType string) {
+	if span == nil {
+		return
+	}
+	if errorType != "" {
+		span.SetExtension(usage.ACPExtension{ResultStatus: "error"})
+	}
+	span.Finish(usage.InteractionOutcome{Success: status < 400, StatusCode: status, ErrorType: errorType})
 }
 
 func acpRouteViewFromConfig(resolver *acproute.ACPRouteResolver, cfg acproute.AgentRouteConfig) ACPRouteView {

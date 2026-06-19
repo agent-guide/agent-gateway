@@ -9,6 +9,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/pkg/metrics/usage"
 )
 
 type stubLLMApiHandler struct{}
@@ -90,6 +91,40 @@ func TestRewriteLLMRoutePathStripsMatchedPrefix(t *testing.T) {
 	}
 	if req.URL.Path != "/tenant/v1/chat/completions" {
 		t.Fatalf("original path mutated to %q", req.URL.Path)
+	}
+}
+
+func TestHandlerRejectsAgentDepthOverConfiguredLimit(t *testing.T) {
+	gw := gateway.NewAgentGateway()
+	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
+		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
+			AgentRouteConfig: llmroutepkg.AgentRouteConfig{
+				ID:          "chat",
+				Protocol:    llmroutepkg.RouteProtocol("stub"),
+				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
+			},
+			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
+				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "missing"},
+			},
+		}}),
+		UsageConfig: usage.Config{MaxAgentDepth: 2},
+	}); err != nil {
+		t.Fatalf("Bootstrap returned error: %v", err)
+	}
+
+	handler := NewHandler(gw, map[string]LLMApiHandler{"stub": stubLLMApiHandler{}}, nil, HandlerOptions{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	req.Header.Set("X-Agent-Depth", "2")
+
+	if err := handler.Dispatch(rec, req, nil); err != nil {
+		t.Fatalf("Dispatch returned error: %v", err)
+	}
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+	if got := rec.Header().Get("X-Agent-Depth"); got != "3" {
+		t.Fatalf("X-Agent-Depth = %q, want 3", got)
 	}
 }
 

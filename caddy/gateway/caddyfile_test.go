@@ -25,6 +25,11 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 			path /tmp/agent-gateway.db
 		}
 
+		metrics {
+			retention_days 14
+			max_agent_depth 3
+		}
+
 		route openai-chat {
 			protocol openai
 			host api.example.test
@@ -81,6 +86,9 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	}
 	if cfg.SQLitePath != "/tmp/agent-gateway.db" {
 		t.Fatalf("sqlite path = %q, want /tmp/agent-gateway.db", cfg.SQLitePath)
+	}
+	if app.Metrics.RetentionDays != 14 || app.Metrics.MaxAgentDepth != 3 {
+		t.Fatalf("metrics = %+v, want retention_days=14 max_agent_depth=3", app.Metrics)
 	}
 	if len(app.LLMRoutes) != 1 {
 		t.Fatalf("llm route count = %d, want 1", len(app.LLMRoutes))

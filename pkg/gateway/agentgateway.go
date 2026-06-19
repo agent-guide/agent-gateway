@@ -23,6 +23,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
 	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
+	"github.com/agent-guide/agent-gateway/pkg/metrics/usage"
 	"go.uber.org/zap"
 )
 
@@ -36,6 +37,11 @@ type BootstrapOptions struct {
 	CLIAuthRefresher    *cliauth.AutoRefresher
 	CredentialManager   *credentialmgr.Manager
 	CredentialScheduler credentialmgrscheduler.CredentialScheduler
+	UsageObserver       usage.InteractionObserver
+	UsageQuery          usage.QueryService
+	UsageStats          usage.RuntimeStats
+	UsagePrometheus     usage.PrometheusProvider
+	UsageConfig         usage.Config
 	Logger              *zap.Logger
 }
 
@@ -59,12 +65,18 @@ type AgentGateway struct {
 	mcpRuntimeRegistry  *mcpruntime.Registry
 	acpServiceManager   *acpservice.Manager
 	acpRuntimeManager   *acpruntime.Manager
+	usageObserver       usage.InteractionObserver
+	usageQuery          usage.QueryService
+	usageStats          usage.RuntimeStats
+	usagePrometheus     usage.PrometheusProvider
+	usageConfig         usage.Config
 }
 
 func NewAgentGateway() *AgentGateway {
 	return &AgentGateway{
 		configured:         false,
 		mcpRuntimeRegistry: mcpruntime.NewRegistry(),
+		usageObserver:      usage.NoopObserver{},
 	}
 }
 
@@ -96,6 +108,15 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	g.cliauthRefresher = opts.CLIAuthRefresher
 	g.credentialManager = opts.CredentialManager
 	g.credentialScheduler = opts.CredentialScheduler
+	if opts.UsageObserver != nil {
+		g.usageObserver = opts.UsageObserver
+	} else {
+		g.usageObserver = usage.NoopObserver{}
+	}
+	g.usageQuery = opts.UsageQuery
+	g.usageStats = opts.UsageStats
+	g.usagePrometheus = opts.UsagePrometheus
+	g.usageConfig = opts.UsageConfig.Normalized()
 	if err := g.configureModelCatalog(ctx, opts.ConfigStoreBackend, opts.Logger); err != nil {
 		return err
 	}
@@ -127,6 +148,11 @@ func (g *AgentGateway) Reset() {
 	}
 	g.acpServiceManager = nil
 	g.acpRuntimeManager = nil
+	g.usageObserver = usage.NoopObserver{}
+	g.usageQuery = nil
+	g.usageStats = nil
+	g.usagePrometheus = nil
+	g.usageConfig = usage.Config{}
 }
 
 func (g *AgentGateway) Close() {
@@ -239,6 +265,39 @@ func (g *AgentGateway) ACPRuntimeManager() *acpruntime.Manager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.acpRuntimeManager
+}
+
+func (g *AgentGateway) UsageObserver() usage.InteractionObserver {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	if g.usageObserver == nil {
+		return usage.NoopObserver{}
+	}
+	return g.usageObserver
+}
+
+func (g *AgentGateway) UsageQuery() usage.QueryService {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.usageQuery
+}
+
+func (g *AgentGateway) UsageStats() usage.RuntimeStats {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.usageStats
+}
+
+func (g *AgentGateway) UsagePrometheus() usage.PrometheusProvider {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.usagePrometheus
+}
+
+func (g *AgentGateway) UsageConfig() usage.Config {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.usageConfig.Normalized()
 }
 
 func (g *AgentGateway) Match(ctx context.Context, r *http.Request) (routecore.AgentRouteConfig, error) {

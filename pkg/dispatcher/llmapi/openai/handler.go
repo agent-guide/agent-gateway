@@ -14,6 +14,7 @@ import (
 	dispatcher "github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/pkg/metrics/usage"
 	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
 )
@@ -92,6 +93,13 @@ func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLM
 			Model:            req.Model,
 			RequireStreaming: req.Stream,
 		}
+		usage.SpanFromContext(r.Context()).SetExtension(usage.LLMExtension{
+			LLMAPI:           h.Name(),
+			APIOperation:     "responses",
+			Stream:           usage.Bool(req.Stream),
+			RequestToolCount: usage.Int(len(req.Tools)),
+			RequestToolNames: responseToolNames(req.Tools),
+		})
 		return prepared, requestRequirements, nil
 	}
 
@@ -118,6 +126,13 @@ func (h *Handler) PrepareLLMApiRequest(r *http.Request) (*dispatcher.PreparedLLM
 		Model:            req.Model,
 		RequireStreaming: req.Stream,
 	}
+	usage.SpanFromContext(r.Context()).SetExtension(usage.LLMExtension{
+		LLMAPI:           h.Name(),
+		APIOperation:     "chat_completions",
+		Stream:           usage.Bool(req.Stream),
+		RequestToolCount: usage.Int(len(req.Tools)),
+		RequestToolNames: chatToolNames(req.Tools),
+	})
 	return prepared, requestRequirements, nil
 }
 
@@ -173,6 +188,7 @@ func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provi
 	if resp != nil && resp.Message != nil {
 		contentLen = len(resp.Message.Content)
 		finishReason = provider.FinishReason(resp.Message)
+		recordToolCalls(r, resp.Message.ToolCalls)
 	}
 	h.logger.Debug("openai: provider response received",
 		zap.String("request_type", string(provider.LLMApiRequestTypeChat)),
@@ -286,6 +302,7 @@ func (h *Handler) serveResponses(w http.ResponseWriter, r *http.Request, prov pr
 		zap.String("request_type", string(provider.LLMApiRequestTypeResponses)),
 		zap.String("model", respReq.Model),
 	)
+	recordResponsesToolCalls(r, resp)
 	writeResponsesJSON(w, http.StatusOK, resp)
 	return nil
 }
@@ -312,6 +329,10 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 
 	flusher := dispatcher.NewResponseFlusher(w)
 	chunkCount := 0
+	toolNames := map[string]struct{}{}
+	inputTokens := 0
+	outputTokens := 0
+	usageFinalized := false
 	for {
 		chunk, err := stream.Recv()
 		if err == io.EOF {
@@ -325,6 +346,20 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 			break
 		}
 		chunkCount++
+		for _, tc := range chunk.ToolCalls {
+			if name := strings.TrimSpace(tc.Function.Name); name != "" {
+				toolNames[name] = struct{}{}
+			}
+		}
+		if chunk.ResponseMeta != nil && chunk.ResponseMeta.Usage != nil {
+			if chunk.ResponseMeta.Usage.PromptTokens > 0 {
+				inputTokens = chunk.ResponseMeta.Usage.PromptTokens
+			}
+			if chunk.ResponseMeta.Usage.CompletionTokens > 0 {
+				outputTokens = chunk.ResponseMeta.Usage.CompletionTokens
+			}
+			usageFinalized = inputTokens > 0 || outputTokens > 0
+		}
 
 		payload, err := json.Marshal(toStreamChunk(chatReq.Model, chunk))
 		if err != nil {
@@ -342,6 +377,13 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 		zap.String("model", chatReq.Model),
 		zap.Int("chunks", chunkCount),
 	)
+	recordToolNameSet(r, toolNames)
+	usage.SpanFromContext(r.Context()).SetExtension(usage.LLMExtension{
+		InputTokens:    usage.Int(inputTokens),
+		OutputTokens:   usage.Int(outputTokens),
+		TotalTokens:    usage.Int(inputTokens + outputTokens),
+		UsageFinalized: usage.Bool(usageFinalized),
+	})
 	fmt.Fprint(w, "data: [DONE]\n\n")
 	flusher.Flush()
 }
@@ -356,6 +398,11 @@ func (h *Handler) writeProviderResponsesStream(w http.ResponseWriter, r *http.Re
 
 	flusher := dispatcher.NewResponseFlusher(w)
 	eventCount := 0
+	toolNames := map[string]struct{}{}
+	inputTokens := 0
+	outputTokens := 0
+	totalTokens := 0
+	usageFinalized := false
 	for {
 		event, err := stream.Recv()
 		if err == io.EOF {
@@ -370,6 +417,17 @@ func (h *Handler) writeProviderResponsesStream(w http.ResponseWriter, r *http.Re
 		}
 		if event == nil {
 			continue
+		}
+		if event.Item != nil {
+			if name := strings.TrimSpace(event.Item.Name); name != "" {
+				toolNames[name] = struct{}{}
+			}
+		}
+		if event.Response != nil && event.Response.Usage != nil {
+			inputTokens = event.Response.Usage.InputTokens
+			outputTokens = event.Response.Usage.OutputTokens
+			totalTokens = event.Response.Usage.TotalTokens
+			usageFinalized = totalTokens > 0 || inputTokens > 0 || outputTokens > 0
 		}
 		eventCount++
 		if err := writeResponsesEvent(w, event); err != nil {
@@ -386,6 +444,80 @@ func (h *Handler) writeProviderResponsesStream(w http.ResponseWriter, r *http.Re
 		zap.String("model", model),
 		zap.Int("events", eventCount),
 	)
+	recordToolNameSet(r, toolNames)
+	if totalTokens == 0 {
+		totalTokens = inputTokens + outputTokens
+	}
+	usage.SpanFromContext(r.Context()).SetExtension(usage.LLMExtension{
+		InputTokens:    usage.Int(inputTokens),
+		OutputTokens:   usage.Int(outputTokens),
+		TotalTokens:    usage.Int(totalTokens),
+		UsageFinalized: usage.Bool(usageFinalized),
+	})
+}
+
+func chatToolNames(tools []ToolDefinition) []string {
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		if name := strings.TrimSpace(tool.Function.Name); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func responseToolNames(tools []provider.ResponsesToolDefinition) []string {
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		name := strings.TrimSpace(tool.Name)
+		if name == "" && tool.Function != nil {
+			name = strings.TrimSpace(tool.Function.Name)
+		}
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func recordToolCalls(r *http.Request, calls []schema.ToolCall) {
+	names := map[string]struct{}{}
+	for _, call := range calls {
+		if name := strings.TrimSpace(call.Function.Name); name != "" {
+			names[name] = struct{}{}
+		}
+	}
+	recordToolNameSet(r, names)
+}
+
+func recordResponsesToolCalls(r *http.Request, resp *provider.ResponsesResponse) {
+	names := map[string]struct{}{}
+	if resp != nil {
+		for _, item := range resp.Output {
+			if name := strings.TrimSpace(item.Name); name != "" {
+				names[name] = struct{}{}
+			}
+		}
+	}
+	recordToolNameSet(r, names)
+}
+
+func recordToolNameSet(r *http.Request, set map[string]struct{}) {
+	if r == nil {
+		return
+	}
+	if len(set) == 0 {
+		usage.SpanFromContext(r.Context()).SetExtension(usage.LLMExtension{ToolCallCount: usage.Int(0)})
+		return
+	}
+	names := make([]string, 0, len(set))
+	for name := range set {
+		names = append(names, name)
+	}
+	usage.SpanFromContext(r.Context()).SetExtension(usage.LLMExtension{
+		ToolCallCount: usage.Int(len(names)),
+		ToolNames:     names,
+	})
 }
 
 func writeResponsesEvent(w http.ResponseWriter, event *provider.ResponsesStreamEvent) error {
