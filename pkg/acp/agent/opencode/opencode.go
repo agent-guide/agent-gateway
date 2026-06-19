@@ -19,10 +19,11 @@ func init() {
 
 type Agent struct {
 	cwd string
+	env map[string]string
 }
 
 func New(req agentspi.OpenRequest) (agentspi.Agent, error) {
-	return &Agent{cwd: req.CWD}, nil
+	return &Agent{cwd: req.CWD, env: req.Service.Env}, nil
 }
 
 func (a *Agent) Name() string { return baseacp.AgentTypeOpencode }
@@ -32,6 +33,7 @@ func (a *Agent) Open(ctx context.Context, h transport.Handlers) (transport.Trans
 		Command: "opencode",
 		Args:    []string{"acp", "--cwd", a.cwd},
 		Dir:     a.cwd,
+		Env:     agentspi.MergeEnv(a.env),
 	}, h)
 }
 

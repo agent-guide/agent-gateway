@@ -21,6 +21,7 @@ type Agent struct {
 	cwd     string
 	command string
 	args    []string
+	env     map[string]string
 }
 
 func New(req agentspi.OpenRequest) (agentspi.Agent, error) {
@@ -39,6 +40,7 @@ func New(req agentspi.OpenRequest) (agentspi.Agent, error) {
 		cwd:     req.CWD,
 		command: command,
 		args:    append([]string(nil), cfg.AdapterArgs...),
+		env:     req.Service.Env,
 	}, nil
 }
 
@@ -49,6 +51,7 @@ func (a *Agent) Open(ctx context.Context, h transport.Handlers) (transport.Trans
 		Command: a.command,
 		Args:    a.args,
 		Dir:     a.cwd,
+		Env:     agentspi.MergeEnv(a.env),
 	}, h)
 }
 

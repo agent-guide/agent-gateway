@@ -45,6 +45,73 @@ func TestValidateCWDAllowedRejectsOutsideRoot(t *testing.T) {
 	}
 }
 
+func TestServiceConfigNormalizeTrimsEnvKeys(t *testing.T) {
+	root := t.TempDir()
+	cfg := ServiceConfig{
+		ID:           "codex-main",
+		Name:         "Codex",
+		AgentType:    baseacp.AgentTypeCodex,
+		CWD:          root,
+		AllowedRoots: []string{root},
+		Env:          map[string]string{"  CODEX_HOME  ": "/home/.codex"},
+	}
+	cfg.Normalize()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	if got := cfg.Env["CODEX_HOME"]; got != "/home/.codex" {
+		t.Fatalf("env key not trimmed: got %q", got)
+	}
+}
+
+func TestServiceConfigValidateRejectsBadEnvKey(t *testing.T) {
+	root := t.TempDir()
+	cfg := ServiceConfig{
+		ID:           "codex-main",
+		Name:         "Codex",
+		AgentType:    baseacp.AgentTypeCodex,
+		CWD:          root,
+		AllowedRoots: []string{root},
+		Env:          map[string]string{"BAD=KEY": "x"},
+	}
+	cfg.Normalize()
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate returned nil, want error for env key containing '='")
+	}
+}
+
+func TestServiceConfigValidateRejectsEmptyEnvKey(t *testing.T) {
+	root := t.TempDir()
+	cfg := ServiceConfig{
+		ID:           "codex-main",
+		Name:         "Codex",
+		AgentType:    baseacp.AgentTypeCodex,
+		CWD:          root,
+		AllowedRoots: []string{root},
+		Env:          map[string]string{"   ": "ignored"},
+	}
+	cfg.Normalize()
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate returned nil, want error for empty env key")
+	}
+}
+
+func TestServiceConfigValidateRejectsEnvValueNUL(t *testing.T) {
+	root := t.TempDir()
+	cfg := ServiceConfig{
+		ID:           "codex-main",
+		Name:         "Codex",
+		AgentType:    baseacp.AgentTypeCodex,
+		CWD:          root,
+		AllowedRoots: []string{root},
+		Env:          map[string]string{"CODEX_HOME": "bad\x00value"},
+	}
+	cfg.Normalize()
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate returned nil, want error for env value containing NUL")
+	}
+}
+
 func TestServiceConfigNormalizeCodexDefaultsToAdapter(t *testing.T) {
 	root := t.TempDir()
 	cfg := ServiceConfig{

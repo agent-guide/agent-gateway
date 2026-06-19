@@ -32,6 +32,9 @@ bundle YAML under `acpServices`.
   "cwd": "/tmp/acp-codex-test",
   "allowed_roots": ["/tmp/acp-codex-test"],
   "default_model": "",
+  "env": {
+    "CODEX_HOME": "/tmp/acp-codex-test/.codex"
+  },
   "config_overrides": {
     "model": "example"
   },
@@ -58,6 +61,11 @@ Fields:
   must be under one of these roots.
 - `default_model`: optional model applied after session creation through
   `session/set_config_option` when supported by the agent.
+- `env`: optional environment variables for the spawned agent process. They are
+  merged on top of the gateway process environment (overriding inherited keys,
+  adding new ones), so the agent still inherits `PATH` and the rest. Use it to
+  point the CLI agent at a per-service home directory, e.g. `CODEX_HOME` for
+  codex or `HOME`/`XDG_*` for opencode.
 - `config_overrides`: optional service-level ACP config option values.
 - `idle_ttl`: optional Go duration value in JSON. Zero disables idle expiry.
 - `max_instances`: optional per-service pooled process limit. Zero means no
@@ -82,8 +90,14 @@ Validation:
 
 - `cwd` and every `allowed_roots` entry must be absolute.
 - `cwd` must be contained by `allowed_roots`.
+- `env` keys must be non-empty and must not contain `=` or NUL; values must not
+  contain NUL.
 - `codex.mode: app_server` is recognized but not implemented.
 - arbitrary adapter commands are rejected.
+
+Updating or deleting an ACP service closes pooled ACP agent processes for that
+service so later turns use the current process-affecting config, including
+`env`.
 
 ## ACP Route
 

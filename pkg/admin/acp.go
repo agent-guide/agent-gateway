@@ -120,6 +120,9 @@ func (h *Handler) handleUpdateACPService(w http.ResponseWriter, r *http.Request)
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if h.acpRuntimeManager != nil {
+		h.acpRuntimeManager.CloseService(id)
+	}
 	updated, err := manager.Get(r.Context(), id)
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
@@ -141,6 +144,9 @@ func (h *Handler) handleDeleteACPService(w http.ResponseWriter, r *http.Request)
 		}
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if h.acpRuntimeManager != nil {
+		h.acpRuntimeManager.CloseService(strings.TrimSpace(r.PathValue("id")))
 	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

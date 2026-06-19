@@ -443,6 +443,37 @@ func TestCloseThreadTearsDownMatchingInstances(t *testing.T) {
 	}
 }
 
+func TestCloseServiceTearsDownMatchingInstances(t *testing.T) {
+	m := newTestManager()
+	cfg := testServiceConfig(t)
+	ctx := context.Background()
+
+	keepCfg := cfg
+	keepCfg.ID = "other"
+	keep, err := m.resolveInstance(ctx, buildScope("other", keepCfg.CWD, "t1", "", ""), keepCfg, TurnRequest{ThreadID: "t1", Input: "hi"})
+	if err != nil {
+		t.Fatalf("resolveInstance keep: %v", err)
+	}
+	a, err := m.resolveInstance(ctx, buildScope("svc", cfg.CWD, "t1", "s1", ""), cfg, TurnRequest{ThreadID: "t1", Input: "hi"})
+	if err != nil {
+		t.Fatalf("resolveInstance a: %v", err)
+	}
+	b, err := m.resolveInstance(ctx, buildScope("svc", cfg.CWD, "t2", "s2", ""), cfg, TurnRequest{ThreadID: "t2", Input: "hi"})
+	if err != nil {
+		t.Fatalf("resolveInstance b: %v", err)
+	}
+
+	if closed := m.CloseService("svc"); closed != 2 {
+		t.Fatalf("CloseService closed %d instances, want 2", closed)
+	}
+	if transportOf(t, a).Alive() || transportOf(t, b).Alive() {
+		t.Fatal("service instances were not torn down")
+	}
+	if !transportOf(t, keep).Alive() {
+		t.Fatal("an instance from a different service was torn down")
+	}
+}
+
 // slowInitAgent blocks session/new until the context is cancelled, to exercise
 // the initialize timeout.
 type slowInitAgent struct{ stubAgent }

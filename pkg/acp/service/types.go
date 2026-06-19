@@ -24,6 +24,7 @@ type ServiceConfig struct {
 	CWD             string            `json:"cwd"`
 	AllowedRoots    []string          `json:"allowed_roots,omitempty"`
 	DefaultModel    string            `json:"default_model,omitempty"`
+	Env             map[string]string `json:"env,omitempty"`
 	ConfigOverrides map[string]string `json:"config_overrides,omitempty"`
 	IdleTTL         time.Duration     `json:"idle_ttl,omitempty"`
 	MaxInstances    int               `json:"max_instances,omitempty"`
@@ -79,6 +80,14 @@ func (c *ServiceConfig) Normalize() {
 	if len(c.AllowedRoots) == 0 && c.CWD != "" {
 		c.AllowedRoots = []string{c.CWD}
 	}
+	if len(c.Env) > 0 {
+		normalized := make(map[string]string, len(c.Env))
+		for k, v := range c.Env {
+			k = strings.TrimSpace(k)
+			normalized[k] = v
+		}
+		c.Env = normalized
+	}
 	if c.Codex != nil {
 		c.Codex.Mode = strings.TrimSpace(c.Codex.Mode)
 		if c.Codex.Mode == "" {
@@ -125,6 +134,17 @@ func (c ServiceConfig) Validate() error {
 	}
 	if c.MaxInstances < 0 {
 		return fmt.Errorf("max_instances must be non-negative")
+	}
+	for k := range c.Env {
+		if strings.TrimSpace(k) == "" {
+			return fmt.Errorf("env key must not be empty")
+		}
+		if strings.ContainsAny(k, "=\x00") {
+			return fmt.Errorf("env key %q must not contain '=' or NUL", k)
+		}
+		if strings.ContainsRune(c.Env[k], '\x00') {
+			return fmt.Errorf("env value for key %q must not contain NUL", k)
+		}
 	}
 	if c.AgentType == baseacp.AgentTypeCodex && c.Codex != nil {
 		switch c.Codex.Mode {

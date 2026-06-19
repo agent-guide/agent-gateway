@@ -157,12 +157,15 @@ POST /admin/acp/services
   "name": "Codex",
   "agent_type": "codex",
   "cwd": "/tmp/acp-codex-test",
+  "env": { "CODEX_HOME": "/tmp/acp-codex-test/.codex" },
   "max_instances": 4,
   "permission_mode": "auto_approve"
 }
 ```
 
-Returns `201 Created` with the service view.
+Returns `201 Created` with the service view. `env` sets environment variables on
+the spawned agent process (merged over the gateway's environment); use it to
+give the CLI agent a per-service home directory.
 
 ### Get, Update, Delete Service
 
@@ -171,6 +174,9 @@ GET /admin/acp/services/{id}
 PUT /admin/acp/services/{id}
 DELETE /admin/acp/services/{id}
 ```
+
+Updating or deleting a service closes any pooled ACP agent processes for that
+service; the next turn starts a process with the current service config.
 
 Delete response:
 

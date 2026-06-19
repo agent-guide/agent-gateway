@@ -137,6 +137,34 @@ func (m *Manager) CloseThread(serviceID, threadID string) int {
 	return len(victims)
 }
 
+// CloseService tears down every pooled instance for a service and returns the
+// count closed. This is used after process-affecting service config changes so
+// the next turn starts an agent with the latest launch environment.
+func (m *Manager) CloseService(serviceID string) int {
+	if m == nil {
+		return 0
+	}
+	serviceID = strings.TrimSpace(serviceID)
+	var victims []*instance
+	m.mu.Lock()
+	for scope, item := range m.instances {
+		if item == nil || item.instance == nil {
+			delete(m.instances, scope)
+			continue
+		}
+		parts := strings.Split(scope, scopeSep)
+		if len(parts) == 5 && parts[0] == serviceID {
+			victims = append(victims, item.instance)
+			delete(m.instances, scope)
+		}
+	}
+	m.mu.Unlock()
+	for _, inst := range victims {
+		_ = inst.close()
+	}
+	return len(victims)
+}
+
 func (m *Manager) ServeTurn(ctx context.Context, serviceID string, req TurnRequest, emit EventSink) error {
 	if m == nil || m.services == nil {
 		return fmt.Errorf("acp runtime manager is not configured")
