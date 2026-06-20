@@ -138,9 +138,9 @@ Today it exposes working endpoints for:
 - ACP runtime inspection and operator escape-hatch endpoints
 - metrics summary, event, timeseries, breakdown, and Prometheus exposition endpoints
 
-The same route table still defines memory and agent endpoints that are not yet implemented.
+The `/admin/agents` family is implemented (CRUD plus workspace/activity/usage/interactions/resources/health); the same route table still defines memory endpoints that are not yet implemented.
 
-This means the admin package is now the active control-plane entrypoint for LLM, MCP, ACP, and metrics inspection, while memory and agent admin families remain future work. ACP consumer runtime APIs that should be scoped by route and VirtualKey, such as turns, permission decisions, session listing, and transcript replay, stay under the dispatcher route prefix rather than under `/admin/acp`.
+This means the admin package is now the active control-plane entrypoint for LLM, MCP, ACP, agents, and metrics inspection, while the memory admin family remains future work. ACP consumer runtime APIs that should be scoped by route and VirtualKey, such as turns, permission decisions, session listing, and transcript replay, stay under the dispatcher route prefix rather than under `/admin/acp`.
 
 ### 4.4 `pkg/llm/provider/`: Provider Abstraction
 
@@ -214,7 +214,7 @@ The runtime storage API is schema-bound. `ConfigStoreBackend.Register(name, sche
 
 The config store is important for one reason beyond persistence: it allows some route and provider updates to take effect dynamically without rewriting the entire Caddy config.
 
-### 4.7 `pkg/mcp/`, `pkg/acp/`, `pkg/llm/memory/`, `pkg/llm/agent/`
+### 4.7 `pkg/mcp/`, `pkg/acp/`, `pkg/agent/`, `pkg/llm/memory/`
 
 These packages are present because the gateway is intended to grow beyond plain API proxying.
 
@@ -236,15 +236,16 @@ Current status:
   - runtime hardening: `PATH` preflight, stderr capture, a setup-handshake timeout, an idle janitor, dead-instance eviction, `fresh_session`, scope rebind (a session-addressed turn adopts the thread's live instance instead of spawning a second process), and `CloseScope`/`CloseThread` teardown
   - permission modes `deny`/`auto_approve`/`interactive`: interactive requests stream as `permission` SSE events and resolve through `POST /<acp-route>/permission` or `POST /admin/acp/runtime/permissions/{request_id}`, failing closed on timeout
   - verified end to end against the real `opencode acp` and `codex-acp` binaries (deterministic full-lifecycle and interactive-permission integration tests plus gated real-agent handshake, session-lifecycle, and prompt-level real-model smokes); crash retry and the codex app-server bridge (v2) are deferred, and codex stable-session id resolution is a verified non-gap for v1 (the driver seams for v2 are wired)
+- `pkg/agent/`
+  - the external agent control plane (P0 + P1 implemented): the `Agent` model, the `agents` config store, a manager with CRUD, the one-runtime-one-agent and route-consistency rules, and the in-memory route/service → agent attribution index
+  - composes the protocol subsystems and observes them; the protocol packages do not depend on it
+  - the legacy `pkg/llm/agent` LLM-native orchestrator has been removed, per the external-control-plane direction; see [../design/agents-control-plane.md](../design/agents-control-plane.md)
 - `pkg/llm/memory/`
   - interfaces exist
   - SQLite and Mem0-related code exists
   - not yet fully active in normal request execution
-- `pkg/llm/agent/`
-  - an early LLM-native orchestrator loop exists, but it is unused (no importers) and its memory retrieval and tool execution are still TODOs
-  - this package is slated for removal, not completion: the project direction is an external agent control plane (`pkg/agent`), not a built-in internal reasoning loop; see [../design/agents-control-plane.md](../design/agents-control-plane.md)
 
-Architecturally, MCP and ACP are now active native runtime subsystems. Memory is still an extension subsystem. The "agent" center of gravity is moving to an external control plane (`pkg/agent`) that composes the protocol subsystems, rather than an LLM-native orchestrator inside `pkg/llm`.
+Architecturally, MCP and ACP are active native runtime subsystems, and `pkg/agent` is the active external control plane that composes them (it does not own an agent's internal reasoning loop). Memory is still an extension subsystem.
 
 ## 5. Configuration Model
 
@@ -449,7 +450,7 @@ The following are partial or placeholder:
 - full upstream progress relay back to MCP clients
 - operator-facing metrics exporter wiring
 - full memory retrieval and writeback in request path
-- first-class `agents` control-plane APIs over the existing LLM/MCP/ACP subsystems (the legacy `pkg/llm/agent` orchestrator is slated for removal, not completion)
+- the `agents` control plane is implemented through P0 + P1 (CRUD, workspace, observability, and write-time `agent_id` attribution); external tasks/scheduling (P2) and multi-agent workflows (P3) remain future work. The legacy `pkg/llm/agent` orchestrator has been removed.
 - richer static Caddyfile route syntax for all route fields
 
 ## 9. Extension Points
@@ -524,7 +525,7 @@ The most coherent next steps for the architecture are:
 - extend MCP runtime beyond the current Streamable HTTP and request-scoped cancellation model
 - include MCP objects in bundle/export/apply flows
 - finish the missing admin handlers for memory
-- build the `agents` control plane: remove `pkg/llm/agent`, add `pkg/agent`, and turn the stubbed `/admin/agents` family into real agent management and workspace aggregation over the LLM/MCP/ACP/metrics subsystems (see [../design/agents-control-plane.md](../design/agents-control-plane.md))
+- extend the `agents` control plane beyond P0 + P1 (which are implemented: `pkg/agent`, the `agents` store, `/admin/agents` CRUD + workspace + observability, and `agent_id` attribution) to external tasks/scheduling (P2) and multi-agent workflows (P3) (see [../design/agents-control-plane.md](../design/agents-control-plane.md))
 - wire operator-facing metrics exporters
 - expand enforcement of route policy beyond the currently active subset
 - integrate memory into the request path

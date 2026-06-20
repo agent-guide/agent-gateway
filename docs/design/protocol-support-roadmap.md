@@ -30,8 +30,14 @@ Current non-LLM protocol status:
 
 - MCP is integrated into the main request path through `agent_route_dispatcher` when `mcp` is enabled
 - MCP route config, dispatch, discovery, execution, and runtime inspection are active
-- memory, agents, and metrics remain earlier-stage or stubbed admin areas
-- no ACP gateway runtime is implemented
+- ACP route config, native dispatch, session listing, transcript replay, runtime
+  inspection, and permission resolution are active
+- metrics persist LLM/MCP/ACP usage events, expose summaries/events/Prometheus,
+  and support optional `agent_id` attribution
+- the agents control plane is active through P0/P1: agent CRUD, workspace,
+  resources, activity, usage, interactions, health, gateway-bundle parity, and
+  write-time/read-side attribution
+- memory remains an earlier-stage stubbed admin area
 
 ## 3. Design Principle
 

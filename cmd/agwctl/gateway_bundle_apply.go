@@ -10,6 +10,7 @@ import (
 
 	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
+	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	acproute "github.com/agent-guide/agent-gateway/pkg/gateway/acproute"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
@@ -105,6 +106,11 @@ func runGatewayApply(ctx context.Context, path string) error {
 		return err
 	}
 	if err := applyACPRoutes(ctx, client, bundle, record); err != nil {
+		return err
+	}
+	// Agents are pure references over the objects above, so they apply last,
+	// after every referenced object is created/resolved.
+	if err := applyAgents(ctx, client, bundle, record); err != nil {
 		return err
 	}
 
@@ -555,6 +561,163 @@ func applyACPRoutes(ctx context.Context, client *adminclient.Client, bundle *gat
 		}
 	}
 	return nil
+}
+
+func applyAgents(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+	if len(bundle.Agents) == 0 {
+		return nil
+	}
+	items, err := client.ListAgents(ctx)
+	if err != nil {
+		return err
+	}
+	refs, err := loadAgentApplyReferences(ctx, client)
+	if err != nil {
+		return err
+	}
+	current := map[string]adminclient.AgentView{}
+	for _, item := range items {
+		current[item.ID] = item
+	}
+	for _, desired := range bundle.Agents {
+		desired.Normalize()
+		id := desired.ID
+		if err := refs.validate(desired); err != nil {
+			record("agent", id, "error", err)
+			continue
+		}
+		item, ok := current[id]
+		if !ok {
+			if _, err := client.CreateAgent(ctx, desired); err != nil {
+				record("agent", id, "error", fmt.Errorf("agent %q create: %w", id, err))
+			} else {
+				record("agent", id, "create", nil)
+			}
+			continue
+		}
+		currentNorm := normalizeComparableAgent(item.Agent)
+		desiredNorm := normalizeComparableAgent(desired)
+		if reflect.DeepEqual(currentNorm, desiredNorm) {
+			record("agent", id, "skip", nil)
+			continue
+		}
+		if _, err := client.UpdateAgent(ctx, id, desired); err != nil {
+			record("agent", id, "error", fmt.Errorf("agent %q update: %w", id, err))
+		} else {
+			record("agent", id, "update", nil)
+		}
+	}
+	return nil
+}
+
+type agentApplyReferences struct {
+	providers   map[string]struct{}
+	mcpServices map[string]struct{}
+	virtualKeys map[string]struct{}
+	llmRoutes   map[string]struct{}
+	mcpRoutes   map[string]struct{}
+	acpRoutes   map[string]struct{}
+	acpServices map[string]struct{}
+}
+
+func loadAgentApplyReferences(ctx context.Context, client *adminclient.Client) (*agentApplyReferences, error) {
+	providers, err := client.ListProviders(ctx, adminclient.ProviderListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	mcpServices, err := client.ListMCPServices(ctx)
+	if err != nil {
+		return nil, err
+	}
+	virtualKeys, err := client.ListVirtualKeys(ctx, adminclient.VirtualKeyListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	llmRoutes, err := client.ListLLMRoutes(ctx, adminclient.LLMRouteListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	mcpRoutes, err := client.ListMCPRoutes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	acpRoutes, err := client.ListACPRoutes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	acpServices, err := client.ListACPServices(ctx)
+	if err != nil {
+		return nil, err
+	}
+	refs := &agentApplyReferences{
+		providers:   map[string]struct{}{},
+		mcpServices: map[string]struct{}{},
+		virtualKeys: map[string]struct{}{},
+		llmRoutes:   map[string]struct{}{},
+		mcpRoutes:   map[string]struct{}{},
+		acpRoutes:   map[string]struct{}{},
+		acpServices: map[string]struct{}{},
+	}
+	for _, item := range providers {
+		refs.providers[item.Id] = struct{}{}
+	}
+	for _, item := range mcpServices {
+		refs.mcpServices[item.ID] = struct{}{}
+	}
+	for _, item := range virtualKeys {
+		refs.virtualKeys[item.ID] = struct{}{}
+	}
+	for _, item := range llmRoutes {
+		refs.llmRoutes[item.ID] = struct{}{}
+	}
+	for _, item := range mcpRoutes {
+		refs.mcpRoutes[item.ID] = struct{}{}
+	}
+	for _, item := range acpRoutes {
+		refs.acpRoutes[item.ID] = struct{}{}
+	}
+	for _, item := range acpServices {
+		refs.acpServices[item.ID] = struct{}{}
+	}
+	return refs, nil
+}
+
+func (r *agentApplyReferences) validate(a agentpkg.Agent) error {
+	if r == nil {
+		return nil
+	}
+	var missing []string
+	check := func(kind string, ids []string, present map[string]struct{}) {
+		for _, id := range ids {
+			if strings.TrimSpace(id) == "" {
+				continue
+			}
+			if _, ok := present[id]; !ok {
+				missing = append(missing, fmt.Sprintf("%s %q", kind, id))
+			}
+		}
+	}
+	check("provider_id", a.Resources.ProviderIDs, r.providers)
+	check("mcp_service_id", a.Resources.MCPServiceIDs, r.mcpServices)
+	check("virtual_key_id", a.Resources.VirtualKeyIDs, r.virtualKeys)
+	check("llm_route_id", a.Routes.LLMRouteIDs, r.llmRoutes)
+	check("mcp_route_id", a.Routes.MCPRouteIDs, r.mcpRoutes)
+	check("acp_route_id", a.Routes.ACPRouteIDs, r.acpRoutes)
+	if serviceID := a.ACPServiceID(); serviceID != "" {
+		check("runtime.acp.service_id", []string{serviceID}, r.acpServices)
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return fmt.Errorf("agent %q has dangling reference(s): %s", a.ID, strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+func normalizeComparableAgent(a agentpkg.Agent) agentpkg.Agent {
+	a.Normalize()
+	a.CreatedAt = time.Time{}
+	a.UpdatedAt = time.Time{}
+	return a
 }
 
 func normalizeComparableACPService(cfg acpservice.ServiceConfig) acpservice.ServiceConfig {

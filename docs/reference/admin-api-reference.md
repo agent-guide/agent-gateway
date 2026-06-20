@@ -244,8 +244,12 @@ See [acp-api.md](acp-api.md) for request and response shapes.
 - `GET /admin/metrics/llm/timeseries`
 - `GET /admin/metrics/llm/breakdown`
 - `GET /admin/metrics/mcp/events`
+- `GET /admin/metrics/mcp/timeseries`
+- `GET /admin/metrics/mcp/breakdown`
 - `GET /admin/metrics/mcp/tools/summary`
 - `GET /admin/metrics/acp/events`
+- `GET /admin/metrics/acp/timeseries`
+- `GET /admin/metrics/acp/breakdown`
 - `GET /admin/metrics/acp/summary`
 - `GET /admin/metrics/interactions`
 - `GET /admin/metrics/interactions/summary`
@@ -260,17 +264,49 @@ admin auth boundary) for trends, aggregation, and alerting. Event listing
 endpoints support `from`, `to`, `limit`, `success`, and family-specific filters
 such as route, provider/service, model, method, tool, operation, thread,
 session, and trace identifiers. Aggregate endpoints support `from`, `to`,
-`limit`, `group_by`, and endpoint-specific filters. LLM timeseries supports
-`bucket=hour|day`. Usage-event retention is configured through the Caddyfile
+`limit`, `group_by`, and endpoint-specific filters. The LLM, MCP, and ACP
+`timeseries` and `breakdown` endpoints share the same shape; each accepts its
+protocol's `group_by` dimensions and filter keys (LLM:
+`route_id`/`provider_id`/`virtual_key_id`/`upstream_model`/`llm_api`; MCP:
+`route_id`/`service_id`/`virtual_key_id`/`method`/`tool_name`/`result_status`;
+ACP: `route_id`/`route_protocol`/`service_id`/`virtual_key_id`/`agent_type`/`operation`).
+The ACP `route_protocol` filter separates data-plane turns (`route_protocol=acp`)
+from the admin-plane audit spans the manager records when polling `/admin/acp`
+(`route_protocol=admin`).
+Timeseries supports `bucket=minute|hour|day` (plural and short forms such as
+`minutes`/`min`/`m` are also accepted, as are Grafana-style durations such as
+`3h`/`5m`/`30s`/`1d`; empty defaults to `hour`). `mcp/tools/summary` and
+`acp/summary` remain as fixed-grouping convenience views. Usage-event retention is configured through the Caddyfile
 `metrics` block or the `agwd` `--metrics-retention-days` flag and is enforced at
 startup and by a periodic background janitor.
+
+## Agents
+
+- `GET /admin/agents`
+- `POST /admin/agents`
+- `GET /admin/agents/{id}`
+- `PUT /admin/agents/{id}`
+- `DELETE /admin/agents/{id}`
+- `GET /admin/agents/{id}/workspace`
+- `GET /admin/agents/{id}/activity`
+- `GET /admin/agents/{id}/usage`
+- `GET /admin/agents/{id}/interactions`
+- `GET /admin/agents/{id}/resources`
+- `PUT /admin/agents/{id}/resources`
+- `GET /admin/agents/{id}/health`
+
+Agents are first-class management objects that bind an operator-facing identity
+to one runtime backend, currently an ACP service for managed local agents.
+P0/P1 agents are management-plane groupings: data-plane requests still
+authenticate through VirtualKeys and route policy. Agent usage and activity
+views prefer durable `agent_id` attribution and fall back to the agent's owned
+routes and ACP runtime service for older or untagged events.
 
 ## Stubbed Families
 
 These families still contain `501 Not Implemented` endpoints:
 
 - memory
-- agents
 
 ## Caddy Integration Notes
 

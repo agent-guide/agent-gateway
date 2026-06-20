@@ -12,7 +12,7 @@ The current primary LLM path is:
 5. in logical-model routes, the model catalog resolves the logical model to one concrete `(provider_id, upstream_model)` binding
 6. the selected provider executes `Generate` or `Stream`
 
-MCP is also active now through `agent_route_dispatcher` with MCP enabled, `pkg/gateway/mcproute`, `pkg/mcp/service`, and MCP Admin APIs. ACP is being implemented natively through `pkg/acp`, `pkg/gateway/acproute`, dispatcher turn handling, and ACP Admin APIs. Metrics now persist LLM/MCP/ACP usage events and expose Admin summaries/events; memory and agent areas still exist as earlier-stage subsystems.
+MCP is also active now through `agent_route_dispatcher` with MCP enabled, `pkg/gateway/mcproute`, `pkg/mcp/service`, and MCP Admin APIs. ACP is being implemented natively through `pkg/acp`, `pkg/gateway/acproute`, dispatcher turn handling, and ACP Admin APIs. Metrics now persist LLM/MCP/ACP usage events (with optional `agent_id` attribution) and expose Admin summaries/events. The agent control plane is active through `pkg/agent`, the `agents` config store, and `/admin/agents` Admin APIs (P0 + P1); memory remains an earlier-stage subsystem.
 
 ## Change Policy
 
@@ -128,7 +128,7 @@ Responsibilities:
 - list startup-enabled provider types and LLM API handler types
 - configure and trigger CLI auth authenticators
 - start CLI auth logins bound to one `provider_id` and optional credential scope
-- expose metrics summaries (with pipeline health counters), breakdowns, recent interaction events, and a Prometheus exposition endpoint
+- expose metrics summaries (with pipeline health counters), per-protocol LLM/MCP/ACP timeseries and breakdowns, recent interaction events, and a Prometheus exposition endpoint
 - expose stubbed memory and agent endpoints
 
 ## Key Packages
@@ -351,6 +351,7 @@ Current store names:
 - `routes`
 - `mcp_services`
 - `acp_services`
+- `agents`
 - `virtual_keys`
 - `managed_models`
 
@@ -358,16 +359,43 @@ Current persisted backend:
 
 - `sqlite`
 
+### `pkg/agent/`
+
+The external control-plane layer that composes the LLM/MCP/ACP/metrics surfaces
+around an operator-facing agent identity. It depends on the lower protocol
+managers; those packages must not depend on `pkg/agent`.
+
+Important files:
+
+- `types.go`: the `Agent` model. Runtime is `acp` (gateway owns the lifecycle via
+  an ACP `service_id`) or `http` (the agent owns its own lifecycle). LLM and MCP
+  are `resources`, not runtime types. `policy` is runtime-agnostic; ACP
+  operational config stays on the ACP service.
+- `manager.go`: agent CRUD plus the in-memory route/service → agent index. It
+  enforces P0 one-runtime-one-agent (a `service_id` is bound by at most one
+  agent), route-binding uniqueness (any LLM/MCP/ACP `route_id` is owned by at
+  most one agent, so the route → agent attribution mapping stays unambiguous),
+  and `acp_route_ids` → runtime-service consistency, and implements
+  `ResolveAgentID` (the `usage.AgentAttributor` seam). `Refresh` rebuilds the
+  index defensively: a `service_id` or `route_id` that resolves to more than one
+  agent is dropped from the map (and `ResolveAgentID` returns `ok=false`) rather
+  than silently picking a last writer.
+
+Agents are a first-class gateway-bundle object (apply/export/validate) and have
+an `agwctl gateway agent` read surface; create/update flow through the bundle.
+See `docs/design/agents-control-plane.md` (including the §11 implementation
+status) for the full direction.
+
 ### `pkg/metrics/`
 
 Owns durable usage events and query helpers.
 
 Important packages:
 
-- `pkg/metrics/usage`: event models, observer/span interfaces, no-op observer, usage service, Prometheus exposition rendering, and metrics config (`retention_days`, `max_agent_depth`)
+- `pkg/metrics/usage`: event models (with an optional `agent_id` attribution tag), observer/span interfaces, no-op observer, the `AgentAttributor` seam plus the settable `AgentAttribution` holder, usage service, Prometheus exposition rendering, and metrics config (`retention_days`, `max_agent_depth`)
 - `pkg/metrics/pipeline`: buffered event pipeline, SQLite sink (with a background retention janitor), the in-process Prometheus counter sink, and an `OpenTelemetrySink` adapter seam (push exporter is deployment-supplied)
 
-SQLite usage tables are typed event tables (`llm_usage_events`, `mcp_usage_events`, `acp_usage_events`) created by the metrics sink through the sqlite backend's `UsageDB()` capability. They are separate from generic JSON config stores. Time-series and breakdown queries scan these event tables directly; there are no internal rollup tables. Use the Prometheus exposition (`GET /admin/metrics/prometheus`) plus an external system (Prometheus/Grafana) for high-volume aggregation, trends, and alerting.
+SQLite usage tables are typed event tables (`llm_usage_events`, `mcp_usage_events`, `acp_usage_events`) created by the metrics sink through the sqlite backend's `UsageDB()` capability. They carry a nullable `agent_id` attribution column, stamped at write time by the observer when the originating route resolves to exactly one agent. They are separate from generic JSON config stores. Time-series and breakdown queries scan these event tables directly; there are no internal rollup tables. Use the Prometheus exposition (`GET /admin/metrics/prometheus`) plus an external system (Prometheus/Grafana) for high-volume aggregation, trends, and alerting.
 
 The `metrics` Caddyfile block and `agwd` flags configure usage retention cleanup and agent-depth enforcement. Retention is applied at startup and by a periodic janitor in the SQLite sink. The dispatcher rejects requests when inbound `X-Agent-Depth` reaches the configured `max_agent_depth`; `0` disables the gate.
 
@@ -470,10 +498,14 @@ Implemented ACP families:
 - `/admin/acp/routes/...`
 - `/admin/acp/runtime/...`
 
+Implemented agent families:
+
+- `/admin/agents/...` (CRUD plus `/{id}/workspace`, `/{id}/activity`,
+  `/{id}/usage`, `/{id}/interactions`, `/{id}/resources`, `/{id}/health`)
+
 Stubbed families currently return `501 Not Implemented`:
 
 - `/admin/memory/...`
-- `/admin/agents/...`
 
 ## Files To Check Before Large Changes
 

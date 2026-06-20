@@ -217,6 +217,39 @@ func TestGatewayCLIAuthAuthenticatorsListCommand(t *testing.T) {
 	}
 }
 
+func TestGatewayAgentP1ReadCommand(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		switch r.URL.Path {
+		case "/admin/agents/coding-agent/health":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"agent_id": "coding-agent",
+				"runtime":  "acp",
+			})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := executeAGWCTL(
+		t,
+		"gateway",
+		"--admin-addr", srv.URL,
+		"agent", "health", "coding-agent",
+	)
+	if err != nil {
+		t.Fatalf("gateway agent health: %v\nstderr=%s", err, stderr)
+	}
+	if gotPath != "/admin/agents/coding-agent/health" {
+		t.Fatalf("path = %q, want /admin/agents/coding-agent/health", gotPath)
+	}
+	if !strings.Contains(stdout, `"agent_id": "coding-agent"`) {
+		t.Fatalf("stdout missing agent health payload:\n%s", stdout)
+	}
+}
+
 func TestGatewayMCPServiceListCommand(t *testing.T) {
 	var gotBasicAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -226,7 +259,7 @@ func TestGatewayMCPServiceListCommand(t *testing.T) {
 				"token":    "test-token",
 				"username": "admin",
 			})
-		case "/admin/acp/services", "/admin/acp/routes":
+		case "/admin/acp/services", "/admin/acp/routes", "/admin/agents":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/mcp/services":
 			user, pass, ok := r.BasicAuth()
@@ -1429,7 +1462,7 @@ func TestGatewayExportCommand(t *testing.T) {
 					},
 				},
 			})
-		case "/admin/acp/services", "/admin/acp/routes":
+		case "/admin/acp/services", "/admin/acp/routes", "/admin/agents":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/mcp/services":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -1550,7 +1583,7 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 					},
 				},
 			})
-		case "/admin/acp/services", "/admin/acp/routes":
+		case "/admin/acp/services", "/admin/acp/routes", "/admin/agents":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/mcp/services":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -1600,7 +1633,7 @@ func TestGatewayExportCommandIncludesMCPServicesAndRoutes(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/cliauth/authenticators":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case "/admin/acp/services", "/admin/acp/routes":
+		case "/admin/acp/services", "/admin/acp/routes", "/admin/agents":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/mcp/services":
 			_ = json.NewEncoder(w).Encode(map[string]any{

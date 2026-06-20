@@ -10,6 +10,7 @@ import (
 	"time"
 
 	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
+	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
 	acproute "github.com/agent-guide/agent-gateway/pkg/gateway/acproute"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
@@ -41,6 +42,7 @@ type GatewayBundle struct {
 	MCPRoutes             []mcproute.MCPRouteConfig     `json:"mcpRoutes,omitempty"`
 	ACPServices           []acpservice.ServiceConfig    `json:"acpServices,omitempty"`
 	ACPRoutes             []acproute.ACPRouteConfig     `json:"acpRoutes,omitempty"`
+	Agents                []agentpkg.Agent              `json:"agents,omitempty"`
 }
 
 type BundleVirtualKey struct {
@@ -325,6 +327,7 @@ func (b *GatewayBundle) validate(_ bool) error {
 		}
 	}
 	acpRouteIDs := map[string]struct{}{}
+	acpRouteServiceByID := map[string]string{}
 	for i := range b.ACPRoutes {
 		b.ACPRoutes[i].Normalize()
 		id := b.ACPRoutes[i].ID
@@ -342,6 +345,87 @@ func (b *GatewayBundle) validate(_ bool) error {
 		}
 		if b.ACPRoutes[i].ServiceID == "" {
 			errs.Append(fmt.Errorf("acpRoutes[%q]: service_id is required", id))
+		} else {
+			acpRouteServiceByID[id] = b.ACPRoutes[i].ServiceID
+		}
+	}
+	agentIDs := map[string]struct{}{}
+	agentServiceBindings := map[string]string{}
+	agentRouteBindings := map[string]string{}
+	for i := range b.Agents {
+		b.Agents[i].Normalize()
+		id := b.Agents[i].ID
+		if id == "" {
+			errs.Append(fmt.Errorf("agents[%d].id is required", i))
+			continue
+		}
+		if _, exists := agentIDs[id]; exists {
+			errs.Append(fmt.Errorf("agents[%q]: duplicate id", id))
+		} else {
+			agentIDs[id] = struct{}{}
+		}
+		if err := b.Agents[i].Validate(); err != nil {
+			errs.Append(fmt.Errorf("agents[%q]: %w", id, err))
+			continue
+		}
+		// Reject dangling references for every referenced object family. Each check
+		// is guarded by "the referenced kind is present in the bundle" (mirrors the
+		// virtualKeys allowed_route_ids rule): a partial bundle may legitimately
+		// reference objects that already live in the config store and are resolved
+		// at apply time, so the bundle-local validate only rejects references that
+		// it can prove are dangling within the bundle.
+		agent := &b.Agents[i]
+		checkRefs := func(kind string, refs []string, present map[string]struct{}, store string) {
+			if len(present) == 0 {
+				return
+			}
+			for _, ref := range refs {
+				if _, ok := present[ref]; !ok {
+					errs.Append(fmt.Errorf("agents[%q]: %s %q does not exist in bundle %s", id, kind, ref, store))
+				}
+			}
+		}
+		checkRefs("provider_id", agent.Resources.ProviderIDs, providerIDs, "providers")
+		checkRefs("mcp_service_id", agent.Resources.MCPServiceIDs, mcpServiceIDs, "mcpServices")
+		checkRefs("virtual_key_id", agent.Resources.VirtualKeyIDs, virtualKeys, "virtualKeys")
+		checkRefs("llm_route_id", agent.Routes.LLMRouteIDs, routeIDs, "llmRoutes")
+		checkRefs("mcp_route_id", agent.Routes.MCPRouteIDs, mcpRouteIDs, "mcpRoutes")
+		checkRefs("acp_route_id", agent.Routes.ACPRouteIDs, acpRouteIDs, "acpRoutes")
+		for _, routeID := range agentRouteIDs(*agent) {
+			if owner, exists := agentRouteBindings[routeID]; exists {
+				errs.Append(fmt.Errorf("agents[%q]: route %q is already bound by agent %q", id, routeID, owner))
+			} else {
+				agentRouteBindings[routeID] = id
+			}
+		}
+
+		serviceID := agent.ACPServiceID()
+		if serviceID == "" {
+			continue
+		}
+		// One ACP service is bound by at most one agent (P0 one-runtime-one-agent
+		// rule).
+		if owner, exists := agentServiceBindings[serviceID]; exists {
+			errs.Append(fmt.Errorf("agents[%q]: acp service %q is already bound by agent %q", id, serviceID, owner))
+		} else {
+			agentServiceBindings[serviceID] = id
+		}
+		if len(acpServiceIDs) > 0 {
+			if _, ok := acpServiceIDs[serviceID]; !ok {
+				errs.Append(fmt.Errorf("agents[%q]: runtime acp service_id %q does not exist in bundle acpServices", id, serviceID))
+			}
+		}
+		// acp_route_ids must target the agent's runtime service (intra-bundle form
+		// of manager.checkRouteConsistency). Only enforced for routes defined in
+		// this bundle; cross-bundle routes are resolved at apply time.
+		for _, routeID := range agent.Routes.ACPRouteIDs {
+			routeService, ok := acpRouteServiceByID[routeID]
+			if !ok {
+				continue
+			}
+			if routeService != serviceID {
+				errs.Append(fmt.Errorf("agents[%q]: acp_route_id %q targets service %q, not the agent runtime service %q", id, routeID, routeService, serviceID))
+			}
 		}
 	}
 
@@ -349,6 +433,42 @@ func (b *GatewayBundle) validate(_ bool) error {
 		return errs
 	}
 	return nil
+}
+
+func agentRouteIDs(agent agentpkg.Agent) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, routeID := range agent.Routes.LLMRouteIDs {
+		if routeID == "" {
+			continue
+		}
+		if _, ok := seen[routeID]; ok {
+			continue
+		}
+		seen[routeID] = struct{}{}
+		out = append(out, routeID)
+	}
+	for _, routeID := range agent.Routes.MCPRouteIDs {
+		if routeID == "" {
+			continue
+		}
+		if _, ok := seen[routeID]; ok {
+			continue
+		}
+		seen[routeID] = struct{}{}
+		out = append(out, routeID)
+	}
+	for _, routeID := range agent.Routes.ACPRouteIDs {
+		if routeID == "" {
+			continue
+		}
+		if _, ok := seen[routeID]; ok {
+			continue
+		}
+		seen[routeID] = struct{}{}
+		out = append(out, routeID)
+	}
+	return out
 }
 
 func (key BundleVirtualKey) ToRuntimeVirtualKey(generatedKey string) virtualkeypkg.VirtualKey {

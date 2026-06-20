@@ -15,6 +15,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr"
 	sched "github.com/agent-guide/agent-gateway/pkg/llm/credentialmgr/scheduler"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	"github.com/agent-guide/agent-gateway/pkg/metrics/usage"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
@@ -835,6 +836,52 @@ func TestServeLLMApiAllowsProviderResponsesRequestsThatFallbackCannotExpress(t *
 	}
 	if prov.lastChatReq != nil {
 		t.Fatalf("expected no chat fallback, got %+v", prov.lastChatReq)
+	}
+}
+
+func TestServeResponsesRecordsExactUpstreamTotalTokens(t *testing.T) {
+	prov := &testResponsesProvider{
+		testProvider: &testProvider{},
+		responseResp: &provider.ResponsesResponse{
+			ID:        "resp_provider",
+			Object:    "response",
+			CreatedAt: 1,
+			Model:     "gpt-4.1",
+			Output:    []provider.ResponsesResponseOutput{},
+			Usage: &provider.ResponsesResponseUsage{
+				InputTokens:  3,
+				OutputTokens: 4,
+				TotalTokens:  11,
+			},
+		},
+	}
+	handler := newHandler()
+	sink := &usage.InMemorySink{}
+	observer := usage.NewObserver(sink)
+	span, ctx := observer.Begin(context.Background(), usage.InteractionDimensions{RouteKind: "llm", RouteID: "responses-route"})
+
+	body := `{"model":"gpt-4.1","input":"hello"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)).WithContext(ctx)
+	prepared, _, err := handler.PrepareLLMApiRequest(req)
+	if err != nil {
+		t.Fatalf("PrepareLLMApiRequest returned error: %v", err)
+	}
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeLLMApi(rec, req, prov, prepared); err != nil {
+		t.Fatalf("ServeLLMApi returned error: %v", err)
+	}
+	span.Finish(usage.InteractionOutcome{Success: true, StatusCode: rec.Code})
+
+	if len(sink.Events) != 1 {
+		t.Fatalf("events = %d, want 1", len(sink.Events))
+	}
+	ev, ok := sink.Events[0].(usage.LLMUsageEvent)
+	if !ok {
+		t.Fatalf("event type = %T, want LLMUsageEvent", sink.Events[0])
+	}
+	if ev.InputTokens != 3 || ev.OutputTokens != 4 || ev.TotalTokens != 11 || !ev.UsageFinalized {
+		t.Fatalf("usage = input:%d output:%d total:%d finalized:%v, want 3/4/11/finalized", ev.InputTokens, ev.OutputTokens, ev.TotalTokens, ev.UsageFinalized)
 	}
 }
 

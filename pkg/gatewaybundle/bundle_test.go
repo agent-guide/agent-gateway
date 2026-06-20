@@ -216,6 +216,180 @@ cliAuthAuthenticators:
 	}
 }
 
+func TestValidateAgentsRejectsDuplicateServiceBinding(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+acpServices:
+  - id: codex-main
+    name: Codex
+    agent_type: codex
+    cwd: /work
+    allowed_roots:
+      - /work
+agents:
+  - id: agent-a
+    name: Agent A
+    runtime:
+      type: acp
+      acp:
+        service_id: codex-main
+  - id: agent-b
+    name: Agent B
+    runtime:
+      type: acp
+      acp:
+        service_id: codex-main
+`))
+	if err != nil {
+		t.Fatalf("DecodeYAML() error = %v", err)
+	}
+	if err := bundle.ValidateForConfigStore(); err == nil {
+		t.Fatalf("expected duplicate service binding to be rejected")
+	}
+}
+
+func TestValidateAgentsRejectsDanglingService(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+acpServices:
+  - id: codex-main
+    name: Codex
+    agent_type: codex
+    cwd: /work
+    allowed_roots:
+      - /work
+agents:
+  - id: agent-a
+    name: Agent A
+    runtime:
+      type: acp
+      acp:
+        service_id: missing-service
+`))
+	if err != nil {
+		t.Fatalf("DecodeYAML() error = %v", err)
+	}
+	if err := bundle.ValidateForConfigStore(); err == nil {
+		t.Fatalf("expected dangling service reference to be rejected")
+	}
+}
+
+func TestValidateAgentsRejectsDuplicateRouteBinding(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+agents:
+  - id: agent-a
+    name: Agent A
+    runtime:
+      type: http
+      http:
+        endpoint: https://agent-a.example
+    routes:
+      llm_route_ids:
+        - shared-route
+  - id: agent-b
+    name: Agent B
+    runtime:
+      type: http
+      http:
+        endpoint: https://agent-b.example
+    routes:
+      mcp_route_ids:
+        - shared-route
+`))
+	if err != nil {
+		t.Fatalf("DecodeYAML() error = %v", err)
+	}
+	err = bundle.ValidateForConfigStore()
+	if err == nil {
+		t.Fatalf("expected duplicate route binding to be rejected")
+	}
+	if !strings.Contains(err.Error(), "shared-route") {
+		t.Fatalf("error should name the duplicate route, got: %v", err)
+	}
+}
+
+func TestValidateAgentsRejectsDanglingResourceRefs(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+providers:
+  - id: openai-main
+    provider_type: openai
+agents:
+  - id: agent-a
+    name: Agent A
+    runtime:
+      type: http
+      http:
+        endpoint: https://agent-a.example
+    resources:
+      provider_ids:
+        - openai-main
+        - ghost-provider
+`))
+	if err != nil {
+		t.Fatalf("DecodeYAML() error = %v", err)
+	}
+	err = bundle.ValidateForConfigStore()
+	if err == nil {
+		t.Fatalf("expected dangling provider reference to be rejected")
+	}
+	if !strings.Contains(err.Error(), "ghost-provider") {
+		t.Fatalf("error should name the dangling provider, got: %v", err)
+	}
+}
+
+func TestValidateAgentsRejectsACPRouteServiceMismatch(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+acpServices:
+  - id: codex-main
+    name: Codex
+    agent_type: codex
+    cwd: /work
+    allowed_roots:
+      - /work
+  - id: codex-other
+    name: Codex Other
+    agent_type: codex
+    cwd: /work
+    allowed_roots:
+      - /work
+acpRoutes:
+  - id: route-other
+    kind: acp
+    protocol: acp
+    service_id: codex-other
+    match:
+      path_prefix: /other
+agents:
+  - id: agent-a
+    name: Agent A
+    runtime:
+      type: acp
+      acp:
+        service_id: codex-main
+    routes:
+      acp_route_ids:
+        - route-other
+`))
+	if err != nil {
+		t.Fatalf("DecodeYAML() error = %v", err)
+	}
+	err = bundle.ValidateForConfigStore()
+	if err == nil {
+		t.Fatalf("expected acp route service mismatch to be rejected")
+	}
+	if !strings.Contains(err.Error(), "route-other") {
+		t.Fatalf("error should name the mismatched route, got: %v", err)
+	}
+}
+
 func TestValidateAggregatesErrors(t *testing.T) {
 	bundle, err := DecodeYAML([]byte(`
 apiVersion: wrong

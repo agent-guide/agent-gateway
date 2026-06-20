@@ -159,6 +159,13 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodGet, Path: "/admin/agents/{id}", Handler: h.handleGetAgent},
 		{Method: http.MethodPut, Path: "/admin/agents/{id}", Handler: h.handleUpdateAgent},
 		{Method: http.MethodDelete, Path: "/admin/agents/{id}", Handler: h.handleDeleteAgent},
+		{Method: http.MethodGet, Path: "/admin/agents/{id}/workspace", Handler: h.handleGetAgentWorkspace},
+		{Method: http.MethodGet, Path: "/admin/agents/{id}/activity", Handler: h.handleGetAgentActivity},
+		{Method: http.MethodGet, Path: "/admin/agents/{id}/usage", Handler: h.handleGetAgentUsage},
+		{Method: http.MethodGet, Path: "/admin/agents/{id}/interactions", Handler: h.handleGetAgentInteractions},
+		{Method: http.MethodGet, Path: "/admin/agents/{id}/resources", Handler: h.handleGetAgentResources},
+		{Method: http.MethodPut, Path: "/admin/agents/{id}/resources", Handler: h.handleUpdateAgentResources},
+		{Method: http.MethodGet, Path: "/admin/agents/{id}/health", Handler: h.handleGetAgentHealth},
 
 		// Metrics
 		{Method: http.MethodGet, Path: "/admin/metrics", Handler: h.handleMetrics},
@@ -167,8 +174,12 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodGet, Path: "/admin/metrics/llm/timeseries", Handler: h.handleLLMMetricsTimeseries},
 		{Method: http.MethodGet, Path: "/admin/metrics/llm/breakdown", Handler: h.handleLLMMetricsBreakdown},
 		{Method: http.MethodGet, Path: "/admin/metrics/mcp/events", Handler: h.handleListMCPMetricsEvents},
+		{Method: http.MethodGet, Path: "/admin/metrics/mcp/timeseries", Handler: h.handleMCPMetricsTimeseries},
+		{Method: http.MethodGet, Path: "/admin/metrics/mcp/breakdown", Handler: h.handleMCPMetricsBreakdown},
 		{Method: http.MethodGet, Path: "/admin/metrics/mcp/tools/summary", Handler: h.handleMCPMetricsToolsSummary},
 		{Method: http.MethodGet, Path: "/admin/metrics/acp/events", Handler: h.handleListACPMetricsEvents},
+		{Method: http.MethodGet, Path: "/admin/metrics/acp/timeseries", Handler: h.handleACPMetricsTimeseries},
+		{Method: http.MethodGet, Path: "/admin/metrics/acp/breakdown", Handler: h.handleACPMetricsBreakdown},
 		{Method: http.MethodGet, Path: "/admin/metrics/acp/summary", Handler: h.handleACPMetricsSummary},
 		{Method: http.MethodGet, Path: "/admin/metrics/interactions", Handler: h.handleListMetricInteractions},
 		{Method: http.MethodGet, Path: "/admin/metrics/interactions/summary", Handler: h.handleMetricInteractionsSummary},
@@ -596,22 +607,6 @@ func (h *Handler) handleSearchMemory(w http.ResponseWriter, r *http.Request) {
 	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
 }
 
-func (h *Handler) handleListAgents(w http.ResponseWriter, r *http.Request) {
-	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
-}
-func (h *Handler) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
-	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
-}
-func (h *Handler) handleGetAgent(w http.ResponseWriter, r *http.Request) {
-	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
-}
-func (h *Handler) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
-	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
-}
-func (h *Handler) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
-	_ = httpjson.Error(w, http.StatusNotImplemented, "not implemented")
-}
-
 type metricsResponse struct {
 	usage.Summary
 	Pipeline pipelineStats `json:"pipeline"`
@@ -712,6 +707,41 @@ func (h *Handler) handleListMCPMetricsEvents(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+func (h *Handler) handleMCPMetricsTimeseries(w http.ResponseWriter, r *http.Request) {
+	opts := metricTimeseriesOptions(r, []string{"route_id", "service_id", "virtual_key_id", "method", "tool_name", "result_status"})
+	if h.usageQuery == nil {
+		_ = httpjson.Write(w, http.StatusOK, usage.SeriesResponse{Bucket: opts.Bucket, GroupBy: opts.GroupBy})
+		return
+	}
+	resp, err := h.usageQuery.MCPTimeseries(opts)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, resp)
+}
+
+func (h *Handler) handleMCPMetricsBreakdown(w http.ResponseWriter, r *http.Request) {
+	opts, err := metricBreakdownOptions(r, []string{"route_id", "service_id", "virtual_key_id", "method", "tool_name", "result_status"})
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if opts.GroupBy == "" {
+		opts.GroupBy = "tool_name"
+	}
+	if h.usageQuery == nil {
+		_ = httpjson.Write(w, http.StatusOK, usage.BreakdownResponse{GroupBy: opts.GroupBy, Limit: opts.Limit})
+		return
+	}
+	resp, err := h.usageQuery.MCPBreakdown(opts)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, resp)
+}
+
 func (h *Handler) handleMCPMetricsToolsSummary(w http.ResponseWriter, r *http.Request) {
 	opts, err := metricSummaryOptions(r, []string{"route_id", "service_id"})
 	if err != nil {
@@ -732,12 +762,47 @@ func (h *Handler) handleMCPMetricsToolsSummary(w http.ResponseWriter, r *http.Re
 
 func (h *Handler) handleListACPMetricsEvents(w http.ResponseWriter, r *http.Request) {
 	h.handleListMetricsEvents(w, r, "acp", []string{
-		"route_id", "service_id", "virtual_key_id", "agent_type", "operation", "thread_id", "session_id",
+		"route_id", "route_protocol", "service_id", "virtual_key_id", "agent_type", "operation", "thread_id", "session_id",
 	})
 }
 
+func (h *Handler) handleACPMetricsTimeseries(w http.ResponseWriter, r *http.Request) {
+	opts := metricTimeseriesOptions(r, []string{"route_id", "route_protocol", "service_id", "virtual_key_id", "agent_type", "operation"})
+	if h.usageQuery == nil {
+		_ = httpjson.Write(w, http.StatusOK, usage.SeriesResponse{Bucket: opts.Bucket, GroupBy: opts.GroupBy})
+		return
+	}
+	resp, err := h.usageQuery.ACPTimeseries(opts)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, resp)
+}
+
+func (h *Handler) handleACPMetricsBreakdown(w http.ResponseWriter, r *http.Request) {
+	opts, err := metricBreakdownOptions(r, []string{"route_id", "route_protocol", "service_id", "virtual_key_id", "agent_type", "operation"})
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if opts.GroupBy == "" {
+		opts.GroupBy = "operation"
+	}
+	if h.usageQuery == nil {
+		_ = httpjson.Write(w, http.StatusOK, usage.BreakdownResponse{GroupBy: opts.GroupBy, Limit: opts.Limit})
+		return
+	}
+	resp, err := h.usageQuery.ACPBreakdown(opts)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, resp)
+}
+
 func (h *Handler) handleACPMetricsSummary(w http.ResponseWriter, r *http.Request) {
-	opts, err := metricBreakdownOptions(r, []string{"route_id", "service_id", "agent_type", "operation"})
+	opts, err := metricBreakdownOptions(r, []string{"route_id", "route_protocol", "service_id", "agent_type", "operation"})
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
@@ -757,6 +822,7 @@ func (h *Handler) handleACPMetricsSummary(w http.ResponseWriter, r *http.Request
 func (h *Handler) handleListMetricInteractions(w http.ResponseWriter, r *http.Request) {
 	opts, err := metricEventListOptions(r, []string{
 		"route_kind", "route_protocol", "route_id", "virtual_key_id", "trace_id", "parent_span_id", "agent_depth",
+		"service_id", "session_id",
 	})
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
@@ -775,7 +841,7 @@ func (h *Handler) handleListMetricInteractions(w http.ResponseWriter, r *http.Re
 }
 
 func (h *Handler) handleMetricInteractionsSummary(w http.ResponseWriter, r *http.Request) {
-	opts, err := metricBreakdownOptions(r, []string{"route_kind", "route_protocol", "route_id", "virtual_key_id"})
+	opts, err := metricBreakdownOptions(r, []string{"route_kind", "route_protocol", "route_id", "virtual_key_id", "service_id", "session_id"})
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return

@@ -542,7 +542,7 @@ Returns recent LLM usage events. Supports query parameters:
 
 `GET /admin/metrics/llm/timeseries`
 
-Returns bucketed request and token counts. Parameters: `from`, `to`, `bucket` (`hour` or `day`), `group_by` (`route_id`, `provider_id`, `virtual_key_id`, `upstream_model`, `llm_api`).
+Returns bucketed request and token counts. Parameters: `from`, `to`, `bucket` (`minute`, `hour`, or `day`, or a Grafana-style duration such as `3h`/`5m`/`30s`/`1d`; defaults to `hour`), `group_by` (`route_id`, `provider_id`, `virtual_key_id`, `upstream_model`, `llm_api`).
 
 `GET /admin/metrics/llm/breakdown`
 
@@ -595,9 +595,18 @@ Returns recent interaction events across all protocol families, backed by the sh
 - `trace_id`
 - `parent_span_id`
 - `agent_depth`
+- `service_id`, `session_id`
 - `from`, `to` (RFC3339)
 - `success` (bool)
 - `limit` (default 100, max 1000)
+
+Beyond the base fields, the projection surfaces each protocol's labeling column
+so a consumer can name a span by what it did rather than falling back to
+`route_id`: `upstream_model` (LLM), `tool_name` (MCP), `operation` (ACP), plus
+`service_id` and `session_id`. Columns a row does not own are `null` (for
+example, `tool_name` is `null` on LLM and ACP rows). Management-plane ACP admin
+audit spans carry the synthetic `route_id` `/admin/acp` and `route_protocol`
+`admin`; filter on `route_protocol` to separate them from data-plane traffic.
 
 `GET /admin/metrics/interactions/summary`
 

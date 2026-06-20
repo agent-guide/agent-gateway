@@ -15,7 +15,7 @@ type EventPipeline struct {
 	sinks         []Sink
 	once          sync.Once
 	closed        chan struct{}
-	closeMu       sync.Mutex
+	closeMu       sync.RWMutex
 	closing       bool
 	dropped       atomic.Uint64
 	writeFailures atomic.Uint64
@@ -45,10 +45,9 @@ func (p *EventPipeline) Enqueue(v any) bool {
 	if p == nil || v == nil {
 		return false
 	}
-	p.closeMu.Lock()
-	closing := p.closing
-	p.closeMu.Unlock()
-	if closing {
+	p.closeMu.RLock()
+	defer p.closeMu.RUnlock()
+	if p.closing {
 		p.dropped.Add(1)
 		return false
 	}
@@ -81,11 +80,11 @@ func (p *EventPipeline) Close() error {
 	}
 	p.Start()
 	p.closeMu.Lock()
+	defer p.closeMu.Unlock()
 	if !p.closing {
 		p.closing = true
 		close(p.ch)
 	}
-	p.closeMu.Unlock()
 	<-p.closed
 	var err error
 	for _, sink := range p.sinks {

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
+	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	modelcatalog "github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	routecore "github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
@@ -29,6 +30,7 @@ func RegisterDefaultStores(backend configstore.ConfigStoreBackend) error {
 		ManagedModelSchema,
 		MCPServiceSchema,
 		ACPServiceSchema,
+		AgentSchema,
 	}
 	for _, storeSchema := range schemas {
 		if err := backend.Register(storeSchema.Name, storeSchema); err != nil {
@@ -189,6 +191,25 @@ var ACPServiceSchema = configstore.StoreSchema{
 	},
 }
 
+var AgentSchema = configstore.StoreSchema{
+	Name:              StoreAgents,
+	Kind:              "agent",
+	Table:             "agents",
+	PrimaryKeyColumns: []string{"id"},
+	TagColumn:         "tag",
+	DataColumn:        "config",
+	Timestamped:       true,
+	Codec: typedJSONCodec{
+		kind:     "agent",
+		decode:   agentpkg.DecodeStoredAgentConfig,
+		validate: validateAgentObject,
+	},
+	Metadata: configstore.MetadataFuncs{
+		PrimaryKeyFunc: primaryKeyFromStringFields("ID"),
+		TagFunc:        agentRuntimeTagValue,
+	},
+}
+
 type typedJSONCodec struct {
 	kind     string
 	decode   func([]byte) (any, error)
@@ -302,6 +323,37 @@ func validateACPServiceObject(obj any) error {
 		return value.Validate()
 	default:
 		return fmt.Errorf("acp service object has unexpected type %T", obj)
+	}
+}
+
+func validateAgentObject(obj any) error {
+	switch value := unwrapConfigObject(obj).(type) {
+	case agentpkg.Agent:
+		return value.Validate()
+	case *agentpkg.Agent:
+		if value == nil {
+			return fmt.Errorf("agent object is nil")
+		}
+		return value.Validate()
+	default:
+		return fmt.Errorf("agent object has unexpected type %T", obj)
+	}
+}
+
+// agentRuntimeTagValue uses the runtime type (acp/http) as the secondary tag.
+// The value is nested under runtime, so it cannot use the reflect string-field
+// helper and reads the struct directly.
+func agentRuntimeTagValue(obj any) (string, bool, error) {
+	switch value := unwrapConfigObject(obj).(type) {
+	case agentpkg.Agent:
+		return value.Runtime.Type, true, nil
+	case *agentpkg.Agent:
+		if value == nil {
+			return "", false, fmt.Errorf("agent object is nil")
+		}
+		return value.Runtime.Type, true, nil
+	default:
+		return "", false, fmt.Errorf("agent object has unexpected type %T", obj)
 	}
 }
 

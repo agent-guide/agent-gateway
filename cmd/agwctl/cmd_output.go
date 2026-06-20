@@ -335,6 +335,26 @@ func printGatewayMCPRuntimeHistoryTable(items []adminclient.MCPRuntimeCompletedR
 	printTable(headers, rows)
 }
 
+func printGatewayAgentsTable(items []adminclient.AgentView) {
+	headers := []string{"ID", "NAME", "RUNTIME", "RUNTIME-TARGET", "DISABLED", "SOURCE"}
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		target := item.ACPServiceID()
+		if target == "" && item.Runtime.HTTP != nil {
+			target = item.Runtime.HTTP.Endpoint
+		}
+		rows = append(rows, []string{
+			dash(item.ID),
+			dash(item.Name),
+			dash(item.Runtime.Type),
+			dash(target),
+			boolStr(item.Disabled),
+			dash(item.Source),
+		})
+	}
+	printTable(headers, rows)
+}
+
 func printGatewayACPServicesTable(items []adminclient.ACPServiceView) {
 	headers := []string{"ID", "NAME", "AGENT-TYPE", "CWD", "PERMISSION-MODE", "DISABLED", "SOURCE"}
 	rows := make([][]string, 0, len(items))

@@ -908,3 +908,159 @@ repeated here.
   service/instance) makes it hard for `acp` and would need an explicit
   session-routing model. This is distinct from coordinating *multiple distinct*
   agents, which is Workflows (P3), not multi-backend.
+
+## 11. Implementation Status
+
+P0 (P0a + P0b) and P1 are **implemented**. P2 and P3 remain design-only.
+
+### 11.1 Landed in P0a — agent object and CRUD
+
+- removed the dead `pkg/llm/agent` package.
+- added `pkg/agent` (`types.go`, `manager.go`, `manager_test.go`): the `Agent`
+  model with `acp`/`http` runtimes, `Normalize`/`Validate`,
+  `DecodeStoredAgentConfig`, and a `Manager` with CRUD plus the in-memory
+  route/service → agent index (`Refresh`, `ResolveAgentID`).
+- registered the `agents` config store (`StoreAgents` + `AgentSchema`, runtime
+  type as the tag) through `RegisterDefaultStores`.
+- the manager enforces the P0 rules: one ACP `service_id` is bound by at most one
+  agent (uniqueness), and `acp_route_ids` must resolve to the agent's runtime
+  service (consistency, via an injected `ACPRouteServiceLookup` adapter so
+  `pkg/agent` does not import the route resolver type).
+- wired `GET/POST/GET/PUT/DELETE /admin/agents` to real handlers, backed by
+  `AgentGateway.AgentManager()`.
+
+### 11.2 Landed in P0b — workspace and config-object parity
+
+- `GET /admin/agents/{id}/workspace` returns the summary/index read model:
+  bound ACP service (read-through), matching ACP routes, runtime pooled
+  instances / in-flight turns / pending permissions filtered to the service, an
+  ACP usage rollup, and links to the dedicated session/transcript endpoints. It
+  never pulls transcripts.
+- `agents` is a first-class gateway-bundle object: bundle `agents` field with
+  validation (id uniqueness, `Validate`, in-bundle one-service-one-agent, and
+  dangling-reference checks across every referenced family — providers, MCP
+  services, VirtualKeys, LLM/MCP/ACP routes, and the runtime ACP service — plus
+  intra-bundle `acp_route_id` → runtime-service consistency), apply (last, after
+  referenced objects) and export, the `pkg/adminclient` agent surface, and
+  `agwctl gateway agent` subcommands. Each cross-object check is guarded by
+  "the referenced family is present in the bundle" so a partial bundle that
+  references existing config-store objects still applies.
+
+### 11.3 Landed in P1 — attribution and observability views
+
+- additive nullable `agent_id` on the three usage event models, the SQLite
+  tables (CREATE + idempotent `ALTER … ADD COLUMN` for existing DBs), partial
+  indexes, the writers, and the query filter allowlists.
+- the `AgentAttributor` seam lives in the neutral `pkg/metrics/usage` package
+  (`attribution.go`); `pkg/agent.Manager` implements it structurally, so the
+  lower layers never import `pkg/agent`. A settable `AgentAttribution` holder is
+  injected after bootstrap (`UsageService.Attribution().Set(agentManager)` in the
+  app), and the observer stamps `agent_id` at `Begin` from the route id, only
+  when the mapping is unambiguous.
+- `GET /admin/agents/{id}/{activity,usage,interactions,resources,health}` and
+  `PUT …/resources` are wired. Per-agent metric reads use an `AttributionFilter`
+  (`agent_id = ? OR route_id IN (…) OR service_id IN (…)`) so they prefer the
+  durable `agent_id` tag but fall back to the agent's owned routes/services for
+  untagged-but-mappable events (pre-P1 history, or events written before a
+  route/service was reassigned to the agent). `GET …/resources` resolves the
+  stored id lists into object summaries (provider type, MCP transport, VirtualKey
+  tag, route protocol/path, `exists` flag) instead of echoing raw ids.
+
+### 11.4 Decisions taken during implementation
+
+Three points the design left open were resolved as follows; revisit if needed:
+
+- **Auto-created backing service:** not implemented in P0. An agent references a
+  pre-existing ACP service; the `OwnsService` provenance flag exists in the model
+  but no auto-create/derived-service write path ships yet. (Open Question in §10
+  stays open.)
+- **Workspace session counts:** the workspace exposes *live* runtime counts
+  (pooled instances, in-flight turns, pending permissions) and an ACP usage
+  rollup, plus links to `…/sessions` and `…/sessions/{id}/transcript`. It does
+  not compute a persisted distinct-session count (that would need a blocking
+  agent `session/list` or a dedicated metrics aggregate); the frontend follows
+  the links for the authoritative list.
+- **Workspace assembly location:** the workspace read model is assembled in the
+  admin layer (`pkg/admin/agents.go`), where every subsystem manager is already
+  injected, rather than in `pkg/agent/workspace.go`. The result shape is the
+  canonical workspace; only the assembly site differs from the §5.2 sketch.
+
+### 11.5 Convention notes
+
+- `agwctl gateway agent` provides `list`/`get`/`delete` plus the P0/P1 read
+  surfaces `workspace`/`activity`/`usage`/`interactions`/`resources`/`health`.
+  Agent create/update go through `agwctl gateway apply` (the gateway-bundle
+  path), the same convention every other config object follows; there is no
+  per-object create-from-file CLI. This deliberately supersedes the literal
+  "`create`/`update`" subcommand wording in §6.2/P0b: aligning agents with the
+  repo-wide read-only-CLI + apply-for-mutation convention was preferred over a
+  divergent per-object mutation CLI. The Admin API still exposes
+  `POST`/`PUT /admin/agents`, which the bundle apply path uses under the hood.
+- attribution is stamped at the dispatcher's single primary span `Begin` via the
+  route id, which covers LLM/MCP/ACP route-dispatched traffic. Service-only
+  resolution remains available through the `AgentAttributor` interface for future
+  call sites.
+
+### 11.6 Review-driven hardening
+
+A post-implementation review tightened the following:
+
+- **Uniqueness under concurrency:** the manager serializes the
+  validate → store-write → index-refresh sequence with a dedicated `writeMu`, so
+  the one-runtime-one-agent invariant holds even when two creates race on the
+  same `service_id`. The List-based uniqueness check was otherwise a
+  check-then-write TOCTOU. Covered by `TestCreateConcurrentServiceBindingIsExclusive`
+  (run under `-race`).
+- **Attribution fallback (§5.6 / §6.2):** per-agent reads no longer filter on
+  `agent_id` equality alone; the new `usage.AttributionFilter` OR-matches the
+  tag, the agent's owned route ids, and its service ids, so untagged-but-mappable
+  events surface. A nil filter means "no attribution filtering"; a non-nil but
+  empty filter matches nothing (never widens to all rows).
+  - **Service fallback is ACP-only and unambiguous:** only the ACP runtime
+    `service_id` (bound by at most one agent under P0 one-runtime-one-agent) is
+    used as a service-level fallback, carried in `AttributionFilter.ACPServiceIDs`.
+    MCP service resources have no uniqueness constraint — two agents may list the
+    same `mcp_service_id` — so attributing untagged MCP usage by service would
+    double-count; MCP events are recovered via the agent's owned `mcp_route_ids`
+    instead.
+  - **The service arm is ACP-scoped in SQL, not a bare `service_id IN (…)`:**
+    `acp_services` and `mcp_services` are separate config stores with no global id
+    uniqueness, so a same-named MCP service must not be matched by the agent's ACP
+    fallback. The query layer therefore emits the service arm only against the ACP
+    event table (`acp_usage_events`, already all-ACP) and, in the mixed-protocol
+    interactions UNION, guards it as `route_kind = 'acp' AND service_id IN (…)`.
+    The MCP/LLM tables get no service arm at all. Route arms stay unconditional
+    because route ids are globally unique (single routes store).
+  - **Interactions union projects `service_id`:** the
+    `llm/mcp/acp` UNION behind `ListInteractions` projects `service_id` (NULL for
+    llm rows) and enables the service arm, so `/activity`, `/interactions`, and
+    `/health` recover ACP events for an agent that binds only the service and did
+    not enumerate `acp_route_ids`. (Write-time `agent_id` stamping still happens at
+    span `Begin`, where only the route id is known — the service id arrives later
+    via the ACP extension — so the read-side service fallback is what closes this
+    gap for service-only agents.)
+- **Route-binding uniqueness (§5.1 / §5.6):** uniqueness is no longer limited to
+  the ACP `service_id`. Any LLM/MCP/ACP `route_id` is now owned by at most one
+  agent, enforced in three places: `Manager.checkRouteUniqueness` on create/update
+  (inside the same `writeMu` critical section as the service check), the gateway
+  bundle's `validate` (rejecting two agents that bind the same route), and
+  `Manager.Refresh`, which drops any `route_id`/`service_id` that resolves to more
+  than one agent instead of picking a last writer (so `ResolveAgentID` returns
+  `ok=false` for an ambiguous binding). This closes the read-side gap: because
+  `AttributionFilter.RouteIDs` is an OR-match, a route shared by two agents would
+  otherwise double-attribute its events to both — the §11.6 "route arms stay
+  unconditional because route ids are globally unique" reasoning now holds at the
+  binding layer, not just the routes store.
+- **Bundle reference integrity (§7 declarative-config note):** `validate` now
+  rejects dangling agent references across all referenced families and enforces
+  intra-bundle ACP route→service consistency, not just the runtime service and
+  ACP route ids. The `agwctl gateway apply` path mirrors this against live server
+  state: before create/update, `applyAgents` loads every referenced family and
+  rejects an agent with a dangling provider/service/route/key reference (agents
+  apply last, after every referenced object is resolved).
+- **Resource view depth (§6.2):** `GET …/resources` resolves linked objects into
+  summaries with an `exists` flag rather than returning raw id lists.
+- **Standalone write-time attribution:** the standalone daemon (`agwd`) now wires
+  the agent manager into the usage `AgentAttribution` holder after bootstrap,
+  matching `caddy/gateway/app.go`. Without it, write-time `agent_id` stamping was
+  silently inert under `agwd` (the attributor was never installed).

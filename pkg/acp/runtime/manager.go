@@ -90,6 +90,18 @@ func scopeMatchesThread(scope, serviceID, threadID string) bool {
 	return len(parts) == 5 && parts[0] == serviceID && parts[2] == threadID
 }
 
+// ScopeServiceID extracts the service id encoded as the first segment of a
+// pooled-instance scope, or "" if the scope is malformed. It lets callers map a
+// PooledInstanceInfo / InFlightTurn back to its owning service without exposing
+// the scope-encoding format.
+func ScopeServiceID(scope string) string {
+	parts := strings.Split(scope, scopeSep)
+	if len(parts) == 5 {
+		return parts[0]
+	}
+	return ""
+}
+
 // CloseScope tears down the pooled instance for an exact scope, returning
 // whether one was closed. An in-flight turn on that scope will fail on its next
 // request.

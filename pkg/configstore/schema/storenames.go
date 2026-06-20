@@ -8,4 +8,5 @@ const (
 	StoreManagedModels = "managed_models"
 	StoreMCPServices   = "mcp_services"
 	StoreACPServices   = "acp_services"
+	StoreAgents        = "agents"
 )

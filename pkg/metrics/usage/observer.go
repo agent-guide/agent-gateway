@@ -44,16 +44,29 @@ func SpanFromContext(ctx context.Context) InteractionSpan {
 }
 
 type Observer struct {
-	sink EventSink
+	sink        EventSink
+	attribution *AgentAttribution
 }
 
 func NewObserver(sink EventSink) Observer {
 	return Observer{sink: sink}
 }
 
+// NewObserverWithAttribution wires an attribution holder so the observer stamps
+// agent_id at Begin from the route id when the caller did not set it.
+func NewObserverWithAttribution(sink EventSink, attribution *AgentAttribution) Observer {
+	return Observer{sink: sink, attribution: attribution}
+}
+
 func (o Observer) Begin(ctx context.Context, dims InteractionDimensions) (InteractionSpan, context.Context) {
 	if dims.SpanID == "" {
 		dims.SpanID = uuid.NewString()
+	}
+	agentID := dims.AgentID
+	if agentID == "" && o.attribution != nil {
+		if resolved, ok := o.attribution.ResolveAgentID(dims.RouteID, "", ""); ok {
+			agentID = resolved
+		}
 	}
 	eventID := uuid.NewString()
 	span := &eventSpan{
@@ -69,6 +82,7 @@ func (o Observer) Begin(ctx context.Context, dims InteractionDimensions) (Intera
 			RouteKind:     dims.RouteKind,
 			RouteProtocol: dims.RouteProtocol,
 			VirtualKeyID:  dims.VirtualKeyID,
+			AgentID:       agentID,
 		},
 	}
 	return span, ContextWithSpan(ctx, span)

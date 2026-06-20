@@ -412,6 +412,7 @@ func (h *Handler) handleResolveACPPermission(w http.ResponseWriter, r *http.Requ
 	}
 	var decision acpruntime.PermissionDecision
 	if err := httpjson.Decode(r, &decision); err != nil {
+		finishAdminAudit(span, http.StatusBadRequest, "invalid_request")
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}

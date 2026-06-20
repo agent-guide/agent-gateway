@@ -41,26 +41,42 @@ type QueryService interface {
 	ListInteractions(opts EventListOptions) (EventListResponse, error)
 	LLMTimeseries(opts TimeseriesOptions) (SeriesResponse, error)
 	LLMBreakdown(opts BreakdownOptions) (BreakdownResponse, error)
+	MCPTimeseries(opts TimeseriesOptions) (SeriesResponse, error)
+	MCPBreakdown(opts BreakdownOptions) (BreakdownResponse, error)
 	MCPToolsSummary(opts SummaryOptions) (BreakdownResponse, error)
+	ACPTimeseries(opts TimeseriesOptions) (SeriesResponse, error)
+	ACPBreakdown(opts BreakdownOptions) (BreakdownResponse, error)
 	ACPSummary(opts BreakdownOptions) (BreakdownResponse, error)
 	InteractionsSummary(opts BreakdownOptions) (BreakdownResponse, error)
 }
 
 type UsageService struct {
-	pipeline Pipeline
-	query    QueryService
-	observer InteractionObserver
-	prom     PrometheusProvider
+	pipeline    Pipeline
+	query       QueryService
+	observer    InteractionObserver
+	prom        PrometheusProvider
+	attribution *AgentAttribution
 }
 
 func NewUsageService(pipeline Pipeline, query QueryService) *UsageService {
-	svc := &UsageService{pipeline: pipeline, query: query}
+	attribution := NewAgentAttribution()
+	svc := &UsageService{pipeline: pipeline, query: query, attribution: attribution}
 	if pipeline != nil {
-		svc.observer = NewObserver(pipeline)
+		svc.observer = NewObserverWithAttribution(pipeline, attribution)
 	} else {
 		svc.observer = NoopObserver{}
 	}
 	return svc
+}
+
+// Attribution returns the settable agent attribution holder. Callers inject the
+// concrete attributor (the agent manager) after the gateway is bootstrapped, so
+// the observer can stamp agent_id at write time.
+func (s *UsageService) Attribution() *AgentAttribution {
+	if s == nil {
+		return nil
+	}
+	return s.attribution
 }
 
 func (s *UsageService) Observer() InteractionObserver {
@@ -139,11 +155,12 @@ type Summary struct {
 }
 
 type EventListOptions struct {
-	From    string
-	To      string
-	Limit   int
-	Filters map[string]string
-	Success *bool
+	From        string
+	To          string
+	Limit       int
+	Filters     map[string]string
+	Success     *bool
+	Attribution *AttributionFilter
 }
 
 type EventListResponse struct {
@@ -152,11 +169,12 @@ type EventListResponse struct {
 }
 
 type TimeseriesOptions struct {
-	From    string
-	To      string
-	Bucket  string
-	GroupBy string
-	Filters map[string]string
+	From        string
+	To          string
+	Bucket      string
+	GroupBy     string
+	Filters     map[string]string
+	Attribution *AttributionFilter
 }
 
 type SeriesResponse struct {
@@ -166,19 +184,21 @@ type SeriesResponse struct {
 }
 
 type BreakdownOptions struct {
-	From    string
-	To      string
-	GroupBy string
-	OrderBy string
-	Limit   int
-	Filters map[string]string
+	From        string
+	To          string
+	GroupBy     string
+	OrderBy     string
+	Limit       int
+	Filters     map[string]string
+	Attribution *AttributionFilter
 }
 
 type SummaryOptions struct {
-	From    string
-	To      string
-	Limit   int
-	Filters map[string]string
+	From        string
+	To          string
+	Limit       int
+	Filters     map[string]string
+	Attribution *AttributionFilter
 }
 
 type BreakdownResponse struct {

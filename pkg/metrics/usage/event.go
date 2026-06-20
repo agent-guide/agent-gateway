@@ -19,6 +19,10 @@ type InteractionEvent struct {
 	StatusCode    int
 	ErrorType     string
 	LatencyMS     int64
+	// AgentID is the write-time attribution tag. It is empty for non-agent
+	// traffic and for events whose route/service maps to zero or more than one
+	// agent (stamp only when unambiguous).
+	AgentID string
 }
 
 type LLMUsageEvent struct {
@@ -137,6 +141,9 @@ type InteractionDimensions struct {
 	RouteKind     string
 	RouteProtocol string
 	VirtualKeyID  string
+	// AgentID, when set by the caller, is stamped verbatim. When empty the
+	// observer attempts attribution from RouteID via the wired AgentAttributor.
+	AgentID string
 }
 
 type InteractionOutcome struct {

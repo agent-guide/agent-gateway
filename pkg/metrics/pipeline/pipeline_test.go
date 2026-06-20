@@ -3,6 +3,7 @@ package pipeline
 import (
 	"sync"
 	"testing"
+	"time"
 )
 
 type captureSink struct {
@@ -44,5 +45,40 @@ func TestPipelineDropsWhenFull(t *testing.T) {
 	}
 	if got := p.DroppedEvents(); got != 1 {
 		t.Fatalf("DroppedEvents() = %d, want 1", got)
+	}
+}
+
+func TestPipelineCloseConcurrentEnqueueDoesNotPanic(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		p := NewEventPipeline(1, &captureSink{})
+		p.Start()
+		errs := make(chan any, 32)
+		var wg sync.WaitGroup
+		for worker := 0; worker < 16; worker++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer func() {
+					if recovered := recover(); recovered != nil {
+						errs <- recovered
+					}
+				}()
+				deadline := time.Now().Add(5 * time.Millisecond)
+				for time.Now().Before(deadline) {
+					_ = p.Enqueue("event")
+				}
+			}()
+		}
+		if err := p.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+		wg.Wait()
+		close(errs)
+		for recovered := range errs {
+			t.Fatalf("Enqueue panicked during Close: %v", recovered)
+		}
+		if p.Enqueue("after-close") {
+			t.Fatal("Enqueue() after Close = true, want false")
+		}
 	}
 }

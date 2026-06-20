@@ -9,6 +9,7 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/httplog"
 	acpruntime "github.com/agent-guide/agent-gateway/pkg/acp/runtime"
 	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
+	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
@@ -37,6 +38,7 @@ type Handler struct {
 	sharedACPRouteResolver  *acproute.ACPRouteResolver
 	sharedMCPServiceManager *mcpservice.Manager
 	sharedACPServiceManager *acpservice.Manager
+	agentManager            *agentpkg.Manager
 	virtualKeyManager       *virtualkeypkg.VirtualKeyManager
 	providerManager         *gateway.ProviderManager
 	modelCatalog            modelcatalog.Service
@@ -70,6 +72,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 	var sharedACPRouteResolver *acproute.ACPRouteResolver
 	var sharedMCPServiceManager *mcpservice.Manager
 	var sharedACPServiceManager *acpservice.Manager
+	var agentManager *agentpkg.Manager
 	var virtualKeyManager *virtualkeypkg.VirtualKeyManager
 	var providerManager *gateway.ProviderManager
 	var modelCatalogSvc modelcatalog.Service
@@ -90,6 +93,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 		sharedACPRouteResolver = agentGateway.ACPRouteResolver()
 		sharedMCPServiceManager = agentGateway.MCPServiceManager()
 		sharedACPServiceManager = agentGateway.ACPServiceManager()
+		agentManager = agentGateway.AgentManager()
 		virtualKeyManager = agentGateway.VirtualKeyManager()
 		providerManager = agentGateway.ProviderManager()
 		modelCatalogSvc = agentGateway.ModelCatalog()
@@ -112,6 +116,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 		sharedACPRouteResolver:  sharedACPRouteResolver,
 		sharedMCPServiceManager: sharedMCPServiceManager,
 		sharedACPServiceManager: sharedACPServiceManager,
+		agentManager:            agentManager,
 		virtualKeyManager:       virtualKeyManager,
 		providerManager:         providerManager,
 		modelCatalog:            modelCatalogSvc,

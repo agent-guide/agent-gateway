@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+
+	"gorm.io/gorm"
 )
 
 var (
@@ -52,6 +54,22 @@ func (b *Backend) Register(name string, storeSchema StoreSchema) error {
 	}
 	b.stores[name] = store
 	return nil
+}
+
+// UsageDB forwards the usage.SQLDBProvider capability of the underlying creator
+// so the generic Backend wrapper stays transparent. Without this, callers that
+// type-assert the Backend (or an adapter wrapping it) to a usage SQL DB provider
+// would silently fall back to a no-op metrics observer. Returns nil when the
+// creator does not expose a usage database.
+func (b *Backend) UsageDB() *gorm.DB {
+	if b == nil {
+		return nil
+	}
+	provider, ok := b.creator.(interface{ UsageDB() *gorm.DB })
+	if !ok {
+		return nil
+	}
+	return provider.UsageDB()
 }
 
 func (b *Backend) Get(name string) (ConfigStore, error) {

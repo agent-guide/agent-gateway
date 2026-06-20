@@ -302,6 +302,7 @@ func (h *Handler) serveResponses(w http.ResponseWriter, r *http.Request, prov pr
 		zap.String("request_type", string(provider.LLMApiRequestTypeResponses)),
 		zap.String("model", respReq.Model),
 	)
+	recordResponsesUsage(r, resp)
 	recordResponsesToolCalls(r, resp)
 	writeResponsesJSON(w, http.StatusOK, resp)
 	return nil
@@ -500,6 +501,22 @@ func recordResponsesToolCalls(r *http.Request, resp *provider.ResponsesResponse)
 		}
 	}
 	recordToolNameSet(r, names)
+}
+
+func recordResponsesUsage(r *http.Request, resp *provider.ResponsesResponse) {
+	if r == nil || resp == nil || resp.Usage == nil {
+		return
+	}
+	totalTokens := resp.Usage.TotalTokens
+	if totalTokens == 0 {
+		totalTokens = resp.Usage.InputTokens + resp.Usage.OutputTokens
+	}
+	usage.SpanFromContext(r.Context()).SetExtension(usage.LLMExtension{
+		InputTokens:    usage.Int(resp.Usage.InputTokens),
+		OutputTokens:   usage.Int(resp.Usage.OutputTokens),
+		TotalTokens:    usage.Int(totalTokens),
+		UsageFinalized: usage.Bool(totalTokens > 0 || resp.Usage.InputTokens > 0 || resp.Usage.OutputTokens > 0),
+	})
 }
 
 func recordToolNameSet(r *http.Request, set map[string]struct{}) {

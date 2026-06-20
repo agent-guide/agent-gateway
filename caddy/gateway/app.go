@@ -117,6 +117,13 @@ func (a *App) Provision(ctx caddy.Context) error {
 	}); err != nil {
 		return fmt.Errorf("configure agent gateway: %w", err)
 	}
+	// Inject the agent attributor now that the agent manager exists, so the usage
+	// observer can stamp agent_id at write time.
+	if attribution := a.usageService.Attribution(); attribution != nil {
+		if manager := a.agentGateway.AgentManager(); manager != nil {
+			attribution.Set(manager)
+		}
+	}
 
 	a.logger.Info("Agent Gateway provisioned")
 	return nil

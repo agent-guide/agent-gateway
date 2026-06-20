@@ -9,6 +9,7 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	acpruntime "github.com/agent-guide/agent-gateway/pkg/acp/runtime"
 	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
+	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
@@ -65,6 +66,7 @@ type AgentGateway struct {
 	mcpRuntimeRegistry  *mcpruntime.Registry
 	acpServiceManager   *acpservice.Manager
 	acpRuntimeManager   *acpruntime.Manager
+	agentManager        *agentpkg.Manager
 	usageObserver       usage.InteractionObserver
 	usageQuery          usage.QueryService
 	usageStats          usage.RuntimeStats
@@ -96,6 +98,9 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 		return err
 	}
 	if err := g.configureACPServiceManager(opts.ConfigStoreBackend); err != nil {
+		return err
+	}
+	if err := g.configureAgentManager(ctx, opts.ConfigStoreBackend); err != nil {
 		return err
 	}
 	if err := g.configureVirtualKeyManager(ctx, opts.ConfigStoreBackend); err != nil {
@@ -148,6 +153,7 @@ func (g *AgentGateway) Reset() {
 	}
 	g.acpServiceManager = nil
 	g.acpRuntimeManager = nil
+	g.agentManager = nil
 	g.usageObserver = usage.NoopObserver{}
 	g.usageQuery = nil
 	g.usageStats = nil
@@ -265,6 +271,12 @@ func (g *AgentGateway) ACPRuntimeManager() *acpruntime.Manager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.acpRuntimeManager
+}
+
+func (g *AgentGateway) AgentManager() *agentpkg.Manager {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.agentManager
 }
 
 func (g *AgentGateway) UsageObserver() usage.InteractionObserver {
@@ -459,6 +471,47 @@ func (g *AgentGateway) configureACPServiceManager(configStoreBackend configstore
 	g.acpServiceManager = acpservice.NewManager(store)
 	g.acpRuntimeManager = acpruntime.NewManager(g.acpServiceManager)
 	return nil
+}
+
+func (g *AgentGateway) configureAgentManager(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend) error {
+	if g.agentManager != nil {
+		return nil
+	}
+	if configStoreBackend == nil {
+		return nil
+	}
+	store, err := configStoreBackend.Get(schema.StoreAgents)
+	if err != nil {
+		return err
+	}
+	manager := agentpkg.NewManager(store)
+	manager.SetRouteLookup(acpRouteServiceLookup{resolver: g.acpRouteResolver})
+	if err := manager.Refresh(ctx); err != nil {
+		return fmt.Errorf("load agents: %w", err)
+	}
+	g.agentManager = manager
+	return nil
+}
+
+// acpRouteServiceLookup adapts the ACP route resolver to the agent manager's
+// ACPRouteServiceLookup seam so the manager can validate acp_route_ids without
+// depending on the resolver type directly.
+type acpRouteServiceLookup struct {
+	resolver *acproutepkg.ACPRouteResolver
+}
+
+func (l acpRouteServiceLookup) ACPRouteServiceID(ctx context.Context, routeID string) (string, error) {
+	if l.resolver == nil {
+		return "", fmt.Errorf("acp route resolver is not configured")
+	}
+	route, err := l.resolver.ResolveByID(ctx, routeID)
+	if err != nil {
+		return "", err
+	}
+	if route == nil {
+		return "", fmt.Errorf("acp route %q not found", routeID)
+	}
+	return route.ServiceID, nil
 }
 
 func (g *AgentGateway) configureVirtualKeyManager(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend) error {

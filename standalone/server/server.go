@@ -211,6 +211,11 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 	}); err != nil {
 		return nil, nil, nil, fmt.Errorf("bootstrap agent gateway: %w", err)
 	}
+	if attribution := usageService.Attribution(); attribution != nil {
+		if manager := agentGateway.AgentManager(); manager != nil {
+			attribution.Set(manager)
+		}
+	}
 	return agentGateway, cliauthRefresher, usageService, nil
 }
 

@@ -307,6 +307,44 @@ ACP route IDs are auto-generated as `acp:<service_id>:<path_prefix>` when `id` i
 
 See [docs/getting-started/quickstart-acp.md](docs/getting-started/quickstart-acp.md), [docs/architecture/acp-architecture.md](docs/architecture/acp-architecture.md), [docs/reference/acp-technical-spec.md](docs/reference/acp-technical-spec.md), and [docs/reference/acp-api.md](docs/reference/acp-api.md) for the full ACP documentation.
 
+## Metrics Admin API
+
+Usage metrics are backed by the SQLite usage event tables (`llm_usage_events`,
+`mcp_usage_events`, `acp_usage_events`) when the sqlite config store backend is
+active.
+
+```text
+GET /admin/metrics                       # per-kind summaries + pipeline health counters
+GET /admin/metrics/prometheus            # O(1) in-process counter snapshot (text exposition)
+
+GET /admin/metrics/llm/events            # recent LLM events
+GET /admin/metrics/llm/timeseries        # LLM aggregates bucketed over time
+GET /admin/metrics/llm/breakdown         # LLM aggregates grouped by a dimension
+
+GET /admin/metrics/mcp/events            # recent MCP events
+GET /admin/metrics/mcp/timeseries        # MCP aggregates bucketed over time
+GET /admin/metrics/mcp/breakdown         # MCP aggregates grouped by a dimension
+GET /admin/metrics/mcp/tools/summary     # MCP breakdown fixed to tool_name
+
+GET /admin/metrics/acp/events            # recent ACP events
+GET /admin/metrics/acp/timeseries        # ACP aggregates bucketed over time
+GET /admin/metrics/acp/breakdown         # ACP aggregates grouped by a dimension
+GET /admin/metrics/acp/summary           # ACP breakdown (operation/agent_type)
+
+GET /admin/metrics/interactions          # cross-protocol interaction events
+GET /admin/metrics/interactions/summary  # cross-protocol breakdown
+```
+
+`timeseries` and `breakdown` share one shape per protocol: `from`, `to`,
+`limit`, `group_by`, and the protocol's filter keys (LLM:
+`route_id`/`provider_id`/`virtual_key_id`/`upstream_model`/`llm_api`; MCP:
+`route_id`/`service_id`/`virtual_key_id`/`method`/`tool_name`/`result_status`;
+ACP: `route_id`/`service_id`/`virtual_key_id`/`agent_type`/`operation`).
+`timeseries` also takes `bucket` (`minute|hour|day`, short forms like `m`/`h`/`d`,
+or Grafana-style durations like `3h`/`5m`/`1d`; empty defaults to `hour`). See
+[docs/reference/admin-api-reference.md](docs/reference/admin-api-reference.md)
+for the full Admin API surface.
+
 ## Runtimes
 
 - `agw` uses a Caddyfile plus the shared config store
@@ -331,7 +369,8 @@ See [docs/README.md](docs/README.md) for runtime-specific guides and references.
 - MCP is active in the dispatcher and Admin API surface, but some adjacent subsystems are still evolving
 - ACP is a functional native route/admin/dispatcher surface with a reusable stdio runtime driver and thin codex/opencode agent adapters; crash retry and the in-repo Codex app-server bridge remain deferred
 - metrics Admin APIs expose durable SQLite-backed summaries (with pipeline drop/failure counters), recent LLM/MCP/ACP interaction events, and aggregate breakdowns; a Prometheus exposition endpoint (`GET /admin/metrics/prometheus`) serves O(1) in-process counters, and an `OpenTelemetrySink` adapter seam remains available for a deployment-supplied push exporter
-- memory and agents Admin API families still contain `501 Not Implemented` endpoints
+- the agents control plane is active: `pkg/agent`, the `agents` config store, gateway-bundle parity, and `/admin/agents` CRUD plus workspace/activity/usage/interactions/resources/health (P0 + P1); usage events carry an optional `agent_id` attribution tag
+- the memory Admin API family still contains `501 Not Implemented` endpoints
 
 ## Development
 

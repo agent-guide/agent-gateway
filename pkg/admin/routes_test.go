@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	acpruntime "github.com/agent-guide/agent-gateway/pkg/acp/runtime"
+	acpservice "github.com/agent-guide/agent-gateway/pkg/acp/service"
 	"github.com/agent-guide/agent-gateway/pkg/cliauth"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	configstoreschema "github.com/agent-guide/agent-gateway/pkg/configstore/schema"
@@ -27,6 +29,7 @@ import (
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
 	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
 	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
+	"github.com/agent-guide/agent-gateway/pkg/metrics/usage"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -37,6 +40,28 @@ type testConfigStore struct {
 	acpServiceStore configstore.ConfigStore
 	virtualKeyStore configstore.ConfigStore
 	modelStore      configstore.ConfigStore
+	agentStore      configstore.ConfigStore
+}
+
+type recordingObserver struct {
+	span *recordingSpan
+}
+
+func (o *recordingObserver) Begin(ctx context.Context, _ usage.InteractionDimensions) (usage.InteractionSpan, context.Context) {
+	o.span = &recordingSpan{}
+	return o.span, ctx
+}
+
+type recordingSpan struct {
+	outcome usage.InteractionOutcome
+}
+
+func (s *recordingSpan) SetExtension(any)             {}
+func (s *recordingSpan) AddAnnotation(string, string) {}
+func (s *recordingSpan) Finish(outcome usage.InteractionOutcome) {
+	if s.outcome.StatusCode == 0 {
+		s.outcome = outcome
+	}
 }
 
 func newTestAgentGateway(configStoreBackend configstore.ConfigStoreBackend, cliauthMgr *cliauth.Manager, cliauthRefresher *cliauth.AutoRefresher, staticRoutes []llmroutepkg.LLMRoute, _ []virtualkeypkg.VirtualKey, staticProviders ...map[string]provider.Provider) *gateway.AgentGateway {
@@ -83,6 +108,8 @@ func (s *testConfigStore) Get(name string) (configstore.ConfigStore, error) {
 		return s.virtualKeyStore, nil
 	case configstoreschema.StoreManagedModels:
 		return s.modelStore, nil
+	case configstoreschema.StoreAgents:
+		return s.agentStore, nil
 	case configstoreschema.StoreCredentials:
 		return nil, nil
 	default:
@@ -1953,6 +1980,31 @@ func TestUpdateManagedModelReturnsNotFoundWhenMissing(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("unexpected update status: got %d want %d body=%s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+}
+
+func TestResolveACPPermissionDecodeErrorRecordsFailedAudit(t *testing.T) {
+	observer := &recordingObserver{}
+	runtimeManager := acpruntime.NewManager(acpservice.NewManager(nil))
+	defer runtimeManager.Close()
+	handler := &Handler{acpRuntimeManager: runtimeManager, usageObserver: observer}
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/acp/runtime/permissions/perm-1", strings.NewReader(`{`))
+	req.SetPathValue("request_id", "perm-1")
+	rec := httptest.NewRecorder()
+	handler.handleResolveACPPermission(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if observer.span == nil {
+		t.Fatal("usage span was not started")
+	}
+	if observer.span.outcome.Success {
+		t.Fatalf("audit success = true, want false")
+	}
+	if observer.span.outcome.StatusCode != http.StatusBadRequest || observer.span.outcome.ErrorType != "invalid_request" {
+		t.Fatalf("audit outcome = %+v, want status=400 error_type=invalid_request", observer.span.outcome)
 	}
 }
 
