@@ -241,10 +241,10 @@ Current status:
   - SQLite and Mem0-related code exists
   - not yet fully active in normal request execution
 - `pkg/llm/agent/`
-  - an early orchestrator loop exists
-  - memory retrieval and tool execution are still TODOs
+  - an early LLM-native orchestrator loop exists, but it is unused (no importers) and its memory retrieval and tool execution are still TODOs
+  - this package is slated for removal, not completion: the project direction is an external agent control plane (`pkg/agent`), not a built-in internal reasoning loop; see [../design/agents-control-plane.md](../design/agents-control-plane.md)
 
-Architecturally, MCP and ACP are now active native runtime subsystems; memory and agent are still extension subsystems rather than center-of-gravity runtimes.
+Architecturally, MCP and ACP are now active native runtime subsystems. Memory is still an extension subsystem. The "agent" center of gravity is moving to an external control plane (`pkg/agent`) that composes the protocol subsystems, rather than an LLM-native orchestrator inside `pkg/llm`.
 
 ## 5. Configuration Model
 
@@ -449,7 +449,7 @@ The following are partial or placeholder:
 - full upstream progress relay back to MCP clients
 - operator-facing metrics exporter wiring
 - full memory retrieval and writeback in request path
-- complete agent orchestration loop
+- first-class `agents` control-plane APIs over the existing LLM/MCP/ACP subsystems (the legacy `pkg/llm/agent` orchestrator is slated for removal, not completion)
 - richer static Caddyfile route syntax for all route fields
 
 ## 9. Extension Points
@@ -476,13 +476,14 @@ A backend-specific creator should implement `pkg/configstore.ConfigStoreCreator`
 
 This path exists architecturally, but SQLite is the only end-to-end store currently exercised by the main runtime.
 
-### 9.4 Future MCP / Memory Runtime Extensions
+### 9.4 Future MCP / Memory / Agent Runtime Extensions
 
-The MCP, memory, and agent packages are already structured as internal subsystem boundaries. The intended direction is:
+The MCP and memory packages are structured as internal subsystem boundaries. The intended direction is:
 
 - MCP expands from the current Streamable HTTP gateway path into broader transport coverage and richer runtime semantics
 - memory becomes retrieval and persistence around model calls
-- agent orchestration becomes an execution mode rather than a separate external service
+
+The agent direction is different and is intentionally **not** an internal execution mode inside `pkg/llm`. A first-class `agents` layer (`pkg/agent`) becomes an **external control plane** that composes the LLM, MCP, ACP, and metrics subsystems: it manages agent identities, binds them to runtime backends such as ACP services, governs the resources they may use, and observes their sessions, usage, and call chains. It does not own an agent's internal reasoning loop. The legacy `pkg/llm/agent` orchestrator is removed rather than expanded. This supersedes the earlier "agent orchestration becomes an execution mode" direction. See [../design/agents-control-plane.md](../design/agents-control-plane.md).
 
 Those boundaries are already visible in code, but they should still be treated as evolving.
 
@@ -522,11 +523,11 @@ The most coherent next steps for the architecture are:
 
 - extend MCP runtime beyond the current Streamable HTTP and request-scoped cancellation model
 - include MCP objects in bundle/export/apply flows
-- finish the missing admin handlers for memory and agents
+- finish the missing admin handlers for memory
+- build the `agents` control plane: remove `pkg/llm/agent`, add `pkg/agent`, and turn the stubbed `/admin/agents` family into real agent management and workspace aggregation over the LLM/MCP/ACP/metrics subsystems (see [../design/agents-control-plane.md](../design/agents-control-plane.md))
 - wire operator-facing metrics exporters
 - expand enforcement of route policy beyond the currently active subset
 - integrate memory into the request path
-- complete the agent orchestrator tool-call loop
 - expand Caddyfile route syntax to cover more of the existing route data model
 - decide how the separate web UI becomes a first-class operator surface
 

@@ -4,6 +4,7 @@ This section is for design notes, technical specifications, and roadmap document
 
 Current design pages:
 
+- [agents-control-plane.md](agents-control-plane.md)
 - [model-first-routing.md](model-first-routing.md)
 - [route-target-policy.md](route-target-policy.md)
 - [gateway-bundle-yaml.md](gateway-bundle-yaml.md)
