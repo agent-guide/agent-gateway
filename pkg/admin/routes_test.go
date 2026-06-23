@@ -18,6 +18,7 @@ import (
 	configstoreschema "github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	dispatcherpkg "github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
+	acproute "github.com/agent-guide/agent-gateway/pkg/gateway/acproute"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
@@ -812,6 +813,176 @@ func TestLLMRouteCreateRejectsClientManagedTimestamps(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("unexpected create status: got %d want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+// TestMCPRouteAutoIDIsSlashFreeAndAddressable guards the route-id contract: an
+// auto-generated id (derived from the path prefix) must be slash-free so it is
+// addressable as a single Admin API path segment. A slash-bearing id would 404
+// on GET/DELETE because the Go ServeMux "{id}" wildcard only matches one
+// segment.
+func TestMCPRouteAutoIDIsSlashFreeAndAddressable(t *testing.T) {
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		routeStore: &testMCPRouteStore{items: map[string]*routecore.AgentRouteConfig{}},
+	}, nil, nil, nil, nil), nil)
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	createBody, err := json.Marshal(mcproute.MCPRouteConfig{
+		AgentRouteConfig: mcproute.AgentRouteConfig{
+			MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp/foo"},
+		},
+		ServiceID: "svc-main",
+	})
+	if err != nil {
+		t.Fatalf("marshal mcp route: %v", err)
+	}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/admin/mcp/routes", bytes.NewReader(createBody))
+	createReq.Header.Set("Authorization", "Bearer "+token)
+	createRec := httptest.NewRecorder()
+	handler.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("unexpected create status: got %d want %d", createRec.Code, http.StatusCreated)
+	}
+
+	var created MCPRouteView
+	if err := json.NewDecoder(createRec.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created mcp route: %v", err)
+	}
+	if strings.ContainsAny(created.ID, "/\\") {
+		t.Fatalf("auto-generated route id must be slash-free: %q", created.ID)
+	}
+	if created.ID != "mcp:svc-main:mcp-foo" {
+		t.Fatalf("unexpected auto-generated route id: %q", created.ID)
+	}
+
+	// GET and DELETE with the generated id must resolve through the "{id}"
+	// pattern, not 404.
+	getReq := httptest.NewRequest(http.MethodGet, "/admin/mcp/routes/"+created.ID, nil)
+	getReq.Header.Set("Authorization", "Bearer "+token)
+	getRec := httptest.NewRecorder()
+	handler.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("unexpected get status: got %d want %d", getRec.Code, http.StatusOK)
+	}
+
+	delReq := httptest.NewRequest(http.MethodDelete, "/admin/mcp/routes/"+created.ID, nil)
+	delReq.Header.Set("Authorization", "Bearer "+token)
+	delRec := httptest.NewRecorder()
+	handler.ServeHTTP(delRec, delReq)
+	if delRec.Code != http.StatusOK {
+		t.Fatalf("unexpected delete status: got %d want %d", delRec.Code, http.StatusOK)
+	}
+}
+
+// TestMCPRouteCreateRejectsSlashID ensures an explicitly supplied slash-bearing
+// route id is rejected rather than silently creating an unaddressable route.
+func TestMCPRouteCreateRejectsSlashID(t *testing.T) {
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		routeStore: &testMCPRouteStore{items: map[string]*routecore.AgentRouteConfig{}},
+	}, nil, nil, nil, nil), nil)
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	createBody, err := json.Marshal(mcproute.MCPRouteConfig{
+		AgentRouteConfig: mcproute.AgentRouteConfig{
+			ID:          "mcp/with/slash",
+			MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
+		},
+		ServiceID: "svc-main",
+	})
+	if err != nil {
+		t.Fatalf("marshal mcp route: %v", err)
+	}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/admin/mcp/routes", bytes.NewReader(createBody))
+	createReq.Header.Set("Authorization", "Bearer "+token)
+	createRec := httptest.NewRecorder()
+	handler.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected slash id to be rejected with 400, got status %d", createRec.Code)
+	}
+}
+
+// TestACPRouteAutoIDIsSlashFreeAndAddressable mirrors the MCP guard for ACP: an
+// auto-generated id must be slash-free and addressable through the "{id}"
+// pattern.
+func TestACPRouteAutoIDIsSlashFreeAndAddressable(t *testing.T) {
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		routeStore: &testMCPRouteStore{items: map[string]*routecore.AgentRouteConfig{}},
+	}, nil, nil, nil, nil), nil)
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	createBody, err := json.Marshal(acproute.ACPRouteConfig{
+		AgentRouteConfig: acproute.AgentRouteConfig{
+			MatchPolicy: acproute.RouteMatch{PathPrefix: "/acp/opencode"},
+		},
+		ServiceID: "opencode-main",
+	})
+	if err != nil {
+		t.Fatalf("marshal acp route: %v", err)
+	}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/admin/acp/routes", bytes.NewReader(createBody))
+	createReq.Header.Set("Authorization", "Bearer "+token)
+	createRec := httptest.NewRecorder()
+	handler.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("unexpected create status: got %d want %d", createRec.Code, http.StatusCreated)
+	}
+
+	var created ACPRouteView
+	if err := json.NewDecoder(createRec.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created acp route: %v", err)
+	}
+	if strings.ContainsAny(created.ID, "/\\") {
+		t.Fatalf("auto-generated route id must be slash-free: %q", created.ID)
+	}
+	if created.ID != "acp:opencode-main:acp-opencode" {
+		t.Fatalf("unexpected auto-generated route id: %q", created.ID)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/admin/acp/routes/"+created.ID, nil)
+	getReq.Header.Set("Authorization", "Bearer "+token)
+	getRec := httptest.NewRecorder()
+	handler.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("unexpected get status: got %d want %d", getRec.Code, http.StatusOK)
+	}
+
+	delReq := httptest.NewRequest(http.MethodDelete, "/admin/acp/routes/"+created.ID, nil)
+	delReq.Header.Set("Authorization", "Bearer "+token)
+	delRec := httptest.NewRecorder()
+	handler.ServeHTTP(delRec, delReq)
+	if delRec.Code != http.StatusOK {
+		t.Fatalf("unexpected delete status: got %d want %d", delRec.Code, http.StatusOK)
+	}
+}
+
+// TestACPRouteCreateRejectsSlashID ensures an explicit slash-bearing ACP route
+// id is rejected with a 400 client error, not a 500.
+func TestACPRouteCreateRejectsSlashID(t *testing.T) {
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+		routeStore: &testMCPRouteStore{items: map[string]*routecore.AgentRouteConfig{}},
+	}, nil, nil, nil, nil), nil)
+	token := loginForTest(t, handler, "admin", "secret-pass")
+
+	createBody, err := json.Marshal(acproute.ACPRouteConfig{
+		AgentRouteConfig: acproute.AgentRouteConfig{
+			ID:          "acp/with/slash",
+			MatchPolicy: acproute.RouteMatch{PathPrefix: "/acp"},
+		},
+		ServiceID: "opencode-main",
+	})
+	if err != nil {
+		t.Fatalf("marshal acp route: %v", err)
+	}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/admin/acp/routes", bytes.NewReader(createBody))
+	createReq.Header.Set("Authorization", "Bearer "+token)
+	createRec := httptest.NewRecorder()
+	handler.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected slash id to be rejected with 400, got status %d", createRec.Code)
 	}
 }
 

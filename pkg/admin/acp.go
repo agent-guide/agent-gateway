@@ -256,6 +256,10 @@ func (h *Handler) handleCreateACPRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := resolver.CreateConfig(r.Context(), cfg, ""); err != nil {
+		if errors.Is(err, acproute.ErrInvalidRouteID) {
+			_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -338,6 +342,10 @@ func (h *Handler) handleUpdateACPRoute(w http.ResponseWriter, r *http.Request) {
 	if err := resolver.UpdateConfig(r.Context(), id, cfg); err != nil {
 		if errors.Is(err, configstore.ErrNotFound) {
 			_ = httpjson.Error(w, http.StatusNotFound, "acp route not found")
+			return
+		}
+		if errors.Is(err, acproute.ErrInvalidRouteID) {
+			_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())

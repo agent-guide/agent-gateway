@@ -297,6 +297,9 @@ func (b *GatewayBundle) validate(_ bool) error {
 			errs.Append(fmt.Errorf("mcpRoutes[%d].id is required", i))
 			continue
 		}
+		if err := routecore.ValidateRouteID(id); err != nil {
+			errs.Append(fmt.Errorf("mcpRoutes[%d]: %w", i, err))
+		}
 		if _, exists := mcpRouteIDs[id]; exists {
 			errs.Append(fmt.Errorf("mcpRoutes[%q]: duplicate id", id))
 		} else {
@@ -334,6 +337,9 @@ func (b *GatewayBundle) validate(_ bool) error {
 		if id == "" {
 			errs.Append(fmt.Errorf("acpRoutes[%d].id is required", i))
 			continue
+		}
+		if err := routecore.ValidateRouteID(id); err != nil {
+			errs.Append(fmt.Errorf("acpRoutes[%d]: %w", i, err))
 		}
 		if _, exists := acpRouteIDs[id]; exists {
 			errs.Append(fmt.Errorf("acpRoutes[%q]: duplicate id", id))

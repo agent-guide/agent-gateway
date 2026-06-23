@@ -99,10 +99,11 @@ An ACP route exposes one service through the dispatcher:
 - target policy kind `acp-service`, expanded as top-level `service_id` in
   ACP route API and bundle objects
 
-When omitted, ACP route IDs normalize to:
+When omitted, ACP route IDs normalize to the deterministic, slash-free form
+(the path prefix lowercased, non-alphanumeric runs collapsed to `-`, `/` → `root`):
 
 ```text
-acp:<service_id>:<path_prefix>
+acp:<service_id>:<path-slug>
 ```
 
 ## Pooling And Sessions

@@ -270,6 +270,10 @@ func (h *Handler) handleCreateMCPRoute(w http.ResponseWriter, r *http.Request) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
+		if errors.Is(err, mcproute.ErrInvalidRouteID) {
+			_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -356,6 +360,10 @@ func (h *Handler) handleUpdateMCPRoute(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, configstore.ErrNotFound) {
 			_ = httpjson.Error(w, http.StatusNotFound, "mcp route not found")
+			return
+		}
+		if errors.Is(err, mcproute.ErrInvalidRouteID) {
+			_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())

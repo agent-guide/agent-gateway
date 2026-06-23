@@ -163,7 +163,8 @@ mcpServices:
     transport: streamable_http
     url: ${MCP_SERVICE_URL}
 mcpRoutes:
-  - service_id: mcp-main
+  - id: mcp-main-route
+    service_id: mcp-main
     match_policy:
       path_prefix: /mcp
     auth_policy:
@@ -171,8 +172,15 @@ mcpRoutes:
 virtualKeys:
   - id: mcp-key
     allowed_route_ids:
-      - mcp:mcp-main:/mcp
+      - mcp-main-route
 ```
+
+Route ids must be slash-free. If `id` is omitted the gateway auto-generates a
+deterministic id `mcp:<service_id>:<path-slug>` (the path prefix lowercased with
+non-alphanumeric runs collapsed to `-`, `/` → `root`), so `/mcp` on `mcp-main`
+becomes `mcp:mcp-main:mcp`. The id above is set explicitly only for readability;
+because the auto-generated id is predictable you may also reference it directly
+in `allowed_route_ids`.
 
 **stdio upstream** (local subprocess, e.g. `@modelcontextprotocol/server-filesystem`):
 
@@ -186,7 +194,8 @@ mcpServices:
     command: npx
     args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
 mcpRoutes:
-  - service_id: mcp-fs
+  - id: mcp-fs-route
+    service_id: mcp-fs
     match_policy:
       path_prefix: /mcp
     auth_policy:
@@ -194,7 +203,7 @@ mcpRoutes:
 virtualKeys:
   - id: mcp-key
     allowed_route_ids:
-      - mcp:mcp-fs:/mcp
+      - mcp-fs-route
 ```
 
 Apply and verify:
@@ -216,7 +225,7 @@ curl -s http://127.0.0.1:8080/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-MCP route IDs are auto-generated as `mcp:<service_id>:<path_prefix>` when `id` is omitted. See [docs/getting-started/quickstart-mcp.md](docs/getting-started/quickstart-mcp.md) for the full walkthrough.
+MCP route IDs are auto-generated as the deterministic, slash-free `mcp:<service_id>:<path-slug>` when `id` is omitted (the path prefix lowercased with non-alphanumeric runs collapsed to `-`, `/` → `root`). See [docs/getting-started/quickstart-mcp.md](docs/getting-started/quickstart-mcp.md) for the full walkthrough.
 
 ## ACP Quick Start
 
@@ -303,7 +312,7 @@ Inspect sessions, replay transcripts, or operate on runtime state:
 ./agwctl gateway acp-runtime close-thread codex-main t-demo-1
 ```
 
-ACP route IDs are auto-generated as `acp:<service_id>:<path_prefix>` when `id` is omitted. Permission modes are `deny`, `auto_approve`, and `interactive`; interactive requests are surfaced as `permission` SSE events and can be resolved through `POST /<acp-route>/permission` or the Admin API.
+ACP route IDs are auto-generated as the deterministic, slash-free `acp:<service_id>:<path-slug>` when `id` is omitted (the path prefix lowercased with non-alphanumeric runs collapsed to `-`, `/` → `root`). Permission modes are `deny`, `auto_approve`, and `interactive`; interactive requests are surfaced as `permission` SSE events and can be resolved through `POST /<acp-route>/permission` or the Admin API.
 
 See [docs/getting-started/quickstart-acp.md](docs/getting-started/quickstart-acp.md), [docs/architecture/acp-architecture.md](docs/architecture/acp-architecture.md), [docs/reference/acp-technical-spec.md](docs/reference/acp-technical-spec.md), and [docs/reference/acp-api.md](docs/reference/acp-api.md) for the full ACP documentation.
 

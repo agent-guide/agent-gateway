@@ -209,6 +209,7 @@ Current shape:
 - `MCPRouteConfig` is the expanded config form used by admin and config-adjacent layers that need direct `service_id` access
 - `MCPRoute` is the runtime object created by `MCPRouteResolver` and used by dispatcher/runtime code
 - prefer `*MCPRoute` at runtime rather than copying `MCPRoute` values
+- route ids must be slash-free so they are addressable as a single Admin API path segment (`/admin/mcp/routes/{id}`); `Normalize` auto-generates the deterministic `mcp:<service_id>:<path-slug>` (slug = path prefix lowercased, non-alphanumeric runs collapsed to `-`, `/` → `root`) when `id` is empty, and `routecore.ValidateRouteID` rejects slash-bearing ids at create/validate time. The id is fully predictable, so other objects (e.g. `allowed_route_ids`) can reference it before apply; two routes whose paths slugify to the same value collide and surface as a duplicate-id error, at which point set an explicit id.
 
 ### `pkg/gateway/acproute/`
 
@@ -226,6 +227,7 @@ Current shape:
 - persisted/static ACP routes use `routecore.AgentRouteConfig`
 - `ACPRouteConfig` is the expanded config form used by admin and config-adjacent layers that need direct `service_id` access
 - `ACPRoute` is the runtime object created by `ACPRouteResolver` and used by dispatcher/runtime code
+- route ids must be slash-free so they are addressable as a single Admin API path segment (`/admin/acp/routes/{id}`); `Normalize` auto-generates the deterministic `acp:<service_id>:<path-slug>` when `id` is empty, and `routecore.ValidateRouteID` rejects slash-bearing ids at create/validate time. The id is fully predictable; two routes whose paths slugify to the same value collide and surface as a duplicate-id error, at which point set an explicit id.
 
 ### `pkg/acp/`
 

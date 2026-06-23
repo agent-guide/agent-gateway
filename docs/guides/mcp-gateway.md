@@ -71,9 +71,10 @@ If `id` is omitted, the MCP route config derives one from:
 - `service_id`
 - `match_policy.path_prefix`
 
-The derived shape is:
+The derived shape is the deterministic, slash-free (path prefix lowercased,
+non-alphanumeric runs collapsed to `-`, `/` → `root`):
 
-- `mcp:<service_id>:<path_prefix>`
+- `mcp:<service_id>:<path-slug>`
 
 ## Current Admin Surface
 

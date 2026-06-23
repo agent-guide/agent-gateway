@@ -64,11 +64,7 @@ func (r *ACPRouteConfig) Normalize() {
 	r.AgentRouteConfig = normalizeConfigDefaults(r.AgentRouteConfig)
 	r.ServiceID = strings.TrimSpace(r.ServiceID)
 	if r.ID == "" && r.ServiceID != "" {
-		path := r.MatchPolicy.PathPrefix
-		if path == "" {
-			path = "/"
-		}
-		r.ID = "acp:" + r.ServiceID + ":" + path
+		r.ID = routecore.GenerateRouteID("acp", r.ServiceID, r.MatchPolicy.PathPrefix)
 	}
 }
 

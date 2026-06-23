@@ -640,7 +640,7 @@ func TestValidateMCPRouteRequiresServiceID(t *testing.T) {
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
 mcpRoutes:
-  - id: mcp:svc:/
+  - id: mcp-svc-root
     kind: mcp
     match_policy:
       path_prefix: /

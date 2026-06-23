@@ -11,6 +11,7 @@ import (
 var (
 	ErrRouteNotConfigured  = routecore.ErrRouteNotConfigured
 	ErrStaticRouteReadOnly = routecore.ErrStaticRouteReadOnly
+	ErrInvalidRouteID      = routecore.ErrInvalidRouteID
 )
 
 type MCPRouteResolver struct {
@@ -80,6 +81,9 @@ func (r *MCPRouteResolver) CreateConfig(ctx context.Context, route routecore.Age
 	if route.ID == "" {
 		return fmt.Errorf("route id is required")
 	}
+	if err := routecore.ValidateRouteID(route.ID); err != nil {
+		return err
+	}
 	manager := r.ConfigManager()
 	if manager == nil {
 		return fmt.Errorf("route config manager is not configured")
@@ -94,6 +98,9 @@ func (r *MCPRouteResolver) CreateConfig(ctx context.Context, route routecore.Age
 func (r *MCPRouteResolver) UpdateConfig(ctx context.Context, routeID string, route routecore.AgentRouteConfig) error {
 	if routeID == "" {
 		return fmt.Errorf("route id is required")
+	}
+	if err := routecore.ValidateRouteID(routeID); err != nil {
+		return err
 	}
 	manager := r.ConfigManager()
 	if manager == nil {

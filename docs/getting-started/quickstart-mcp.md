@@ -79,7 +79,8 @@ mcpServices:
     transport: streamable_http
     url: ${MCP_SERVICE_URL}
 mcpRoutes:
-  - service_id: mcp-main
+  - id: mcp-main-route
+    service_id: mcp-main
     match_policy:
       path_prefix: /mcp
     auth_policy:
@@ -87,10 +88,14 @@ mcpRoutes:
 virtualKeys:
   - id: mcp-key
     allowed_route_ids:
-      - mcp:mcp-main:/mcp
+      - mcp-main-route
 ```
 
-The `allowed_route_ids` entry follows the auto-generated MCP route ID pattern: `mcp:<service_id>:<path_prefix>`.
+Route ids must be slash-free. The route above sets an explicit `id` reused in
+`allowed_route_ids`. If you omit `id`, the gateway auto-generates a deterministic
+id `mcp:<service_id>:<path-slug>` (path prefix lowercased, non-alphanumeric runs
+collapsed to `-`, `/` → `root`) — e.g. `mcp:mcp-main:mcp` — which is predictable,
+so you can reference it directly instead of setting an explicit id.
 
 ### Option B: stdio subprocess upstream
 
@@ -114,7 +119,8 @@ mcpServices:
       - "@modelcontextprotocol/server-filesystem"
       - /tmp
 mcpRoutes:
-  - service_id: mcp-fs
+  - id: mcp-fs-route
+    service_id: mcp-fs
     match_policy:
       path_prefix: /mcp
     auth_policy:
@@ -122,7 +128,7 @@ mcpRoutes:
 virtualKeys:
   - id: mcp-key
     allowed_route_ids:
-      - mcp:mcp-fs:/mcp
+      - mcp-fs-route
 ```
 
 ## 6. Apply the Bundle
@@ -144,7 +150,7 @@ Expected output:
 ```
 gateway apply: gateway.bundle.mcp.yaml
   create mcp_service mcp-main
-  create mcp_route mcp:mcp-main:/mcp
+  create mcp_route mcp-main-route
   create virtual_key mcp-key
 summary: create=3 update=0 skip=0 error=0
 ```
@@ -195,7 +201,7 @@ For a complete Python-based end-to-end client, see [`examples/test_mcp_gateway_c
 ## Notes
 
 - The MCP dispatcher is enabled by the `mcp` directive inside `agent_route_dispatcher`. LLM routes and MCP routes share the same dispatcher and config store.
-- MCP route IDs are auto-generated as `mcp:<service_id>:<path_prefix>` when `id` is omitted in the bundle.
+- MCP route IDs are auto-generated as the deterministic, slash-free `mcp:<service_id>:<path-slug>` when `id` is omitted in the bundle (path prefix lowercased, non-alphanumeric runs collapsed to `-`, `/` → `root`).
 - The gateway initializes an upstream session on first use and caches it. Inspect session state with `agwctl gateway mcp-service session <id>`.
 - The Admin API has no built-in sessions; authentication is handled by the HTTP mount layer.
 - Run `agwctl gateway export` to dump the current gateway state as a bundle YAML.

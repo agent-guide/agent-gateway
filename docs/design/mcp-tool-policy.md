@@ -92,7 +92,7 @@ Policy ownership is route-level. The dispatcher always carries the selected `MCP
 
 ```json
 {
-  "id": "mcp:fs-service:/mcp/fs",
+  "id": "mcp:fs-service:mcp-fs",
   "kind": "mcp",
   "service_id": "fs-service",
   "match_policy": {

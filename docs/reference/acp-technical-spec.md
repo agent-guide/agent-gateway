@@ -124,7 +124,7 @@ under `acpRoutes`.
 
 Fields:
 
-- `id`: optional on create; defaults to `acp:<service_id>:<path_prefix>`.
+- `id`: optional on create; defaults to the deterministic, slash-free `acp:<service_id>:<path-slug>` (path prefix lowercased, non-alphanumeric runs collapsed to `-`, `/` → `root`). Must be slash-free; a slash-bearing id is rejected with `400`.
 - `kind`: normalized to `acp`.
 - `protocol`: normalized to `acp`.
 - `match_policy.path_prefix`: route prefix removed before dispatch.

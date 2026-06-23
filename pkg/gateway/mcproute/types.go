@@ -66,11 +66,7 @@ func (r *MCPRouteConfig) Normalize() {
 	r.AgentRouteConfig = normalizeConfigDefaults(r.AgentRouteConfig)
 	r.ServiceID = strings.TrimSpace(r.ServiceID)
 	if r.ID == "" && r.ServiceID != "" {
-		path := r.MatchPolicy.PathPrefix
-		if path == "" {
-			path = "/"
-		}
-		r.ID = "mcp:" + r.ServiceID + ":" + path
+		r.ID = routecore.GenerateRouteID("mcp", r.ServiceID, r.MatchPolicy.PathPrefix)
 	}
 }
 

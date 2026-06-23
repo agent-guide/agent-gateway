@@ -237,8 +237,9 @@ Or answer as an operator:
 
 - The dispatcher is enabled by the `acp` directive inside
   `agent_route_dispatcher`.
-- ACP route IDs are auto-generated as `acp:<service_id>:<path_prefix>` when
-  `id` is omitted.
+- ACP route IDs are auto-generated as the deterministic, slash-free
+  `acp:<service_id>:<path-slug>` when `id` is omitted (path prefix lowercased,
+  non-alphanumeric runs collapsed to `-`, `/` → `root`).
 - The gateway accepts a VirtualKey as `Authorization: Bearer <key>` or
   `x-api-key: <key>`.
 - `codex` uses `codex-acp` by default. There is no native `codex acp`

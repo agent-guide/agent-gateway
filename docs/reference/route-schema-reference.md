@@ -133,7 +133,10 @@ ACP Admin API and bundle objects expose this as top-level `service_id`:
 ```
 
 ACP routes normalize to `kind: "acp"` and `protocol: "acp"`. When `id` is
-omitted, it defaults to `acp:<service_id>:<path_prefix>`.
+omitted, it defaults to the deterministic, slash-free `acp:<service_id>:<path-slug>`
+(the path prefix lowercased, non-alphanumeric runs collapsed to `-`, `/` →
+`root`). Route ids must be slash-free so they are addressable as a single Admin
+API path segment; a slash-bearing id is rejected with `400` on create/update.
 
 ## Static Config Restrictions
 
