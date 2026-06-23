@@ -37,7 +37,7 @@ acpServices:
 
 acpRoutes:
 
-  # id defaults to acp:<service_id>:<path_prefix> when omitted
+  # id defaults to the slash-free acp:<service_id>:<path-slug> when omitted
   - id: acp-codex
     service_id: codex-main
     match_policy:

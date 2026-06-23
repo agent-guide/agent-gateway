@@ -57,7 +57,8 @@ func slugifyPath(path string) string {
 // API path segment. Route ids are used verbatim in "/admin/<proto>/routes/{id}",
 // so a slash (raw or escaped) would break GET/PUT/DELETE routing.
 func ValidateRouteID(id string) error {
-	if strings.ContainsAny(id, "/\\") {
+	lowerID := strings.ToLower(id)
+	if strings.ContainsAny(id, "/\\") || strings.Contains(lowerID, "%2f") || strings.Contains(lowerID, "%5c") {
 		return fmt.Errorf("%w: %q must not contain slash characters", ErrInvalidRouteID, id)
 	}
 	return nil

@@ -37,7 +37,7 @@ func TestGenerateRouteIDSameSlugCollides(t *testing.T) {
 }
 
 func TestValidateRouteIDRejectsSlashes(t *testing.T) {
-	for _, id := range []string{"mcp:svc:/mcp", "a/b", "a\\b"} {
+	for _, id := range []string{"mcp:svc:/mcp", "a/b", "a\\b", "a%2Fb", "a%2fb", "a%5Cb", "a%5cb"} {
 		if err := ValidateRouteID(id); err == nil {
 			t.Fatalf("expected %q to be rejected", id)
 		}

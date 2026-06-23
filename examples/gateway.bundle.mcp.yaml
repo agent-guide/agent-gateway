@@ -69,6 +69,6 @@ virtualKeys:
   - id: vk-mcp-test
     tag: local-test
     allowed_route_ids:
-      - mcp:mcp-http:/mcp/http
-      - mcp:mcp-sse:/mcp/sse
-      - mcp:mcp-filesystem:/mcp/fs
+      - mcp:mcp-http:mcp-http
+      - mcp:mcp-sse:mcp-sse
+      - mcp:mcp-filesystem:mcp-fs
