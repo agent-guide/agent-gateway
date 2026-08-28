@@ -203,14 +203,20 @@ lifecycle, and whether there is a separate process at all**:
   materialized inside the gateway process by an eino-ADK-based host. The
   gateway owns the agent's entire existence, not just a process around it.
 
-A `runtime.type = "http"` agent carries an `http` block instead of `acp`:
+A `runtime.type = "http"` agent carries an `http` block instead of `acp`.
+The persistable shape today is `{endpoint, auth_ref}`; the executable schema
+in [HTTP Agent Runtime](http-agent-runtime.md) replaces the design-only
+`endpoint` name with the unambiguous `card_url`, and adds required `protocol`
+(`a2a`; `custom` is reserved and rejected) plus `timeout_seconds`:
 
 ```json
 "runtime": {
   "type": "http",
   "http": {
-    "endpoint": "https://agents.internal/coding-agent",
-    "auth_ref": "agent-callback-key"
+    "card_url": "https://agents.internal/.well-known/agent-card.json",
+    "protocol": "a2a",
+    "auth_ref": "agent-callback-key",
+    "timeout_seconds": 300
   }
 }
 ```
@@ -240,7 +246,10 @@ the runtime backend belong under `runtime.<type>`, not under `policy`:
 - `runtime.acp` owns `agent_type`, cwd/allowed roots, default model, environment,
   config overrides, pool limits, permission mode, and agent-specific adapter
   config.
-- `runtime.http` owns endpoint/auth/timeouts.
+- `runtime.http` owns the Agent Card URL, southbound `protocol` (A2A Protocol
+  1.0 JSON-RPC first), auth, and timeouts. The actual service URL and tenant
+  come from the selected, validated Card interface. See
+  [HTTP Agent Runtime](http-agent-runtime.md).
 - `runtime.builtin` owns the in-process definition.
 
 The Agent's top-level `id`, `name`, `description`, `disabled`, and timestamps
@@ -430,8 +439,11 @@ The classification axis is **who owns the agent's lifecycle, and whether a
 separate process exists**, which yields three Agent runtime categories. ACP and
 builtin execution are implemented today behind runtime-specific dispatch;
 their `agentruntime.Backend` adapters land before the AgentRoute cutover. `http`
-remains a defined runtime shape whose executable adapter lands only after its
-wire/auth contract is implemented.
+is designed in [HTTP Agent Runtime](http-agent-runtime.md): A2A Protocol 1.0
+JSON-RPC is the first southbound dialect under `runtime.http.protocol`,
+reached through a shared `pkg/a2a` protocol package, the translating
+`HTTPBackend` (Path B, ships first), and the governed `protocol a2a` JSON-RPC
+proxy (Path A). It remains design-only until those phases ship.
 
 - **`acp`** — the gateway owns the agent's external process lifecycle. Its
   adapter translates the Agent-owned `runtime.acp` block into
@@ -439,9 +451,13 @@ wire/auth contract is implemented.
   sessions, scope rebind, permission flow, and transcript. A turn ending does
   not tear down the process; the pool governs it by `IdleTTL`.
 - **`http`** — the agent service owns its lifecycle. Its future adapter
-  dispatches to `runtime.http.endpoint` over the versioned HTTP Agent contract.
-  A remote stateful agent still fits here; its session is an id passed over
-  HTTP, not a process owned by the gateway.
+  resolves `runtime.http.card_url`, then dispatches to the selected Card
+  interface over the dialect selected by `runtime.http.protocol` (A2A
+  Protocol 1.0 JSON-RPC first; see
+  [HTTP Agent Runtime](http-agent-runtime.md)). The adapter lives in
+  `pkg/gateway` and calls `pkg/a2a`; it does not own durable remote-task
+  state. A remote stateful agent still fits here; its session is an id
+  passed over HTTP, not a process owned by the gateway.
 - **`builtin`** — there is no separate process. The adapter invokes the
   in-process ADK host (see [5.7](#57-builtin-runtime-adk-hosted-agents)),
   materializing or reusing the definition graph and translating Runner events
@@ -1066,6 +1082,11 @@ repeated here.
 P0 (P0a + P0b) and P1 are **implemented**. P2 and P3 remain
 design-only. The builtin PB0, PB1, and PB1b implementation status is maintained
 in [Builtin Agent Runtime](builtin-agent-runtime.md); PB2 remains deferred.
+The `http` runtime design and implementation track live in
+[HTTP Agent Runtime](http-agent-runtime.md): A2A Protocol 1.0 JSON-RPC,
+shared `pkg/a2a`, Path B (`HTTPBackend`) before Path A (`protocol a2a`).
+`http` remains design-only and dispatches fail closed with
+`runtime_not_executable`.
 
 ### 11.1 Historical P0a — agent object and CRUD (superseded)
 

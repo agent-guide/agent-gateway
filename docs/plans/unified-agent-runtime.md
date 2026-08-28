@@ -36,7 +36,7 @@ Agent APIs / AgentRoute / external Workflow Activity
   -> agentruntime.Backend registry
        acp     -> ACP adapter -> agent-owned ACP runtime/process pool
        builtin -> builtin adapter -> in-process ADK host
-       http    -> HTTP adapter -> external endpoint
+       http    -> HTTP adapter -> pkg/a2a client -> remote A2A v1.0 JSON-RPC endpoint
 ```
 
 The delivery rule is **contract before route cutover**. ACPRoute and
@@ -102,7 +102,7 @@ HTTP request
   -> runtime.type
        acp     -> ACP backend -> Agent.runtime.acp -> ACP process pool
        builtin -> builtin backend -> in-process ADK host
-       http    -> HTTP backend -> external endpoint
+       http    -> HTTP backend -> Agent Card -> selected A2A interface
 ```
 
 Changing an Agent from one runtime to another must not require changing its
@@ -821,7 +821,7 @@ Schedule and business retry policy belong to the upper-layer Workflow owner.
 Backend-specific operational config stays under the owning Agent runtime block:
 ACP process pool, cwd/allowed roots, permission and adapter config under
 `runtime.acp`; builtin topology/middleware/materializer under
-`runtime.builtin`; HTTP endpoint/auth/timeouts under `runtime.http`.
+`runtime.builtin`; HTTP Agent Card URL/auth/timeouts under `runtime.http`.
 
 The common backend wrapper enforces policies that can be enforced at the Agent
 boundary. Resource declarations should become effective entitlements in a
@@ -1059,7 +1059,9 @@ Runtime-specific optional input must be validated rather than silently ignored:
   `config_overrides`;
 - builtin: the common top-level `permission` continuation plus any future
   builtin v1 runtime options;
-- HTTP: only fields supported by the eventual Agent HTTP contract.
+- HTTP: P0 accepts no `options.runtime` fields (omit or empty object);
+  unknown fields fail `unsupported_option`. See
+  [HTTP Agent Runtime](../design/http-agent-runtime.md).
 
 The AgentRoute decoder accepts only the common fields and the §5.3 versioned
 options envelope. Unknown top-level, envelope, or selected-runtime fields
@@ -1088,21 +1090,59 @@ failures become terminal SSE error events.
 ### 6.6 HTTP runtime
 
 An AgentRoute may target an HTTP Agent as soon as the unified model lands, but
-the HTTP backend is not considered executable until all of the following exist:
+the HTTP backend is not considered executable until all of the following exist.
+The outbound dialect is **A2A Protocol 1.0 JSON-RPC**, not a gateway-owned
+HTTP Agent contract; see
+[HTTP Agent Runtime](../design/http-agent-runtime.md).
 
-1. a versioned outbound turn request/SSE response contract;
-2. fail-closed `auth_ref` resolution with no secret material in Agent objects;
-3. connect, response-header, idle-stream, and total-turn timeouts;
-4. trace and agent-depth propagation;
-5. response body limits and strict content-type/event validation;
-6. retry semantics that cannot duplicate a non-idempotent turn;
-7. health and usage instrumentation;
-8. integration tests with a real streaming test server.
+1. `pkg/a2a` protocol package (card + JSON-RPC/SSE) and Path B typed client,
+   with `card_url` distinct from the selected interface URL;
+2. fail-closed `auth_ref` resolution through credentials scoped exactly to
+   `http-agent:<agent_id>` with no secret material in
+   Agent objects or execution snapshots and request-time refresh on every call;
+3. connect, response-header, idle-stream, and total-turn timeouts using the
+   four-layer defaults/ownership defined by the HTTP runtime design §6;
+4. W3C trace propagation and trusted `X-Agent-Depth + 1` propagation;
+5. exact §6.1 HTTP status, MIME, identity-encoding, JSON-RPC envelope/id, and
+   SSE framing validation plus the HTTP runtime design's fixed limits: 1 MiB
+   Card, 4 MiB JSON-RPC request/non-stream response, 1 MiB SSE event, and
+   64 MiB aggregate SSE response;
+6. retry semantics that cannot duplicate a non-idempotent turn (Path B is
+   request-bound `ServeTurn`; it does not poll or reconcile remote A2A tasks);
+7. health and usage instrumentation (no fabricated A2A token `usage` events);
+8. integration tests with a real streaming A2A JSON-RPC test server.
+
+The Phase 0 schema requires `runtime.http.protocol = "a2a"` immediately; an
+empty transition value is not retained. A gateway-owned `HTTPRuntimeManager`
+is the sole Agent-definition listener and immutable Card snapshot owner.
+`HTTPBackend` consumes its Path B execution view, including the selected
+interface tenant; client construction disables ambient context tenant
+propagation so the SDK injects exactly that interface tenant into typed
+requests. Adding `a2a-go/v2` also requires an MVS module-graph diff and targeted
+OTLP/gRPC plus OTLP/HTTP exporter regression tests, not only a binary-size and
+linked-package check.
+The manager separately compares Card-input and secret-free
+credential-eligibility fingerprints, inherits unchanged accepted entries
+across the full-generation listener call, and fetches only new/Card-changed
+Cards, or entries without accepted Card state, with bounded concurrency.
+Credential lifecycle callbacks use a committed reverse dependency index and
+coalesced, out-of-lock Recommit only when eligibility changes; those changes
+reselect from cached Card candidates, while same-eligibility secret/OAuth
+refresh rotation schedules nothing and preserves resources and bindings.
+Definition fetches use the smaller of ten seconds and the
+remaining existing five-second listener budget; a failure publishes only that
+entry non-ready and is retried on a later generation. No asynchronous publisher
+mutates the committed generation.
+`pkg/a2a/card` returns ordered exact-`"JSONRPC"` interface candidates and
+structured security alternatives without seeing `auth_ref`; the manager alone
+applies same-origin and credential-owner policy and chooses the first surviving
+interface plus satisfiable alternative.
 
 Before those gates pass, dispatch to an HTTP Agent returns
 `501 runtime_not_executable`. The website continues to label HTTP execution as
 roadmap. Route unification alone is not permission to advertise a third
-execution runtime.
+execution runtime. `protocol a2a` proxy ingress (Path A) is a later
+protocol-family extension and is not required for M8.
 
 This creates an intentional interim operator experience: an HTTP Agent and its
 AgentRoute can validate, persist, appear in workspace, accept VirtualKey
@@ -1886,17 +1926,69 @@ Documentation verification:
 ### M8 — HTTP execution backend
 
 This milestone completes three-runtime execution. The common runtime and route
-foundation remains complete and releasable without it.
+foundation remains complete and releasable without it. The wire contract is
+A2A Protocol 1.0 JSON-RPC as specified in
+[HTTP Agent Runtime](../design/http-agent-runtime.md); M8 does not invent a
+second outbound HTTP Agent protocol.
 
-- finalize the outbound HTTP Agent protocol and `auth_ref` resolver;
-- implement the backend with streaming/timeouts/limits/trace propagation;
-- add health and typed usage instrumentation;
-- run contract and integration tests;
+- land `pkg/a2a` (`card/`, `jsonrpc/`, Path B `client/`) pinned to
+  `a2a-go/v2` v2.5.0, structured Card interface/security parsing, and the
+  gateway-owned `auth_ref` resolver, plus the shared
+  `HTTPRuntimeManager` definition snapshot;
+- extend credential validation and Admin/bundle/CLI surfaces for the dedicated
+  non-provider `http-agent:<agent_id>` scope with empty provider fields, and
+  reject generic-unbound, cross-Agent, or LLM-provider credential references;
+  keep the SDK client on a
+  live request-time resolving/refreshing RoundTripper;
+- implement `HTTPBackend` in `pkg/gateway`, consuming the manager's immutable
+  Card-derived execution view, with execution-fingerprint retirement,
+  streaming/timeouts/fixed size limits/exact media and framing validation/trace
+  and depth propagation, complete
+  initial Task/direct Message event mapping including `SUBMITTED`, explicit
+  `AUTH_REQUIRED` context-only retention, `HealthChecker`, and force
+  `RunCanceller` with the pre-task-id cancellation slot. A synchronous
+  nonterminal `SendMessage` result fails `turn_failed` after one bounded
+  best-effort cancel and cannot be synthesized as success;
+- construct its SDK client from the selected interface with ambient tenant
+  propagation disabled, and verify exact interface-tenant injection on send,
+  stream, and cancel;
+- record the `go list -m all` / `go mod graph` upgrade diff caused by
+  `a2a-go/v2`, then run the complete suite and targeted live-client regression
+  coverage for both OTLP transport variants; permit the transitive v0.3 module
+  record but assert that no unversioned v0.3, `a2acompat/a2av0`, `a2apb/v0`,
+  or `a2agrpc` package enters `go list -deps`;
+- prove input-fingerprint reuse, unchanged accepted-entry inheritance, bounded
+  parallel fetch of only new/changed/unaccepted Cards, retry of an unaccepted
+  entry, five-second prepare-budget enforcement, and per-entry failure
+  isolation; prove referenced credential create/disable/delete/restore changes
+  readiness without Card fetch, same-eligibility secret refresh preserves
+  bindings, unrelated credentials do not Recommit, and callbacks do not
+  deadlock either manager;
+- update the dispatcher/Admin tests that currently assume every HTTP runtime
+  is non-executable: preserve missing/non-ready coverage and add ready-snapshot
+  execution/capability cases;
+- add health and typed usage instrumentation (no fabricated token `usage`);
+- run contract and integration tests against the in-process A2A fake server;
 - only then change website wording from two to three execution runtimes.
 
-Verification includes a real streaming test server, cancellation and timeout
-tests, auth-ref redaction, response size/content-type enforcement, trace/depth
-propagation, and retry/idempotency assertions.
+Path A (`protocol a2a` governed JSON-RPC proxy) is **not** part of M8; it
+follows as a separate AgentRoute protocol-family change.
+
+Verification includes a real streaming A2A JSON-RPC test server, cancellation
+and four-layer timeout tests, `input_required` follow-up carrying
+`Message.taskId`, whole-session single-flight claims, independent bounded
+binding TTL/LRU and visible binding-reset metadata, cross-instance binding
+miss semantics, ambiguous-failure no-replay, config-fingerprint retirement,
+streaming `SUBMITTED` / no-op `WORKING` / `AUTH_REQUIRED` / `REJECTED` mapping,
+synchronous nonterminal rejection, cancel/disconnect before and after task-id
+binding, terminal/cancel races and exactly-once `CancelTask`,
+structured OR-of-AND Agent Card security classification followed by
+manager-owned selection, ordered skipping to the first same-origin exact
+`"JSONRPC"` interface, southbound `A2A-Version: 1.0`, exact-owner auth-ref
+redaction and live refresh, fixed Card/JSON-RPC/SSE size plus exact status,
+MIME, encoding, request-id, envelope, multiline-data, heartbeat, and EOF
+enforcement, trace/depth propagation, and retry/idempotency assertions (no
+silent replay of a non-idempotent `SendMessage`).
 
 ### M9 — Common policy and external resource enforcement
 
@@ -2141,13 +2233,18 @@ The decisions required by M0-M7 are closed:
 5. The process-lifetime terminal-run idempotency boundary is the bounded common
    tombstone registry in §5.7.
 
+M8's generic secret source is closed: it uses the existing credential store
+with the exact non-provider `http-agent:<agent_id>` scope defined in the HTTP
+runtime design.
+A later M9 decision may give Agents callback principals that enforce
+`resources`; that is separate from southbound `auth_ref`.
+
 The following decisions are deliberately deferred because they do not affect
 M0-M7:
 
-1. M8 defines the generic secret source and exact meaning of HTTP `auth_ref`.
-2. M8 decides whether HTTP usage receives a new typed table or a common Agent
+1. M8 decides whether HTTP usage receives a new typed table or a common Agent
    event table; ACP and builtin typed tables remain unchanged either way.
-3. Permission-aware clients continue following capability-advertised
+2. Permission-aware clients continue following capability-advertised
    runtime-specific `resume_mode` through M7. A later design may introduce one
    asynchronous portable continuation protocol before the product claims
    drop-in permission-wire substitution.

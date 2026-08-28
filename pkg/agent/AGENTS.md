@@ -39,10 +39,22 @@ Important files:
   external engine; their Workers use AgentRoute. `pkg/agent/runtime` must not grow a
   gateway AgentTask state machine or import a Temporal SDK.
 - `types.go`: the `Agent` model. Runtime is `acp` (gateway owns the lifecycle and
-  stores execution config inline under `runtime.acp`), `http` (the agent owns its own lifecycle), or `builtin`
-  (no separate process — a persisted definition materialized by the in-process
-  ADK host). LLM and MCP are `resources`, not runtime types. `policy` is
-  runtime-agnostic; ACP operational config stays under `Agent.runtime.acp`.
+  stores execution config inline under `runtime.acp`), `http` (the agent owns
+  its own lifecycle), or `builtin` (no separate process — a persisted
+  definition materialized by the in-process ADK host). LLM and MCP are
+  `resources`, not runtime types. `policy` is runtime-agnostic; ACP operational
+  config stays under `Agent.runtime.acp`. HTTP execution is design-only
+  (`docs/design/http-agent-runtime.md`): A2A Protocol 1.0 JSON-RPC is the first
+  southbound dialect; `HTTPRuntime` replaces the design-only `endpoint` with
+  `card_url` and adds `protocol` / `timeout_seconds` when that ships. The
+  selected Card interface owns the service URL and tenant. Dispatch stays
+  `runtime_not_executable` until Path B registers an `HTTPBackend` in
+  `pkg/gateway`. A2A wire types and the JSON-RPC client/proxy live in
+  `pkg/a2a`; this package must not import it. HTTP `auth_ref` points to an
+  existing credential with exact non-provider scope `http-agent:<agent_id>`;
+  Agent definitions and runtime snapshots never contain
+  the resolved secret. The fixed HTTP transport limits are gateway policy, not
+  additional Agent schema fields.
 - `builtin_types.go`: the `runtime.builtin` definition schema — model resolved
   through an LLM route (must appear in `routes.llm_route_ids`) with an
   optional `retry` block (`max_retries` 1–5, node-level ADK retry over the
@@ -96,7 +108,20 @@ Important files:
   must never call `GetSnapshot`, `Snapshot`, `HasAgent`, or
   `SnapshotGeneration` (the snapshot mutex is not reentrant). Safety-sensitive
   state publication/retirement marks belong in commit so they precede new
-  dispatch; store/process/transport I/O belongs in prepare or cleanup.
+  dispatch; store/process/transport I/O belongs in prepare or cleanup. The
+  current prepare context is five seconds for one complete listener call, not
+  five seconds per Agent. A listener that derives remote state for a full
+  generation must reuse unchanged accepted entries by a local-input
+  fingerprint, bound concurrency for entries that require remote work, cap
+  each operation by the remaining prepare budget, and isolate one entry's
+  failure from inherited entries.
+  It must not degrade unchanged runtime state merely because Refresh/Recommit
+  supplied the complete Agent slice or an unrelated Agent changed.
+  An external-manager lifecycle callback that invalidates derived runtime
+  readiness may schedule a coalesced `Recommit`, but only after the external
+  mutation/callback locks are released; it must not synchronously re-enter the
+  Agent manager. The listener's committed reverse dependency index limits such
+  Recommits to records referenced by the current Agent generation.
 
 Agents are a first-class gateway-bundle object (apply/export/validate) and have
 an `agwctl agent` read surface; create/update flow through the bundle.

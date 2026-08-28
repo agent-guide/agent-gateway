@@ -162,6 +162,7 @@ or a cross-cutting adapter for it (for example `caddy/admin`,
 - `pkg/credential/` — cross-cutting credential model, persistence, scheduling, expiry detection, and external refresh transport → `pkg/credential/AGENTS.md`
 - `pkg/llm/` — provider interface/registry, built-in providers, and the `einomodel` eino bridge → `pkg/llm/AGENTS.md`
 - `pkg/mcp/` — MCP service runtime and the `einotool` eino bridge → `pkg/mcp/AGENTS.md`
+- `pkg/a2a/` — A2A Protocol 1.0 JSON-RPC (design-only; Path A proxy + Path B client) → `pkg/a2a/AGENTS.md`
 - `pkg/configstore/` — generic config store/backends (persisted backend: `sqlite`; stores `providers`, `credentials`, `routes`, `mcp_services`, `agents`, `virtual_keys`, `managed_models`) → `pkg/configstore/AGENTS.md`
 - `pkg/agent/` — agent control plane (`pkg/agent/runtime` contracts, `Agent` model, route/service → agent index) → `pkg/agent/AGENTS.md`; builtin eino ADK host → `pkg/agent/builtin/AGENTS.md`
 - `internal/observability/` — usage events, event pipeline, OTLP export, `einotap` → `internal/observability/AGENTS.md`
@@ -170,7 +171,7 @@ or a cross-cutting adapter for it (for example `caddy/admin`,
 
 Cross-cutting invariants:
 
-- dependency direction: `pkg/agent` composes the LLM/MCP/ACP/metrics surfaces; the lower protocol packages must not depend on `pkg/agent`
+- dependency direction: `pkg/agent` composes the LLM/MCP/ACP/metrics surfaces; the lower protocol packages (`pkg/llm`, `pkg/mcp`, `pkg/acp`, `pkg/a2a`) must not depend on `pkg/agent`
 - no config-store reads in per-request hot paths (provider resolution, route matching); manager snapshots are refreshed on mutation
 - factory registration (providers and builtin custom agents) requires blank imports in the binaries that link them; see each subtree file for the exact rule
 - gateway request pipelines never add an `agent` step, durable execution/event store,
@@ -209,7 +210,7 @@ Important current directives:
 
 - `provider_types` is startup-only provider type availability; when omitted all registered provider types are enabled
 - providers use `provider_type <name>`
-- LLM routes use `protocol <openai|anthropic|cc>`, MCP routes use `protocol mcp`, and Agent ingress routes use `protocol agent`
+- LLM routes use `protocol <openai|anthropic|cc>`, MCP routes use `protocol mcp`, and Agent ingress routes use `protocol agent` (future `protocol a2a` for HTTP Agent Path A is design-only; see `docs/design/http-agent-runtime.md`)
 - `agent_route_dispatcher` uses `llm_api <name>`, `mcp`, and `agent`
 - auth uses `virtualkey`, not `local_api_key`
 

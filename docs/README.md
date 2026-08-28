@@ -47,7 +47,7 @@ Primary detailed documents:
 - [design/agents-control-plane.md](design/agents-control-plane.md): shared Agent identity, resources, runtime contracts, and the external Business Workflow boundary
 - [design/request-pipeline.md](design/request-pipeline.md): synchronous Gateway Request Pipelines and upper-layer durable orchestration through Temporal or another external engine
 - [design/builtin-agent-runtime.md](design/builtin-agent-runtime.md): builtin ADK host, schema, lifecycle, permissions, and implementation status
-- [design/http-agent-runtime.md](design/http-agent-runtime.md): HTTP agent runtime, A2A southbound dialect, and northbound ingress design
+- [design/http-agent-runtime.md](design/http-agent-runtime.md): HTTP agent runtime, A2A Protocol 1.0 JSON-RPC, shared `pkg/a2a`, Path B then Path A
 - [design/guardrails.md](design/guardrails.md): Community Guardrails Core and external check extension boundary
 - [design/enterprise-extension-contract.md](design/enterprise-extension-contract.md): Community-side SPI, compatibility, assembly, and cross-repository rules for separately maintained distributions
 - [design/gateway-bundle-yaml.md](design/gateway-bundle-yaml.md): bundle YAML architecture and workflow

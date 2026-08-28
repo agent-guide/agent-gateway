@@ -109,7 +109,10 @@ Defines the unified `kind=agent` ingress route model
 (docs/plans/unified-agent-runtime.md §6): an AgentRoute targets a stable
 `agent_id`, and the resolved Agent's `runtime.type` selects the execution
 backend, so a runtime change never changes the route id, URL, or VirtualKey
-allowlist. Route ids follow the shared convention with the
+allowlist. Today `Normalize`/`ToConfig` force `protocol = agent`. Path A of
+[`docs/design/http-agent-runtime.md`](../../docs/design/http-agent-runtime.md)
+will allow `protocol = a2a` on the same kind without changing that ownership
+rule. Route ids follow the shared convention with the
 `agent:<agent_id>:<path-slug>` shape. `AgentRouteResolver.CreateConfig`/
 `UpdateConfig` validate target existence through the optional `AgentLookup`
 (wired to `agent.Manager.HasAgent`); disabled or currently non-executable
@@ -117,7 +120,7 @@ Agents remain valid targets and fail at dispatch with their normalized runtime
 error. Its public surfaces are `/admin/agents/routes`, bundle `agentRoutes`,
 CLI `agent-route`, and dispatcher `EnableAgent`/`agent`.
 
-## ACP runtime-config snapshot (`runtime_backends.go`)
+## Runtime-config snapshots (`runtime_backends.go`)
 
 `ACPBackend` builds the canonical `agent_id -> hostconfig.Config`
 snapshot solely from `Agent.runtime.acp` during the three-stage Agent
@@ -125,6 +128,68 @@ definition commit. A changed fingerprint, disabled state, runtime switch, or
 deletion retires stale pools and drains pending permissions before the
 replacement generation becomes dispatchable. There is no ACP service store or
 fallback configuration source.
+
+The shared HTTP runtime manager and Path B adapter (`HTTPBackend`) are design-only
+([`docs/design/http-agent-runtime.md`](../../docs/design/http-agent-runtime.md)).
+`HTTPRuntimeManager` lands first and is the sole definition listener/snapshot
+owner for both HTTP paths. It imports `pkg/a2a/card`, owns typed
+`pkg/a2a/client` clients once Path B lands, publishes separate Path A
+proxy-ready and Path B executable views, and is exposed through `AgentGateway`
+so the dispatcher never reads config or reaches into a backend.
+`HTTPBackend` then registers next to `ACPBackend`/`BuiltinBackend` and composes
+that manager; it must not own a parallel Card cache or register another Agent
+definition listener. The manager's per-fingerprint Path B execution handle
+owns the client and bounded claim/binding/run registries. Its client transport
+resolves the stored `auth_ref` and refreshes OAuth credentials on every
+southbound operation; no resolved secret is retained in the handle. HTTP
+credentials use the exact non-provider scope `http-agent:<agent_id>`, leave
+provider fields empty, and may not be borrowed across Agents or from an LLM
+provider. These mutable
+resources are separate from its immutable configuration snapshot and retire
+together on definition replacement. The execution fingerprint
+covers `card_url`, selected interface URL/tenant, protocol, `auth_ref`, and
+transport policy, and any change retires active claims/task bindings before the
+replacement generation dispatches. Interrupted bindings are atomically claimed
+per `(agent_id, session_id)` so concurrent continuations fail `session_busy`.
+HTTP Agents stay `runtime_not_executable` on `protocol agent` until the backend
+registration exists; Path A uses the manager's independent proxy-ready gate.
+The manager compares a separate definition-input fingerprint before any Card
+fetch. It separately tracks Card-input and secret-free credential-eligibility
+fingerprints, reuses cached parsed Card candidates for credential-only changes,
+inherits unchanged accepted snapshots/resources across full-generation
+listener calls, and fetches only new/Card-input-changed Cards or entries
+without accepted Card state with bounded concurrency. A secret/OAuth-token
+rotation with unchanged eligibility must not fetch a Card, replace the client,
+or retire bindings.
+Each definition fetch is capped by the remaining five-second prepare budget;
+one changed entry's failure publishes only that entry non-ready and cannot
+degrade inherited entries. It does not asynchronously mutate a committed
+generation.
+`pkg/a2a/card` returns ordered exact-`"JSONRPC"` interface candidates and
+structured security alternatives without credential state. This manager alone
+applies same-origin plus exact-owner credential policy and chooses the first
+surviving interface and satisfiable security alternative. Enforce the design's
+1 MiB Card, 4 MiB request/non-stream response, 1 MiB SSE event, and 64 MiB
+aggregate stream limits. `SUBMITTED` is a valid non-terminal task state;
+`AUTH_REQUIRED` terminates the common run while retaining only validated
+`contextId`, never a resumable task id.
+The manager is also a credential lifecycle listener. Maintain a committed
+`auth_ref -> agent_id` reverse index, coalesce dependency-scoped Agent
+Recommits outside credential/Agent manager locks only when the secret-free
+eligibility fingerprint changes, and recompute readiness from cached Card
+candidates on create/update/delete/replace. Unrelated and same-eligibility
+credential updates must not trigger a Recommit; the live RoundTripper remains
+the request-time fail-closed check.
+
+Path B leaves synchronous `SendMessage` blocking; a returned `SUBMITTED` or
+`WORKING` Task is invalid, receives one bounded best-effort `CancelTask`, drops
+the claimed binding, and returns `turn_failed` without sequencer success
+synthesis. Each active run has the design §9.3 pre-bind cancel slot. Admin
+cancel before `taskId` arms the slot and returns retryable
+`backend_unavailable`; first valid Task binding issues exactly one force cancel.
+Disconnect before binding keeps only a bounded cleanup receiver. Terminal,
+bind, cancel, and disconnect races must not duplicate `CancelTask` or restore an
+ambiguous binding.
 
 ## `virtualkey/`
 

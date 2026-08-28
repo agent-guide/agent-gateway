@@ -65,6 +65,7 @@ External systems
   - upstream LLM providers (OpenAI / Anthropic / Gemini / DeepSeek / Qwen / Zhipu / OpenRouter / Ollama / Codex / Claude Code)
   - upstream MCP services
   - local ACP agent or adapter processes (codex, opencode)
+  - remote HTTP agents (A2A Protocol 1.0 JSON-RPC; design-only, not dispatched)
   - SQLite config database and usage event tables
   - optional OpenTelemetry collector (metrics.otlp span export)
   - future memory backends
@@ -482,7 +483,10 @@ The following are partial or placeholder:
 - the `agents` control plane, ACP/builtin runtime adapters, unified AgentRoute,
   Agent-owned ACP configuration, common capability plane, and observability
   cutover are implemented through M6; physical legacy-source deletion and the
-  HTTP execution backend remain follow-up work. See
+  HTTP execution backend remain follow-up work. HTTP execution is specified
+  in [HTTP Agent Runtime](../design/http-agent-runtime.md) (A2A Protocol 1.0
+  JSON-RPC, `pkg/a2a`, Path B then Path A), not as a gateway-owned task
+  backend. See
   [Unified Agent Runtime and Routing](../plans/unified-agent-runtime.md).
 - the Gateway Request Pipeline for synchronous, request-bound LLM/MCP/transform
   composition remains future work. Durable Project/Team/Agent workflows,
@@ -531,10 +535,13 @@ The execution boundary for ACP and builtin turns is one
 turn-first `agentruntime.Backend` layer registered by `AgentGateway`. The
 gateway-owned adapters execute through one run sequencer behind a unified
 `AgentRoute.agent_id` relationship. There is no unbound ACP ingress or
-runtime-specific public route family. HTTP remains non-executable. Upper-layer
-Workflow Workers call the same AgentRoute/turn boundary while their external
-engine owns durable business state, retry, scheduling, approval, and DAG
-semantics. Gateway Request Pipelines deliberately exclude an `agent` step. See
+runtime-specific public route family. HTTP remains non-executable; the executable design is A2A Protocol 1.0
+JSON-RPC via `pkg/a2a` (Path B translating backend first, Path A governed
+proxy later). See [HTTP Agent Runtime](../design/http-agent-runtime.md).
+Upper-layer Workflow Workers call the same AgentRoute/turn boundary while
+their external engine owns durable business state, retry, scheduling,
+approval, and DAG semantics. Gateway Request Pipelines deliberately exclude
+an `agent` step. See
 [Unified Agent Runtime and Routing](../plans/unified-agent-runtime.md) and
 [Gateway Request Pipeline And External Orchestration](../design/request-pipeline.md).
 
