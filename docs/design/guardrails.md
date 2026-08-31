@@ -20,10 +20,12 @@ The core answers four questions:
 3. Must the operation be allowed, redacted, or blocked?
 4. Can the decision be applied without losing or corrupting protocol data?
 
-Advanced enterprise detectors, organization policy, compliance operations,
-RAG, cost management, and durable human review are intentionally outside this
-document. Their product boundary belongs in the separately maintained
-`docs/design/enterprise-feature-roadmap.md`.
+Product-specific detectors, organization policy, compliance operations, RAG,
+cost management, and durable human review are intentionally outside this
+Community design. Once the proposed interfaces are implemented and designated
+as protected external surfaces, separately maintained modules may integrate
+only through the public extension contracts defined here and in
+`enterprise-extension-contract.md`.
 
 ## 2. Scope
 
@@ -583,27 +585,20 @@ compliance archive.
 - [ ] Caddy and standalone assembly parity;
 - [ ] upgrade guidance from the opt-in gate to enforced external-route policy.
 
-## 17. Enterprise extension boundary
+## 17. External extension boundary
 
-Enterprise modules may register checks and policy evaluators through the same
-Community interfaces, but their product behavior is specified outside this
-document.
+Once implemented and designated, separately maintained modules may register
+checks through the Community Check SPI, but their product behavior is not
+specified in this repository. A policy-evaluator seam, if a concrete vertical
+slice needs one, is a separate candidate contract and is not defined by this
+Guardrails design. Community types must remain domain-oriented and
+independently useful without importing private packages into lower protocol
+packages.
 
-The enterprise roadmap owns:
-
-- advanced DLP, injection detection, response inspection, custom entity packs,
-  reversible tokenization, KMS, data residency, and AI security operations;
-- tenant-aware Policy as Code, approval, shadow comparison, staged rollout, and
-  rollback;
-- RAG retrieval and internal-answer short circuit;
-- semantic cache, prompt slimming, budget enforcement, cost allocation, and
-  billing;
-- compliance reports, WORM/SIEM sinks, Eval, replay, and false-positive
-  workflows;
-- durable human review owned by an external workbench/workflow engine.
-
-Community types must remain general enough for these modules without importing
-Enterprise packages into lower protocol packages.
+An interface is not a protected external SPI merely because it is exported.
+Before relying on it across repositories, it must be explicitly designated,
+documented, versioned, and covered by the contract and compatibility rules in
+`enterprise-extension-contract.md`.
 
 ## 18. Related documents
 
@@ -613,5 +608,4 @@ Enterprise packages into lower protocol packages.
 - [MCP Tool Policy](mcp-tool-policy.md)
 - [Observability](observability.md)
 - [Gateway Bundle YAML](gateway-bundle-yaml.md)
-- `docs/design/enterprise-feature-roadmap.md` — maintained on the Enterprise
-  product branch and available in the combined documentation tree
+- [Enterprise Extension Contract](enterprise-extension-contract.md)

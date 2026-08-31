@@ -39,6 +39,9 @@ must be labeled as roadmap on the pages.
 - by default, changes in this repository do not preserve backward compatibility
 - do not keep legacy aliases, deprecated field names, old route shapes, old module IDs, old CLI flags, or old API-visible IDs unless the change request explicitly requires compatibility
 - when renaming or reshaping behavior, update the code, tests, `README.md`, `docs/architecture/architecture-overview.md`, `Caddyfile.example`, this file, and the nearest nested `AGENTS.md` to describe only the current behavior unless compatibility is explicitly required
+- protected Enterprise SPI and reusable distribution entry points follow the
+  compatibility policy in
+  [`docs/design/enterprise-extension-contract.md`](docs/design/enterprise-extension-contract.md)
 
 ## Build & Run
 
@@ -230,6 +233,8 @@ Stubbed families currently return `501 Not Implemented`:
 
 - `README.md`: user-facing setup and API examples
 - `docs/architecture/architecture-overview.md`: broader architecture and roadmap
+- `docs/design/enterprise-extension-contract.md`: protected external SPI,
+  distribution assembly, and cross-repository compatibility rules
 - `Caddyfile.example`: working reference config
 - `cmd/agw/main.go`: the definitive list of linked modules
 

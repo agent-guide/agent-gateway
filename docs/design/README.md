@@ -9,6 +9,7 @@ Current design pages:
 - [agents-control-plane.md](agents-control-plane.md)
 - [builtin-agent-runtime.md](builtin-agent-runtime.md)
 - [guardrails.md](guardrails.md) — Community Guardrails Core: policy/check SPI, typed inspection, safe rewriting, enforcement, and decision events
+- [enterprise-extension-contract.md](enterprise-extension-contract.md) — Community-side SPI, compatibility, assembly, and cross-repository rules for separately maintained distributions
 - [model-first-routing.md](model-first-routing.md)
 - [route-target-policy.md](route-target-policy.md)
 - [gateway-bundle-yaml.md](gateway-bundle-yaml.md)
