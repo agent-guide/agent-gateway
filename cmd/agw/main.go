@@ -26,6 +26,7 @@ import (
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/codex"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/deepseek"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/gemini"
+	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/grok"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/ollama"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openrouter"

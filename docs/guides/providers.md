@@ -24,6 +24,8 @@ Current built-in provider types linked into `agw` include:
 - `openrouter`
 - `deepseek`
 - `zhipu`
+- `qwen`
+- `grok`
 
 ## Minimal Caddyfile Example
 
@@ -85,11 +87,15 @@ Use managed credentials when you need:
 - `openrouter` defaults to `https://openrouter.ai/api/v1`
 - `deepseek` defaults to `https://api.deepseek.com`
 - `zhipu` defaults to `https://open.bigmodel.cn/api/paas/v4`
+- `qwen` defaults to `https://dashscope.aliyuncs.com/compatible-mode/v1`
+- `grok` defaults to `https://api.x.ai/v1`
 - `ollama` can be used without an API key
 
-The OpenAI-compatible chat providers (`openai`, `deepseek`, `openrouter`, `zhipu`) accept `option compact cc`, which drops the OpenAI-style `metadata` and `user` request fields that Claude Code CLI always sends but some upstreams (e.g. GLM) reject. Providers ignore compact modes they do not support.
+The OpenAI-compatible chat providers (`openai`, `deepseek`, `openrouter`, `zhipu`, `qwen`, `grok`) accept `option compact cc`, which drops the OpenAI-style `metadata` and `user` request fields that Claude Code CLI always sends but some upstreams (e.g. GLM) reject. Providers ignore compact modes they do not support.
 
 `deepseek` and `zhipu` also accept `option thinking_type <disabled|enabled|none>`. DeepSeek defaults to `disabled` because its thinking-mode tool loops require reasoning replay that the cc/anthropic path does not provide for that provider. Zhipu omits `thinking` by default so current GLM models use their upstream default; request-level `thinking` takes precedence, and `reasoning_content` is preserved across OpenAI Chat, Responses compatibility, and cc/Anthropic tool loops. Zhipu streaming tool requests automatically send `tool_stream=true`. Use an explicit provider option only to force one mode for every request. Zhipu's `option api_profile <auto|standard|coding_plan>` controls endpoint-specific defaults; set `coding_plan` behind custom proxies. Provider-level `context_window`, `max_output_tokens`, `vision`, and `embeddings` options can override those defaults, while per-model differences belong in managed-model `capability_overrides`.
+
+`grok` accepts `option reasoning_effort <none|low|medium|high|xhigh>` as a default `reasoning_effort`. Per-request reasoning fields override it. `none` is forwarded for grok-4.3, where it disables reasoning; grok-4.5/4.6 reject `none`, so the field is omitted and the model stays on its default (`high`). Anthropic `thinking.type=disabled` follows the same per-model rule. Do not set a provider-level effort on a multi-model route: some models reject the field, while `grok-4.20-multi-agent` accepts it but uses it as agent count (4 or 16), not reasoning depth. Server-side search is a Responses tool (`web_search`, `x_search`) on `POST /v1/responses`, not a provider option; tool-level config such as `filters` is forwarded. The provider strips inbound `stop`, `presence_penalty`, and `frequency_penalty` when the selected model is reasoning; models whose id contains `non-reasoning`, and grok-4.3 with effort `none`, keep those fields. Responses uses xAI's native `/v1/responses` so `previous_response_id` and server tools are not silently dropped. Provider-level `context_window`, `max_output_tokens`, and `vision` options can override the Grok capability defaults (500k context / 128k output, aligned with grok-4.5/4.6).
 
 ## Related Docs
 

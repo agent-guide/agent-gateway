@@ -39,11 +39,79 @@ type ResponsesRequest struct {
 }
 
 type ResponsesToolDefinition struct {
+	Type        string
+	Name        string
+	Description string
+	Parameters  json.RawMessage
+	Function    *ResponsesToolFunction
+	// raw retains the original tool object so unknown server-tool fields
+	// (for example web_search filters) survive round-trip to upstream.
+	raw json.RawMessage
+}
+
+type responsesToolDefinitionWire struct {
 	Type        string                 `json:"type"`
 	Name        string                 `json:"name,omitempty"`
 	Description string                 `json:"description,omitempty"`
 	Parameters  json.RawMessage        `json:"parameters,omitempty"`
 	Function    *ResponsesToolFunction `json:"function,omitempty"`
+}
+
+func (t *ResponsesToolDefinition) UnmarshalJSON(data []byte) error {
+	var decoded responsesToolDefinitionWire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*t = ResponsesToolDefinition{
+		Type:        decoded.Type,
+		Name:        decoded.Name,
+		Description: decoded.Description,
+		Parameters:  decoded.Parameters,
+		Function:    decoded.Function,
+		raw:         append(json.RawMessage(nil), data...),
+	}
+	return nil
+}
+
+func (t ResponsesToolDefinition) MarshalJSON() ([]byte, error) {
+	known, err := json.Marshal(responsesToolDefinitionWire{
+		Type:        t.Type,
+		Name:        t.Name,
+		Description: t.Description,
+		Parameters:  t.Parameters,
+		Function:    t.Function,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(t.raw) == 0 {
+		return known, nil
+	}
+	return overlayJSONObject(t.raw, known, "type", "name", "description", "parameters", "function")
+}
+
+func overlayJSONObject(base, overlay json.RawMessage, typedKeys ...string) (json.RawMessage, error) {
+	var baseMap map[string]json.RawMessage
+	if err := json.Unmarshal(base, &baseMap); err != nil {
+		return overlay, err
+	}
+	var overlayMap map[string]json.RawMessage
+	if err := json.Unmarshal(overlay, &overlayMap); err != nil {
+		return nil, err
+	}
+	if baseMap == nil {
+		baseMap = map[string]json.RawMessage{}
+	}
+	// Known fields are represented by the typed view above. Remove their raw
+	// values first so clearing an optional field is preserved instead of
+	// resurrecting the value captured during UnmarshalJSON.
+	for _, key := range typedKeys {
+		delete(baseMap, key)
+	}
+	for k, v := range overlayMap {
+		baseMap[k] = v
+	}
+	return json.Marshal(baseMap)
 }
 
 type ResponsesToolFunction struct {

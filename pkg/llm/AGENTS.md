@@ -36,6 +36,7 @@ Built-in provider runtime packages:
   thinking-mode defaults, and Responses-via-chat adaptation
 - `zhipu`
 - `qwen`: DashScope OpenAI-compatible mode via the eino-ext `qwen` component; optional `enable_thinking` provider option, per-request reasoning fields override it
+- `grok`: xAI OpenAI-compatible Chat Completions via the eino-ext `openai` component (no dedicated grok/xai eino-ext module); native `/v1/responses` for stateful and server-tool requests; optional `reasoning_effort` (`none|low|medium|high|xhigh`) with `none` forwarded only on grok-4.3; strips `stop` / `presence_penalty` / `frequency_penalty` when the selected model is reasoning. Server-side search uses Responses tools (`web_search`, `x_search`) on `POST /v1/responses`, not a provider `search_mode`; unknown tool object fields are preserved on round-trip.
 
 eino bridge (a standalone library, one of the PB0 prerequisites of the
 builtin agent runtime — see `docs/design/builtin-agent-runtime.md` §11):

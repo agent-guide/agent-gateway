@@ -191,6 +191,21 @@ func TestChatCompletionsExtraFieldsUsesTargetDialect(t *testing.T) {
 	if zhipu["reasoning_effort"] != "max" {
 		t.Fatalf("Zhipu reasoning_effort = %#v, want max", zhipu["reasoning_effort"])
 	}
+
+	grok := ChatCompletionsExtraFieldsFromOptions(GrokChatCompletionsFields, opts...)
+	if _, ok := grok["thinking"]; ok {
+		t.Fatalf("Grok fields = %+v, want thinking omitted", grok)
+	}
+	if grok["reasoning_effort"] != "xhigh" {
+		t.Fatalf("Grok reasoning_effort = %#v, want max normalized to xhigh", grok["reasoning_effort"])
+	}
+
+	grokNone := ChatCompletionsExtraFieldsFromOptions(GrokChatCompletionsFields, WithChatExtraFields(&ChatExtraFields{
+		ReasoningEffort: "none",
+	}))
+	if grokNone["reasoning_effort"] != "none" {
+		t.Fatalf("Grok fields = %+v, want none forwarded for per-model handling", grokNone)
+	}
 }
 
 func TestChatCompletionsExtraFieldsIgnoresThinkingBudgetForEffortStyle(t *testing.T) {

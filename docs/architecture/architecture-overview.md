@@ -200,6 +200,7 @@ Built-in providers:
 - `deepseek`
 - `zhipu`
 - `qwen`
+- `grok`
 
 The provider layer uses shared helpers for HTTP client construction, auth/header injection, and OpenAI-compatible behavior. The design keeps provider implementations narrow while still allowing provider-specific behavior.
 

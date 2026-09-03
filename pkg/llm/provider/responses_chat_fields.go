@@ -39,6 +39,13 @@ var (
 		AllowedEfforts: []string{"none", "minimal", "low", "medium", "high", "xhigh"},
 		EffortAliases:  map[string]string{"max": "xhigh"},
 	}
+	GrokChatCompletionsFields = ChatCompletionsFieldPolicy{
+		ReasoningStyle: ReasoningEffortField,
+		// "none" is forwarded here; the grok provider omits it for models that
+		// reject the value (grok-4.5/4.6) and keeps it for grok-4.3.
+		AllowedEfforts: []string{"none", "low", "medium", "high", "xhigh"},
+		EffortAliases:  map[string]string{"max": "xhigh", "minimal": "low"},
+	}
 	OpenRouterChatCompletionsFields = ChatCompletionsFieldPolicy{
 		ReasoningStyle:      ReasoningObjectField,
 		ThinkingBudgetField: "max_tokens",

@@ -45,6 +45,7 @@ Provider delegation status:
 | qwen | eino-ext (DashScope OpenAI-compatible mode) | `model/qwen` v0.1.9 |
 | deepseek | eino-ext (deepseek-go underneath) | `model/deepseek` v0.1.7 |
 | zhipu | eino-ext openai component (no zhipu/glm component exists) | — |
+| grok | eino-ext openai chat + native `/v1/responses` (stateful and server-tool fields cannot be expressed on chat) | — |
 | codex | self-implemented (ChatGPT Codex backend: non-standard auth and Responses endpoint) | — |
 | claudecode | self-implemented on `anthropicbase` (Claude Code fingerprint headers, beta flags, OAuth token flows) | — |
 
@@ -52,6 +53,11 @@ deepseek uses its dedicated component so DeepSeek-specific thinking and
 `reasoning_content` behavior stays owned by the maintained integration. The
 gateway retains provider-level compatibility policy and request extra-field
 forwarding around that component.
+
+grok uses native `POST /v1/responses` so `previous_response_id`, store,
+and server-side tools such as `web_search` / `x_search` are forwarded.
+Chat Completions remains the eino-ext path for ordinary chat; reasoning
+effort defaults and sampling-field stripping are applied on both paths.
 
 ## 3. Reuse Principles
 

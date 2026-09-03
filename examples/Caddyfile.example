@@ -125,6 +125,22 @@
 		# 	target provider deepseek-for-codex
 		# }
 
+		# OpenAI / Codex / Claude Code -> xAI Grok.
+		# provider grok-main {
+		# 	provider_type grok
+		# 	api_key {$XAI_API_KEY}
+		# 	default_model grok-4.6
+		# 	option reasoning_effort high
+		# }
+		# route grok-chat {
+		# 	protocol openai
+		# 	path_prefix /grok
+		# 	require_virtual_key false
+		# 	target provider grok-main
+		# }
+		# The openai protocol also serves POST /grok/v1/responses. Use that
+		# path for previous_response_id and server tools such as web_search.
+
 		metrics {
 			retention_days 30
 			max_agent_depth 0

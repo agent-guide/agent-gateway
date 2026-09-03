@@ -165,6 +165,41 @@ func TestSanitizeResponsesRequestEnforcesCodexBackendControls(t *testing.T) {
 	}
 }
 
+func TestSanitizeResponsesRequestFlattensDecodedFunctionTool(t *testing.T) {
+	var req provider.ResponsesRequest
+	if err := json.Unmarshal([]byte(`{
+		"model":"gpt-5.4",
+		"input":"hello",
+		"tools":[{
+			"type":"function",
+			"function":{"name":"lookup","description":"Lookup data","parameters":{"type":"object"}}
+		}]
+	}`), &req); err != nil {
+		t.Fatalf("decode request: %v", err)
+	}
+
+	sanitized := sanitizeResponsesRequest(&req, false)
+	encoded, err := json.Marshal(sanitized)
+	if err != nil {
+		t.Fatalf("marshal sanitized request: %v", err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(encoded, &body); err != nil {
+		t.Fatalf("decode sanitized body: %v", err)
+	}
+	tools, _ := body["tools"].([]any)
+	if len(tools) != 1 {
+		t.Fatalf("tools = %#v, want one tool", body["tools"])
+	}
+	tool, _ := tools[0].(map[string]any)
+	if _, ok := tool["function"]; ok {
+		t.Fatalf("nested function should be removed: %#v", tool)
+	}
+	if tool["name"] != "lookup" || tool["description"] != "Lookup data" {
+		t.Fatalf("tool = %#v, want flattened lookup function", tool)
+	}
+}
+
 func TestSanitizeResponsesRequestFiltersUnsupportedHostedToolVariants(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
