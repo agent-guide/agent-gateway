@@ -70,6 +70,7 @@ type AgentGateway struct {
 	mcpRuntimeRegistry  *mcpruntime.Registry
 	acpRuntimeManager   *acphost.Manager
 	agentManager        *agentpkg.Manager
+	httpRuntimeManager  *HTTPRuntimeManager
 	runtimeRegistry     *agentruntime.Registry
 	runRegistry         *agentruntime.RunRegistry
 	permissionBroker    *agentruntime.PermissionBroker
@@ -129,6 +130,7 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	g.usagePrometheus = opts.UsagePrometheus
 	g.usageConfig = opts.UsageConfig.Normalized()
 	g.logger = opts.Logger
+	g.httpRuntimeManager = NewHTTPRuntimeManager(g.agentManager, g.credentialManager, nil, opts.Logger)
 	if err := g.configureModelCatalog(ctx, opts.ConfigStoreBackend, opts.Logger); err != nil {
 		return err
 	}
@@ -167,6 +169,13 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	if acpBackend != nil && g.agentManager != nil {
 		g.agentManager.AddDefinitionListener(acpBackend.PrepareRuntimeConfigs)
 		acpBackend.RefreshRuntimeConfigs(ctx, g.agentManager.Snapshot())
+	}
+	if g.httpRuntimeManager != nil && g.agentManager != nil {
+		g.agentManager.AddDefinitionListener(g.httpRuntimeManager.PrepareRuntimeConfigs)
+		g.httpRuntimeManager.RefreshRuntimeConfigs(ctx, g.agentManager.Snapshot())
+		if g.credentialManager != nil {
+			g.credentialManager.AddListener(g.httpRuntimeManager)
+		}
 	}
 	g.configured = true
 	return nil
@@ -209,6 +218,7 @@ func (g *AgentGateway) Reset() {
 	}
 	g.acpRuntimeManager = nil
 	g.agentManager = nil
+	g.httpRuntimeManager = nil
 	g.runtimeRegistry = agentruntime.NewRegistry()
 	g.runRegistry = agentruntime.NewRunRegistry()
 	g.permissionBroker = agentruntime.NewPermissionBroker()
@@ -321,6 +331,12 @@ func (g *AgentGateway) AgentManager() *agentpkg.Manager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.agentManager
+}
+
+func (g *AgentGateway) HTTPRuntimeManager() *HTTPRuntimeManager {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.httpRuntimeManager
 }
 
 // RuntimeRegistry returns the runtime-neutral Agent backend registry. Runtime

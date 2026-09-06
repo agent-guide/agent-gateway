@@ -7,8 +7,9 @@ This document is the authoritative product and technical design for
 lifecycle, with the gateway acting as a client (translating ingress) or a
 governed proxy (non-translating ingress).
 
-Status: **implementation in progress**. The Phase 0 schema and HTTP-owned
-credential scope are implemented. The `http` runtime dispatch still fails
+Status: **implementation in progress**. The Phase 0 schema, HTTP-owned
+credential scope, guarded A2A client, and shared runtime snapshot manager are
+implemented. The `http` runtime dispatch still fails
 closed with `runtime_not_executable` until Path B (§9) ships;
 `protocol a2a` routes (Path A, §8) do not exist yet.
 
