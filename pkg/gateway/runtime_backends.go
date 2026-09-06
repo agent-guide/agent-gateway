@@ -1076,6 +1076,9 @@ func validateBackendAgent(a agentpkg.Agent, runtimeType string) error {
 	if runtimeType == agentpkg.RuntimeTypeBuiltin && a.Runtime.Builtin == nil {
 		return agentruntime.NewError(agentruntime.ErrorInvalidRequest, "runtime.builtin is required")
 	}
+	if runtimeType == agentpkg.RuntimeTypeHTTP && a.Runtime.HTTP == nil {
+		return agentruntime.NewError(agentruntime.ErrorInvalidRequest, "runtime.http is required")
+	}
 	return nil
 }
 

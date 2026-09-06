@@ -40,6 +40,7 @@ type HTTPExecution struct {
 	Timeout     time.Duration
 	Fingerprint string
 	Streaming   bool
+	bindings    *httpSessionBindings
 }
 
 type httpRuntimeEntry struct {
@@ -212,6 +213,7 @@ func (m *HTTPRuntimeManager) prepareEntry(ctx context.Context, agent agentpkg.Ag
 	entry.execution = &HTTPExecution{
 		Client: typedClient, Interface: selectedInterface, Card: entry.card.Card, AuthRef: cfg.AuthRef,
 		Timeout: timeout, Fingerprint: entry.executionFingerprint, Streaming: entry.card.Card.Capabilities.Streaming,
+		bindings: newHTTPSessionBindings(),
 	}
 	return entry
 }
