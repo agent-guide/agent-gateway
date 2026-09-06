@@ -65,7 +65,7 @@ type credentialCreateRequest struct {
 	ID           string            `json:"id,omitempty"`
 	Type         string            `json:"type"`
 	ProviderType string            `json:"provider_type,omitempty"`
-	ProviderID   string            `json:"provider_id"`
+	ProviderID   string            `json:"provider_id,omitempty"`
 	Scope        string            `json:"scope,omitempty"`
 	Label        string            `json:"label,omitempty"`
 	Attributes   map[string]string `json:"attributes,omitempty"`
@@ -177,6 +177,19 @@ func (h *Handler) buildCredentialForCreate(ctx context.Context, req credentialCr
 	if credentialType == "" {
 		return nil, fmt.Errorf("type is required")
 	}
+	scope := strings.TrimSpace(req.Scope)
+	if credential.IsHTTPAgentCredentialScope(scope) {
+		if credentialType != credential.TypeAPIKey && credentialType != credential.TypeOAuthToken {
+			return nil, fmt.Errorf("unsupported credential type %q", credentialType)
+		}
+		if strings.TrimSpace(req.ProviderType) != "" || strings.TrimSpace(req.ProviderID) != "" {
+			return nil, fmt.Errorf("HTTP Agent credentials must not set provider_type or provider_id")
+		}
+		return &credential.Credential{
+			ID: strings.TrimSpace(req.ID), Scope: scope, Type: credentialType,
+			Label: req.Label, Attributes: req.Attributes, Metadata: req.Metadata, Disabled: req.Disabled,
+		}, nil
+	}
 
 	switch credentialType {
 	case credential.TypeAPIKey:
@@ -232,6 +245,26 @@ func (h *Handler) buildCredentialForCreate(ctx context.Context, req credentialCr
 func (h *Handler) buildCredentialForUpdate(existing *credential.ManagedCredential, req credentialUpdateRequest) (*credential.Credential, error) {
 	if existing == nil {
 		return nil, fmt.Errorf("credential not found")
+	}
+	if credential.IsHTTPAgentCredentialScope(existing.Scope) {
+		if strings.TrimSpace(req.ProviderType) != "" || strings.TrimSpace(req.ProviderID) != "" {
+			return nil, fmt.Errorf("HTTP Agent credentials must not set provider_type or provider_id")
+		}
+		updated := existing.Credential.Clone()
+		updated.Label, updated.Disabled = req.Label, req.Disabled
+		if scope := strings.TrimSpace(req.Scope); scope != "" {
+			if !credential.IsHTTPAgentCredentialScope(scope) {
+				return nil, fmt.Errorf("HTTP Agent credential scope must remain an http-agent scope")
+			}
+			updated.Scope = scope
+		}
+		if req.Attributes != nil {
+			updated.Attributes = req.Attributes
+		}
+		if req.Metadata != nil {
+			updated.Metadata = req.Metadata
+		}
+		return updated, nil
 	}
 	switch existing.Type {
 	case credential.TypeAPIKey:

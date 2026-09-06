@@ -411,7 +411,8 @@ agents:
     runtime:
       type: http
       http:
-        endpoint: https://agent-a.example
+        card_url: https://agent-a.example/.well-known/agent-card.json
+        protocol: a2a
     routes:
       llm_route_ids:
         - shared-route
@@ -420,7 +421,8 @@ agents:
     runtime:
       type: http
       http:
-        endpoint: https://agent-b.example
+        card_url: https://agent-b.example/.well-known/agent-card.json
+        protocol: a2a
     routes:
       mcp_route_ids:
         - shared-route
@@ -450,7 +452,8 @@ agents:
     runtime:
       type: http
       http:
-        endpoint: https://agent-a.example
+        card_url: https://agent-a.example/.well-known/agent-card.json
+        protocol: a2a
     resources:
       provider_ids:
         - openai-main

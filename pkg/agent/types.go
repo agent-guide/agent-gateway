@@ -9,6 +9,8 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -74,11 +76,12 @@ type ACPRuntime struct {
 	Codex           *hostconfig.CodexConfig `json:"codex,omitempty"`
 }
 
-// HTTPRuntime carries the agent-level endpoint and callback auth for an agent
-// that owns its own lifecycle.
+// HTTPRuntime identifies a remote Agent Card and the policy used to execute it.
 type HTTPRuntime struct {
-	Endpoint string `json:"endpoint"`
-	AuthRef  string `json:"auth_ref,omitempty"`
+	CardURL        string `json:"card_url"`
+	Protocol       string `json:"protocol"`
+	AuthRef        string `json:"auth_ref,omitempty"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 
 // Routes are management/display references used to surface matching ingress
@@ -137,7 +140,8 @@ func (a *Agent) Normalize() {
 		a.Runtime.Builtin = nil
 	case RuntimeTypeHTTP:
 		if a.Runtime.HTTP != nil {
-			a.Runtime.HTTP.Endpoint = strings.TrimSpace(a.Runtime.HTTP.Endpoint)
+			a.Runtime.HTTP.CardURL = strings.TrimSpace(a.Runtime.HTTP.CardURL)
+			a.Runtime.HTTP.Protocol = strings.ToLower(strings.TrimSpace(a.Runtime.HTTP.Protocol))
 			a.Runtime.HTTP.AuthRef = strings.TrimSpace(a.Runtime.HTTP.AuthRef)
 		}
 		a.Runtime.ACP = nil
@@ -176,8 +180,11 @@ func (a Agent) Validate() error {
 			return fmt.Errorf("runtime.acp: %w", err)
 		}
 	case RuntimeTypeHTTP:
-		if a.Runtime.HTTP == nil || a.Runtime.HTTP.Endpoint == "" {
-			return fmt.Errorf("runtime.http.endpoint is required for http runtime")
+		if a.Runtime.HTTP == nil {
+			return fmt.Errorf("runtime.http is required for http runtime")
+		}
+		if err := a.Runtime.HTTP.validate(); err != nil {
+			return fmt.Errorf("runtime.http: %w", err)
 		}
 		if a.Runtime.ACP != nil {
 			return fmt.Errorf("runtime.acp must be empty for http runtime")
@@ -207,6 +214,37 @@ func (a Agent) Validate() error {
 		if a.Policy.Budget.MaxTurnsPerDay < 0 || a.Policy.Budget.MaxTokensPerDay < 0 {
 			return fmt.Errorf("policy.budget values must be non-negative")
 		}
+	}
+	return nil
+}
+
+func (c HTTPRuntime) validate() error {
+	if c.CardURL == "" {
+		return fmt.Errorf("card_url is required")
+	}
+	u, err := url.Parse(c.CardURL)
+	if err != nil || !u.IsAbs() || u.Host == "" {
+		return fmt.Errorf("card_url must be an absolute HTTP(S) URL")
+	}
+	if u.User != nil || u.Fragment != "" {
+		return fmt.Errorf("card_url must not contain userinfo or a fragment")
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+	case "http":
+		host := strings.TrimSpace(u.Hostname())
+		ip := net.ParseIP(host)
+		if !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) {
+			return fmt.Errorf("card_url must use HTTPS except for loopback HTTP")
+		}
+	default:
+		return fmt.Errorf("card_url must use HTTP or HTTPS")
+	}
+	if c.Protocol != "a2a" {
+		return fmt.Errorf("protocol must be %q", "a2a")
+	}
+	if c.TimeoutSeconds < 0 {
+		return fmt.Errorf("timeout_seconds must be non-negative")
 	}
 	return nil
 }

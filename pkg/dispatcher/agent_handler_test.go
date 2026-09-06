@@ -331,7 +331,7 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 	if err := gw.AgentManager().Update(ctx, "unified", agentpkg.Agent{
 		ID:      "unified",
 		Name:    "Unified",
-		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{Endpoint: "https://example.com/agent"}},
+		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{CardURL: "https://example.com/.well-known/agent-card.json", Protocol: "a2a"}},
 	}); err != nil {
 		t.Fatalf("switch to http runtime: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 	if err := gw.AgentManager().Update(ctx, "unified", agentpkg.Agent{
 		ID:       "unified",
 		Name:     "Unified",
-		Runtime:  agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{Endpoint: "https://example.com/agent"}},
+		Runtime:  agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{CardURL: "https://example.com/.well-known/agent-card.json", Protocol: "a2a"}},
 		Disabled: true,
 	}); err != nil {
 		t.Fatalf("disable agent: %v", err)
@@ -575,7 +575,7 @@ func TestDispatchAgentOptionalCapabilitiesAndPreBackendRejections(t *testing.T) 
 	a := agentpkg.Agent{
 		ID:      "capable",
 		Name:    "Capable",
-		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{Endpoint: "https://example.com/agent"}},
+		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{CardURL: "https://example.com/.well-known/agent-card.json", Protocol: "a2a"}},
 	}
 	if err := gw.AgentManager().Create(ctx, a); err != nil {
 		t.Fatalf("create agent: %v", err)

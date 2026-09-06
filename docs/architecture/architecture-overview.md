@@ -65,7 +65,7 @@ External systems
   - upstream LLM providers (OpenAI / Anthropic / Gemini / DeepSeek / Qwen / Zhipu / OpenRouter / Ollama / Codex / Claude Code)
   - upstream MCP services
   - local ACP agent or adapter processes (codex, opencode)
-  - remote HTTP agents (A2A Protocol 1.0 JSON-RPC; design-only, not dispatched)
+  - remote HTTP agents registered by Agent Card URL (A2A Protocol 1.0 JSON-RPC; execution is not yet dispatched)
   - SQLite config database and usage event tables
   - optional OpenTelemetry collector (metrics.otlp span export)
   - future memory backends

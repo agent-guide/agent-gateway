@@ -343,7 +343,7 @@ func printGatewayAgentsTable(items []adminclient.AgentView) {
 		if item.Runtime.ACP != nil {
 			target = item.Runtime.ACP.AgentType
 		} else if item.Runtime.HTTP != nil {
-			target = item.Runtime.HTTP.Endpoint
+			target = item.Runtime.HTTP.CardURL
 		}
 		state := "unknown"
 		if item.RuntimeStatus != nil && item.RuntimeStatus.State != "" {

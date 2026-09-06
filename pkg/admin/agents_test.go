@@ -22,7 +22,7 @@ func TestAgentViewExposesNonExecutableRuntime(t *testing.T) {
 	h := &Handler{}
 	a := agentpkg.Agent{
 		ID: "http-agent", Name: "HTTP Agent",
-		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{Endpoint: "https://example.com/agent"}},
+		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{CardURL: "https://example.com/.well-known/agent-card.json", Protocol: "a2a"}},
 	}
 
 	view := h.agentView(t.Context(), a, "config_store")

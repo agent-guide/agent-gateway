@@ -236,7 +236,7 @@ func TestGatewayAgentListProminentlyShowsNonExecutableRuntime(t *testing.T) {
 		case "/admin/agents":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{{
 				"id": "http-agent", "name": "HTTP Agent", "runtime": map[string]any{
-					"type": "http", "http": map[string]any{"endpoint": "https://example.com/agent"},
+					"type": "http", "http": map[string]any{"card_url": "https://example.com/.well-known/agent-card.json", "protocol": "a2a"},
 				},
 				"runtime_status": map[string]any{"type": "http", "state": "not_executable", "executable": false},
 				"capabilities":   map[string]any{"executable": false},

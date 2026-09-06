@@ -400,7 +400,7 @@ func TestBuiltinCustomFactoryNameRegistryUnblocksValidation(t *testing.T) {
 func TestBuiltinNormalizeClearsOtherRuntimesAndDefaultsTopology(t *testing.T) {
 	a := validBuiltinAgent()
 	a.Runtime.ACP = &ACPRuntime{}
-	a.Runtime.HTTP = &HTTPRuntime{Endpoint: "http://x"}
+	a.Runtime.HTTP = &HTTPRuntime{CardURL: "http://localhost/.well-known/agent-card.json", Protocol: "a2a"}
 	a.Runtime.Builtin.Topology.Kind = ""
 	a.Normalize()
 	if a.Runtime.ACP != nil || a.Runtime.HTTP != nil {

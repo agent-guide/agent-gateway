@@ -21,6 +21,9 @@ const (
 	CredentialScopeProviderIDPrefix   = "id:"
 )
 
+func HTTPAgentCredentialScope(agentID string) string { return model.HTTPAgentCredentialScope(agentID) }
+func IsHTTPAgentCredentialScope(scope string) bool   { return model.IsHTTPAgentCredentialScope(scope) }
+
 type Credential = model.Credential
 type ManagedCredential = model.ManagedCredential
 type QuotaState = model.QuotaState

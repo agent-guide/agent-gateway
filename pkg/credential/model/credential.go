@@ -77,11 +77,15 @@ func (c *Credential) Validate() error {
 	if c == nil {
 		return fmt.Errorf("credential is nil")
 	}
-	if c.ProviderType == "" {
+	httpAgentScope := IsHTTPAgentCredentialScope(c.ScopeValue())
+	if c.ProviderType == "" && !httpAgentScope {
 		return fmt.Errorf("credential provider_type is required")
 	}
-	if c.ProviderID == "" {
+	if c.ProviderID == "" && !httpAgentScope {
 		return fmt.Errorf("credential provider_id is required")
+	}
+	if httpAgentScope && (c.ProviderType != "" || c.ProviderID != "") {
+		return fmt.Errorf("HTTP Agent credentials must not set provider_type or provider_id")
 	}
 	if c.Type == "" {
 		return fmt.Errorf("credential type is required")
@@ -90,6 +94,21 @@ func (c *Credential) Validate() error {
 		return fmt.Errorf("credential scope is required")
 	}
 	return nil
+}
+
+const HTTPAgentCredentialScopePrefix = "http-agent:"
+
+func HTTPAgentCredentialScope(agentID string) string {
+	agentID = strings.ToLower(strings.TrimSpace(agentID))
+	if agentID == "" {
+		return ""
+	}
+	return HTTPAgentCredentialScopePrefix + agentID
+}
+
+func IsHTTPAgentCredentialScope(scope string) bool {
+	scope = NormalizeCredentialScope(scope)
+	return strings.HasPrefix(scope, HTTPAgentCredentialScopePrefix) && strings.TrimPrefix(scope, HTTPAgentCredentialScopePrefix) != ""
 }
 
 func NormalizeCredentialScope(scope string) string {

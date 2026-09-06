@@ -152,9 +152,46 @@ func TestValidateRuntime(t *testing.T) {
 	if err := bad.Validate(); err == nil {
 		t.Fatalf("acp runtime without runtime.acp config must fail")
 	}
-	httpOK := Agent{ID: "x", Name: "x", Runtime: Runtime{Type: RuntimeTypeHTTP, HTTP: &HTTPRuntime{Endpoint: "https://x"}}}
+	httpOK := Agent{ID: "x", Name: "x", Runtime: Runtime{Type: RuntimeTypeHTTP, HTTP: &HTTPRuntime{CardURL: "https://x/.well-known/agent-card.json", Protocol: "a2a"}}}
 	if err := httpOK.Validate(); err != nil {
 		t.Fatalf("valid http agent rejected: %v", err)
+	}
+}
+
+func TestHTTPRuntimeValidation(t *testing.T) {
+	valid := Agent{ID: "remote", Name: "Remote", Runtime: Runtime{Type: RuntimeTypeHTTP, HTTP: &HTTPRuntime{
+		CardURL: "https://agent.example/.well-known/agent-card.json", Protocol: "a2a", TimeoutSeconds: 30,
+	}}}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid HTTP runtime rejected: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		runtime HTTPRuntime
+	}{
+		{"missing card", HTTPRuntime{Protocol: "a2a"}},
+		{"relative card", HTTPRuntime{CardURL: "/.well-known/agent-card.json", Protocol: "a2a"}},
+		{"insecure remote", HTTPRuntime{CardURL: "http://agent.example/.well-known/agent-card.json", Protocol: "a2a"}},
+		{"userinfo", HTTPRuntime{CardURL: "https://user@agent.example/card", Protocol: "a2a"}},
+		{"missing protocol", HTTPRuntime{CardURL: "https://agent.example/card"}},
+		{"custom protocol", HTTPRuntime{CardURL: "https://agent.example/card", Protocol: "custom"}},
+		{"negative timeout", HTTPRuntime{CardURL: "https://agent.example/card", Protocol: "a2a", TimeoutSeconds: -1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := valid
+			a.Runtime.HTTP = &tt.runtime
+			if err := a.Validate(); err == nil {
+				t.Fatal("Validate() returned nil")
+			}
+		})
+	}
+
+	loopback := valid
+	loopback.Runtime.HTTP = &HTTPRuntime{CardURL: "http://127.0.0.1:8080/card", Protocol: "a2a"}
+	if err := loopback.Validate(); err != nil {
+		t.Fatalf("loopback HTTP rejected: %v", err)
 	}
 }
 

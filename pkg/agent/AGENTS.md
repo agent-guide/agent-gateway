@@ -43,10 +43,11 @@ Important files:
   its own lifecycle), or `builtin` (no separate process — a persisted
   definition materialized by the in-process ADK host). LLM and MCP are
   `resources`, not runtime types. `policy` is runtime-agnostic; ACP operational
-  config stays under `Agent.runtime.acp`. HTTP execution is design-only
-  (`docs/design/http-agent-runtime.md`): A2A Protocol 1.0 JSON-RPC is the first
-  southbound dialect; `HTTPRuntime` replaces the design-only `endpoint` with
-  `card_url` and adds `protocol` / `timeout_seconds` when that ships. The
+  config stays under `Agent.runtime.acp`. HTTP execution is governed by
+  `docs/design/http-agent-runtime.md`: A2A Protocol 1.0 JSON-RPC is the first
+  southbound dialect; `HTTPRuntime` uses `card_url` plus required `protocol`
+  and optional `timeout_seconds`; the obsolete design-only `endpoint` field is
+  not accepted. The
   selected Card interface owns the service URL and tenant. Dispatch stays
   `runtime_not_executable` until Path B registers an `HTTPBackend` in
   `pkg/gateway`. A2A wire types and the JSON-RPC client/proxy live in

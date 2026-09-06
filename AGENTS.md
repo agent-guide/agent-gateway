@@ -162,7 +162,7 @@ or a cross-cutting adapter for it (for example `caddy/admin`,
 - `pkg/credential/` — cross-cutting credential model, persistence, scheduling, expiry detection, and external refresh transport → `pkg/credential/AGENTS.md`
 - `pkg/llm/` — provider interface/registry, built-in providers, and the `einomodel` eino bridge → `pkg/llm/AGENTS.md`
 - `pkg/mcp/` — MCP service runtime and the `einotool` eino bridge → `pkg/mcp/AGENTS.md`
-- `pkg/a2a/` — A2A Protocol 1.0 JSON-RPC (design-only; Path A proxy + Path B client) → `pkg/a2a/AGENTS.md`
+- `pkg/a2a/` — A2A Protocol 1.0 JSON-RPC (Path A proxy + Path B client; schema foundation implemented) → `pkg/a2a/AGENTS.md`
 - `pkg/configstore/` — generic config store/backends (persisted backend: `sqlite`; stores `providers`, `credentials`, `routes`, `mcp_services`, `agents`, `virtual_keys`, `managed_models`) → `pkg/configstore/AGENTS.md`
 - `pkg/agent/` — agent control plane (`pkg/agent/runtime` contracts, `Agent` model, route/service → agent index) → `pkg/agent/AGENTS.md`; builtin eino ADK host → `pkg/agent/builtin/AGENTS.md`
 - `internal/observability/` — usage events, event pipeline, OTLP export, `einotap` → `internal/observability/AGENTS.md`

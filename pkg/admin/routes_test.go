@@ -729,7 +729,7 @@ func TestAgentRouteCRUD(t *testing.T) {
 	gw := newTestAgentGateway(backend, nil, nil, nil, nil)
 	if err := gw.AgentManager().Create(t.Context(), agentpkg.Agent{
 		ID: "assistant", Name: "Assistant",
-		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{Endpoint: "https://example.com/agent"}},
+		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{CardURL: "https://example.com/.well-known/agent-card.json", Protocol: "a2a"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -790,7 +790,7 @@ func TestAgentIDWithRoutesPrefixIsNotDispatchedAsAgentRoute(t *testing.T) {
 	gw := newTestAgentGateway(backend, nil, nil, nil, nil)
 	if err := gw.AgentManager().Create(t.Context(), agentpkg.Agent{
 		ID: "routesXYZ", Name: "Routes Prefix",
-		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{Endpoint: "https://example.com/agent"}},
+		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{CardURL: "https://example.com/.well-known/agent-card.json", Protocol: "a2a"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1838,6 +1838,31 @@ func TestCredentialCreateUsesProviderID(t *testing.T) {
 	}
 	if got.Label != "primary" {
 		t.Fatalf("unexpected label: got %q want %q", got.Label, "primary")
+	}
+}
+
+func TestCredentialCreateAcceptsHTTPAgentScopeWithoutProvider(t *testing.T) {
+	credMgr := credential.NewManager(nil)
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{}, nil, nil, nil, nil), nil)
+	handler.credentialManager = credMgr
+	token := loginForTest(t, handler, "admin", "secret-pass")
+	body, err := json.Marshal(map[string]any{
+		"id": "remote-key", "type": credential.TypeAPIKey, "scope": "http-agent:remote",
+		"attributes": map[string]string{"api_key": "secret"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/admin/credentials", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	got := credMgr.GetCredential("remote-key")
+	if got == nil || got.Scope != "http-agent:remote" || got.ProviderID != "" || got.ProviderType != "" {
+		t.Fatalf("unexpected stored credential: %#v", got)
 	}
 }
 

@@ -220,7 +220,8 @@ agents:
     runtime:
       type: http
       http:
-        endpoint: https://example.com/agent
+        card_url: https://example.com/.well-known/agent-card.json
+        protocol: a2a
 
 agentRoutes:
   - id: assistant

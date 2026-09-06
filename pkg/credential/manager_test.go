@@ -920,6 +920,31 @@ func TestRegisterCredentialRejectsEmptyProviderID(t *testing.T) {
 	}
 }
 
+func TestRegisterHTTPAgentCredentialWithoutProvider(t *testing.T) {
+	mgr := NewManager(nil)
+	cred := &Credential{
+		ID: "agent-key", Type: TypeAPIKey, Scope: HTTPAgentCredentialScope("Agent-A"),
+		Attributes: map[string]string{"api_key": "secret"},
+	}
+	if err := mgr.RegisterCredential(context.Background(), cred); err != nil {
+		t.Fatalf("RegisterCredential() error = %v", err)
+	}
+	got := mgr.GetCredential("agent-key")
+	if got == nil || got.Scope != "http-agent:agent-a" || got.ProviderType != "" || got.ProviderID != "" {
+		t.Fatalf("unexpected HTTP Agent credential: %#v", got)
+	}
+}
+
+func TestHTTPAgentCredentialRejectsProviderFields(t *testing.T) {
+	err := (&Credential{
+		ID: "agent-key", Type: TypeAPIKey, Scope: HTTPAgentCredentialScope("agent-a"),
+		ProviderType: "openai", ProviderID: "openai-main",
+	}).Validate()
+	if err == nil || !strings.Contains(err.Error(), "must not set provider_type") {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
 func TestUpdateCredentialRejectsEmptyProviderID(t *testing.T) {
 	mgr := NewManager(nil)
 
