@@ -6,8 +6,9 @@ are repository-root relative; the root `AGENTS.md` rules apply. The
 authoritative product design is
 [`docs/design/http-agent-runtime.md`](../../docs/design/http-agent-runtime.md).
 
-Status: **design-only**. This file is the package contract. No Go sources
-exist yet; do not treat this directory as a linked runtime.
+Status: **Path B foundation implemented**. `card/`, `jsonrpc/`, and the
+JSON-RPC-only official SDK wrapper in `client/` are linked; Path A's `proxy/`
+remains design-only.
 
 ## Boundaries
 
