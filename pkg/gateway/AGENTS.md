@@ -129,8 +129,8 @@ deletion retires stale pools and drains pending permissions before the
 replacement generation becomes dispatchable. There is no ACP service store or
 fallback configuration source.
 
-The shared `HTTPRuntimeManager` foundation is implemented; the Path B adapter
-(`HTTPBackend`) follows
+The shared `HTTPRuntimeManager` and Path B adapter (`HTTPBackend`) are implemented
+according to
 [`docs/design/http-agent-runtime.md`](../../docs/design/http-agent-runtime.md).
 `HTTPRuntimeManager` is the sole definition listener/snapshot
 owner for both HTTP paths. It imports `pkg/a2a/card`, owns typed

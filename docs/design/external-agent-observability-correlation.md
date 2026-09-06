@@ -63,9 +63,9 @@ and LLM/MCP event rows do not carry the ACP session identity.
 
 ### 2.3 HTTP Runtime
 
-The HTTP runtime currently defines the control-plane shape only; the gateway
-does not yet dispatch turns to it. An external HTTP agent owns its lifecycle and
-conversation state. Calls it sends through agent-owned LLM or MCP routes can be
+The HTTP runtime dispatches common `/turn` requests through the Path B A2A
+translator. An external HTTP agent owns its lifecycle and conversation state.
+Calls it sends through agent-owned LLM or MCP routes can be
 attributed to the agent, but the gateway cannot infer the external service's
 session or turn boundaries.
 

@@ -159,6 +159,196 @@ func TestHTTPBackendInputRequiredResumesTask(t *testing.T) {
 	}
 }
 
+func TestHTTPBackendForceCancellationIsExactlyOnce(t *testing.T) {
+	bound := make(chan struct{})
+	var once sync.Once
+	var mu sync.Mutex
+	cancelCalls := 0
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/card" {
+			writeTestAgentCard(w, server.URL+"/a2a", true)
+			return
+		}
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		method, _ := request["method"].(string)
+		id, _ := request["id"].(string)
+		if method == "CancelTask" {
+			mu.Lock()
+			cancelCalls++
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, "{\"jsonrpc\":\"2.0\",\"id\":%q,\"result\":{\"id\":\"task-1\",\"contextId\":\"ctx-1\",\"status\":{\"state\":\"TASK_STATE_CANCELED\"}}}", id)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%q,\"result\":{\"task\":{\"id\":\"task-1\",\"contextId\":\"ctx-1\",\"status\":{\"state\":\"TASK_STATE_WORKING\",\"message\":{\"messageId\":\"m1\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"working\"}]}}}}}\n\n", id)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	manager := NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+	agent := testHTTPAgent("remote", server.URL+"/card", "")
+	manager.RefreshRuntimeConfigs(context.Background(), []agentpkg.Agent{agent})
+	runs := agentruntime.NewRunRegistry()
+	backend := NewHTTPBackend(manager, RuntimeControls{Runs: runs})
+	runID, err := agentruntime.NewRunID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	turnDone := make(chan error, 1)
+	go func() {
+		turnDone <- backend.ServeTurn(context.Background(), agent, agentruntime.TurnRequest{RunID: runID, Input: "start", SessionID: "session-1"}, func(event agentruntime.TurnEvent) error {
+			if event.Event == agentruntime.EventContent {
+				once.Do(func() { close(bound) })
+			}
+			return nil
+		})
+	}()
+	<-bound
+	result, err := backend.CancelRun(context.Background(), agent, agentruntime.CancelRequest{RunID: runID, Mode: agentruntime.CancelModeForce})
+	if err != nil || result.State != agentruntime.RunStateCancelled {
+		t.Fatalf("CancelRun() = %#v, %v", result, err)
+	}
+	if _, err := backend.CancelRun(context.Background(), agent, agentruntime.CancelRequest{RunID: runID, Mode: agentruntime.CancelModeForce}); err != nil {
+		t.Fatalf("repeated CancelRun() error = %v", err)
+	}
+	<-turnDone
+	mu.Lock()
+	defer mu.Unlock()
+	if cancelCalls != 1 {
+		t.Fatalf("CancelTask calls = %d, want 1", cancelCalls)
+	}
+}
+
+func TestHTTPBackendPreBindCancellationArmsRun(t *testing.T) {
+	runStarted := make(chan struct{})
+	releaseTask := make(chan struct{})
+	var startedOnce sync.Once
+	var mu sync.Mutex
+	cancelCalls := 0
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/card" {
+			writeTestAgentCard(w, server.URL+"/a2a", true)
+			return
+		}
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		method, _ := request["method"].(string)
+		id, _ := request["id"].(string)
+		if method == "CancelTask" {
+			mu.Lock()
+			cancelCalls++
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, "{\"jsonrpc\":\"2.0\",\"id\":%q,\"result\":{\"id\":\"task-1\",\"contextId\":\"ctx-1\",\"status\":{\"state\":\"TASK_STATE_CANCELED\"}}}", id)
+			return
+		}
+		startedOnce.Do(func() { close(runStarted) })
+		<-releaseTask
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%q,\"result\":{\"task\":{\"id\":\"task-1\",\"contextId\":\"ctx-1\",\"status\":{\"state\":\"TASK_STATE_WORKING\",\"message\":{\"messageId\":\"m1\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"working\"}]}}}}}\n\n", id)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	manager := NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+	agent := testHTTPAgent("remote", server.URL+"/card", "")
+	manager.RefreshRuntimeConfigs(context.Background(), []agentpkg.Agent{agent})
+	runs := agentruntime.NewRunRegistry()
+	backend := NewHTTPBackend(manager, RuntimeControls{Runs: runs})
+	runID, _ := agentruntime.NewRunID()
+	turnDone := make(chan error, 1)
+	go func() {
+		turnDone <- backend.ServeTurn(context.Background(), agent, agentruntime.TurnRequest{RunID: runID, Input: "start", SessionID: "session-1"}, func(agentruntime.TurnEvent) error { return nil })
+	}()
+	<-runStarted
+	_, err := backend.CancelRun(context.Background(), agent, agentruntime.CancelRequest{RunID: runID, Mode: agentruntime.CancelModeForce})
+	if !errors.Is(err, agentruntime.ErrBackendUnavailable) {
+		t.Fatalf("pre-bind CancelRun() error = %v", err)
+	}
+	close(releaseTask)
+	<-turnDone
+	mu.Lock()
+	defer mu.Unlock()
+	if cancelCalls != 1 {
+		t.Fatalf("CancelTask calls = %d, want 1", cancelCalls)
+	}
+}
+
+func TestHTTPBackendDisconnectBeforeTaskRunsBoundedCleanup(t *testing.T) {
+	runStarted := make(chan struct{})
+	releaseTask := make(chan struct{})
+	var startedOnce sync.Once
+	var mu sync.Mutex
+	cancelCalls := 0
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/card" {
+			writeTestAgentCard(w, server.URL+"/a2a", true)
+			return
+		}
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		method, _ := request["method"].(string)
+		id, _ := request["id"].(string)
+		if method == "CancelTask" {
+			mu.Lock()
+			cancelCalls++
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, "{\"jsonrpc\":\"2.0\",\"id\":%q,\"result\":{\"id\":\"task-1\",\"contextId\":\"ctx-1\",\"status\":{\"state\":\"TASK_STATE_CANCELED\"}}}", id)
+			return
+		}
+		startedOnce.Do(func() { close(runStarted) })
+		<-releaseTask
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%q,\"result\":{\"task\":{\"id\":\"task-1\",\"contextId\":\"ctx-1\",\"status\":{\"state\":\"TASK_STATE_WORKING\"}}}}\n\n", id)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	manager := NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+	agent := testHTTPAgent("remote", server.URL+"/card", "")
+	manager.RefreshRuntimeConfigs(context.Background(), []agentpkg.Agent{agent})
+	backend := NewHTTPBackend(manager)
+	ctx, disconnect := context.WithCancel(context.Background())
+	turnDone := make(chan error, 1)
+	go func() {
+		turnDone <- backend.ServeTurn(ctx, agent, agentruntime.TurnRequest{Input: "start", SessionID: "session-1"}, func(agentruntime.TurnEvent) error { return nil })
+	}()
+	<-runStarted
+	disconnect()
+	close(releaseTask)
+	select {
+	case <-turnDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("disconnected turn did not finish after task binding")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if cancelCalls != 1 {
+		t.Fatalf("CancelTask calls = %d, want 1", cancelCalls)
+	}
+}
+
 func writeTestAgentCard(w http.ResponseWriter, endpoint string, streaming bool) {
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, "{\"name\":\"Remote\",\"description\":\"\",\"version\":\"1\",\"capabilities\":{\"streaming\":%t},"+

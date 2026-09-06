@@ -52,11 +52,11 @@
   <section class="section" id="runtimes">
     <div class="wrap">
       <p class="eyebrow">Runtimes</p>
-      <h2>Two execution runtimes, plus an external identity model.</h2>
+      <h2>Three execution runtimes, one governed turn API.</h2>
       <p class="lede">
         An agent is a first-class object with routes, resources, policy, usage, and
-        health. Builtin and ACP agents execute through the gateway today; HTTP defines
-        the external-agent shape while A2A Protocol 1.0 execution remains on the roadmap.
+        health. Builtin, ACP, and HTTP agents execute through the gateway today;
+        HTTP Path B translates the common turn API to A2A Protocol 1.0 JSON-RPC.
       </p>
 
       <div class="feature-row">
@@ -104,19 +104,19 @@
 
       <div class="feature-row">
         <div>
-          <span class="kicker">identity · http · execution roadmap</span>
+          <span class="kicker">runtime · http · a2a</span>
           <h3>HTTP — register your external agent</h3>
           <p>
             Agents built on any framework, running on your own infrastructure,
             can register an Agent Card URL and management identity today. Execution is
-            designed as A2A Protocol 1.0: a translating <code>/turn</code> backend
-            and a governed A2A proxy. The gateway will not own durable remote-task state.
+            execute through A2A Protocol 1.0: the common <code>/turn</code> API is
+            translated today, while native governed A2A proxy ingress remains roadmap.
           </p>
         </div>
         <ul class="feature-list">
           <li><b>Same identity model</b> Routes, resources, policy, usage, and health like every other runtime.</li>
           <li><b>Attribution references</b> Bound route traffic is attributed when route ownership is unambiguous.</li>
-          <li><b>Execution boundary</b> The gateway stores and validates the identity today; it does not yet dispatch turns or proxy A2A.</li>
+          <li><b>Execution boundary</b> Common turns execute through the request-bound A2A translator; native A2A proxy ingress is roadmap.</li>
           <li><b>No lock-in</b> LangChain, ADK, custom stacks — the gateway doesn't care.</li>
         </ul>
       </div>
@@ -151,7 +151,7 @@
               <td>HTTP</td>
               <td>You (external service)</td>
               <td>Existing agents on any framework</td>
-              <td><span class="tag-steel tag">A2A execution roadmap</span></td>
+              <td><span class="tag-steel tag">A2A translated turns</span></td>
               <td>Conditional route attribution</td>
             </tr>
           </tbody>

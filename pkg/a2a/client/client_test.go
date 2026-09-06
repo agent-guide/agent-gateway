@@ -3,10 +3,13 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 )
@@ -123,5 +126,33 @@ func TestClientRejectsDataLessNamedSSEEvent(t *testing.T) {
 	}
 	if gotErr == nil {
 		t.Fatal("data-less named event accepted")
+	}
+}
+
+func TestClientReturnsTypedHTTPStatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	iface := a2a.AgentInterface{URL: server.URL, ProtocolBinding: a2a.TransportProtocolJSONRPC, ProtocolVersion: a2a.Version}
+	client, err := New(context.Background(), iface, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.SendMessage(context.Background(), &a2a.SendMessageRequest{Message: a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("hello"))})
+	var responseErr *ResponseError
+	if !errors.As(err, &responseErr) || responseErr.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("SendMessage() error = %v", err)
+	}
+}
+
+func TestIdleTimeoutBodyAbortsBlockedRead(t *testing.T) {
+	source, writer := io.Pipe()
+	defer writer.Close()
+	body := newIdleTimeoutBody(source, 10*time.Millisecond)
+	defer body.Close()
+	_, err := body.Read(make([]byte, 1))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Read() error = %v, want deadline exceeded", err)
 	}
 }

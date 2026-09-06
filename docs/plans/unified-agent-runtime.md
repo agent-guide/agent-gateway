@@ -1,6 +1,6 @@
 # Unified Agent Runtime and Routing Plan
 
-Status: implementation in progress — M0-M7 complete
+Status: implementation in progress — M0-M8 complete
 
 Source branch: `feature/unified-agent-runtime` working tree based on `bc4e739`
 
@@ -26,7 +26,9 @@ AgentRoute is the only public Agent ingress, ACP execution config is owned by
 Agent definitions, and legacy stores require offline migration before startup.
 M6 is complete: unified ingress selects typed ACP/builtin observability storage
 from `runtime_type`, common queries use direct Agent identity, and Prometheus
-and OTLP expose the runtime-neutral route dimensions.
+and OTLP expose the runtime-neutral route dimensions. M7 completes the unified
+surface, and M8 makes HTTP Agents executable by translating common turns to
+A2A Protocol 1.0 JSON-RPC.
 
 The target stack is:
 
@@ -49,8 +51,8 @@ becomes public.
 There is one Agent execution SPI: the turn-first
 `agentruntime.Backend.ServeTurn` contract defined here and in
 [`agents-control-plane.md` §5.4](../design/agents-control-plane.md#54-runtime-backends).
-It is introduced before route cutover and registers ACP and builtin as the
-first executable backends; HTTP follows after its wire/auth contract is real.
+It was introduced before route cutover and registered ACP and builtin as the
+first executable backends; HTTP joined once its wire/auth contract became real.
 
 Durable business orchestration is owned above Agent Gateway by a workbench and
 an external engine such as Temporal. Its Worker resolves a target Agent route,
@@ -187,7 +189,7 @@ Source-of-truth implementation anchors:
 
 ### 2.2 Website
 
-The English and Chinese website correctly describe the current pre-cutover
+At the proposal baseline, the English and Chinese website described the pre-cutover
 product as two execution runtimes plus one external identity model:
 
 - builtin executes in-process;
@@ -204,7 +206,7 @@ Relevant pages are `index.html`, `agents.html`, `platform.html`, `why.html`,
 
 ### 2.3 Documentation
 
-Permanent docs correctly describe the current runtime-specific surfaces:
+At the proposal baseline, permanent docs described these runtime-specific surfaces:
 
 - builtin: `POST /<builtin-route>/turn`;
 - ACP: `POST /<acp-route>/turn`, `/permission`, `/sessions`, and transcript;
@@ -1089,8 +1091,8 @@ failures become terminal SSE error events.
 
 ### 6.6 HTTP runtime
 
-An AgentRoute may target an HTTP Agent as soon as the unified model lands, but
-the HTTP backend is not considered executable until all of the following exist.
+An AgentRoute may target and execute an HTTP Agent. The backend became
+executable only after all of the following landed.
 The outbound dialect is **A2A Protocol 1.0 JSON-RPC**, not a gateway-owned
 HTTP Agent contract; see
 [HTTP Agent Runtime](../design/http-agent-runtime.md).
@@ -1138,19 +1140,11 @@ structured security alternatives without seeing `auth_ref`; the manager alone
 applies same-origin and credential-owner policy and chooses the first surviving
 interface plus satisfiable alternative.
 
-Before those gates pass, dispatch to an HTTP Agent returns
-`501 runtime_not_executable`. The website continues to label HTTP execution as
-roadmap. Route unification alone is not permission to advertise a third
-execution runtime. `protocol a2a` proxy ingress (Path A) is a later
-protocol-family extension and is not required for M8.
-
-This creates an intentional interim operator experience: an HTTP Agent and its
-AgentRoute can validate, persist, appear in workspace, accept VirtualKey
-assignment, and report `capabilities.executable=false`, while an attempted
-`POST /turn` returns the stable 501 above. Admin/CLI views must show the
-non-executable state prominently so an existing-but-inactive route is not
-misdiagnosed as a matcher or authentication defect. Route creation does not
-imply backend availability.
+With those gates complete, a ready HTTP Agent reports
+`capabilities.executable=true` and serves `POST /turn`; a missing or rejected
+runtime snapshot still fails closed as `backend_unavailable`. `protocol a2a`
+proxy ingress (Path A) is a later protocol-family extension and is not required
+for M8.
 
 ### 6.7 Runtime Admin APIs remain separate
 
@@ -1923,7 +1917,7 @@ Documentation verification:
 - all English website claims have matching Chinese claims;
 - snippets match test-backed bundle/Caddy examples.
 
-### M8 — HTTP execution backend
+### M8 — HTTP execution backend (completed)
 
 This milestone completes three-runtime execution. The common runtime and route
 foundation remains complete and releasable without it. The wire contract is

@@ -449,7 +449,7 @@ See [docs/README.md](docs/README.md) for runtime-specific guides and references.
 - [docs/design/agents-control-plane.md](docs/design/agents-control-plane.md): cross-runtime agent control-plane design
 - [docs/design/request-pipeline.md](docs/design/request-pipeline.md): synchronous gateway request pipelines and the upper-layer Temporal/business-workflow boundary
 - [docs/design/builtin-agent-runtime.md](docs/design/builtin-agent-runtime.md): builtin ADK runtime design and implementation status
-- [docs/design/http-agent-runtime.md](docs/design/http-agent-runtime.md): HTTP agent runtime — register `runtime.http.card_url` with required `protocol: a2a`; Path B translating execution and the Path A governed proxy follow the linked design
+- [docs/design/http-agent-runtime.md](docs/design/http-agent-runtime.md): HTTP agent runtime — register `runtime.http.card_url` with required `protocol: a2a`; Path B translates the common `/turn` API to A2A 1.0 JSON-RPC, while native Path A proxy ingress remains roadmap
 - [docs/design/guardrails.md](docs/design/guardrails.md): Community Guardrails Core and external check extension boundary
 - [docs/design/enterprise-extension-contract.md](docs/design/enterprise-extension-contract.md): protected SPI, distribution assembly, and cross-repository compatibility rules
 - [docs/design/gateway-bundle-yaml.md](docs/design/gateway-bundle-yaml.md): bundle YAML design

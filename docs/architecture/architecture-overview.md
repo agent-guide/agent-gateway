@@ -65,7 +65,7 @@ External systems
   - upstream LLM providers (OpenAI / Anthropic / Gemini / DeepSeek / Qwen / Zhipu / OpenRouter / Ollama / Codex / Claude Code)
   - upstream MCP services
   - local ACP agent or adapter processes (codex, opencode)
-  - remote HTTP agents registered by Agent Card URL (A2A Protocol 1.0 JSON-RPC; execution is not yet dispatched)
+  - remote HTTP agents registered by Agent Card URL and executed through common `/turn` translation to A2A Protocol 1.0 JSON-RPC
   - SQLite config database and usage event tables
   - optional OpenTelemetry collector (metrics.otlp span export)
   - future memory backends
@@ -535,9 +535,10 @@ The execution boundary for ACP and builtin turns is one
 turn-first `agentruntime.Backend` layer registered by `AgentGateway`. The
 gateway-owned adapters execute through one run sequencer behind a unified
 `AgentRoute.agent_id` relationship. There is no unbound ACP ingress or
-runtime-specific public route family. HTTP remains non-executable; the executable design is A2A Protocol 1.0
-JSON-RPC via `pkg/a2a` (Path B translating backend first, Path A governed
-proxy later). See [HTTP Agent Runtime](../design/http-agent-runtime.md).
+runtime-specific public route family. HTTP Agents execute through the same
+`protocol agent` `/turn` ingress and a Path B backend translating to A2A
+Protocol 1.0 JSON-RPC via `pkg/a2a`; native Path A governed proxy ingress is
+still roadmap. See [HTTP Agent Runtime](../design/http-agent-runtime.md).
 Upper-layer Workflow Workers call the same AgentRoute/turn boundary while
 their external engine owns durable business state, retry, scheduling,
 approval, and DAG semantics. Gateway Request Pipelines deliberately exclude

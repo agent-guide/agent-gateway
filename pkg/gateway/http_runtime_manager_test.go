@@ -133,6 +133,34 @@ func TestHTTPRuntimeManagerRejectsWrongCredentialOwnerWithoutRefetch(t *testing.
 	}
 }
 
+func TestHTTPRuntimeManagerHealthIsConditionalAndCoalesced(t *testing.T) {
+	requests := 0
+	conditional := 0
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.Header.Get("If-None-Match") == "\"v1\"" {
+			conditional++
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("ETag", "\"v1\"")
+		writeTestAgentCard(w, server.URL+"/a2a", false)
+	}))
+	defer server.Close()
+	manager := NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+	agent := testHTTPAgent("remote", server.URL+"/card", "")
+	manager.RefreshRuntimeConfigs(context.Background(), []agentpkg.Agent{agent})
+	first := manager.ProbeHealth(context.Background(), "remote")
+	second := manager.ProbeHealth(context.Background(), "remote")
+	if !first.Healthy || !second.Healthy || first.Drift || second.Drift {
+		t.Fatalf("health probes = %#v, %#v", first, second)
+	}
+	if requests != 2 || conditional != 1 {
+		t.Fatalf("requests = %d, conditional = %d", requests, conditional)
+	}
+}
+
 func testHTTPAgent(id, cardURL, authRef string) agentpkg.Agent {
 	return agentpkg.Agent{
 		ID: id, Name: id,

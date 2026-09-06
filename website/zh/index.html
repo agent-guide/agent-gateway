@@ -53,7 +53,7 @@
       </div>
       <div class="diagram-frame">
         <span class="kicker">live traffic — one control plane</span>
-        <svg viewBox="0 0 640 360" role="img" aria-label="示意图：消费方经 AgentGuide 网关驱动 builtin 与 ACP agent；HTTP agent 当前是已注册身份，A2A Protocol 1.0 执行仍在路线图上；agent 再经网关回调 LLM 与 MCP 资源">
+        <svg viewBox="0 0 640 360" role="img" aria-label="示意图：消费方经 AgentGuide 网关驱动 builtin、ACP 与 HTTP A2A agent；agent 再经网关回调 LLM 与 MCP 资源">
           <!-- left: consumers -->
           <rect class="dg-box" x="10" y="52" width="130" height="40" rx="4"></rect>
           <text class="dg-label dg-label-strong" x="26" y="76">Applications</text>
@@ -80,8 +80,8 @@
           <text class="dg-label dg-label-strong" x="516" y="56">ACP agents</text>
           <text class="dg-label" x="516" y="70">codex · opencode</text>
           <rect class="dg-box" x="500" y="88" width="130" height="40" rx="4"></rect>
-          <text class="dg-label dg-label-strong" x="516" y="106">HTTP identity</text>
-          <text class="dg-label" x="516" y="120">execution roadmap</text>
+          <text class="dg-label dg-label-strong" x="516" y="106">HTTP / A2A</text>
+          <text class="dg-label" x="516" y="120">翻译轮次</text>
 
           <!-- right: resources — call-back targets -->
           <text class="dg-label dg-group" x="500" y="168">resources</text>
@@ -198,11 +198,11 @@
           </p>
         </div>
         <div class="card">
-          <span class="kicker">identity · http · roadmap</span>
+          <span class="kicker">runtime · http · a2a</span>
           <h3>HTTP agent</h3>
           <p>
             运行在你自己基础设施上的 agent 可以注册成一等身份，并声明资源与路由引用。
-            A2A Protocol 1.0 执行（翻译型轮次与受治理的 A2A 代理）仍在路线图上；HTTP agent 今天是身份，还不是执行后端。
+            网关今天已将通用轮次 API 翻译为 A2A Protocol 1.0 JSON-RPC；原生受治理 A2A 代理入口仍在路线图上。
           </p>
         </div>
       </div>

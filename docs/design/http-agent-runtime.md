@@ -7,10 +7,8 @@ This document is the authoritative product and technical design for
 lifecycle, with the gateway acting as a client (translating ingress) or a
 governed proxy (non-translating ingress).
 
-Status: **implementation in progress**. The Phase 0 schema, HTTP-owned
-credential scope, guarded A2A client, and shared runtime snapshot manager are
-implemented. The `http` runtime dispatch still fails
-closed with `runtime_not_executable` until Path B (§9) ships;
+Status: **Path B implemented**. HTTP Agents execute through the common
+`protocol agent` `/turn` ingress using A2A 1.0 JSON-RPC southbound. Native
 `protocol a2a` routes (Path A, §8) do not exist yet.
 
 The design records the direction chosen after evaluating alternatives:
@@ -1272,8 +1270,8 @@ is a later protocol-family extension.
   `TestAgentViewExposesNonExecutableRuntime`: retain missing/non-ready backend
   cases, and add ready shared-snapshot cases that report executable and
   dispatch through `HTTPBackend`.
-- Website wording stays "two execution runtimes plus HTTP identity" until
-  these tests pass.
+- Once these tests pass, website wording changes to three execution runtimes;
+  only native Path A proxy ingress remains labeled roadmap.
 
 ### Phase 2 — Path A: `protocol a2a` proxy ingress
 

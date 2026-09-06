@@ -13,7 +13,7 @@ The current primary LLM path is:
 6. the credential manager invokes the configured external refresh command for an expiring `oauth_token` credential when required
 7. the selected provider executes `Generate` or `Stream`
 
-MCP is active through `agent_route_dispatcher` with MCP enabled. ACP and builtin execution now enter through unified `kind=agent` routes (`pkg/gateway/agentroute`, dispatcher `agent` enablement, `POST /<agent-route>/turn` SSE); the target Agent's `runtime.type` selects the registered backend. ACP execution config is owned inline by `Agent.runtime.acp`, while builtin definitions are materialized by the in-process eino ADK host. The agent control plane is exposed through `/admin/agents` and `/admin/agents/routes`. Memory is not shipped in v0.5.x; `/admin/memory/...` is reserved and returns `501 Not Implemented`.
+MCP is active through `agent_route_dispatcher` with MCP enabled. ACP, builtin, and HTTP execution enter through unified `kind=agent` routes (`pkg/gateway/agentroute`, dispatcher `agent` enablement, `POST /<agent-route>/turn` SSE); the target Agent's `runtime.type` selects the registered backend. ACP execution config is owned inline by `Agent.runtime.acp`, builtin definitions are materialized by the in-process eino ADK host, and HTTP turns translate to A2A Protocol 1.0 JSON-RPC through the selected Agent Card interface. The agent control plane is exposed through `/admin/agents` and `/admin/agents/routes`. Memory is not shipped in v0.5.x; `/admin/memory/...` is reserved and returns `501 Not Implemented`.
 
 Future gateway Pipeline support is limited to synchronous, request-bound
 `llm`/`mcp`/`transform` composition. Durable Project/Team workflows, Agent
@@ -162,7 +162,7 @@ or a cross-cutting adapter for it (for example `caddy/admin`,
 - `pkg/credential/` — cross-cutting credential model, persistence, scheduling, expiry detection, and external refresh transport → `pkg/credential/AGENTS.md`
 - `pkg/llm/` — provider interface/registry, built-in providers, and the `einomodel` eino bridge → `pkg/llm/AGENTS.md`
 - `pkg/mcp/` — MCP service runtime and the `einotool` eino bridge → `pkg/mcp/AGENTS.md`
-- `pkg/a2a/` — A2A Protocol 1.0 JSON-RPC (guarded Path B client implemented; Path A proxy remains roadmap) → `pkg/a2a/AGENTS.md`
+- `pkg/a2a/` — A2A Protocol 1.0 JSON-RPC (Path B client and gateway backend implemented; Path A proxy remains roadmap) → `pkg/a2a/AGENTS.md`
 - `pkg/configstore/` — generic config store/backends (persisted backend: `sqlite`; stores `providers`, `credentials`, `routes`, `mcp_services`, `agents`, `virtual_keys`, `managed_models`) → `pkg/configstore/AGENTS.md`
 - `pkg/agent/` — agent control plane (`pkg/agent/runtime` contracts, `Agent` model, route/service → agent index) → `pkg/agent/AGENTS.md`; builtin eino ADK host → `pkg/agent/builtin/AGENTS.md`
 - `internal/observability/` — usage events, event pipeline, OTLP export, `einotap` → `internal/observability/AGENTS.md`

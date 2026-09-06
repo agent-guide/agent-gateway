@@ -35,8 +35,8 @@ func TestAgentGatewayBootstrapRegistersLinkedNativeBackends(t *testing.T) {
 		t.Fatalf("Bootstrap: %v", err)
 	}
 	got := gateway.RuntimeRegistry().RuntimeTypes()
-	if len(got) != 2 || got[0] != agent.RuntimeTypeACP || got[1] != agent.RuntimeTypeBuiltin {
-		t.Fatalf("runtime types = %v, want [acp builtin]", got)
+	if len(got) != 3 || got[0] != agent.RuntimeTypeACP || got[1] != agent.RuntimeTypeBuiltin || got[2] != agent.RuntimeTypeHTTP {
+		t.Fatalf("runtime types = %v, want [acp builtin http]", got)
 	}
 }
 

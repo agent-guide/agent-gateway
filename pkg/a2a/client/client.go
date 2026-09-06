@@ -13,6 +13,7 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -23,7 +24,14 @@ const (
 	MaxBodyBytes   int64 = 4 << 20
 	MaxEventBytes  int64 = 1 << 20
 	MaxStreamBytes int64 = 64 << 20
+	IdleTimeout          = 60 * time.Second
 )
+
+type ResponseError struct {
+	StatusCode int
+}
+
+func (e *ResponseError) Error() string { return fmt.Sprintf("A2A HTTP status %d", e.StatusCode) }
 
 type Client struct {
 	sdk *a2aclient.Client
@@ -104,7 +112,7 @@ func (t *guardTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return closeWithError(fmt.Errorf("A2A HTTP status %d", resp.StatusCode))
+		return closeWithError(&ResponseError{StatusCode: resp.StatusCode})
 	}
 	if enc := strings.TrimSpace(resp.Header.Get("Content-Encoding")); enc != "" && !strings.EqualFold(enc, "identity") {
 		return closeWithError(fmt.Errorf("unsupported content encoding %q", enc))
@@ -117,6 +125,7 @@ func (t *guardTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err := validateMediaType(resp.Header.Get("Content-Type"), expected); err != nil {
 		return closeWithError(err)
 	}
+	resp.Body = newIdleTimeoutBody(resp.Body, IdleTimeout)
 	if streaming {
 		resp.Body = newValidatingSSEBody(resp.Body, meta.ID)
 		return resp, nil
@@ -135,6 +144,66 @@ func (t *guardTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp.Body = io.NopCloser(bytes.NewReader(responseBody))
 	resp.ContentLength = int64(len(responseBody))
 	return resp, nil
+}
+
+type readResult struct {
+	data []byte
+	err  error
+}
+
+func newIdleTimeoutBody(source io.ReadCloser, timeout time.Duration) io.ReadCloser {
+	reader, writer := io.Pipe()
+	go func() {
+		defer source.Close()
+		results := make(chan readResult, 1)
+		done := make(chan struct{})
+		defer close(done)
+		go func() {
+			buffer := make([]byte, 32<<10)
+			for {
+				n, err := source.Read(buffer)
+				chunk := append([]byte(nil), buffer[:n]...)
+				select {
+				case results <- readResult{data: chunk, err: err}:
+				case <-done:
+					return
+				}
+				if err != nil {
+					return
+				}
+			}
+		}()
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		for {
+			select {
+			case result := <-results:
+				if len(result.data) > 0 {
+					if _, err := writer.Write(result.data); err != nil {
+						_ = source.Close()
+						_ = writer.CloseWithError(err)
+						return
+					}
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+					timer.Reset(timeout)
+				}
+				if result.err != nil {
+					_ = writer.CloseWithError(result.err)
+					return
+				}
+			case <-timer.C:
+				_ = source.Close()
+				_ = writer.CloseWithError(context.DeadlineExceeded)
+				return
+			}
+		}
+	}()
+	return reader
 }
 
 func transportOrDefault(rt http.RoundTripper) http.RoundTripper {

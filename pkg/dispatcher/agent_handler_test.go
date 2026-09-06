@@ -3,6 +3,7 @@ package dispatcher
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -113,6 +114,69 @@ func createAgentRoute(t *testing.T, gw *gateway.AgentGateway, agentID, pathPrefi
 		t.Fatalf("create agent route: %v", err)
 	}
 	return cfg.ID
+}
+
+func TestDispatchHTTPAgentPathBTurn(t *testing.T) {
+	ctx := t.Context()
+	store, err := configstore.OpenBackend(ctx, "sqlite", configstoresqlite.Config{SQLitePath: t.TempDir() + "/config.db"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := configschema.RegisterDefaultStores(store); err != nil {
+		t.Fatal(err)
+	}
+	var sawVersion, sawTrace, sawDepth bool
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/card" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, "{\"name\":\"Remote\",\"description\":\"\",\"version\":\"1\",\"capabilities\":{\"streaming\":false},"+
+				"\"defaultInputModes\":[\"text/plain\"],\"defaultOutputModes\":[\"text/plain\"],\"skills\":[],"+
+				"\"supportedInterfaces\":[{\"url\":%q,\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}]}", server.URL+"/a2a")
+			return
+		}
+		sawVersion = r.Header.Get("A2A-Version") == "1.0"
+		sawTrace = strings.HasPrefix(r.Header.Get("traceparent"), "00-")
+		sawDepth = r.Header.Get("X-Agent-Depth") == "1"
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		id, _ := request["id"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, "{\"jsonrpc\":\"2.0\",\"id\":%q,\"result\":{\"task\":{\"id\":\"task-1\",\"contextId\":\"ctx-1\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"message\":{\"messageId\":\"m1\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"remote answer\"}]}}}}}", id)
+	}))
+	defer server.Close()
+	sink := &usage.InMemorySink{}
+	gw := gateway.NewAgentGateway()
+	if err := gw.Bootstrap(ctx, gateway.BootstrapOptions{
+		ConfigStoreBackend: store,
+		UsageObserver:      usage.NewObserver(sink),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.AgentManager().Create(ctx, agentpkg.Agent{
+		ID: "http-agent", Name: "HTTP Agent",
+		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{
+			CardURL: server.URL + "/card", Protocol: "a2a",
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	createAgentRoute(t, gw, "http-agent", "/agents/http", false)
+	handler := NewHandler(gw, nil, zap.NewNop(), HandlerOptions{EnableAgent: true})
+	req := httptest.NewRequest(http.MethodPost, "/agents/http/turn", strings.NewReader("{\"input\":\"hello\"}"))
+	rec := httptest.NewRecorder()
+	if err := handler.Dispatch(rec, req, nil); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "remote answer") || !strings.Contains(rec.Body.String(), "event: done") {
+		t.Fatalf("status/body = %d/%s", rec.Code, rec.Body.String())
+	}
+	if !sawVersion || !sawTrace || !sawDepth {
+		t.Fatalf("southbound headers version=%v trace=%v depth=%v", sawVersion, sawTrace, sawDepth)
+	}
 }
 
 // TestDispatchAgentRouteEndToEnd covers the M4 AgentRoute acceptance surface:
@@ -326,8 +390,7 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 		t.Fatalf("acp-runtime turn status = %d body = %q, want 502 from unavailable test adapter", rec.Code, rec.Body.String())
 	}
 
-	// An identity-only runtime (http) persists and routes, but dispatch fails
-	// with runtime_not_executable before invoking any backend.
+	// A non-ready HTTP runtime fails closed before a southbound turn.
 	if err := gw.AgentManager().Update(ctx, "unified", agentpkg.Agent{
 		ID:      "unified",
 		Name:    "Unified",
@@ -335,8 +398,8 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("switch to http runtime: %v", err)
 	}
-	if rec := turn(`{"input":"hello"}`); rec.Code != http.StatusNotImplemented {
-		t.Fatalf("http-runtime turn status = %d, want 501 runtime_not_executable", rec.Code)
+	if rec := turn(`{"input":"hello"}`); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("http-runtime turn status = %d, want 503 backend_unavailable", rec.Code)
 	}
 
 	// A disabled Agent stays a valid route target and fails pre-stream.
@@ -555,10 +618,6 @@ func TestDispatchAgentOptionalCapabilitiesAndPreBackendRejections(t *testing.T) 
 		t.Fatalf("register default stores: %v", err)
 	}
 
-	gw := gateway.NewAgentGateway()
-	if err := gw.Bootstrap(ctx, gateway.BootstrapOptions{ConfigStoreBackend: store}); err != nil {
-		t.Fatalf("Bootstrap: %v", err)
-	}
 	fake := &agentHandlerCapabilityBackend{Backend: runtimetest.NewBackend(agentpkg.RuntimeTypeHTTP)}
 	fake.CapabilitiesResult = agentruntime.Capabilities{
 		Executable: true,
@@ -568,8 +627,9 @@ func TestDispatchAgentOptionalCapabilitiesAndPreBackendRejections(t *testing.T) 
 			ResumeMode:  agentruntime.PermissionResumeActiveStream,
 		},
 	}
-	if err := gw.RuntimeRegistry().Register(fake); err != nil {
-		t.Fatalf("register fake HTTP backend: %v", err)
+	gw := gateway.NewAgentGateway()
+	if err := gw.Bootstrap(ctx, gateway.BootstrapOptions{ConfigStoreBackend: store, HTTPBackend: fake}); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
 	}
 
 	a := agentpkg.Agent{

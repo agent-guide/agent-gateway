@@ -49,6 +49,9 @@ type BootstrapOptions struct {
 	// a fake to exercise Agent-dispatched ACP execution without spawning
 	// processes.
 	ACPRuntime ACPTurnServer
+	// HTTPBackend overrides the registered HTTP Agent adapter in focused tests.
+	// Nil registers the production Path B backend over HTTPRuntimeManager.
+	HTTPBackend agentruntime.Backend
 }
 
 type AgentGateway struct {
@@ -159,6 +162,13 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	if g.builtinHost != nil {
 		backends = append(backends, NewBuiltinBackend(g.builtinHost, controls))
 	}
+	if g.httpRuntimeManager != nil {
+		httpBackend := agentruntime.Backend(NewHTTPBackend(g.httpRuntimeManager, controls))
+		if opts.HTTPBackend != nil {
+			httpBackend = opts.HTTPBackend
+		}
+		backends = append(backends, httpBackend)
+	}
 	if err := g.runtimeRegistry.RegisterAll(backends...); err != nil {
 		return fmt.Errorf("register agent runtime backends: %w", err)
 	}
@@ -218,6 +228,9 @@ func (g *AgentGateway) Reset() {
 	}
 	g.acpRuntimeManager = nil
 	g.agentManager = nil
+	if g.httpRuntimeManager != nil {
+		g.httpRuntimeManager.RefreshRuntimeConfigs(context.Background(), nil)
+	}
 	g.httpRuntimeManager = nil
 	g.runtimeRegistry = agentruntime.NewRegistry()
 	g.runRegistry = agentruntime.NewRunRegistry()

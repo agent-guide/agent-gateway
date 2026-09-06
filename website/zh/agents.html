@@ -51,10 +51,10 @@
   <section class="section" id="runtimes">
     <div class="wrap">
       <p class="eyebrow">运行时</p>
-      <h2>两种执行运行时，加一种外部身份模型。</h2>
+      <h2>三种执行运行时，一套受治理的轮次 API。</h2>
       <p class="lede">
         agent 是一等对象，拥有路由、资源、策略、用量与健康状况
-        —— builtin 与 ACP 今天由网关执行；HTTP 定义外部 agent 形态，A2A Protocol 1.0 执行仍在路线图上。
+        —— builtin、ACP 与 HTTP 今天均可由网关执行；HTTP Path B 将通用轮次 API 翻译为 A2A Protocol 1.0 JSON-RPC。
       </p>
 
       <div class="feature-row">
@@ -100,18 +100,18 @@
 
       <div class="feature-row">
         <div>
-          <span class="kicker">identity · http · 执行路线图</span>
+          <span class="kicker">runtime · http · a2a</span>
           <h3>HTTP — 注册你的外部 Agent</h3>
           <p>
             用任意框架构建、运行在你自己基础设施上的 agent，今天可以注册 Agent Card URL 与管理身份。
-            执行设计为 A2A Protocol 1.0：翻译型 <code>/turn</code> 后端，以及受治理的 A2A 代理；
-            网关不持有远端 task 的持久状态。
+            通过 A2A Protocol 1.0 执行：通用 <code>/turn</code> API 今天已可翻译调用，
+            原生受治理 A2A 代理入口仍在路线图上；网关不持有远端 task 的持久状态。
           </p>
         </div>
         <ul class="feature-list">
           <li><b>同一套身份模型</b> 路由、资源、策略、用量与健康，与其他运行时一致。</li>
           <li><b>归因引用</b> 路由归属明确时，绑定路由的流量会归因到该 agent。</li>
-          <li><b>执行边界</b> 网关当前会存储并校验身份，但尚未分发 /turn，也不代理 A2A。</li>
+          <li><b>执行边界</b> 通用轮次通过请求绑定的 A2A 翻译器执行；原生 A2A 代理入口仍在路线图上。</li>
           <li><b>无锁定</b> LangChain、ADK、自研栈 —— 网关一视同仁。</li>
         </ul>
       </div>
@@ -146,7 +146,7 @@
               <td>HTTP</td>
               <td>你（外部服务）</td>
               <td>任意框架上的存量 agent</td>
-              <td><span class="tag-steel tag">A2A 执行路线图</span></td>
+              <td><span class="tag-steel tag">A2A 翻译轮次</span></td>
               <td>路由归属明确时归因</td>
             </tr>
           </tbody>

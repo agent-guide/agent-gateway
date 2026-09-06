@@ -9,11 +9,13 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	a2acard "github.com/agent-guide/agent-gateway/pkg/a2a/card"
 	a2aclient "github.com/agent-guide/agent-gateway/pkg/a2a/client"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
@@ -41,6 +43,7 @@ type HTTPExecution struct {
 	Fingerprint string
 	Streaming   bool
 	bindings    *httpSessionBindings
+	runs        *httpRunSlots
 }
 
 type httpRuntimeEntry struct {
@@ -51,6 +54,7 @@ type httpRuntimeEntry struct {
 	card                       *a2acard.Snapshot
 	execution                  *HTTPExecution
 	authRef                    string
+	cardURL                    string
 	configError                string
 	disabled                   bool
 }
@@ -69,6 +73,8 @@ type HTTPRuntimeManager struct {
 	reverse    map[string][]string
 	recommitMu sync.Mutex
 	recommit   bool
+	healthMu   sync.Mutex
+	health     map[string]HTTPHealthProbe
 }
 
 func NewHTTPRuntimeManager(agents *agentpkg.Manager, credentials *credential.Manager, cardClient *http.Client, logger *zap.Logger) *HTTPRuntimeManager {
@@ -77,7 +83,7 @@ func NewHTTPRuntimeManager(agents *agentpkg.Manager, credentials *credential.Man
 	}
 	return &HTTPRuntimeManager{
 		agents: agents, credentials: credentials, cardClient: cardClient, logger: logger,
-		entries: map[string]httpRuntimeEntry{}, reverse: map[string][]string{},
+		entries: map[string]httpRuntimeEntry{}, reverse: map[string][]string{}, health: map[string]HTTPHealthProbe{},
 	}
 }
 
@@ -156,7 +162,7 @@ func (m *HTTPRuntimeManager) RefreshRuntimeConfigs(ctx context.Context, agents [
 
 func (m *HTTPRuntimeManager) prepareEntry(ctx context.Context, agent agentpkg.Agent, previous httpRuntimeEntry) httpRuntimeEntry {
 	cfg := agent.Runtime.HTTP
-	entry := httpRuntimeEntry{authRef: cfg.AuthRef, disabled: agent.Disabled}
+	entry := httpRuntimeEntry{authRef: cfg.AuthRef, cardURL: cfg.CardURL, disabled: agent.Disabled}
 	entry.cardInputFingerprint = fingerprint(struct {
 		CardURL  string
 		Protocol string
@@ -214,8 +220,53 @@ func (m *HTTPRuntimeManager) prepareEntry(ctx context.Context, agent agentpkg.Ag
 		Client: typedClient, Interface: selectedInterface, Card: entry.card.Card, AuthRef: cfg.AuthRef,
 		Timeout: timeout, Fingerprint: entry.executionFingerprint, Streaming: entry.card.Card.Capabilities.Streaming,
 		bindings: newHTTPSessionBindings(),
+		runs:     newHTTPRunSlots(),
 	}
 	return entry
+}
+
+type HTTPHealthProbe struct {
+	Healthy   bool
+	Drift     bool
+	CheckedAt time.Time
+	Message   string
+}
+
+func (m *HTTPRuntimeManager) ProbeHealth(ctx context.Context, agentID string) HTTPHealthProbe {
+	now := time.Now().UTC()
+	if m == nil {
+		return HTTPHealthProbe{CheckedAt: now, Message: "HTTP runtime manager is unavailable"}
+	}
+	m.mu.RLock()
+	entry, ok := m.entries[strings.TrimSpace(agentID)]
+	m.mu.RUnlock()
+	if !ok || entry.card == nil || entry.execution == nil {
+		return HTTPHealthProbe{CheckedAt: now, Message: "HTTP runtime is not ready"}
+	}
+	m.healthMu.Lock()
+	defer m.healthMu.Unlock()
+	if cached, ok := m.health[entry.executionFingerprint]; ok && now.Sub(cached.CheckedAt) < 30*time.Second {
+		return cached
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, httpCardTimeout)
+	defer cancel()
+	fetched, notModified, err := a2acard.Fetch(probeCtx, m.cardClient, entry.cardURL, a2acard.Validators{
+		ETag: entry.card.ETag, LastModified: entry.card.LastModified,
+	})
+	probe := HTTPHealthProbe{CheckedAt: now}
+	if err != nil {
+		probe.Message = boundedConfigError("probe Agent Card", err)
+	} else {
+		probe.Healthy = true
+		if !notModified {
+			probe.Drift = fingerprint(fetched.Card) != fingerprint(entry.card.Card)
+			if probe.Drift {
+				probe.Message = "Agent Card differs from the accepted runtime snapshot"
+			}
+		}
+	}
+	m.health[entry.executionFingerprint] = probe
+	return probe
 }
 
 func (m *HTTPRuntimeManager) selectExecution(agentID, cardURL, authRef string, snapshot *a2acard.Snapshot) (a2a.AgentInterface, a2acard.SecurityAlternative, error) {
@@ -314,32 +365,64 @@ func buildHTTPReverseIndex(entries map[string]httpRuntimeEntry) map[string][]str
 	return out
 }
 
-func (m *HTTPRuntimeManager) OnCredentialRegistered(context.Context, *credential.ManagedCredential) {
-	m.credentialChanged()
+func (m *HTTPRuntimeManager) OnCredentialRegistered(_ context.Context, cred *credential.ManagedCredential) {
+	m.credentialChanged(credentialID(cred))
 }
-func (m *HTTPRuntimeManager) OnCredentialUpdated(context.Context, *credential.ManagedCredential) {
-	m.credentialChanged()
+func (m *HTTPRuntimeManager) OnCredentialUpdated(_ context.Context, cred *credential.ManagedCredential) {
+	m.credentialChanged(credentialID(cred))
 }
-func (m *HTTPRuntimeManager) OnCredentialDeregistered(context.Context, *credential.ManagedCredential) {
-	m.credentialChanged()
+func (m *HTTPRuntimeManager) OnCredentialDeregistered(_ context.Context, cred *credential.ManagedCredential) {
+	m.credentialChanged(credentialID(cred))
 }
 func (m *HTTPRuntimeManager) OnCredentialsReplaced(context.Context, []*credential.ManagedCredential) {
 	m.credentialChanged()
 }
 
-func (m *HTTPRuntimeManager) credentialChanged() {
+func credentialID(cred *credential.ManagedCredential) string {
+	if cred == nil {
+		return ""
+	}
+	return cred.ID
+}
+
+func (m *HTTPRuntimeManager) credentialChanged(authRefs ...string) {
 	if m == nil || m.agents == nil {
 		return
 	}
 	m.mu.RLock()
+	type candidate struct {
+		agentID string
+		entry   httpRuntimeEntry
+	}
+	var candidates []candidate
+	if len(authRefs) == 0 {
+		for authRef, agentIDs := range m.reverse {
+			for _, agentID := range agentIDs {
+				entry := m.entries[agentID]
+				entry.authRef = authRef
+				candidates = append(candidates, candidate{agentID: agentID, entry: entry})
+			}
+		}
+	} else {
+		seen := map[string]struct{}{}
+		for _, authRef := range authRefs {
+			for _, agentID := range m.reverse[strings.TrimSpace(authRef)] {
+				if _, ok := seen[agentID]; ok {
+					continue
+				}
+				seen[agentID] = struct{}{}
+				candidates = append(candidates, candidate{agentID: agentID, entry: m.entries[agentID]})
+			}
+		}
+	}
+	m.mu.RUnlock()
 	changed := false
-	for agentID, entry := range m.entries {
-		if entry.authRef != "" && entry.credentialFingerprint != m.credentialEligibilityFingerprint(agentID, entry.authRef) {
+	for _, candidate := range candidates {
+		if candidate.entry.credentialFingerprint != m.credentialEligibilityFingerprint(candidate.agentID, candidate.entry.authRef) {
 			changed = true
 			break
 		}
 	}
-	m.mu.RUnlock()
 	if !changed {
 		return
 	}
@@ -372,8 +455,11 @@ type liveCredentialTransport struct {
 }
 
 func (t *liveCredentialTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	clone.Header = req.Header.Clone()
+	injectHTTPRuntimeTrace(clone)
 	if t.authRef == "" {
-		return t.base.RoundTrip(req)
+		return t.base.RoundTrip(clone)
 	}
 	if t.manager == nil {
 		return nil, fmt.Errorf("HTTP Agent credential manager is unavailable")
@@ -392,10 +478,21 @@ func (t *liveCredentialTransport) RoundTrip(req *http.Request) (*http.Response, 
 			return nil, fmt.Errorf("refreshed HTTP Agent credential is unusable")
 		}
 	}
-	clone := req.Clone(req.Context())
-	clone.Header = req.Header.Clone()
 	clone.Header.Set("Authorization", "Bearer "+strings.TrimSpace(cred.APIKey()))
 	return t.base.RoundTrip(clone)
+}
+
+func injectHTTPRuntimeTrace(req *http.Request) {
+	if req == nil {
+		return
+	}
+	dims, _ := usage.DimensionsFromContext(req.Context())
+	if usage.ValidTraceID(dims.TraceID) && usage.ValidSpanID(dims.SpanID) {
+		req.Header.Set("traceparent", "00-"+dims.TraceID+"-"+dims.SpanID+"-01")
+		req.Header.Set("X-Trace-ID", dims.TraceID)
+		req.Header.Set("X-Span-ID", dims.SpanID)
+	}
+	req.Header.Set("X-Agent-Depth", strconv.Itoa(dims.AgentDepth+1))
 }
 
 func newHTTPTransportClient(rt http.RoundTripper) *http.Client {
