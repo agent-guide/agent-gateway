@@ -338,23 +338,37 @@ Create, Update, Delete, and Recommit, but HTTP preparation is incremental:
   credential-eligibility fingerprint also preserves clients, active runs, and
   session bindings: the live RoundTripper observes the new value on its next
   operation;
-- only new/Card-input-changed HTTP Agents and entries without accepted
-  Card-derived state fetch Cards. They are fetched with bounded parallelism,
-  not serially across the full Agent list. A valid parsed Card is retained even
+- disabled HTTP Agents publish a disabled entry without fetching a Card or
+  constructing an A2A client. Only enabled new/Card-input-changed HTTP Agents
+  and entries without accepted Card-derived state fetch Cards. They are fetched with bounded parallelism,
+  not serially across the full Agent list. Fingerprinting, disabled handling,
+  retry-backoff inheritance, and accepted-Card reuse happen before admission to
+  that bounded I/O pool, so an unchanged entry can never time out waiting behind
+  unrelated Card requests. A valid parsed Card is retained even
   when selection is currently non-ready only because `auth_ref` is absent,
   disabled, wrong-kind, wrong-owner, or has no usable secret;
 - the listener retains the existing five-second total prepare budget from
-  `pkg/agent/snapshot.go`. Each definition Card request uses the smaller of the
-  normal ten-second Card limit and the remaining prepare budget. Health probes
+  `pkg/agent/snapshot.go`. Each definition Card request uses the smaller of a
+  four-second definition-fetch limit and the remaining prepare budget, leaving
+  time for selection and publication. Health probes
   are outside definition prepare and retain their full ten-second limit;
 - timeout or Card validation failure affects only the new/Card-input-changed
   entry, which is published non-ready. It never replaces unrelated inherited
   snapshots and it never falls back to the changed Agent's old Card state.
+  An entry that exhausts the prepare budget while waiting for a Card-fetch slot
+  retains its new input fingerprints and is marked as a Card-fetch failure so
+  the same retry path applies.
   Because it has no accepted Card-derived state, a later generation retries it
-  even when its local input fingerprint is unchanged;
+  even when its local input fingerprint is unchanged. The manager also schedules
+  an Agent/fingerprint-scoped retry starting at one second with exponential
+  backoff capped at one minute. A retry triggers `AgentManager.Recommit`; it does
+  not mutate the committed generation in place. While its retry timer is
+  pending, unrelated generations inherit the same bounded failure without
+  another Card request. Success, disablement, deletion, or a changed Card-input
+  fingerprint cancels and resets that retry state;
 - startup may therefore publish a mixture of ready and non-ready HTTP Agents
-  within one generation. Recovery requires a later operator reapply, Refresh,
-  or Recommit; P0 does not add an asynchronous snapshot publisher.
+  within one generation. Recovery occurs through the background Recommit loop
+  or an earlier operator reapply/Refresh/Recommit.
 
 `HTTPRuntimeManager` also implements
 `credential.CredentialLifecycleListener`. From the last committed Agent
@@ -381,13 +395,17 @@ dispatchable. Once Path B exists, the manager also owns the per-fingerprint
 execution resources referenced by a resolved view: the SDK client plus the
 bounded mutable claim, binding, and run registries. Those registries are not
 part of the immutable configuration snapshot; `HTTPBackend` operates on them
-through the resolved execution handle. Cleanup retires the replaced client and
-its execution resources, so lifecycle retirement does not require a second
-Agent-definition listener.
+through the resolved execution handle. Cleanup retires the replaced client,
+closes the execution-owned transport's idle connections, and retires its
+execution resources, so lifecycle retirement does not require a second Agent
+definition listener.
 A failed new/Card-input-changed fetch or validation publishes a non-ready
 snapshot with a bounded `config_error`; it never retains stale Card state. A
 credential-only non-ready snapshot does retain the current parsed candidates
-for local reselection. The manager exposes
+for local reselection. Health reports that bounded `config_error`, coalesces
+only probes for the same execution fingerprint, allows unrelated Agents to
+probe concurrently, and prunes retired health-cache fingerprints at commit.
+The manager exposes
 read-only `ResolveExecution(agent_id)` for Path B and
 `ResolveProxyTarget(agent_id)` for Path A. The latter returns the selected URL,
 tenant, auth reference, transport policy, execution fingerprint, and Card

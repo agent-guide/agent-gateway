@@ -10,9 +10,11 @@ import (
 )
 
 const (
-	Version                    = "2.0"
-	A2AVersion                 = "1.0"
-	HeaderVersion              = "A2A-Version"
+	Version       = "2.0"
+	A2AVersion    = "1.0"
+	HeaderVersion = "A2A-Version"
+	// Method constants define Path A's planned allowlist as well as the Path B
+	// wire vocabulary; not every method is used by the translating backend.
 	MethodSendMessage          = "SendMessage"
 	MethodSendStreamingMessage = "SendStreamingMessage"
 	MethodGetTask              = "GetTask"

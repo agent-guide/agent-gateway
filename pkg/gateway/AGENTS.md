@@ -162,10 +162,22 @@ listener calls, and fetches only new/Card-input-changed Cards or entries
 without accepted Card state with bounded concurrency. A secret/OAuth-token
 rotation with unchanged eligibility must not fetch a Card, replace the client,
 or retire bindings.
-Each definition fetch is capped by the remaining five-second prepare budget;
+Disabled HTTP Agents perform no Card/client I/O. Each definition fetch is
+capped at four seconds and by the remaining five-second prepare budget;
 one changed entry's failure publishes only that entry non-ready and cannot
-degrade inherited entries. It does not asynchronously mutate a committed
-generation.
+degrade inherited entries. Only entries that actually require a Card request
+enter the bounded fetch pool; fingerprinting and unchanged-entry inheritance
+happen before admission. A changed entry that times out waiting for admission
+keeps its new fingerprints and enters the ordinary Card retry path rather than
+falling back to stale execution state. Failed Card inputs retry with bounded
+exponential backoff by triggering a coalesced Agent Recommit; retries never
+mutate a committed generation in place. Unrelated generations inherit the
+failure during its backoff window without another request. Retries are canceled
+by success, disablement, deletion, or changed Card input. Health reports the
+committed `config_error`,
+coalesces only by execution fingerprint without serializing unrelated Agents,
+and drops retired cache keys. Retiring an execution closes its owned
+transport's idle connections.
 `pkg/a2a/card` returns ordered exact-`"JSONRPC"` interface candidates and
 structured security alternatives without credential state. This manager alone
 applies same-origin plus exact-owner credential policy and chooses the first

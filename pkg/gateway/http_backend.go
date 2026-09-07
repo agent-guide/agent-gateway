@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -681,10 +680,3 @@ func (b *HTTPBackend) Health(ctx context.Context, agent agentpkg.Agent) (agentru
 var _ agentruntime.Backend = (*HTTPBackend)(nil)
 var _ agentruntime.RunCanceller = (*HTTPBackend)(nil)
 var _ agentruntime.HealthChecker = (*HTTPBackend)(nil)
-
-func validateHTTPTaskIdentity(taskID a2a.TaskID, contextID string) error {
-	if strings.TrimSpace(string(taskID)) == "" || strings.TrimSpace(contextID) == "" {
-		return fmt.Errorf("missing task identity")
-	}
-	return nil
-}

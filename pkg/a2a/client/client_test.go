@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,6 +76,26 @@ func TestClientRejectsWrongResponseEnvelope(t *testing.T) {
 	_, err = client.SendMessage(context.Background(), &a2a.SendMessageRequest{Message: a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("hello"))})
 	if err == nil {
 		t.Fatal("mismatched response id accepted")
+	}
+}
+
+func TestGuardTransportRejectsMissingBody(t *testing.T) {
+	transport := &guardTransport{base: http.DefaultTransport}
+	request, err := http.NewRequest(http.MethodPost, "http://example.invalid", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transport.RoundTrip(request); err == nil || !strings.Contains(err.Error(), "body is required") {
+		t.Fatalf("RoundTrip() error = %v", err)
+	}
+}
+
+func TestAcceptsEventStreamMediaTypeInList(t *testing.T) {
+	if !acceptsMediaType("application/json, text/event-stream; q=0.8", "text/event-stream") {
+		t.Fatal("event stream with quality parameter was not recognized")
+	}
+	if acceptsMediaType("text/event-stream; q=0.0", "text/event-stream") {
+		t.Fatal("disabled event stream media type was accepted")
 	}
 }
 

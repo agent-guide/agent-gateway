@@ -230,6 +230,7 @@ func (g *AgentGateway) Reset() {
 	g.agentManager = nil
 	if g.httpRuntimeManager != nil {
 		g.httpRuntimeManager.RefreshRuntimeConfigs(context.Background(), nil)
+		g.httpRuntimeManager.Close()
 	}
 	g.httpRuntimeManager = nil
 	g.runtimeRegistry = agentruntime.NewRegistry()

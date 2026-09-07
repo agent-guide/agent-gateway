@@ -12,6 +12,7 @@ import (
 	"iter"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -83,6 +84,9 @@ type guardTransport struct {
 }
 
 func (t *guardTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req == nil || req.Body == nil {
+		return nil, fmt.Errorf("A2A request body is required")
+	}
 	clone := req.Clone(req.Context())
 	clone.Header = req.Header.Clone()
 	clone.Header.Set(agwjsonrpc.HeaderVersion, agwjsonrpc.A2AVersion)
@@ -117,7 +121,7 @@ func (t *guardTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if enc := strings.TrimSpace(resp.Header.Get("Content-Encoding")); enc != "" && !strings.EqualFold(enc, "identity") {
 		return closeWithError(fmt.Errorf("unsupported content encoding %q", enc))
 	}
-	streaming := strings.EqualFold(clone.Header.Get("Accept"), "text/event-stream")
+	streaming := acceptsMediaType(clone.Header.Get("Accept"), "text/event-stream")
 	expected := "application/json"
 	if streaming {
 		expected = "text/event-stream"
@@ -144,6 +148,23 @@ func (t *guardTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp.Body = io.NopCloser(bytes.NewReader(responseBody))
 	resp.ContentLength = int64(len(responseBody))
 	return resp, nil
+}
+
+func acceptsMediaType(value, expected string) bool {
+	for _, item := range strings.Split(value, ",") {
+		mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(item))
+		if err != nil || !strings.EqualFold(mediaType, expected) {
+			continue
+		}
+		if rawQuality, ok := params["q"]; ok {
+			quality, err := strconv.ParseFloat(strings.TrimSpace(rawQuality), 64)
+			if err != nil || quality <= 0 || quality > 1 {
+				continue
+			}
+		}
+		return true
+	}
+	return false
 }
 
 type readResult struct {

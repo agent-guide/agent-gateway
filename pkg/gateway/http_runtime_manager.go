@@ -25,11 +25,14 @@ import (
 
 const (
 	httpDefaultTurnTimeout = 120 * time.Second
-	httpCardTimeout        = 10 * time.Second
+	httpHealthCardTimeout  = 10 * time.Second
+	httpPrepareCardTimeout = 4 * time.Second
 	httpConnectTimeout     = 10 * time.Second
 	httpHeaderTimeout      = 30 * time.Second
 	httpIdleTimeout        = 60 * time.Second
 	httpPrepareConcurrency = 4
+	httpCardRetryInitial   = time.Second
+	httpCardRetryMaximum   = time.Minute
 )
 
 // HTTPExecution is one immutable, Card-selected Path B execution view. Its
@@ -44,6 +47,7 @@ type HTTPExecution struct {
 	Streaming   bool
 	bindings    *httpSessionBindings
 	runs        *httpRunSlots
+	transport   *http.Transport
 }
 
 type httpRuntimeEntry struct {
@@ -57,6 +61,7 @@ type httpRuntimeEntry struct {
 	cardURL                    string
 	configError                string
 	disabled                   bool
+	cardFetchFailed            bool
 }
 
 // HTTPRuntimeManager owns the single immutable Card-derived generation used by
@@ -68,13 +73,28 @@ type HTTPRuntimeManager struct {
 	cardClient  *http.Client
 	logger      *zap.Logger
 
-	mu         sync.RWMutex
-	entries    map[string]httpRuntimeEntry
-	reverse    map[string][]string
-	recommitMu sync.Mutex
-	recommit   bool
-	healthMu   sync.Mutex
-	health     map[string]HTTPHealthProbe
+	mu             sync.RWMutex
+	entries        map[string]httpRuntimeEntry
+	reverse        map[string][]string
+	recommitMu     sync.Mutex
+	recommit       bool
+	healthMu       sync.Mutex
+	health         map[string]HTTPHealthProbe
+	healthInFlight map[string]*httpHealthCall
+	retryMu        sync.Mutex
+	retries        map[string]*httpCardRetry
+	closed         bool
+}
+
+type httpHealthCall struct {
+	done  chan struct{}
+	probe HTTPHealthProbe
+}
+
+type httpCardRetry struct {
+	fingerprint string
+	attempt     int
+	timer       *time.Timer
 }
 
 func NewHTTPRuntimeManager(agents *agentpkg.Manager, credentials *credential.Manager, cardClient *http.Client, logger *zap.Logger) *HTTPRuntimeManager {
@@ -83,7 +103,8 @@ func NewHTTPRuntimeManager(agents *agentpkg.Manager, credentials *credential.Man
 	}
 	return &HTTPRuntimeManager{
 		agents: agents, credentials: credentials, cardClient: cardClient, logger: logger,
-		entries: map[string]httpRuntimeEntry{}, reverse: map[string][]string{}, health: map[string]HTTPHealthProbe{},
+		entries: map[string]httpRuntimeEntry{}, reverse: map[string][]string{},
+		health: map[string]HTTPHealthProbe{}, healthInFlight: map[string]*httpHealthCall{}, retries: map[string]*httpCardRetry{},
 	}
 }
 
@@ -107,6 +128,14 @@ func (m *HTTPRuntimeManager) PrepareRuntimeConfigs(ctx context.Context, agents [
 			continue
 		}
 		agent := agent
+		previousEntry := previous[agent.ID]
+		entry, needsCardFetch := m.prepareEntry(ctx, agent, previousEntry, false)
+		if !needsCardFetch {
+			nextMu.Lock()
+			next[agent.ID] = entry
+			nextMu.Unlock()
+			continue
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -114,12 +143,14 @@ func (m *HTTPRuntimeManager) PrepareRuntimeConfigs(ctx context.Context, agents [
 			case sem <- struct{}{}:
 				defer func() { <-sem }()
 			case <-ctx.Done():
+				entry.configError = "HTTP runtime preparation timed out waiting to fetch Agent Card"
+				entry.cardFetchFailed = true
 				nextMu.Lock()
-				next[agent.ID] = httpRuntimeEntry{configError: "HTTP runtime preparation timed out", disabled: agent.Disabled}
+				next[agent.ID] = entry
 				nextMu.Unlock()
 				return
 			}
-			entry := m.prepareEntry(ctx, agent, previous[agent.ID])
+			entry, _ = m.prepareEntry(ctx, agent, previousEntry, true)
 			nextMu.Lock()
 			next[agent.ID] = entry
 			nextMu.Unlock()
@@ -133,6 +164,8 @@ func (m *HTTPRuntimeManager) PrepareRuntimeConfigs(ctx context.Context, agents [
 		m.entries = next
 		m.reverse = buildHTTPReverseIndex(next)
 		m.mu.Unlock()
+		m.pruneHealth(next)
+		m.syncCardRetries(next)
 		var retired []*HTTPExecution
 		for id, oldEntry := range old {
 			nextEntry, ok := next[id]
@@ -144,6 +177,9 @@ func (m *HTTPRuntimeManager) PrepareRuntimeConfigs(ctx context.Context, agents [
 			for _, execution := range retired {
 				if execution.Client != nil {
 					_ = execution.Client.Close()
+				}
+				if execution.transport != nil {
+					execution.transport.CloseIdleConnections()
 				}
 			}
 		}
@@ -160,7 +196,9 @@ func (m *HTTPRuntimeManager) RefreshRuntimeConfigs(ctx context.Context, agents [
 	}
 }
 
-func (m *HTTPRuntimeManager) prepareEntry(ctx context.Context, agent agentpkg.Agent, previous httpRuntimeEntry) httpRuntimeEntry {
+// prepareEntry performs all local preparation first. When allowCardFetch is
+// false it reports whether the caller must enter the bounded Card-I/O pool.
+func (m *HTTPRuntimeManager) prepareEntry(ctx context.Context, agent agentpkg.Agent, previous httpRuntimeEntry, allowCardFetch bool) (httpRuntimeEntry, bool) {
 	cfg := agent.Runtime.HTTP
 	entry := httpRuntimeEntry{authRef: cfg.AuthRef, cardURL: cfg.CardURL, disabled: agent.Disabled}
 	entry.cardInputFingerprint = fingerprint(struct {
@@ -172,16 +210,28 @@ func (m *HTTPRuntimeManager) prepareEntry(ctx context.Context, agent agentpkg.Ag
 	entry.definitionInputFingerprint = fingerprint(struct {
 		Card, Credential, ID, Name, Description string
 	}{entry.cardInputFingerprint, entry.credentialFingerprint, agent.ID, agent.Name, agent.Description})
+	if agent.Disabled {
+		return entry, false
+	}
+	if previous.cardFetchFailed && previous.cardInputFingerprint == entry.cardInputFingerprint && m.cardRetryPending(agent.ID, entry.cardInputFingerprint) {
+		entry.cardFetchFailed = true
+		entry.configError = previous.configError
+		return entry, false
+	}
 
 	if previous.card != nil && previous.cardInputFingerprint == entry.cardInputFingerprint {
 		entry.card = previous.card
 	} else {
-		fetchCtx, cancel := context.WithTimeout(ctx, httpCardTimeout)
+		if !allowCardFetch {
+			return entry, true
+		}
+		fetchCtx, cancel := context.WithTimeout(ctx, httpPrepareCardTimeout)
 		cardSnapshot, _, err := a2acard.Fetch(fetchCtx, m.cardClient, cfg.CardURL, a2acard.Validators{})
 		cancel()
 		if err != nil {
 			entry.configError = boundedConfigError("fetch Agent Card", err)
-			return entry
+			entry.cardFetchFailed = true
+			return entry, false
 		}
 		entry.card = cardSnapshot
 	}
@@ -189,7 +239,7 @@ func (m *HTTPRuntimeManager) prepareEntry(ctx context.Context, agent agentpkg.Ag
 	selectedInterface, selectedSecurity, err := m.selectExecution(agent.ID, cfg.CardURL, cfg.AuthRef, entry.card)
 	if err != nil {
 		entry.configError = boundedConfigError("select Agent Card interface", err)
-		return entry
+		return entry, false
 	}
 	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
 	if timeout == 0 {
@@ -206,23 +256,25 @@ func (m *HTTPRuntimeManager) prepareEntry(ctx context.Context, agent agentpkg.Ag
 	})
 	if previous.execution != nil && previous.executionFingerprint == entry.executionFingerprint {
 		entry.execution = previous.execution
-		return entry
+		return entry, false
 	}
+	transport := newHTTPTransport()
 	httpClient := newHTTPTransportClient(&liveCredentialTransport{
-		base: transportOrDefault(nil), manager: m.credentials, authRef: cfg.AuthRef, agentID: agent.ID,
+		base: transport, manager: m.credentials, authRef: cfg.AuthRef, agentID: agent.ID,
 	})
 	typedClient, err := a2aclient.New(ctx, selectedInterface, httpClient)
 	if err != nil {
 		entry.configError = boundedConfigError("create A2A client", err)
-		return entry
+		return entry, false
 	}
 	entry.execution = &HTTPExecution{
 		Client: typedClient, Interface: selectedInterface, Card: entry.card.Card, AuthRef: cfg.AuthRef,
 		Timeout: timeout, Fingerprint: entry.executionFingerprint, Streaming: entry.card.Card.Capabilities.Streaming,
-		bindings: newHTTPSessionBindings(),
-		runs:     newHTTPRunSlots(),
+		bindings:  newHTTPSessionBindings(),
+		runs:      newHTTPRunSlots(),
+		transport: transport,
 	}
-	return entry
+	return entry, false
 }
 
 type HTTPHealthProbe struct {
@@ -240,15 +292,37 @@ func (m *HTTPRuntimeManager) ProbeHealth(ctx context.Context, agentID string) HT
 	m.mu.RLock()
 	entry, ok := m.entries[strings.TrimSpace(agentID)]
 	m.mu.RUnlock()
-	if !ok || entry.card == nil || entry.execution == nil {
-		return HTTPHealthProbe{CheckedAt: now, Message: "HTTP runtime is not ready"}
+	if !ok {
+		return HTTPHealthProbe{CheckedAt: now, Message: "HTTP runtime is not configured"}
+	}
+	if entry.disabled {
+		return HTTPHealthProbe{CheckedAt: now, Message: "HTTP runtime is disabled"}
+	}
+	if entry.card == nil || entry.execution == nil {
+		message := entry.configError
+		if message == "" {
+			message = "HTTP runtime is not ready"
+		}
+		return HTTPHealthProbe{CheckedAt: now, Message: message}
 	}
 	m.healthMu.Lock()
-	defer m.healthMu.Unlock()
 	if cached, ok := m.health[entry.executionFingerprint]; ok && now.Sub(cached.CheckedAt) < 30*time.Second {
+		m.healthMu.Unlock()
 		return cached
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, httpCardTimeout)
+	if call := m.healthInFlight[entry.executionFingerprint]; call != nil {
+		m.healthMu.Unlock()
+		select {
+		case <-call.done:
+			return call.probe
+		case <-ctx.Done():
+			return HTTPHealthProbe{CheckedAt: now, Message: boundedConfigError("probe Agent Card", ctx.Err())}
+		}
+	}
+	call := &httpHealthCall{done: make(chan struct{})}
+	m.healthInFlight[entry.executionFingerprint] = call
+	m.healthMu.Unlock()
+	probeCtx, cancel := context.WithTimeout(ctx, httpHealthCardTimeout)
 	defer cancel()
 	fetched, notModified, err := a2acard.Fetch(probeCtx, m.cardClient, entry.cardURL, a2acard.Validators{
 		ETag: entry.card.ETag, LastModified: entry.card.LastModified,
@@ -259,13 +333,29 @@ func (m *HTTPRuntimeManager) ProbeHealth(ctx context.Context, agentID string) HT
 	} else {
 		probe.Healthy = true
 		if !notModified {
-			probe.Drift = fingerprint(fetched.Card) != fingerprint(entry.card.Card)
-			if probe.Drift {
+			fetchedFingerprint, fetchedErr := checkedFingerprint(fetched.Card)
+			acceptedFingerprint, acceptedErr := checkedFingerprint(entry.card.Card)
+			if fetchedErr != nil || acceptedErr != nil {
+				fingerprintErr := fetchedErr
+				if fingerprintErr == nil {
+					fingerprintErr = acceptedErr
+				}
+				probe.Healthy = false
+				probe.Message = boundedConfigError("fingerprint Agent Card", fingerprintErr)
+			} else if fetchedFingerprint != acceptedFingerprint {
+				probe.Drift = true
 				probe.Message = "Agent Card differs from the accepted runtime snapshot"
 			}
 		}
 	}
-	m.health[entry.executionFingerprint] = probe
+	m.healthMu.Lock()
+	if m.executionFingerprintCurrent(agentID, entry.executionFingerprint) {
+		m.health[entry.executionFingerprint] = probe
+	}
+	call.probe = probe
+	delete(m.healthInFlight, entry.executionFingerprint)
+	close(call.done)
+	m.healthMu.Unlock()
 	return probe
 }
 
@@ -298,7 +388,21 @@ func (m *HTTPRuntimeManager) selectExecution(agentID, cardURL, authRef string, s
 			return *selectedInterface, alternative, nil
 		}
 	}
-	return a2a.AgentInterface{}, a2acard.SecurityAlternative{}, fmt.Errorf("no satisfiable anonymous or HTTP Bearer security alternative")
+	var reasons []string
+	for _, alternative := range snapshot.Security {
+		if alternative.Reason != "" {
+			reason := alternative.Reason
+			if alternative.SchemeName != "" {
+				reason = alternative.SchemeName + ": " + reason
+			}
+			reasons = append(reasons, reason)
+		}
+	}
+	message := "no satisfiable anonymous or HTTP Bearer security alternative"
+	if len(reasons) > 0 {
+		message += " (" + strings.Join(reasons, "; ") + ")"
+	}
+	return a2a.AgentInterface{}, a2acard.SecurityAlternative{}, fmt.Errorf("%s", message)
 }
 
 func (m *HTTPRuntimeManager) eligibleCredential(agentID, authRef string) bool {
@@ -365,6 +469,130 @@ func buildHTTPReverseIndex(entries map[string]httpRuntimeEntry) map[string][]str
 	return out
 }
 
+func (m *HTTPRuntimeManager) executionFingerprintCurrent(agentID, fingerprint string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	entry, ok := m.entries[strings.TrimSpace(agentID)]
+	return ok && entry.executionFingerprint == fingerprint && entry.execution != nil
+}
+
+func (m *HTTPRuntimeManager) pruneHealth(entries map[string]httpRuntimeEntry) {
+	current := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		if entry.execution != nil && entry.executionFingerprint != "" {
+			current[entry.executionFingerprint] = struct{}{}
+		}
+	}
+	m.healthMu.Lock()
+	for fingerprint := range m.health {
+		if _, ok := current[fingerprint]; !ok {
+			delete(m.health, fingerprint)
+		}
+	}
+	m.healthMu.Unlock()
+}
+
+func (m *HTTPRuntimeManager) syncCardRetries(entries map[string]httpRuntimeEntry) {
+	m.retryMu.Lock()
+	defer m.retryMu.Unlock()
+	if m.closed {
+		return
+	}
+	for agentID, retry := range m.retries {
+		entry, ok := entries[agentID]
+		if !ok || entry.disabled || !entry.cardFetchFailed || entry.cardInputFingerprint != retry.fingerprint {
+			if retry.timer != nil {
+				retry.timer.Stop()
+			}
+			delete(m.retries, agentID)
+		}
+	}
+	if m.agents == nil {
+		// Tests and embedders may intentionally omit the Agent manager. Snapshot
+		// preparation still works, but there is no owner that can Recommit it.
+		return
+	}
+	for agentID, entry := range entries {
+		if entry.disabled || !entry.cardFetchFailed {
+			continue
+		}
+		retry := m.retries[agentID]
+		if retry == nil || retry.fingerprint != entry.cardInputFingerprint {
+			retry = &httpCardRetry{fingerprint: entry.cardInputFingerprint}
+			m.retries[agentID] = retry
+		}
+		if retry.timer != nil {
+			continue
+		}
+		delay := httpCardRetryDelay(retry.attempt)
+		retry.attempt++
+		fingerprint := retry.fingerprint
+		retry.timer = time.AfterFunc(delay, func() { m.retryCard(agentID, fingerprint) })
+	}
+}
+
+func (m *HTTPRuntimeManager) cardRetryPending(agentID, fingerprint string) bool {
+	m.retryMu.Lock()
+	defer m.retryMu.Unlock()
+	retry := m.retries[agentID]
+	return !m.closed && retry != nil && retry.fingerprint == fingerprint && retry.timer != nil
+}
+
+func httpCardRetryDelay(attempt int) time.Duration {
+	delay := httpCardRetryInitial
+	for i := 0; i < attempt && delay < httpCardRetryMaximum; i++ {
+		delay *= 2
+		if delay > httpCardRetryMaximum {
+			return httpCardRetryMaximum
+		}
+	}
+	return delay
+}
+
+func (m *HTTPRuntimeManager) retryCard(agentID, fingerprint string) {
+	m.retryMu.Lock()
+	retry := m.retries[agentID]
+	if m.closed || retry == nil || retry.fingerprint != fingerprint {
+		m.retryMu.Unlock()
+		return
+	}
+	retry.timer = nil
+	m.retryMu.Unlock()
+	m.requestRecommit()
+}
+
+func (m *HTTPRuntimeManager) ensureCardRetriesScheduled() {
+	m.retryMu.Lock()
+	defer m.retryMu.Unlock()
+	if m.closed {
+		return
+	}
+	for agentID, retry := range m.retries {
+		if retry.timer != nil {
+			continue
+		}
+		delay := httpCardRetryDelay(retry.attempt)
+		retry.attempt++
+		fingerprint := retry.fingerprint
+		retry.timer = time.AfterFunc(delay, func() { m.retryCard(agentID, fingerprint) })
+	}
+}
+
+func (m *HTTPRuntimeManager) Close() {
+	if m == nil {
+		return
+	}
+	m.retryMu.Lock()
+	m.closed = true
+	for agentID, retry := range m.retries {
+		if retry.timer != nil {
+			retry.timer.Stop()
+		}
+		delete(m.retries, agentID)
+	}
+	m.retryMu.Unlock()
+}
+
 func (m *HTTPRuntimeManager) OnCredentialRegistered(_ context.Context, cred *credential.ManagedCredential) {
 	m.credentialChanged(credentialID(cred))
 }
@@ -426,8 +654,18 @@ func (m *HTTPRuntimeManager) credentialChanged(authRefs ...string) {
 	if !changed {
 		return
 	}
+	m.requestRecommit()
+}
+
+func (m *HTTPRuntimeManager) requestRecommit() {
+	if m == nil || m.agents == nil {
+		return
+	}
 	m.recommitMu.Lock()
-	if m.recommit {
+	m.retryMu.Lock()
+	closed := m.closed
+	m.retryMu.Unlock()
+	if closed || m.recommit {
 		m.recommitMu.Unlock()
 		return
 	}
@@ -438,6 +676,7 @@ func (m *HTTPRuntimeManager) credentialChanged(authRefs ...string) {
 			m.recommitMu.Lock()
 			m.recommit = false
 			m.recommitMu.Unlock()
+			m.ensureCardRetriesScheduled()
 		}()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -497,20 +736,12 @@ func injectHTTPRuntimeTrace(req *http.Request) {
 
 func newHTTPTransportClient(rt http.RoundTripper) *http.Client {
 	if rt == nil {
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.DialContext = (&net.Dialer{Timeout: httpConnectTimeout, KeepAlive: 30 * time.Second}).DialContext
-		transport.TLSHandshakeTimeout = httpConnectTimeout
-		transport.ResponseHeaderTimeout = httpHeaderTimeout
-		transport.DisableCompression = true
-		rt = transport
+		rt = newHTTPTransport()
 	}
 	return &http.Client{Transport: rt}
 }
 
-func transportOrDefault(rt http.RoundTripper) http.RoundTripper {
-	if rt != nil {
-		return rt
-	}
+func newHTTPTransport() *http.Transport {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = (&net.Dialer{Timeout: httpConnectTimeout, KeepAlive: 30 * time.Second}).DialContext
 	transport.TLSHandshakeTimeout = httpConnectTimeout
@@ -520,9 +751,24 @@ func transportOrDefault(rt http.RoundTripper) http.RoundTripper {
 }
 
 func fingerprint(value any) string {
-	data, _ := json.Marshal(value)
+	fingerprint, err := checkedFingerprint(value)
+	if err == nil {
+		return fingerprint
+	}
+	// Configuration fingerprints only receive JSON-safe scalar structs. Keep a
+	// deterministic fail-closed fallback in case that invariant is violated.
+	data := []byte(fmt.Sprintf("%T|marshal-error:%v", value, err))
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+func checkedFingerprint(value any) (string, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func boundedConfigError(prefix string, err error) string {

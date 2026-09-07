@@ -128,8 +128,11 @@ pkg/a2a/
 - Use four bounded timeout layers: 10s connect/TLS, 30s response header, 60s
   response/SSE idle, and `runtime.http.timeout_seconds` total (120s when zero).
   Health Card fetches use a 10s total. Definition-prepare Card fetches use
-  `min(10s, remaining listener budget)` within the existing 5s total prepare
-  deadline. Idle activity never extends total time.
+  `min(4s, remaining listener budget)` within the existing 5s total prepare
+  deadline. Failed definition fetches recover through manager-owned backed-off
+  Recommits; unrelated generations inherit the bounded failure without network
+  I/O while the retry timer is pending, and retries never mutate a committed
+  generation in place. Idle activity never extends total time.
 - Enforce 1 MiB Agent Card, 4 MiB JSON-RPC request/non-stream response, 1 MiB
   SSE event, and 64 MiB aggregate SSE response limits. Disable automatic
   compression and accept only absent/`identity` response encoding; limits count
