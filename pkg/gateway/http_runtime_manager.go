@@ -174,8 +174,9 @@ func (m *HTTPRuntimeManager) PrepareRuntimeConfigs(ctx context.Context, agents [
 				retired = append(retired, oldEntry.execution)
 			}
 		}
-		return func(context.Context) {
+		return func(cleanupCtx context.Context) {
 			for _, execution := range retired {
+				execution.runs.retire(cleanupCtx, execution)
 				if execution.Client != nil {
 					_ = execution.Client.Close()
 				}
@@ -781,11 +782,15 @@ func newHTTPTransportClient(rt http.RoundTripper) *http.Client {
 
 func newHTTPTransport() *http.Transport {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.DialContext = (&net.Dialer{Timeout: httpConnectTimeout, KeepAlive: 30 * time.Second}).DialContext
+	transport.DialContext = newHTTPDialer().DialContext
 	transport.TLSHandshakeTimeout = httpConnectTimeout
 	transport.ResponseHeaderTimeout = httpHeaderTimeout
 	transport.DisableCompression = true
 	return transport
+}
+
+func newHTTPDialer() *net.Dialer {
+	return &net.Dialer{Timeout: httpConnectTimeout, KeepAlive: 30 * time.Second}
 }
 
 func fingerprint(value any) string {

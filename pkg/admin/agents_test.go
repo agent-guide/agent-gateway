@@ -16,6 +16,7 @@ import (
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	"github.com/agent-guide/agent-gateway/pkg/gateway"
 )
 
 func TestAgentViewExposesNonExecutableRuntime(t *testing.T) {
@@ -31,6 +32,63 @@ func TestAgentViewExposesNonExecutableRuntime(t *testing.T) {
 	}
 	if view.Capabilities == nil || view.Capabilities.Executable {
 		t.Fatalf("capabilities = %#v, want executable=false", view.Capabilities)
+	}
+}
+
+func TestAgentViewExposesHTTPRuntimeReadiness(t *testing.T) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/card" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"name":"Remote","description":"","version":"1","capabilities":{"streaming":true},"defaultInputModes":["text/plain"],"defaultOutputModes":["text/plain"],"skills":[],"supportedInterfaces":[{"url":%q,"protocolBinding":"JSONRPC","protocolVersion":"1.0"}]}`, server.URL+"/a2a")
+	}))
+	defer server.Close()
+
+	agent := agentpkg.Agent{ID: "remote", Name: "Remote", Runtime: agentpkg.Runtime{
+		Type: agentpkg.RuntimeTypeHTTP,
+		HTTP: &agentpkg.HTTPRuntime{CardURL: server.URL + "/card", Protocol: "a2a"},
+	}}
+	manager := gateway.NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+	manager.RefreshRuntimeConfigs(t.Context(), []agentpkg.Agent{agent})
+	backend := gateway.NewHTTPBackend(manager)
+	registry := agentruntime.NewRegistry()
+	if err := registry.Register(backend); err != nil {
+		t.Fatal(err)
+	}
+	view := (&Handler{runtimeRegistry: registry}).agentView(t.Context(), agent, "config_store")
+	if view.Capabilities == nil || !view.Capabilities.Executable || !view.Capabilities.Turn.Streaming {
+		t.Fatalf("capabilities = %#v", view.Capabilities)
+	}
+	if view.RuntimeStatus == nil || view.RuntimeStatus.State != agentruntime.RuntimeStateReady || !view.RuntimeStatus.Healthy {
+		t.Fatalf("runtime status = %#v", view.RuntimeStatus)
+	}
+}
+
+func TestAgentViewRetainsNotReadyHTTPRuntimeStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	agent := agentpkg.Agent{ID: "remote", Name: "Remote", Runtime: agentpkg.Runtime{
+		Type: agentpkg.RuntimeTypeHTTP,
+		HTTP: &agentpkg.HTTPRuntime{CardURL: server.URL, Protocol: "a2a"},
+	}}
+	manager := gateway.NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+	manager.RefreshRuntimeConfigs(t.Context(), []agentpkg.Agent{agent})
+	backend := gateway.NewHTTPBackend(manager)
+	registry := agentruntime.NewRegistry()
+	if err := registry.Register(backend); err != nil {
+		t.Fatal(err)
+	}
+	view := (&Handler{runtimeRegistry: registry}).agentView(t.Context(), agent, "config_store")
+	if view.Capabilities == nil || view.Capabilities.Executable {
+		t.Fatalf("capabilities = %#v", view.Capabilities)
+	}
+	if view.RuntimeStatus == nil || view.RuntimeStatus.State != agentruntime.RuntimeStateUnhealthy || view.RuntimeStatus.Healthy {
+		t.Fatalf("runtime status = %#v", view.RuntimeStatus)
 	}
 }
 

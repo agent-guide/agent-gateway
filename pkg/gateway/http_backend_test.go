@@ -16,7 +16,7 @@ import (
 	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
 )
 
-func TestHTTPBackendNonStreamingTaskAndContextResume(t *testing.T) {
+func TestHTTPBackendAllocatesSessionAndResumesContext(t *testing.T) {
 	var mu sync.Mutex
 	var inboundContexts []string
 	var server *httptest.Server
@@ -55,10 +55,11 @@ func TestHTTPBackendNonStreamingTaskAndContextResume(t *testing.T) {
 		}
 	}
 
+	sessionID := ""
 	for turn := 0; turn < 2; turn++ {
 		var events []agentruntime.TurnEvent
 		err := backend.ServeTurn(context.Background(), agent, agentruntime.TurnRequest{
-			Input: "hello", SessionID: "session-1",
+			Input: "hello", SessionID: sessionID,
 		}, func(event agentruntime.TurnEvent) error {
 			events = append(events, event)
 			return nil
@@ -70,6 +71,14 @@ func TestHTTPBackendNonStreamingTaskAndContextResume(t *testing.T) {
 			events[1].Text != "answer" || events[2].Text != "artifact" ||
 			events[3].Event != agentruntime.EventDone {
 			t.Fatalf("events(%d) = %#v", turn, events)
+		}
+		if turn == 0 {
+			sessionID = events[0].SessionID
+			if sessionID == "" {
+				t.Fatal("omitted session_id did not allocate a gateway session id")
+			}
+		} else if events[0].SessionID != sessionID {
+			t.Fatalf("resumed session id = %q, want %q", events[0].SessionID, sessionID)
 		}
 		var session map[string]any
 		if err := json.Unmarshal(events[0].Data, &session); err != nil {
@@ -83,6 +92,34 @@ func TestHTTPBackendNonStreamingTaskAndContextResume(t *testing.T) {
 	defer mu.Unlock()
 	if len(inboundContexts) != 2 || inboundContexts[0] != "" || inboundContexts[1] != "ctx-1" {
 		t.Fatalf("inbound contexts = %#v", inboundContexts)
+	}
+}
+
+func TestHTTPBackendEnforcesTotalTurnTimeout(t *testing.T) {
+	release := make(chan struct{})
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/card" {
+			writeTestAgentCard(w, server.URL+"/a2a", false)
+			return
+		}
+		<-release
+	}))
+	defer func() {
+		close(release)
+		server.Close()
+	}()
+	manager := NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+	agent := testHTTPAgent("remote", server.URL+"/card", "")
+	agent.Runtime.HTTP.TimeoutSeconds = 1
+	manager.RefreshRuntimeConfigs(t.Context(), []agentpkg.Agent{agent})
+	started := time.Now()
+	err := NewHTTPBackend(manager).ServeTurn(t.Context(), agent, agentruntime.TurnRequest{Input: "hello"}, func(agentruntime.TurnEvent) error { return nil })
+	if !errors.Is(err, agentruntime.ErrBackendTimeout) {
+		t.Fatalf("ServeTurn() error = %v, want backend_timeout", err)
+	}
+	if elapsed := time.Since(started); elapsed < 900*time.Millisecond || elapsed > 3*time.Second {
+		t.Fatalf("turn elapsed = %s, want total timeout near 1s", elapsed)
 	}
 }
 

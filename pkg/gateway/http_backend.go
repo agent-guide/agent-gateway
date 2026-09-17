@@ -71,6 +71,47 @@ func (r *httpRunSlots) remove(runID string) {
 	r.mu.Unlock()
 }
 
+func (r *httpRunSlots) count() int {
+	if r == nil {
+		return 0
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.entries)
+}
+
+// retire arms every active slot for cancellation and best-effort cancels tasks
+// that have already exposed an A2A task id. Slots that bind concurrently will
+// observe cancelRequested and issue the same exactly-once cancellation.
+func (r *httpRunSlots) retire(ctx context.Context, execution *HTTPExecution) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	slots := make([]*httpRunSlot, 0, len(r.entries))
+	for _, slot := range r.entries {
+		slots = append(slots, slot)
+	}
+	r.mu.Unlock()
+	var wg sync.WaitGroup
+	for _, slot := range slots {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = slot.requestCancel(ctx, execution)
+		}()
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+}
+
 func (s *httpRunSlot) requestCancel(ctx context.Context, execution *HTTPExecution) error {
 	s.mu.Lock()
 	if s.upstreamDone {
@@ -235,6 +276,15 @@ func (b *httpSessionBindings) evictLocked() {
 		}
 		delete(b.entries, oldestID)
 	}
+}
+
+func (b *httpSessionBindings) count() int {
+	if b == nil {
+		return 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.entries)
 }
 
 // HTTPBackend translates the common Agent turn contract to A2A 1.0 JSON-RPC.
@@ -694,6 +744,37 @@ func (b *HTTPBackend) Health(ctx context.Context, agent agentpkg.Agent) (agentru
 	return agentruntime.Health{Healthy: probe.Healthy, State: state, CheckedAt: probe.CheckedAt, Message: probe.Message, Details: details}, nil
 }
 
+func (b *HTTPBackend) RuntimeSummary(ctx context.Context, agent agentpkg.Agent) (agentruntime.RuntimeSummary, error) {
+	if err := validateBackendAgent(agent, agentpkg.RuntimeTypeHTTP); err != nil {
+		return agentruntime.RuntimeSummary{}, err
+	}
+	if b == nil || b.manager == nil {
+		return agentruntime.RuntimeSummary{
+			Type: agent.Runtime.Type, State: agentruntime.RuntimeStateNotExecutable,
+		}, nil
+	}
+	health, err := b.Health(ctx, agent)
+	if err != nil {
+		return agentruntime.RuntimeSummary{}, err
+	}
+	summary := agentruntime.RuntimeSummary{
+		Type: agent.Runtime.Type, Healthy: health.Healthy, State: health.State,
+	}
+	if execution, resolveErr := b.manager.ResolveExecution(agent.ID); resolveErr == nil {
+		summary.Executable = true
+		summary.ActiveRuns = execution.runs.count()
+		summary.SessionCount = execution.bindings.count()
+	}
+	details := map[string]any{}
+	_ = json.Unmarshal(health.Details, &details)
+	if health.Message != "" {
+		details["message"] = health.Message
+	}
+	summary.Details, _ = json.Marshal(details)
+	return summary, nil
+}
+
 var _ agentruntime.Backend = (*HTTPBackend)(nil)
 var _ agentruntime.RunCanceller = (*HTTPBackend)(nil)
 var _ agentruntime.HealthChecker = (*HTTPBackend)(nil)
+var _ agentruntime.RuntimeInspector = (*HTTPBackend)(nil)

@@ -31,10 +31,7 @@ func (h *Handler) agentCapabilities(ctx context.Context, a agentpkg.Agent) (agen
 }
 
 func (h *Handler) agentRuntimeRead(ctx context.Context, a agentpkg.Agent) (*agentruntime.RuntimeSummary, *agentruntime.Capabilities, error) {
-	caps, err := h.agentCapabilities(ctx, a)
-	if err != nil {
-		return nil, nil, err
-	}
+	caps, capabilitiesErr := h.agentCapabilities(ctx, a)
 	if a.Disabled {
 		s := agentruntime.RuntimeSummary{Type: a.Runtime.Type, State: agentruntime.RuntimeStateDisabled}
 		return &s, &caps, nil
@@ -46,12 +43,18 @@ func (h *Handler) agentRuntimeRead(ctx context.Context, a agentpkg.Agent) (*agen
 	}
 	inspector, ok := b.(agentruntime.RuntimeInspector)
 	if !ok {
+		if capabilitiesErr != nil {
+			return nil, nil, capabilitiesErr
+		}
 		s := agentruntime.RuntimeSummary{Type: a.Runtime.Type, Executable: caps.Executable, State: agentruntime.RuntimeStateUnknown}
 		return &s, &caps, nil
 	}
 	summary, err := inspector.RuntimeSummary(ctx, a)
 	if err != nil {
 		return nil, nil, err
+	}
+	if capabilitiesErr != nil {
+		caps = agentruntime.Capabilities{Executable: false}
 	}
 	return &summary, &caps, nil
 }

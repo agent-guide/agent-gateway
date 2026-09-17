@@ -108,6 +108,67 @@ func TestHTTPRuntimeManagerReusesCardAndUsesLiveCredential(t *testing.T) {
 	}
 }
 
+func TestHTTPRuntimeManagerRetirementCancelsBoundRuns(t *testing.T) {
+	var cancelCalls atomic.Int64
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/card" {
+			writeTestAgentCard(w, server.URL+"/a2a", false)
+			return
+		}
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		if request["method"] != "CancelTask" {
+			t.Errorf("method = %#v, want CancelTask", request["method"])
+		}
+		cancelCalls.Add(1)
+		id, _ := request["id"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%q,"result":{"id":"task-1","contextId":"ctx-1","status":{"state":"TASK_STATE_CANCELED"}}}`, id)
+	}))
+	defer server.Close()
+
+	manager := NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+	agent := testHTTPAgent("remote", server.URL+"/card", "")
+	manager.RefreshRuntimeConfigs(t.Context(), []agentpkg.Agent{agent})
+	execution, err := manager.ResolveExecution(agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiveCancelled := make(chan struct{})
+	slot := execution.runs.begin("run-1", func() { close(receiveCancelled) })
+	if err := slot.bindTask(execution, "task-1"); err != nil {
+		t.Fatal(err)
+	}
+	agent.Runtime.HTTP.TimeoutSeconds = 1
+	manager.RefreshRuntimeConfigs(t.Context(), []agentpkg.Agent{agent})
+	if cancelCalls.Load() != 1 {
+		t.Fatalf("CancelTask calls = %d, want 1", cancelCalls.Load())
+	}
+	select {
+	case <-receiveCancelled:
+	default:
+		t.Fatal("retired run receive context was not cancelled")
+	}
+}
+
+func TestHTTPTransportUsesBoundedConnectionAndHeaderTimeouts(t *testing.T) {
+	dialer := newHTTPDialer()
+	transport := newHTTPTransport()
+	if dialer.Timeout != httpConnectTimeout || transport.TLSHandshakeTimeout != httpConnectTimeout {
+		t.Fatalf("connect timeouts = dial %s TLS %s, want %s", dialer.Timeout, transport.TLSHandshakeTimeout, httpConnectTimeout)
+	}
+	if transport.ResponseHeaderTimeout != httpHeaderTimeout {
+		t.Fatalf("response header timeout = %s, want %s", transport.ResponseHeaderTimeout, httpHeaderTimeout)
+	}
+	if !transport.DisableCompression {
+		t.Fatal("HTTP Agent transport compression is enabled")
+	}
+}
+
 func TestHTTPRuntimeManagerRejectsWrongCredentialOwnerWithoutRefetch(t *testing.T) {
 	cardRequests := 0
 	var server *httptest.Server

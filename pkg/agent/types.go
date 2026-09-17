@@ -29,7 +29,7 @@ const (
 	// permission flow, transcript) for the Agent.
 	RuntimeTypeACP = "acp"
 	// RuntimeTypeHTTP: the agent service owns its own lifecycle; the gateway is
-	// only a client. P0 defines the shape but does not dispatch to it yet.
+	// a client and dispatches common turns through the Path B A2A adapter.
 	RuntimeTypeHTTP = "http"
 	// RuntimeTypeBuiltin: no separate process at all — the agent is a persisted
 	// definition materialized by the in-process generic ADK host

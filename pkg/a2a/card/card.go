@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/agent-guide/agent-gateway/pkg/a2a/jsonrpc"
 )
 
 const MaxBytes int64 = 1 << 20
@@ -59,6 +60,7 @@ func Fetch(ctx context.Context, base *http.Client, cardURL string, validators Va
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Accept-Encoding", "identity")
+	req.Header.Set(jsonrpc.HeaderVersion, jsonrpc.A2AVersion)
 	if validators.ETag != "" {
 		req.Header.Set("If-None-Match", validators.ETag)
 	}

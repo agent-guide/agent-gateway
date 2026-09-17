@@ -30,7 +30,7 @@ southbound operation before attaching Bearer auth. Never bake a resolved access
 token into a prepared client, send it on the public Agent Card fetch, or carry
 it across redirects.
 
-The design-only `HTTPRuntimeManager` registers a
+The implemented `HTTPRuntimeManager` registers a
 `CredentialLifecycleListener` and maintains its dependency index from the
 committed Agent generation. Credential callbacks must occur after store/state
 mutation and must be safe for the listener to schedule (not synchronously

@@ -177,8 +177,9 @@ failure during its backoff window without another request. Retries are canceled
 by success, disablement, deletion, or changed Card input. Health reports the
 committed `config_error`,
 coalesces only by execution fingerprint without serializing unrelated Agents,
-and drops retired cache keys. Retiring an execution closes its owned
-transport's idle connections.
+and drops retired cache keys. Retiring an execution first arms every active run
+for cancellation and issues bounded, best-effort `CancelTask` calls for
+already-bound task ids, then closes its owned transport's idle connections.
 `pkg/a2a/card` returns ordered exact-`"JSONRPC"` interface candidates and
 structured security alternatives without credential state. This manager alone
 applies same-origin plus exact-owner credential policy and chooses the first

@@ -14,7 +14,7 @@ import (
 func TestFetchClassifiesCardAndFiltersInterfaces(t *testing.T) {
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Accept") != "application/json" || r.Header.Get("Authorization") != "" {
+		if r.Header.Get("Accept") != "application/json" || r.Header.Get("Authorization") != "" || r.Header.Get("A2A-Version") != "1.0" {
 			t.Errorf("unexpected request headers: %#v", r.Header)
 		}
 		w.Header().Set("Content-Type", "Application/JSON; Charset=UTF-8")

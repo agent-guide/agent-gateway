@@ -442,15 +442,15 @@ their `agentruntime.Backend` adapters land before the AgentRoute cutover. `http`
 is designed in [HTTP Agent Runtime](http-agent-runtime.md): A2A Protocol 1.0
 JSON-RPC is the first southbound dialect under `runtime.http.protocol`,
 reached through a shared `pkg/a2a` protocol package, the translating
-`HTTPBackend` (Path B, ships first), and the governed `protocol a2a` JSON-RPC
-proxy (Path A). It remains design-only until those phases ship.
+`HTTPBackend` (implemented Path B), and the governed `protocol a2a` JSON-RPC
+proxy (roadmap Path A).
 
 - **`acp`** — the gateway owns the agent's external process lifecycle. Its
   adapter translates the Agent-owned `runtime.acp` block into
   `hostconfig.Config` and invokes the pool with `agent_id` as owner, reusing
   sessions, scope rebind, permission flow, and transcript. A turn ending does
   not tear down the process; the pool governs it by `IdleTTL`.
-- **`http`** — the agent service owns its lifecycle. Its future adapter
+- **`http`** — the agent service owns its lifecycle. Its implemented Path B adapter
   resolves `runtime.http.card_url`, then dispatches to the selected Card
   interface over the dialect selected by `runtime.http.protocol` (A2A
   Protocol 1.0 JSON-RPC first; see
@@ -1085,8 +1085,8 @@ in [Builtin Agent Runtime](builtin-agent-runtime.md); PB2 remains deferred.
 The `http` runtime design and implementation track live in
 [HTTP Agent Runtime](http-agent-runtime.md): A2A Protocol 1.0 JSON-RPC,
 shared `pkg/a2a`, Path B (`HTTPBackend`) before Path A (`protocol a2a`).
-`http` remains design-only and dispatches fail closed with
-`runtime_not_executable`.
+HTTP Path B is implemented and dispatches common `/turn` requests through
+`HTTPBackend`; native Path A `protocol a2a` proxy ingress remains design-only.
 
 ### 11.1 Historical P0a — agent object and CRUD (superseded)
 

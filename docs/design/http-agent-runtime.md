@@ -398,10 +398,13 @@ dispatchable. Once Path B exists, the manager also owns the per-fingerprint
 execution resources referenced by a resolved view: the SDK client plus the
 bounded mutable claim, binding, and run registries. Those registries are not
 part of the immutable configuration snapshot; `HTTPBackend` operates on them
-through the resolved execution handle. Cleanup retires the replaced client,
-closes the execution-owned transport's idle connections, and retires its
-execution resources, so lifecycle retirement does not require a second Agent
-definition listener.
+through the resolved execution handle. Cleanup arms all active runs for
+cancellation, issues concurrent bounded best-effort `CancelTask` calls for task
+ids that are already bound, retires the replaced client, closes the
+execution-owned transport's idle connections, and retires its execution
+resources. A task id that binds concurrently observes the armed slot and follows
+the same exactly-once cancellation path, so lifecycle retirement does not
+require a second Agent definition listener.
 A failed new/Card-input-changed fetch or validation publishes a non-ready
 snapshot with a bounded `config_error`; it never retains stale Card state. A
 credential-only non-ready snapshot does retain the current parsed candidates
