@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/a2aproject/a2a-go/v2/a2a"
 )
 
 func TestFetchClassifiesCardAndFiltersInterfaces(t *testing.T) {
@@ -37,8 +40,22 @@ func TestFetchClassifiesCardAndFiltersInterfaces(t *testing.T) {
 	if len(got.Security) != 2 || got.Security[0].Kind != SecurityUnsupported || got.Security[1].Kind != SecurityBearer {
 		t.Fatalf("security = %#v", got.Security)
 	}
+	if got.Security[0].Reason != "unknown security scheme name" {
+		t.Fatalf("dangling scheme reason = %q", got.Security[0].Reason)
+	}
 	if got.ETag != "\"v1\"" {
 		t.Fatalf("etag = %q", got.ETag)
+	}
+}
+
+func TestFetchRejectsOversizedCard(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, strings.Repeat("x", int(MaxBytes+1)))
+	}))
+	defer server.Close()
+	if _, _, err := Fetch(context.Background(), server.Client(), server.URL, Validators{}); err == nil || !strings.Contains(err.Error(), "Agent Card exceeds") {
+		t.Fatalf("Fetch() error = %v", err)
 	}
 }
 
@@ -55,5 +72,13 @@ func TestFetchRejectsRedirectAndTrailingJSON(t *testing.T) {
 	}
 	if _, _, err := Fetch(context.Background(), target.Client(), target.URL, Validators{}); err == nil {
 		t.Fatal("trailing JSON accepted")
+	}
+}
+
+func TestDecodeCardReportsMalformedTrailingInput(t *testing.T) {
+	var card a2a.AgentCard
+	err := decodeCard([]byte(`{} {`), &card)
+	if err == nil || !strings.Contains(err.Error(), "decode trailing Agent Card input") {
+		t.Fatalf("decodeCard() error = %v", err)
 	}
 }

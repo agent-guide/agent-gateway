@@ -137,7 +137,9 @@ pkg/a2a/
   SSE event, and 64 MiB aggregate SSE response limits. Disable automatic
   compression and accept only absent/`identity` response encoding; limits count
   the identity bytes, including SSE comments/heartbeats. These constants are
-  execution-fingerprint inputs.
+  execution-fingerprint inputs. SSE reads must be chunk-bounded before
+  appending to an event buffer; a newline-free upstream line must not allocate
+  beyond the per-event limit before rejection.
 - Path B's guarding transport enforces design §6.1 before the SDK consumes a
   response. Card and non-stream JSON-RPC require HTTP 200 plus
   `application/json`; streaming requires HTTP 200 plus `text/event-stream`.

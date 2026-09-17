@@ -88,7 +88,6 @@ func (t *guardTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("A2A request body is required")
 	}
 	clone := req.Clone(req.Context())
-	clone.Header = req.Header.Clone()
 	clone.Header.Set(agwjsonrpc.HeaderVersion, agwjsonrpc.A2AVersion)
 	clone.Header.Set("Accept-Encoding", "identity")
 	if clone.Header.Get("Accept") == "" {
@@ -259,9 +258,14 @@ func newValidatingSSEBody(source io.ReadCloser, requestID json.RawMessage) io.Re
 }
 
 func copyValidatedSSE(dst io.Writer, src io.Reader, requestID json.RawMessage) error {
+	return copyValidatedSSEWithLimits(dst, src, requestID, MaxEventBytes, MaxStreamBytes)
+}
+
+func copyValidatedSSEWithLimits(dst io.Writer, src io.Reader, requestID json.RawMessage, maxEventBytes, maxStreamBytes int64) error {
 	reader := bufio.NewReader(src)
 	var event bytes.Buffer
 	var total int64
+	var lineBytes int64
 	flush := func() error {
 		if event.Len() == 0 {
 			return nil
@@ -292,16 +296,24 @@ func copyValidatedSSE(dst io.Writer, src io.Reader, requestID json.RawMessage) e
 		return err
 	}
 	for {
-		line, err := reader.ReadBytes('\n')
-		total += int64(len(line))
-		if total > MaxStreamBytes {
-			return fmt.Errorf("A2A stream exceeds %d bytes", MaxStreamBytes)
+		fragment, err := reader.ReadSlice('\n')
+		fragmentBytes := int64(len(fragment))
+		total += fragmentBytes
+		if total > maxStreamBytes {
+			return fmt.Errorf("A2A stream exceeds %d bytes", maxStreamBytes)
 		}
-		if event.Len()+len(line) > int(MaxEventBytes) {
-			return fmt.Errorf("A2A SSE event exceeds %d bytes", MaxEventBytes)
+		if int64(event.Len())+fragmentBytes > maxEventBytes {
+			return fmt.Errorf("A2A SSE event exceeds %d bytes", maxEventBytes)
 		}
-		event.Write(line)
-		if bytes.Equal(line, []byte("\n")) || bytes.Equal(line, []byte("\r\n")) {
+		event.Write(fragment)
+		lineBytes += fragmentBytes
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		blankLine := lineBytes == 1 && bytes.Equal(fragment, []byte("\n")) ||
+			lineBytes == 2 && bytes.Equal(fragment, []byte("\r\n"))
+		lineBytes = 0
+		if blankLine {
 			if flushErr := flush(); flushErr != nil {
 				return flushErr
 			}

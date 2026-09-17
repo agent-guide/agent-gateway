@@ -99,7 +99,7 @@ func (c *Credential) Validate() error {
 const HTTPAgentCredentialScopePrefix = "http-agent:"
 
 func HTTPAgentCredentialScope(agentID string) string {
-	agentID = strings.ToLower(strings.TrimSpace(agentID))
+	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return ""
 	}
@@ -112,8 +112,11 @@ func IsHTTPAgentCredentialScope(scope string) bool {
 }
 
 func NormalizeCredentialScope(scope string) string {
-	scope = strings.ToLower(strings.TrimSpace(scope))
-	return scope
+	scope = strings.TrimSpace(scope)
+	if len(scope) >= len(HTTPAgentCredentialScopePrefix) && strings.EqualFold(scope[:len(HTTPAgentCredentialScopePrefix)], HTTPAgentCredentialScopePrefix) {
+		return HTTPAgentCredentialScopePrefix + strings.TrimSpace(scope[len(HTTPAgentCredentialScopePrefix):])
+	}
+	return strings.ToLower(scope)
 }
 
 func (c *Credential) ScopeValue() string {

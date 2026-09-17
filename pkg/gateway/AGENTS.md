@@ -145,7 +145,8 @@ resolves the stored `auth_ref` and refreshes OAuth credentials on every
 southbound operation; no resolved secret is retained in the handle. HTTP
 credentials use the exact non-provider scope `http-agent:<agent_id>`, leave
 provider fields empty, and may not be borrowed across Agents or from an LLM
-provider. These mutable
+provider. The scope prefix is canonical lowercase, while the Agent-id suffix is
+case-sensitive just like `Agent.ID`; empty Agent ids fail closed. These mutable
 resources are separate from its immutable configuration snapshot and retire
 together on definition replacement. The execution fingerprint
 covers `card_url`, selected interface URL/tenant, protocol, `auth_ref`, and
@@ -181,7 +182,9 @@ transport's idle connections.
 `pkg/a2a/card` returns ordered exact-`"JSONRPC"` interface candidates and
 structured security alternatives without credential state. This manager alone
 applies same-origin plus exact-owner credential policy and chooses the first
-surviving interface and satisfiable security alternative. Enforce the design's
+surviving interface and satisfiable security alternative. Same-origin compares
+scheme, hostname, and effective port, so omitted `:443`/`:80` equals the
+corresponding explicit default port. Enforce the design's
 1 MiB Card, 4 MiB request/non-stream response, 1 MiB SSE event, and 64 MiB
 aggregate stream limits. `SUBMITTED` is a valid non-terminal task state;
 `AUTH_REQUIRED` terminates the common run while retaining only validated
@@ -192,7 +195,9 @@ Recommits outside credential/Agent manager locks only when the secret-free
 eligibility fingerprint changes, and recompute readiness from cached Card
 candidates on create/update/delete/replace. Unrelated and same-eligibility
 credential updates must not trigger a Recommit; the live RoundTripper remains
-the request-time fail-closed check.
+the request-time fail-closed check. A changed eligibility notification arriving
+while a Recommit is in flight sets a pending flag and causes one follow-up
+Recommit; coalescing must not discard the final credential state.
 
 Path B leaves synchronous `SendMessage` blocking; a returned `SUBMITTED` or
 `WORKING` Task is invalid, receives one bounded best-effort `CancelTask`, drops

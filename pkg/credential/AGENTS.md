@@ -13,7 +13,7 @@ carry access/refresh token material and request-time refresh metadata.
 
 HTTP Agent execution reuses this store rather than creating a second secret
 model. Its P0 upstream credentials use the dedicated non-provider scope
-`http-agent:<normalized-agent-id>` and leave `provider_type` / `provider_id`
+`http-agent:<agent-id>` and leave `provider_type` / `provider_id`
 empty. `Credential.Validate` continues requiring both provider fields for
 ordinary provider scopes and permits them to be empty only for this recognized
 scope; generic unbound credentials remain invalid. Admin create/update must
@@ -45,6 +45,9 @@ and `UpdatedAt` are excluded, so secret/OAuth refresh rotation is observed by th
 live transport without Card refetch or session-binding retirement. Changes to
 existence/type/owner/disabled/usable-secret state recompute readiness from the
 cached Card candidates and still fail closed at request time if a race occurs.
+The `http-agent:` prefix is canonicalized case-insensitively, but its Agent-id
+suffix preserves case because Agent ids are case-sensitive. `Agent-A` and
+`agent-a` are distinct credential owners and must never share a credential.
 
 Provider-specific OAuth endpoints, client IDs, token exchange rules, retries,
 interactive browser flows, and device flows belong to the independent

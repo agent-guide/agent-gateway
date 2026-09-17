@@ -204,10 +204,10 @@ lifecycle, and whether there is a separate process at all**:
   gateway owns the agent's entire existence, not just a process around it.
 
 A `runtime.type = "http"` agent carries an `http` block instead of `acp`.
-The persistable shape today is `{endpoint, auth_ref}`; the executable schema
-in [HTTP Agent Runtime](http-agent-runtime.md) replaces the design-only
-`endpoint` name with the unambiguous `card_url`, and adds required `protocol`
-(`a2a`; `custom` is reserved and rejected) plus `timeout_seconds`:
+The persistable and executable schema defined by
+[HTTP Agent Runtime](http-agent-runtime.md) uses `card_url`, required
+`protocol` (`a2a`; `custom` is reserved and rejected), optional `auth_ref`, and
+`timeout_seconds`. The obsolete design-only `endpoint` field is not accepted:
 
 ```json
 "runtime": {

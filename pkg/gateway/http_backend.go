@@ -267,7 +267,7 @@ func (b *HTTPBackend) Capabilities(_ context.Context, agent agentpkg.Agent) (age
 		Sessions:     agentruntime.SessionCapabilities{Resume: true},
 		Cancellation: agentruntime.CancelCapabilities{Force: true},
 		Events: []string{
-			agentruntime.EventSession, agentruntime.EventContent, agentruntime.EventDelta,
+			agentruntime.EventSession, agentruntime.EventContent,
 			agentruntime.EventDone, agentruntime.EventError,
 		},
 	}, nil
@@ -388,7 +388,7 @@ func (b *HTTPBackend) ServeTurn(ctx context.Context, agent agentpkg.Agent, req a
 		}
 	}
 	if err != nil {
-		if slot.taskBound() {
+		if slot.taskBound() && !terminal.suppressCancel {
 			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			_ = slot.requestCancel(cleanupCtx, execution)
 			cleanupCancel()
@@ -416,6 +416,7 @@ type terminalBinding struct {
 	contextID         string
 	interruptedTaskID a2a.TaskID
 	direct            bool
+	suppressCancel    bool
 }
 
 func (b *HTTPBackend) serveResult(execution *HTTPExecution, slot *httpRunSlot, result a2a.SendMessageResult, emit agentruntime.EventSink) (terminalBinding, error) {
@@ -430,6 +431,9 @@ func (b *HTTPBackend) serveResult(execution *HTTPExecution, slot *httpRunSlot, r
 		return terminalBinding{direct: true}, nil
 	case *a2a.Task:
 		binding, terminal, err := emitA2ATask(event, func(taskID a2a.TaskID) error { return slot.bindTask(execution, taskID) }, emit)
+		if binding.suppressCancel {
+			slot.markDone()
+		}
 		if err != nil {
 			return binding, err
 		}
@@ -439,6 +443,7 @@ func (b *HTTPBackend) serveResult(execution *HTTPExecution, slot *httpRunSlot, r
 			cancel()
 			return terminalBinding{}, agentruntime.NewError(agentruntime.ErrorTurnFailed, "synchronous A2A turn returned before terminal state")
 		}
+		slot.markDone()
 		return binding, nil
 	default:
 		return terminalBinding{}, agentruntime.NewError(agentruntime.ErrorTurnFailed, "A2A response has an unsupported result")
@@ -469,6 +474,9 @@ func (b *HTTPBackend) serveStreaming(ctx context.Context, execution *HTTPExecuti
 				taskID, contextID = initial.ID, initial.ContextID
 				var statusTerminal bool
 				result, statusTerminal, err = emitA2ATask(initial, func(taskID a2a.TaskID) error { return slot.bindTask(execution, taskID) }, emit)
+				if result.suppressCancel {
+					slot.markDone()
+				}
 				if err != nil {
 					return result, err
 				}
@@ -487,6 +495,9 @@ func (b *HTTPBackend) serveStreaming(ctx context.Context, execution *HTTPExecuti
 				return terminalBinding{}, agentruntime.NewError(agentruntime.ErrorTurnFailed, "A2A task identity changed during stream")
 			}
 			result, terminal, err = emitA2AStatus(update.Status, taskID, contextID, emit)
+			if terminal {
+				slot.markDone()
+			}
 			if err != nil {
 				return result, err
 			}
@@ -552,17 +563,23 @@ func emitA2AStatus(status a2a.TaskStatus, taskID a2a.TaskID, contextID string, e
 	case a2a.TaskStateSubmitted, a2a.TaskStateWorking:
 		return binding, false, nil
 	case a2a.TaskStateCompleted:
+		binding.suppressCancel = true
 		return binding, true, emitHTTPDone(emit, "stop", nil)
 	case a2a.TaskStateCanceled:
+		binding.suppressCancel = true
 		return binding, true, emitHTTPDone(emit, agentruntime.StopReasonCancelled, nil)
 	case a2a.TaskStateInputRequired:
+		binding.suppressCancel = true
 		binding.interruptedTaskID = taskID
 		return binding, true, emitHTTPDone(emit, "input_required", map[string]any{"task_id": taskID, "context_id": contextID})
 	case a2a.TaskStateAuthRequired:
+		binding.suppressCancel = true
 		return binding, true, agentruntime.NewError(agentruntime.ErrorTurnFailed, "A2A task requires unsupported authentication interaction")
 	case a2a.TaskStateFailed:
+		binding.suppressCancel = true
 		return binding, true, agentruntime.NewError(agentruntime.ErrorTurnFailed, "A2A task failed")
 	case a2a.TaskStateRejected:
+		binding.suppressCancel = true
 		return binding, true, agentruntime.NewError(agentruntime.ErrorTurnFailed, "A2A task was rejected")
 	default:
 		return terminalBinding{}, false, agentruntime.NewError(agentruntime.ErrorTurnFailed, "A2A task returned an unknown state")

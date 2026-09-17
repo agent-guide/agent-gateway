@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/a2aproject/a2a-go/v2/a2a"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
 )
@@ -44,6 +45,15 @@ func TestHTTPBackendNonStreamingTaskAndContextResume(t *testing.T) {
 	agent := testHTTPAgent("remote", server.URL+"/card", "")
 	manager.RefreshRuntimeConfigs(context.Background(), []agentpkg.Agent{agent})
 	backend := NewHTTPBackend(manager)
+	capabilities, err := backend.Capabilities(context.Background(), agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range capabilities.Events {
+		if event == agentruntime.EventDelta {
+			t.Fatal("HTTP backend advertises delta events that it never emits")
+		}
+	}
 
 	for turn := 0; turn < 2; turn++ {
 		var events []agentruntime.TurnEvent
@@ -97,6 +107,160 @@ func TestHTTPSessionBindingsClaimAndExpiry(t *testing.T) {
 	expired, err := bindings.claim("session-1", true)
 	if err != nil || expired.resetReason != "binding_expired" || expired.resumed {
 		t.Fatalf("expired claim = %#v, %v", expired, err)
+	}
+}
+
+func TestHTTPSessionBindingsEnforceLRUCap(t *testing.T) {
+	bindings := newHTTPSessionBindings()
+	now := time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)
+	bindings.now = func() time.Time { return now }
+	for i := 0; i <= httpBindingCap; i++ {
+		sessionID := fmt.Sprintf("session-%04d", i)
+		claim, err := bindings.claim(sessionID, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bindings.finish(claim, fmt.Sprintf("context-%04d", i), "")
+		now = now.Add(time.Second)
+	}
+	if len(bindings.entries) != httpBindingCap {
+		t.Fatalf("binding count = %d, want %d", len(bindings.entries), httpBindingCap)
+	}
+	if _, ok := bindings.entries["session-0000"]; ok {
+		t.Fatal("oldest binding was not evicted")
+	}
+	if _, ok := bindings.entries[fmt.Sprintf("session-%04d", httpBindingCap)]; !ok {
+		t.Fatal("newest binding was evicted")
+	}
+}
+
+func TestEmitA2AStatusCoversNonterminalAuthAndUnknownStates(t *testing.T) {
+	var events []agentruntime.TurnEvent
+	emit := func(event agentruntime.TurnEvent) error {
+		events = append(events, event)
+		return nil
+	}
+	binding, terminal, err := emitA2AStatus(a2a.TaskStatus{State: a2a.TaskStateSubmitted}, "task-1", "ctx-1", emit)
+	if err != nil || terminal || binding.contextID != "ctx-1" || len(events) != 0 {
+		t.Fatalf("SUBMITTED = %#v, terminal=%v, events=%#v, err=%v", binding, terminal, events, err)
+	}
+	statusMessage := a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("queued"))
+	binding, terminal, err = emitA2AStatus(a2a.TaskStatus{State: a2a.TaskStateSubmitted, Message: statusMessage}, "task-1", "ctx-1", emit)
+	if err != nil || terminal || binding.contextID != "ctx-1" || len(events) != 1 || events[0].Text != "queued" {
+		t.Fatalf("SUBMITTED with content = %#v, terminal=%v, events=%#v, err=%v", binding, terminal, events, err)
+	}
+	binding, terminal, err = emitA2AStatus(a2a.TaskStatus{State: a2a.TaskStateWorking}, "task-1", "ctx-1", emit)
+	if err != nil || terminal || binding.contextID != "ctx-1" || len(events) != 1 {
+		t.Fatalf("WORKING = %#v, terminal=%v, events=%#v, err=%v", binding, terminal, events, err)
+	}
+	binding, terminal, err = emitA2AStatus(a2a.TaskStatus{State: a2a.TaskStateAuthRequired}, "task-1", "ctx-1", emit)
+	if err == nil || !terminal || !binding.suppressCancel || binding.contextID != "ctx-1" || binding.interruptedTaskID != "" {
+		t.Fatalf("AUTH_REQUIRED = %#v, terminal=%v, err=%v", binding, terminal, err)
+	}
+	if _, terminal, err = emitA2AStatus(a2a.TaskStatus{State: a2a.TaskState("TASK_STATE_FUTURE")}, "task-1", "ctx-1", emit); err == nil || terminal {
+		t.Fatalf("unknown state terminal=%v, err=%v", terminal, err)
+	}
+}
+
+func TestHTTPBackendAuthRequiredRetainsContextWithoutCancelOrTask(t *testing.T) {
+	var mu sync.Mutex
+	cancelCalls := 0
+	var messages []map[string]any
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/card" {
+			writeTestAgentCard(w, server.URL+"/a2a", false)
+			return
+		}
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		method, _ := request["method"].(string)
+		id, _ := request["id"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		if method == "CancelTask" {
+			mu.Lock()
+			cancelCalls++
+			mu.Unlock()
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%q,"result":{"id":"task-1","contextId":"ctx-1","status":{"state":"TASK_STATE_CANCELED"}}}`, id)
+			return
+		}
+		params, _ := request["params"].(map[string]any)
+		message, _ := params["message"].(map[string]any)
+		mu.Lock()
+		messages = append(messages, message)
+		call := len(messages)
+		mu.Unlock()
+		if call == 1 {
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%q,"result":{"task":{"id":"task-1","contextId":"ctx-1","status":{"state":"TASK_STATE_AUTH_REQUIRED"}}}}`, id)
+			return
+		}
+		fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%q,"result":{"task":{"id":"task-2","contextId":"ctx-1","status":{"state":"TASK_STATE_COMPLETED"}}}}`, id)
+	}))
+	defer server.Close()
+	manager := NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+	agent := testHTTPAgent("remote", server.URL+"/card", "")
+	manager.RefreshRuntimeConfigs(context.Background(), []agentpkg.Agent{agent})
+	backend := NewHTTPBackend(manager)
+	if err := backend.ServeTurn(context.Background(), agent, agentruntime.TurnRequest{Input: "start", SessionID: "session-1"}, func(agentruntime.TurnEvent) error { return nil }); err == nil {
+		t.Fatal("AUTH_REQUIRED turn succeeded")
+	}
+	if err := backend.ServeTurn(context.Background(), agent, agentruntime.TurnRequest{Input: "continue", SessionID: "session-1"}, func(agentruntime.TurnEvent) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if cancelCalls != 0 {
+		t.Fatalf("CancelTask calls = %d, want 0", cancelCalls)
+	}
+	if len(messages) != 2 || messages[1]["contextId"] != "ctx-1" {
+		t.Fatalf("resumed messages = %#v", messages)
+	}
+	if _, ok := messages[1]["taskId"]; ok {
+		t.Fatalf("AUTH_REQUIRED retained resumable task id: %#v", messages[1])
+	}
+}
+
+func TestHTTPBackendSynchronousSubmittedCancelsAndFails(t *testing.T) {
+	var mu sync.Mutex
+	cancelCalls := 0
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/card" {
+			writeTestAgentCard(w, server.URL+"/a2a", false)
+			return
+		}
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		method, _ := request["method"].(string)
+		id, _ := request["id"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		if method == "CancelTask" {
+			mu.Lock()
+			cancelCalls++
+			mu.Unlock()
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%q,"result":{"id":"task-1","contextId":"ctx-1","status":{"state":"TASK_STATE_CANCELED"}}}`, id)
+			return
+		}
+		fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%q,"result":{"task":{"id":"task-1","contextId":"ctx-1","status":{"state":"TASK_STATE_SUBMITTED"}}}}`, id)
+	}))
+	defer server.Close()
+	manager := NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+	agent := testHTTPAgent("remote", server.URL+"/card", "")
+	manager.RefreshRuntimeConfigs(context.Background(), []agentpkg.Agent{agent})
+	err := NewHTTPBackend(manager).ServeTurn(context.Background(), agent, agentruntime.TurnRequest{Input: "start"}, func(agentruntime.TurnEvent) error { return nil })
+	if err == nil || !errors.Is(err, agentruntime.ErrTurnFailed) {
+		t.Fatalf("ServeTurn() error = %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if cancelCalls != 1 {
+		t.Fatalf("CancelTask calls = %d, want 1", cancelCalls)
 	}
 }
 
@@ -156,6 +320,66 @@ func TestHTTPBackendInputRequiredResumesTask(t *testing.T) {
 	defer mu.Unlock()
 	if len(messages) != 2 || messages[1]["taskId"] != "task-1" || messages[1]["contextId"] != "ctx-1" {
 		t.Fatalf("follow-up message = %#v", messages)
+	}
+}
+
+func TestHTTPBackendStreamsArtifactUpdateAndRejectsIdentityDrift(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		artifactTask string
+		wantError    bool
+	}{
+		{name: "matching identity", artifactTask: "task-1"},
+		{name: "task identity drift", artifactTask: "task-other", wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var server *httptest.Server
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/card" {
+					writeTestAgentCard(w, server.URL+"/a2a", true)
+					return
+				}
+				var request map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+					return
+				}
+				method, _ := request["method"].(string)
+				id, _ := request["id"].(string)
+				if method == "CancelTask" {
+					w.Header().Set("Content-Type", "application/json")
+					fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%q,"result":{"id":"task-1","contextId":"ctx-1","status":{"state":"TASK_STATE_CANCELED"}}}`, id)
+					return
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%q,\"result\":{\"task\":{\"id\":\"task-1\",\"contextId\":\"ctx-1\",\"status\":{\"state\":\"TASK_STATE_WORKING\"}}}}\n\n", id)
+				fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%q,\"result\":{\"artifactUpdate\":{\"taskId\":%q,\"contextId\":\"ctx-1\",\"artifact\":{\"artifactId\":\"artifact-1\",\"parts\":[{\"text\":\"artifact text\"}]}}}}\n\n", id, test.artifactTask)
+				if !test.wantError {
+					fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%q,\"result\":{\"statusUpdate\":{\"taskId\":\"task-1\",\"contextId\":\"ctx-1\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\"}}}}\n\n", id)
+				}
+			}))
+			defer server.Close()
+			manager := NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+			agent := testHTTPAgent("remote", server.URL+"/card", "")
+			manager.RefreshRuntimeConfigs(context.Background(), []agentpkg.Agent{agent})
+			var events []agentruntime.TurnEvent
+			err := NewHTTPBackend(manager).ServeTurn(context.Background(), agent, agentruntime.TurnRequest{Input: "start"}, func(event agentruntime.TurnEvent) error {
+				events = append(events, event)
+				return nil
+			})
+			if test.wantError {
+				if err == nil || !errors.Is(err, agentruntime.ErrTurnFailed) {
+					t.Fatalf("ServeTurn() error = %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(events) != 3 || events[1].Event != agentruntime.EventContent || events[1].Text != "artifact text" || events[2].Event != agentruntime.EventDone {
+				t.Fatalf("events = %#v", events)
+			}
+		})
 	}
 }
 

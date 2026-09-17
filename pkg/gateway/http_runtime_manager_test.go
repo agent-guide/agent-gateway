@@ -344,6 +344,38 @@ func TestHTTPRuntimeManagerSelectionReportsSecurityReason(t *testing.T) {
 	}
 }
 
+func TestHTTPRuntimeManagerNormalizesDefaultOriginPorts(t *testing.T) {
+	manager := NewHTTPRuntimeManager(nil, nil, nil, nil)
+	snapshot := &a2acard.Snapshot{
+		Interfaces: []a2a.AgentInterface{{URL: "https://agent.example:443/a2a"}},
+		Security:   []a2acard.SecurityAlternative{{Kind: a2acard.SecurityAnonymous}},
+	}
+	selected, _, err := manager.selectExecution("remote", "https://agent.example/card", "", snapshot)
+	if err != nil || selected.URL != "https://agent.example:443/a2a" {
+		t.Fatalf("default-port selection = %#v, %v", selected, err)
+	}
+	snapshot.Interfaces[0].URL = "https://agent.example:444/a2a"
+	if _, _, err := manager.selectExecution("remote", "https://agent.example/card", "", snapshot); err == nil {
+		t.Fatal("different effective port was accepted as same-origin")
+	}
+}
+
+func TestHTTPAgentCredentialOwnerComparisonIsCaseSensitiveAndFailClosed(t *testing.T) {
+	cred := &credential.ManagedCredential{Credential: credential.Credential{
+		ID: "remote-key", Type: credential.TypeAPIKey, Scope: credential.HTTPAgentCredentialScope("Agent-A"),
+		Attributes: map[string]string{"api_key": "secret"},
+	}}
+	if !credentialUsableForAgent(cred, "Agent-A") {
+		t.Fatal("credential rejected for its exact owner")
+	}
+	if credentialUsableForAgent(cred, "agent-a") {
+		t.Fatal("credential borrowed by case-distinct Agent")
+	}
+	if credentialUsableForAgent(cred, "") {
+		t.Fatal("credential accepted for an empty Agent id")
+	}
+}
+
 func TestHTTPRuntimeFingerprintMarshalFailureIsDeterministic(t *testing.T) {
 	card := &a2a.AgentCard{
 		SecuritySchemes: a2a.NamedSecuritySchemes{"invalid": nil},
@@ -410,6 +442,47 @@ func TestHTTPRuntimeManagerFailedCardRecoversInBackground(t *testing.T) {
 	}
 	if requests.Load() < 2 {
 		t.Fatalf("Card requests = %d, want initial attempt plus retry", requests.Load())
+	}
+}
+
+func TestHTTPRuntimeManagerQueuesRecommitArrivingInFlight(t *testing.T) {
+	store, err := configstore.OpenBackend(t.Context(), "sqlite", configstoresqlite.Config{SQLitePath: t.TempDir() + "/config.db"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := configschema.RegisterDefaultStores(store); err != nil {
+		t.Fatal(err)
+	}
+	gateway := NewAgentGateway()
+	if err := gateway.Bootstrap(t.Context(), BootstrapOptions{ConfigStoreBackend: store}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(gateway.Close)
+
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var calls atomic.Int64
+	gateway.AgentManager().AddDefinitionListener(func(ctx context.Context, _ []agentpkg.Agent) agentpkg.DefinitionCommit {
+		if calls.Add(1) == 1 {
+			close(firstStarted)
+			select {
+			case <-releaseFirst:
+			case <-ctx.Done():
+			}
+		}
+		return nil
+	})
+	manager := gateway.HTTPRuntimeManager()
+	manager.requestRecommit()
+	<-firstStarted
+	manager.requestRecommit()
+	close(releaseFirst)
+	deadline := time.Now().Add(2 * time.Second)
+	for calls.Load() < 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("definition listener calls = %d, want queued second Recommit", calls.Load())
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

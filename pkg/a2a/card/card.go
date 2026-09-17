@@ -113,7 +113,10 @@ func decodeCard(body []byte, out *a2a.AgentCard) error {
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
-		return fmt.Errorf("Agent Card contains trailing input")
+		if err != nil {
+			return fmt.Errorf("decode trailing Agent Card input: %w", err)
+		}
+		return fmt.Errorf("Agent Card contains trailing JSON value")
 	}
 	return nil
 }
@@ -160,8 +163,12 @@ func classifySecurity(agentCard *a2a.AgentCard) []SecurityAlternative {
 		}
 		for name := range requirement {
 			scheme, ok := agentCard.SecuritySchemes[name]
+			if !ok {
+				out = append(out, SecurityAlternative{Kind: SecurityUnsupported, SchemeName: string(name), Reason: "unknown security scheme name"})
+				continue
+			}
 			httpScheme, bearer := scheme.(a2a.HTTPAuthSecurityScheme)
-			if !ok || !bearer || !strings.EqualFold(strings.TrimSpace(httpScheme.Scheme), "Bearer") {
+			if !bearer || !strings.EqualFold(strings.TrimSpace(httpScheme.Scheme), "Bearer") {
 				out = append(out, SecurityAlternative{Kind: SecurityUnsupported, SchemeName: string(name), Reason: "scheme is not HTTP Bearer"})
 			} else {
 				out = append(out, SecurityAlternative{Kind: SecurityBearer, SchemeName: string(name)})

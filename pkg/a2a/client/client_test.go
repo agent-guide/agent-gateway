@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,10 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
 func TestClientUsesOfficialMethodVersionAndTenant(t *testing.T) {
 	methods := make(chan string, 2)
@@ -90,6 +95,39 @@ func TestGuardTransportRejectsMissingBody(t *testing.T) {
 	}
 }
 
+func TestGuardTransportEnforcesRequestAndResponseBodyLimits(t *testing.T) {
+	baseCalled := false
+	transport := &guardTransport{base: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		baseCalled = true
+		return nil, errors.New("unexpected request")
+	})}
+	request, err := http.NewRequest(http.MethodPost, "http://example.invalid", io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("x"), int(MaxBodyBytes+1)))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transport.RoundTrip(request); err == nil || !strings.Contains(err.Error(), "request exceeds") {
+		t.Fatalf("oversized request error = %v", err)
+	}
+	if baseCalled {
+		t.Fatal("oversized request reached the network transport")
+	}
+
+	transport.base = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("x"), int(MaxBodyBytes+1)))),
+		}, nil
+	})
+	request, err = http.NewRequest(http.MethodPost, "http://example.invalid", strings.NewReader(`{"jsonrpc":"2.0","id":"1","method":"SendMessage","params":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transport.RoundTrip(request); err == nil || !strings.Contains(err.Error(), "response exceeds") {
+		t.Fatalf("oversized response error = %v", err)
+	}
+}
+
 func TestAcceptsEventStreamMediaTypeInList(t *testing.T) {
 	if !acceptsMediaType("application/json, text/event-stream; q=0.8", "text/event-stream") {
 		t.Fatal("event stream with quality parameter was not recognized")
@@ -147,6 +185,25 @@ func TestClientRejectsDataLessNamedSSEEvent(t *testing.T) {
 	}
 	if gotErr == nil {
 		t.Fatal("data-less named event accepted")
+	}
+}
+
+func TestValidatedSSEEnforcesEventLimitWhileReading(t *testing.T) {
+	var output bytes.Buffer
+	err := copyValidatedSSEWithLimits(&output, strings.NewReader("data: "+strings.Repeat("x", 128)), json.RawMessage(`"1"`), 32, 1024)
+	if err == nil || !strings.Contains(err.Error(), "SSE event exceeds 32 bytes") {
+		t.Fatalf("copyValidatedSSEWithLimits() error = %v", err)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("oversized event wrote %d bytes", output.Len())
+	}
+}
+
+func TestValidatedSSEEnforcesAggregateLimit(t *testing.T) {
+	var output bytes.Buffer
+	err := copyValidatedSSEWithLimits(&output, strings.NewReader(": heartbeat\n\n: heartbeat\n\n"), json.RawMessage(`"1"`), 32, 20)
+	if err == nil || !strings.Contains(err.Error(), "stream exceeds 20 bytes") {
+		t.Fatalf("copyValidatedSSEWithLimits() error = %v", err)
 	}
 }
 

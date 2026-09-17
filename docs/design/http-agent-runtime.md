@@ -379,7 +379,10 @@ coalesce one `AgentManager.Recommit` only when it changed; unrelated credential
 ids and same-eligibility secret/OAuth refresh rotations do nothing. The
 callback schedules recommit only after the credential-manager mutation and
 callback stack have released their locks—it must not synchronously re-enter
-either manager or create a lock cycle. Recommit recomputes credential
+either manager or create a lock cycle. If another eligibility-changing callback
+arrives while that Recommit is in flight, the manager records a pending bit and
+runs one follow-up Recommit; coalescing never discards the final credential
+state. Recommit recomputes credential
 eligibility and selection from the cached parsed Card candidates. A
 same-eligibility secret or OAuth refresh rotation therefore causes no Card
 fetch and no execution-fingerprint change. Existence, type, owner, disabled,
@@ -444,7 +447,9 @@ Validation rules:
   otherwise-unacceptable `"JSONRPC"` entry and fail without considering a later
   acceptable one.
 - P0 requires every selectable interface URL to have the same scheme and
-  authority as `card_url`; cross-origin candidates are skipped. If no same-origin
+  authority as `card_url`; authority comparison uses the effective port, so an
+  omitted default `:443`/`:80` is equivalent to its explicit form. Cross-origin
+  candidates are skipped. If no same-origin
   candidate survives, the Agent fails closed. This prevents an authenticated
   Card from redirecting the gateway's Bearer credential to a different origin.
   A future explicit origin allowlist may relax the rule.
@@ -476,7 +481,9 @@ Validation rules:
   its limit is never forwarded. A Path B response
   or event over its limit maps to `turn_failed`; Path A uses the response rules
   in §8.4. All four constants participate in the execution fingerprint beside
-  the timeout policy.
+  the timeout policy. SSE parsing reads bounded chunks before appending them to
+  the current event, so a newline-free line cannot allocate past the event cap
+  before it is rejected.
 - Consistency: an AgentRoute with `protocol a2a` must target an Agent with
   `runtime.type = "http"` and `runtime.http.protocol = "a2a"`. Mismatch fails
   at route validation, so the two axes never drift apart. A `protocol agent`
@@ -545,7 +552,9 @@ manager.
 P0 closes the persistence shape without inventing a second secret store or a
 fake provider row. An HTTP Agent's upstream credential uses the existing
 `Credential` model with the dedicated non-provider scope
-`http-agent:<normalized-agent-id>` and empty `provider_type` / `provider_id`.
+`http-agent:<agent-id>` and empty `provider_type` / `provider_id`. The prefix is
+canonicalized case-insensitively, while the Agent-id suffix preserves the exact
+case-sensitive `Agent.ID`; case-distinct Agents cannot share a credential.
 `Credential.Validate` retains both provider fields for ordinary provider scopes,
 but accepts their absence only for this recognized HTTP-Agent scope. `auth_ref`
 may reference only an enabled `api_key` or `oauth_token` credential with the
@@ -1025,7 +1034,7 @@ described above. Durable/cross-replica bindings require a future shared store.
 | `SendMessage` returning a terminal or `INPUT_REQUIRED` / `AUTH_REQUIRED` Task | apply the same Task status/artifact rules as an initial streaming `task`, then emit the matching terminal/interrupted event |
 | `SendMessage` returning `SUBMITTED` / `WORKING` | invalid request-bound result: do not emit success, best-effort cancel, drop any claimed binding, and fail `turn_failed` (§9.1) |
 | initial `task` or `statusUpdate` with `TASK_STATE_SUBMITTED` | validate/capture `taskId` + `contextId`; emit an attached agent-authored status message as `content` when present; otherwise emit no content event and remain non-terminal |
-| `statusUpdate` with `TASK_STATE_WORKING` | `delta` / `content` (text from agent messages) |
+| `statusUpdate` with `TASK_STATE_WORKING` | `content` when an agent-authored status message is present; otherwise no-op |
 | `artifactUpdate` | `content`; artifact payloads carried in event `data` (structured Parts) |
 | `TASK_STATE_COMPLETED` | `done` (`stop_reason: "stop"`) |
 | `TASK_STATE_FAILED` | terminal `error` (`turn_failed`) |

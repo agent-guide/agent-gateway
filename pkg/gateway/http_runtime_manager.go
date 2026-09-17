@@ -73,17 +73,18 @@ type HTTPRuntimeManager struct {
 	cardClient  *http.Client
 	logger      *zap.Logger
 
-	mu             sync.RWMutex
-	entries        map[string]httpRuntimeEntry
-	reverse        map[string][]string
-	recommitMu     sync.Mutex
-	recommit       bool
-	healthMu       sync.Mutex
-	health         map[string]HTTPHealthProbe
-	healthInFlight map[string]*httpHealthCall
-	retryMu        sync.Mutex
-	retries        map[string]*httpCardRetry
-	closed         bool
+	mu              sync.RWMutex
+	entries         map[string]httpRuntimeEntry
+	reverse         map[string][]string
+	recommitMu      sync.Mutex
+	recommit        bool
+	recommitPending bool
+	healthMu        sync.Mutex
+	health          map[string]HTTPHealthProbe
+	healthInFlight  map[string]*httpHealthCall
+	retryMu         sync.Mutex
+	retries         map[string]*httpCardRetry
+	closed          bool
 }
 
 type httpHealthCall struct {
@@ -370,7 +371,7 @@ func (m *HTTPRuntimeManager) selectExecution(agentID, cardURL, authRef string, s
 	var selectedInterface *a2a.AgentInterface
 	for i := range snapshot.Interfaces {
 		candidateURL, err := url.Parse(snapshot.Interfaces[i].URL)
-		if err == nil && strings.EqualFold(candidateURL.Scheme, cardOrigin.Scheme) && strings.EqualFold(candidateURL.Host, cardOrigin.Host) {
+		if err == nil && sameHTTPOrigin(candidateURL, cardOrigin) {
 			copy := snapshot.Interfaces[i]
 			selectedInterface = &copy
 			break
@@ -414,7 +415,8 @@ func (m *HTTPRuntimeManager) eligibleCredential(agentID, authRef string) bool {
 }
 
 func credentialUsableForAgent(cred *credential.ManagedCredential, agentID string) bool {
-	if cred == nil || cred.Disabled || strings.TrimSpace(cred.APIKey()) == "" {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" || cred == nil || cred.Disabled || strings.TrimSpace(cred.APIKey()) == "" {
 		return false
 	}
 	if cred.Type != credential.TypeAPIKey && cred.Type != credential.TypeOAuthToken {
@@ -665,23 +667,39 @@ func (m *HTTPRuntimeManager) requestRecommit() {
 	m.retryMu.Lock()
 	closed := m.closed
 	m.retryMu.Unlock()
-	if closed || m.recommit {
+	if closed {
+		m.recommitMu.Unlock()
+		return
+	}
+	if m.recommit {
+		m.recommitPending = true
 		m.recommitMu.Unlock()
 		return
 	}
 	m.recommit = true
 	m.recommitMu.Unlock()
 	go func() {
-		defer func() {
+		for {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			err := m.agents.Recommit(ctx)
+			cancel()
+			if err != nil && m.logger != nil {
+				m.logger.Error("recommit HTTP Agent definitions", zap.Error(err))
+			}
 			m.recommitMu.Lock()
+			m.retryMu.Lock()
+			closed := m.closed
+			m.retryMu.Unlock()
+			if m.recommitPending && !closed {
+				m.recommitPending = false
+				m.recommitMu.Unlock()
+				continue
+			}
+			m.recommitPending = false
 			m.recommit = false
 			m.recommitMu.Unlock()
 			m.ensureCardRetriesScheduled()
-		}()
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := m.agents.Recommit(ctx); err != nil && m.logger != nil {
-			m.logger.Error("recommit HTTP Agent definitions", zap.Error(err))
+			return
 		}
 	}()
 }
@@ -695,7 +713,6 @@ type liveCredentialTransport struct {
 
 func (t *liveCredentialTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	clone := req.Clone(req.Context())
-	clone.Header = req.Header.Clone()
 	injectHTTPRuntimeTrace(clone)
 	if t.authRef == "" {
 		return t.base.RoundTrip(clone)
@@ -719,6 +736,27 @@ func (t *liveCredentialTransport) RoundTrip(req *http.Request) (*http.Response, 
 	}
 	clone.Header.Set("Authorization", "Bearer "+strings.TrimSpace(cred.APIKey()))
 	return t.base.RoundTrip(clone)
+}
+
+func sameHTTPOrigin(left, right *url.URL) bool {
+	if left == nil || right == nil || !strings.EqualFold(left.Scheme, right.Scheme) || !strings.EqualFold(left.Hostname(), right.Hostname()) {
+		return false
+	}
+	return effectiveHTTPPort(left) == effectiveHTTPPort(right)
+}
+
+func effectiveHTTPPort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http":
+		return "80"
+	case "https":
+		return "443"
+	default:
+		return ""
+	}
 }
 
 func injectHTTPRuntimeTrace(req *http.Request) {

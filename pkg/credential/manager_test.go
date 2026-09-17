@@ -930,8 +930,19 @@ func TestRegisterHTTPAgentCredentialWithoutProvider(t *testing.T) {
 		t.Fatalf("RegisterCredential() error = %v", err)
 	}
 	got := mgr.GetCredential("agent-key")
-	if got == nil || got.Scope != "http-agent:agent-a" || got.ProviderType != "" || got.ProviderID != "" {
+	if got == nil || got.Scope != "http-agent:Agent-A" || got.ProviderType != "" || got.ProviderID != "" {
 		t.Fatalf("unexpected HTTP Agent credential: %#v", got)
+	}
+}
+
+func TestHTTPAgentCredentialScopePreservesOwnerCase(t *testing.T) {
+	upper := HTTPAgentCredentialScope("Agent-A")
+	lower := HTTPAgentCredentialScope("agent-a")
+	if upper == lower {
+		t.Fatalf("case-distinct Agent ids share scope %q", upper)
+	}
+	if upper != "http-agent:Agent-A" || lower != "http-agent:agent-a" {
+		t.Fatalf("HTTP Agent scopes = %q, %q", upper, lower)
 	}
 }
 
