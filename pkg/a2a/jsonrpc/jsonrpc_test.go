@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -68,6 +69,21 @@ func TestCopyValidatedSSEPreservesBytes(t *testing.T) {
 	}
 	if !bytes.Equal(out.Bytes(), raw) {
 		t.Fatalf("copied bytes = %q", out.Bytes())
+	}
+}
+
+func TestCopyValidatedSSEDoesNotSplitBufferAlignedLine(t *testing.T) {
+	const readerBufferSize = 32 << 10
+	firstLine := "data: " + strings.Repeat(" ", readerBufferSize-len("data: "))
+	raw := []byte(firstLine + "\n" + `data: {"jsonrpc":"2.0","id":1,"result":{}}` + "\n\n")
+	var out bytes.Buffer
+	if err := CopyValidatedSSE(&out, bytes.NewReader(raw), 1<<20, 1<<20, func(data []byte) error {
+		return ValidateResponse(data, json.RawMessage("1"))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(out.Bytes(), raw) {
+		t.Fatalf("copied %d bytes, want %d", out.Len(), len(raw))
 	}
 }
 

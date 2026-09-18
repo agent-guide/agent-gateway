@@ -233,6 +233,7 @@ func CopyValidatedSSE(dst io.Writer, src io.Reader, maxEventBytes, maxStreamByte
 	reader := bufio.NewReaderSize(src, 32<<10)
 	var event bytes.Buffer
 	var total int64
+	var lineBytes int64
 	flush := func() error {
 		if event.Len() == 0 {
 			return nil
@@ -261,10 +262,14 @@ func CopyValidatedSSE(dst io.Writer, src io.Reader, maxEventBytes, maxStreamByte
 			return &InvalidSSEError{Err: fmt.Errorf("A2A SSE event exceeds %d bytes", maxEventBytes)}
 		}
 		event.Write(fragment)
+		lineBytes += int64(len(fragment))
 		if err == bufio.ErrBufferFull {
 			continue
 		}
-		if bytes.Equal(fragment, []byte("\n")) || bytes.Equal(fragment, []byte("\r\n")) {
+		blankLine := lineBytes == 1 && bytes.Equal(fragment, []byte("\n")) ||
+			lineBytes == 2 && bytes.Equal(fragment, []byte("\r\n"))
+		lineBytes = 0
+		if blankLine {
 			if flushErr := flush(); flushErr != nil {
 				return flushErr
 			}
