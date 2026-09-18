@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/agent-guide/agent-gateway/pkg/a2a/jsonrpc"
@@ -78,5 +79,8 @@ func TestCopyStreamPreservesFramesAndRejectsWrongID(t *testing.T) {
 	}
 	if err := CopyStream(io.Discard, bytes.NewReader(good), []byte("8")); !IsInvalidResponse(err) {
 		t.Fatalf("wrong id error = %v", err)
+	}
+	if err := CopyStream(io.Discard, strings.NewReader("event: update\n\n"), []byte("7")); !IsInvalidResponse(err) {
+		t.Fatalf("invalid framing error = %v", err)
 	}
 }

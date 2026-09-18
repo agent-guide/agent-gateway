@@ -53,6 +53,11 @@ func TestDispatchA2APathAEndToEnd(t *testing.T) {
 			fmt.Fprint(w, `{"jsonrpc":"2.0","id":99,"result":{}}`)
 			return
 		}
+		if string(envelope.ID) == "15" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: {\"jsonrpc\":\"2.0\",\"id\":99,\"result\":{}}\n\n")
+			return
+		}
 		if envelope.Method == "SendStreamingMessage" {
 			w.Header().Set("Content-Type", "text/event-stream")
 			fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"message\":{}}}\n\n", envelope.ID)
@@ -231,6 +236,20 @@ func TestDispatchA2APathAEndToEnd(t *testing.T) {
 	stream := post(streamBody, "1.0", "vk-secret")
 	if stream.Code != http.StatusOK || stream.Header().Get("Content-Type") != "text/event-stream" || !strings.Contains(stream.Body.String(), `"id":9`) {
 		t.Fatalf("stream = %d/%#v/%s", stream.Code, stream.Header(), stream.Body.String())
+	}
+	invalidStreamBody := []byte(`{"jsonrpc":"2.0","id":15,"method":"SendStreamingMessage","params":{"tenant":"tenant-a"}}`)
+	invalidStream := post(invalidStreamBody, "1.0", "vk-secret")
+	if invalidStream.Code != http.StatusOK || invalidStream.Header().Get("Content-Type") != "text/event-stream" || invalidStream.Header().Get("Content-Length") != "" {
+		t.Fatalf("invalid stream = %d/%#v/%s", invalidStream.Code, invalidStream.Header(), invalidStream.Body.String())
+	}
+	invalidStreamPayload := bytes.TrimSpace(bytes.TrimPrefix(invalidStream.Body.Bytes(), []byte("data:")))
+	if got := jsonRPCErrorCode(t, invalidStreamPayload); got != -32006 {
+		t.Fatalf("invalid stream error code = %d", got)
+	}
+	invalidStreamEvents := eventsOfType[usage.InteractionEvent](sink.events)
+	invalidStreamEvent := invalidStreamEvents[len(invalidStreamEvents)-1]
+	if invalidStreamEvent.Success || invalidStreamEvent.ErrorType != "a2a_invalid_agent_response" {
+		t.Fatalf("invalid stream interaction = %+v", invalidStreamEvent)
 	}
 
 	wrongMethod := httptest.NewRequest(http.MethodDelete, "http://gateway.example/agents/remote", nil)

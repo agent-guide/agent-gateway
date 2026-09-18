@@ -6,12 +6,26 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 )
+
+// InvalidSSEError identifies an SSE framing, size, or payload validation
+// failure separately from source reads and destination writes.
+type InvalidSSEError struct{ Err error }
+
+func (e *InvalidSSEError) Error() string { return "invalid A2A SSE response: " + e.Err.Error() }
+func (e *InvalidSSEError) Unwrap() error { return e.Err }
+
+// IsInvalidSSE reports whether err represents invalid upstream SSE content.
+func IsInvalidSSE(err error) bool {
+	var target *InvalidSSEError
+	return errors.As(err, &target)
+}
 
 const (
 	Version       = "2.0"
@@ -227,11 +241,11 @@ func CopyValidatedSSE(dst io.Writer, src io.Reader, maxEventBytes, maxStreamByte
 		event.Reset()
 		data, hasFields := sseData(raw)
 		if len(data) == 0 && hasFields {
-			return fmt.Errorf("A2A SSE event has no data field")
+			return &InvalidSSEError{Err: fmt.Errorf("A2A SSE event has no data field")}
 		}
 		if len(data) > 0 && onEvent != nil {
 			if err := onEvent(data); err != nil {
-				return err
+				return &InvalidSSEError{Err: err}
 			}
 		}
 		_, err := dst.Write(raw)
@@ -241,10 +255,10 @@ func CopyValidatedSSE(dst io.Writer, src io.Reader, maxEventBytes, maxStreamByte
 		fragment, err := reader.ReadSlice('\n')
 		total += int64(len(fragment))
 		if total > maxStreamBytes {
-			return fmt.Errorf("A2A stream exceeds %d bytes", maxStreamBytes)
+			return &InvalidSSEError{Err: fmt.Errorf("A2A stream exceeds %d bytes", maxStreamBytes)}
 		}
 		if int64(event.Len()+len(fragment)) > maxEventBytes {
-			return fmt.Errorf("A2A SSE event exceeds %d bytes", maxEventBytes)
+			return &InvalidSSEError{Err: fmt.Errorf("A2A SSE event exceeds %d bytes", maxEventBytes)}
 		}
 		event.Write(fragment)
 		if err == bufio.ErrBufferFull {

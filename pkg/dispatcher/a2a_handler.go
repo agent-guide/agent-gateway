@@ -119,6 +119,7 @@ func (h *Handler) serveA2ARequest(w http.ResponseWriter, r *http.Request, route 
 		return writeA2AError(r.Context(), w, meta.ID, streaming, -32000, "Server error")
 	}
 	defer resp.Close()
+	baseHeaders := w.Header().Clone()
 	a2aproxy.CopyHeaders(w.Header(), resp.Header)
 	if !resp.Streaming {
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(resp.Buffered)))
@@ -126,8 +127,15 @@ func (h *Handler) serveA2ARequest(w http.ResponseWriter, r *http.Request, route 
 		_, err = w.Write(resp.Buffered)
 		return err
 	}
-	w.WriteHeader(http.StatusOK)
-	if err := a2aproxy.CopyStream(w, resp.Body, meta.ID); err != nil {
+	streamWriter := &a2aStreamWriter{ResponseWriter: w}
+	if err := a2aproxy.CopyStream(streamWriter, resp.Body, meta.ID); err != nil {
+		if streamWriter.written == 0 {
+			replaceA2AHeaders(w.Header(), baseHeaders)
+			if a2aproxy.IsInvalidResponse(err) {
+				return writeA2AError(r.Context(), w, meta.ID, streaming, -32006, "Invalid agent response")
+			}
+			return writeA2AError(r.Context(), w, meta.ID, streaming, -32000, "Server error")
+		}
 		usage.SpanFromContext(r.Context()).AddAnnotation("error_type", "a2a_stream_failed")
 		if marker, ok := w.(interface{ MarkFailed() }); ok {
 			marker.MarkFailed()
@@ -135,6 +143,30 @@ func (h *Handler) serveA2ARequest(w http.ResponseWriter, r *http.Request, route 
 		return err
 	}
 	return nil
+}
+
+type a2aStreamWriter struct {
+	http.ResponseWriter
+	written int64
+}
+
+func (w *a2aStreamWriter) Write(p []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(p)
+	w.written += int64(n)
+	return n, err
+}
+
+func (w *a2aStreamWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func replaceA2AHeaders(dst, source http.Header) {
+	for name := range dst {
+		dst.Del(name)
+	}
+	for name, values := range source {
+		for _, value := range values {
+			dst.Add(name, value)
+		}
+	}
 }
 
 func (h *Handler) resolveA2ATarget(route *agentroutepkg.AgentRoute) (agentpkg.Agent, *gateway.HTTPProxyTarget, int) {

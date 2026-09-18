@@ -170,12 +170,16 @@ func (p *Proxy) Do(ctx context.Context, inbound *http.Request, body []byte, meta
 // CopyStream forwards validated SSE records and flushes after each record when
 // dst implements http.Flusher.
 func CopyStream(dst io.Writer, src io.Reader, requestID []byte) error {
-	return jsonrpc.CopyValidatedSSE(flushingWriter{Writer: dst}, src, MaxEventBytes, MaxStreamBytes, func(data []byte) error {
+	err := jsonrpc.CopyValidatedSSE(flushingWriter{Writer: dst}, src, MaxEventBytes, MaxStreamBytes, func(data []byte) error {
 		if err := jsonrpc.ValidateResponse(data, requestID); err != nil {
 			return &InvalidResponseError{Err: err}
 		}
 		return nil
 	})
+	if err != nil && jsonrpc.IsInvalidSSE(err) && !IsInvalidResponse(err) {
+		return &InvalidResponseError{Err: err}
+	}
+	return err
 }
 
 type flushingWriter struct{ io.Writer }
