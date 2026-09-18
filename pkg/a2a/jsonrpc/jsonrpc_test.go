@@ -1,7 +1,10 @@
 package jsonrpc
 
 import (
+	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/url"
 	"testing"
 )
 
@@ -20,6 +23,51 @@ func TestValidateResponse(t *testing.T) {
 		if err := ValidateResponse([]byte(body), id); err == nil {
 			t.Fatalf("invalid response accepted: %s", body)
 		}
+	}
+}
+
+func TestInspectRequestPolicyFields(t *testing.T) {
+	body := []byte(`{"jsonrpc":"2.0","id":"r1","method":"SendMessage","params":{"tenant":"tenant-a","configuration":{"taskPushNotificationConfig":{"url":"https://callback"}}}}`)
+	got, err := InspectRequest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Notification || got.Tenant != "tenant-a" || !got.TenantPresent || !got.EmbeddedPushConfig || !AllowedMethod(got.Method) {
+		t.Fatalf("inspection = %#v", got)
+	}
+	if err := ValidateTenant(got, "tenant-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateTenant(got, "other"); err == nil {
+		t.Fatal("tenant mismatch accepted")
+	}
+}
+
+func TestServiceVersionAndQueryRemoval(t *testing.T) {
+	header := http.Header{}
+	query := url.Values{"a2a-version": {"1.0"}, "A2A-Extensions": {"urn:x"}}
+	if err := ValidateServiceVersion(header, query); err != nil {
+		t.Fatal(err)
+	}
+	header.Set(HeaderVersion, "0.3")
+	if err := ValidateServiceVersion(header, query); err == nil {
+		t.Fatal("conflicting version accepted")
+	}
+	if got := RemoveVersionQuery("x=1&a2a-version=1.0&A2A-Extensions=urn%3Ax"); got != "x=1&A2A-Extensions=urn%3Ax" {
+		t.Fatalf("RemoveVersionQuery() = %q", got)
+	}
+}
+
+func TestCopyValidatedSSEPreservesBytes(t *testing.T) {
+	raw := []byte(": heartbeat\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n\n")
+	var out bytes.Buffer
+	if err := CopyValidatedSSE(&out, bytes.NewReader(raw), 1<<20, 1<<20, func(data []byte) error {
+		return ValidateResponse(data, json.RawMessage("1"))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(out.Bytes(), raw) {
+		t.Fatalf("copied bytes = %q", out.Bytes())
 	}
 }
 

@@ -3,7 +3,6 @@
 package client
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -262,70 +261,10 @@ func copyValidatedSSE(dst io.Writer, src io.Reader, requestID json.RawMessage) e
 }
 
 func copyValidatedSSEWithLimits(dst io.Writer, src io.Reader, requestID json.RawMessage, maxEventBytes, maxStreamBytes int64) error {
-	reader := bufio.NewReader(src)
-	var event bytes.Buffer
-	var total int64
-	var lineBytes int64
-	flush := func() error {
-		if event.Len() == 0 {
-			return nil
+	return agwjsonrpc.CopyValidatedSSE(dst, src, maxEventBytes, maxStreamBytes, func(data []byte) error {
+		if err := agwjsonrpc.ValidateResponse(data, requestID); err != nil {
+			return fmt.Errorf("invalid A2A SSE event: %w", err)
 		}
-		raw := append([]byte(nil), event.Bytes()...)
-		event.Reset()
-		var data []string
-		hasNonHeartbeatField := false
-		for _, line := range strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n") {
-			if strings.HasPrefix(line, ":") || line == "" {
-				continue
-			}
-			if strings.HasPrefix(line, "data:") {
-				data = append(data, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
-				continue
-			}
-			hasNonHeartbeatField = true
-		}
-		if len(data) == 0 && hasNonHeartbeatField {
-			return fmt.Errorf("A2A SSE event has no data field")
-		}
-		if len(data) > 0 {
-			if err := agwjsonrpc.ValidateResponse([]byte(strings.Join(data, "\n")), requestID); err != nil {
-				return fmt.Errorf("invalid A2A SSE event: %w", err)
-			}
-		}
-		_, err := dst.Write(raw)
-		return err
-	}
-	for {
-		fragment, err := reader.ReadSlice('\n')
-		fragmentBytes := int64(len(fragment))
-		total += fragmentBytes
-		if total > maxStreamBytes {
-			return fmt.Errorf("A2A stream exceeds %d bytes", maxStreamBytes)
-		}
-		if int64(event.Len())+fragmentBytes > maxEventBytes {
-			return fmt.Errorf("A2A SSE event exceeds %d bytes", maxEventBytes)
-		}
-		event.Write(fragment)
-		lineBytes += fragmentBytes
-		if err == bufio.ErrBufferFull {
-			continue
-		}
-		blankLine := lineBytes == 1 && bytes.Equal(fragment, []byte("\n")) ||
-			lineBytes == 2 && bytes.Equal(fragment, []byte("\r\n"))
-		lineBytes = 0
-		if blankLine {
-			if flushErr := flush(); flushErr != nil {
-				return flushErr
-			}
-		}
-		if err == io.EOF {
-			if event.Len() > 0 {
-				return flush()
-			}
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-	}
+		return nil
+	})
 }

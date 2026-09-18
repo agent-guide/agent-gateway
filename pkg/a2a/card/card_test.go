@@ -98,3 +98,39 @@ func TestDecodeCardReportsMalformedTrailingInput(t *testing.T) {
 		t.Fatalf("decodeCard() error = %v", err)
 	}
 }
+
+func TestRewritePublicCardReplacesInterfacesSecurityAndSignatures(t *testing.T) {
+	remote := &a2a.AgentCard{
+		Name: "remote", Description: "remote description", Version: "1", Capabilities: a2a.AgentCapabilities{
+			Streaming: true, PushNotifications: true, ExtendedAgentCard: true,
+		},
+		SupportedInterfaces:  []*a2a.AgentInterface{{URL: "https://remote.example/rpc", ProtocolBinding: a2a.TransportProtocolJSONRPC, ProtocolVersion: a2a.Version}},
+		SecuritySchemes:      a2a.NamedSecuritySchemes{"remote": a2a.HTTPAuthSecurityScheme{Scheme: "Bearer"}},
+		SecurityRequirements: a2a.SecurityRequirementsOptions{{"remote": {}}},
+		Signatures:           []a2a.AgentCardSignature{{}},
+		Skills:               []a2a.AgentSkill{{ID: "verify", Name: "Verify", Description: "verify", SecurityRequirements: a2a.SecurityRequirementsOptions{{"remote": {}}}}},
+	}
+	template, err := PublicTemplate(remote, "gateway-agent", "gateway description")
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, err := RewritePublicCard(template, "https://gateway.example/agents/verify", "tenant-a", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if public.Name != "gateway-agent" || public.Description != "gateway description" {
+		t.Fatalf("identity = %q / %q", public.Name, public.Description)
+	}
+	if len(public.SupportedInterfaces) != 1 || public.SupportedInterfaces[0].URL != "https://gateway.example/agents/verify" || public.SupportedInterfaces[0].Tenant != "tenant-a" {
+		t.Fatalf("interfaces = %#v", public.SupportedInterfaces)
+	}
+	if public.Capabilities.PushNotifications || public.Capabilities.ExtendedAgentCard || !public.Capabilities.Streaming {
+		t.Fatalf("capabilities = %#v", public.Capabilities)
+	}
+	if len(public.Signatures) != 0 || len(public.SecuritySchemes) != 1 || len(public.SecurityRequirements) != 1 || len(public.Skills[0].SecurityRequirements) != 1 {
+		t.Fatalf("rewritten security/signatures = schemes:%#v requirements:%#v skill:%#v signatures:%#v", public.SecuritySchemes, public.SecurityRequirements, public.Skills[0].SecurityRequirements, public.Signatures)
+	}
+	if len(remote.Signatures) != 1 || len(remote.SupportedInterfaces) != 1 {
+		t.Fatal("rewrite mutated remote Card")
+	}
+}

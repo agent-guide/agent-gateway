@@ -20,6 +20,8 @@ import (
 
 const MaxBytes int64 = 1 << 20
 
+const GatewayBearerScheme a2a.SecuritySchemeName = "gatewayBearer"
+
 type SecurityKind string
 
 const (
@@ -45,6 +47,71 @@ type Snapshot struct {
 type Validators struct {
 	ETag         string
 	LastModified string
+}
+
+// PublicTemplate returns a deep-cloned, route-neutral gateway-owned Card.
+// Remote interfaces, authentication, signatures, and per-skill authentication
+// are intentionally removed because the gateway replaces all of them.
+func PublicTemplate(remote *a2a.AgentCard, name, description string) (*a2a.AgentCard, error) {
+	if remote == nil {
+		return nil, fmt.Errorf("Agent Card is required")
+	}
+	data, err := json.Marshal(remote)
+	if err != nil {
+		return nil, fmt.Errorf("clone Agent Card: %w", err)
+	}
+	var public a2a.AgentCard
+	if err := json.Unmarshal(data, &public); err != nil {
+		return nil, fmt.Errorf("clone Agent Card: %w", err)
+	}
+	if strings.TrimSpace(name) != "" {
+		public.Name = strings.TrimSpace(name)
+	}
+	if strings.TrimSpace(description) != "" {
+		public.Description = strings.TrimSpace(description)
+	}
+	public.SupportedInterfaces = nil
+	public.SecuritySchemes = nil
+	public.SecurityRequirements = nil
+	public.Signatures = nil
+	public.Capabilities.PushNotifications = false
+	public.Capabilities.ExtendedAgentCard = false
+	for i := range public.Skills {
+		public.Skills[i].SecurityRequirements = nil
+	}
+	return &public, nil
+}
+
+// RewritePublicCard materializes one route-specific Card from a public
+// template. publicURL and tenant come from the caller; this package does not
+// infer deployment topology or VirtualKey policy.
+func RewritePublicCard(template *a2a.AgentCard, publicURL, tenant string, requireBearer bool) (*a2a.AgentCard, error) {
+	public, err := PublicTemplate(template, "", "")
+	if err != nil {
+		return nil, err
+	}
+	u, err := url.Parse(strings.TrimSpace(publicURL))
+	if err != nil || !u.IsAbs() || u.Host == "" || u.User != nil || u.Fragment != "" {
+		return nil, fmt.Errorf("public Agent interface URL must be absolute")
+	}
+	public.SupportedInterfaces = []*a2a.AgentInterface{{
+		URL: u.String(), ProtocolBinding: a2a.TransportProtocolJSONRPC,
+		ProtocolVersion: a2a.Version, Tenant: tenant,
+	}}
+	if requireBearer {
+		public.SecuritySchemes = a2a.NamedSecuritySchemes{
+			GatewayBearerScheme: a2a.HTTPAuthSecurityScheme{Scheme: "Bearer", Description: "Agent Gateway VirtualKey"},
+		}
+		public.SecurityRequirements = a2a.SecurityRequirementsOptions{
+			a2a.SecurityRequirements{GatewayBearerScheme: a2a.SecuritySchemeScopes{}},
+		}
+		for i := range public.Skills {
+			public.Skills[i].SecurityRequirements = a2a.SecurityRequirementsOptions{
+				a2a.SecurityRequirements{GatewayBearerScheme: a2a.SecuritySchemeScopes{}},
+			}
+		}
+	}
+	return public, nil
 }
 
 // Fetch gets one public Card without redirects, compression, or authentication.

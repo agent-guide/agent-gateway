@@ -769,6 +769,11 @@ at apply/update time:
   fetch-and-rewrite of the remote card on every well-known GET is rejected: it
   races, breaks JWS signatures, and can advertise a version the body path
   cannot speak.
+- Copied skills never retain the remote skill-level `securityRequirements`.
+  When the route requires a VirtualKey, every served skill references the same
+  gateway-owned HTTP Bearer scheme as the Card; otherwise skill-level security
+  requirements are omitted. This prevents dangling references to remote
+  schemes that are deliberately absent from the rewritten Card.
 - Remote-card `signatures` are never copied. P0 does not verify JWS signatures
   while fetching or seeding a remote Card and does not sign the gateway-owned
   rewritten Card. HTTPS, the configured same-origin Card URL, and operator
@@ -807,6 +812,10 @@ Path A traffic as v0.3.
   version query parameter.
   Do not copy a missing/0.3 client value through. The JSON-RPC body and SSE
   frames stay un-reencoded.
+- The selected interface URL's existing query is retained first. Other
+  northbound query fields are appended in their original order, except every
+  case variant of `A2A-Version`, which is removed before the canonical header
+  is set. The proxy never derives an upstream origin from northbound headers.
 - **Path B:** `pkg/a2a/client` injects `A2A-Version: 1.0` on every
   southbound call, including Agent Card fetch. Do not rely on the SDK
   default if it omits the header.
@@ -840,6 +849,13 @@ JSON-RPC body and SSE frames:
 - Path B uses the SDK service-parameter API to send `A2A-Version` and any
   future explicitly supported extension. It does not copy arbitrary
   northbound `/turn` headers to the remote.
+
+The served Card's public interface origin is derived only from trusted routing
+state: `protocol=a2a` requires a non-empty `match_policy.host`, and the scheme
+comes from the actual inbound TLS state (`https` with TLS, `http` otherwise).
+`Forwarded` and `X-Forwarded-*` are never used to construct the Card URL. The
+request Host must already match `match_policy.host` through ordinary route
+matching, preventing Host-header reflection in a public Card.
 
 ### 8.4 Path A rejection and error envelope (closed)
 
