@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -92,6 +93,87 @@ func TestHTTPBackendAllocatesSessionAndResumesContext(t *testing.T) {
 	defer mu.Unlock()
 	if len(inboundContexts) != 2 || inboundContexts[0] != "" || inboundContexts[1] != "ctx-1" {
 		t.Fatalf("inbound contexts = %#v", inboundContexts)
+	}
+}
+
+func TestHTTPBackendDirectMessageRetainsReturnedContext(t *testing.T) {
+	var mu sync.Mutex
+	var inboundContexts []string
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/card" {
+			writeTestAgentCard(w, server.URL+"/a2a", false)
+			return
+		}
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		params, _ := request["params"].(map[string]any)
+		message, _ := params["message"].(map[string]any)
+		contextID, _ := message["contextId"].(string)
+		mu.Lock()
+		inboundContexts = append(inboundContexts, contextID)
+		mu.Unlock()
+		id, _ := request["id"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%q,"result":{"message":{"messageId":"m1","role":"ROLE_AGENT","parts":[{"text":"answer"}],"contextId":"ctx-direct"}}}`, id)
+	}))
+	defer server.Close()
+
+	manager := NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+	agent := testHTTPAgent("remote", server.URL+"/card", "")
+	manager.RefreshRuntimeConfigs(t.Context(), []agentpkg.Agent{agent})
+	backend := NewHTTPBackend(manager)
+	for turn := 0; turn < 2; turn++ {
+		var events []agentruntime.TurnEvent
+		if err := backend.ServeTurn(t.Context(), agent, agentruntime.TurnRequest{
+			Input: "hello", SessionID: "session-direct",
+		}, func(event agentruntime.TurnEvent) error {
+			events = append(events, event)
+			return nil
+		}); err != nil {
+			t.Fatalf("ServeTurn(%d) error = %v", turn, err)
+		}
+		if len(events) != 3 || events[0].Event != agentruntime.EventSession || events[1].Text != "answer" || events[2].Event != agentruntime.EventDone {
+			t.Fatalf("events(%d) = %#v", turn, events)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(inboundContexts) != 2 || inboundContexts[0] != "" || inboundContexts[1] != "ctx-direct" {
+		t.Fatalf("inbound contexts = %#v", inboundContexts)
+	}
+}
+
+func TestHTTPBackendRejectsStreamAfterDirectMessage(t *testing.T) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/card" {
+			writeTestAgentCard(w, server.URL+"/a2a", true)
+			return
+		}
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		id, _ := request["id"].(string)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%q,\"result\":{\"message\":{\"messageId\":\"m1\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"answer\"}],\"contextId\":\"ctx-direct\"}}}\n\n", id)
+		fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%q,\"result\":{\"statusUpdate\":{\"taskId\":\"task-1\",\"contextId\":\"ctx-direct\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\"}}}}\n\n", id)
+	}))
+	defer server.Close()
+
+	manager := NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+	agent := testHTTPAgent("remote", server.URL+"/card", "")
+	manager.RefreshRuntimeConfigs(t.Context(), []agentpkg.Agent{agent})
+	err := NewHTTPBackend(manager).ServeTurn(t.Context(), agent, agentruntime.TurnRequest{
+		Input: "hello", SessionID: "session-direct",
+	}, func(agentruntime.TurnEvent) error { return nil })
+	if !errors.Is(err, agentruntime.ErrTurnFailed) || !strings.Contains(err.Error(), "continued after a terminal event") {
+		t.Fatalf("ServeTurn() error = %v, want terminal continuation rejection", err)
 	}
 }
 

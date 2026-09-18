@@ -200,7 +200,8 @@ hop-by-hop headers, omit rewritten-card signatures, exercise the six-method
 allowlist, reject dedicated and embedded push configuration, and reject
 missing/0.3/conflicting versions. Path B tests live with `HTTPBackend` and the
 common sequencer, including literal SDK-emitted method names, initial
-Task/direct Message mapping, premature closure,
+Task/direct Message mapping (including direct-Message `contextId` continuity),
+premature closure and stream continuation after a terminal direct Message,
 trace/depth and exact selected-interface tenant propagation,
 `input_required` follow-ups that carry `taskId`,
 whole-session atomic binding claims, independent 24h TTL/1,024-entry LRU,

@@ -73,7 +73,13 @@ func Fetch(ctx context.Context, base *http.Client, cardURL string, validators Va
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotModified {
-		if resp.ContentLength > 0 {
+		// Content-Length on 304 describes the selected 200 response; it does
+		// not prove that the 304 itself contains a body.
+		bodyBytes, err := io.Copy(io.Discard, io.LimitReader(resp.Body, 1))
+		if err != nil {
+			return nil, false, fmt.Errorf("read 304 Agent Card response: %w", err)
+		}
+		if bodyBytes > 0 {
 			return nil, false, fmt.Errorf("304 Agent Card response must be empty")
 		}
 		return nil, true, nil

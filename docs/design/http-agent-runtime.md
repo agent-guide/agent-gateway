@@ -962,7 +962,9 @@ Rules:
   event. The client must reuse that id for later conversation/task
   continuation; an empty id is never used as a shared map key.
 - A new `session_id` sends neither `contextId` nor `taskId`; the remote
-  allocates both. The backend captures the returned opaque `contextId`. After
+  allocates a context and, for a Task result, a task id. The backend captures
+  a non-empty returned opaque `contextId`, including one returned on a direct
+  Message. After
   a completed task, the binding retains only `contextId`, so the next turn
   starts a new task in the same remote conversation. The gateway never assumes
   that its northbound `session_id` is a valid remote `contextId`.
@@ -1033,7 +1035,7 @@ described above. Durable/cross-replica bindings require a future shared store.
 | A2A v1.0 | Common envelope |
 |---|---|
 | initial `task` | validate/capture `taskId` + `contextId`; map its current status immediately; emit contained current artifacts/status message once, but do not replay `history` |
-| initial/direct `message` | emit its agent-authored Parts as `content`, then `done`; it creates no task binding |
+| initial/direct `message` | emit its agent-authored Parts as `content`, then `done`; retain a returned non-empty `contextId` as a context-only session binding, but create no task binding |
 | `SendMessage` returning a terminal or `INPUT_REQUIRED` / `AUTH_REQUIRED` Task | apply the same Task status/artifact rules as an initial streaming `task`, then emit the matching terminal/interrupted event |
 | `SendMessage` returning `SUBMITTED` / `WORKING` | invalid request-bound result: do not emit success, best-effort cancel, drop any claimed binding, and fail `turn_failed` (§9.1) |
 | initial `task` or `statusUpdate` with `TASK_STATE_SUBMITTED` | validate/capture `taskId` + `contextId`; emit an attached agent-authored status message as `content` when present; otherwise emit no content event and remain non-terminal |

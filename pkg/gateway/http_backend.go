@@ -476,10 +476,14 @@ func (b *HTTPBackend) ServeTurn(ctx context.Context, agent agentpkg.Agent, req a
 		return mapHTTPError(err)
 	}
 	if terminal.direct {
-		if claim.hadOriginal {
-			execution.bindings.finish(claim, claim.original.contextID, "")
-		} else {
+		contextID := terminal.contextID
+		if strings.TrimSpace(contextID) == "" && claim.hadOriginal {
+			contextID = claim.original.contextID
+		}
+		if strings.TrimSpace(contextID) == "" {
 			execution.bindings.drop(claim)
+		} else {
+			execution.bindings.finish(claim, contextID, "")
 		}
 	} else {
 		execution.bindings.finish(claim, terminal.contextID, terminal.interruptedTaskID)
@@ -504,7 +508,7 @@ func (b *HTTPBackend) serveResult(execution *HTTPExecution, slot *httpRunSlot, r
 		if err := emitHTTPDone(emit, "stop", nil); err != nil {
 			return terminalBinding{}, err
 		}
-		return terminalBinding{direct: true}, nil
+		return terminalBinding{contextID: event.ContextID, direct: true}, nil
 	case *a2a.Task:
 		binding, terminal, err := emitA2ATask(event, func(taskID a2a.TaskID) error { return slot.bindTask(execution, taskID) }, emit)
 		if binding.suppressCancel {
@@ -542,6 +546,7 @@ func (b *HTTPBackend) serveStreaming(ctx context.Context, execution *HTTPExecuti
 			switch initial := event.(type) {
 			case *a2a.Message:
 				direct = true
+				contextID = initial.ContextID
 				if err := emitA2AMessage(initial, emit); err != nil {
 					return terminalBinding{}, err
 				}
@@ -595,7 +600,7 @@ func (b *HTTPBackend) serveStreaming(ctx context.Context, execution *HTTPExecuti
 		if err := emitHTTPDone(emit, "stop", nil); err != nil {
 			return terminalBinding{}, err
 		}
-		return terminalBinding{direct: true}, nil
+		return terminalBinding{contextID: contextID, direct: true}, nil
 	}
 	if !terminal {
 		return terminalBinding{}, agentruntime.NewError(agentruntime.ErrorTurnFailed, "A2A task stream closed before terminal state")

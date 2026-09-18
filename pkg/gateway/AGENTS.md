@@ -192,6 +192,8 @@ corresponding explicit default port. Enforce the design's
 aggregate stream limits. `SUBMITTED` is a valid non-terminal task state;
 `AUTH_REQUIRED` terminates the common run while retaining only validated
 `contextId`, never a resumable task id.
+A direct Message response likewise retains a returned non-empty `contextId` as
+a context-only session binding; it never creates a resumable task binding.
 The manager is also a credential lifecycle listener. Maintain a committed
 `auth_ref -> agent_id` reverse index, coalesce dependency-scoped Agent
 Recommits outside credential/Agent manager locks only when the secret-free

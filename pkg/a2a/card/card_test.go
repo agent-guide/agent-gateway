@@ -59,6 +59,22 @@ func TestFetchRejectsOversizedCard(t *testing.T) {
 	}
 }
 
+func TestFetchAcceptsNotModifiedContentLengthMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("If-None-Match") != `"v1"` {
+			t.Errorf("If-None-Match = %q", r.Header.Get("If-None-Match"))
+		}
+		w.Header().Set("Content-Length", "1234")
+		w.WriteHeader(http.StatusNotModified)
+	}))
+	defer server.Close()
+
+	snapshot, notModified, err := Fetch(context.Background(), server.Client(), server.URL, Validators{ETag: `"v1"`})
+	if err != nil || !notModified || snapshot != nil {
+		t.Fatalf("Fetch() = %#v, %v, %v", snapshot, notModified, err)
+	}
+}
+
 func TestFetchRejectsRedirectAndTrailingJSON(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
