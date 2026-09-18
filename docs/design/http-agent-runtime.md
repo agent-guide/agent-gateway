@@ -827,7 +827,7 @@ JSON-RPC body and SSE frames:
 
 - Request forwarding removes hop-by-hop headers named by RFC 9110 (including
   names nominated by `Connection`), `Host`, `Authorization`,
-  `Proxy-Authorization`, `Cookie`, `Forwarded`, `X-Forwarded-*`, the inbound
+  `Proxy-Authorization`, `X-Api-Key`, `Cookie`, `Forwarded`, `X-Forwarded-*`, the inbound
   `X-Agent-Depth`, `traceparent`, `tracestate`, `X-Trace-ID`, and `X-Span-ID`.
   The gateway then injects the selected upstream `Authorization`, canonical
   `A2A-Version: 1.0`, its normalized W3C trace context, and trusted incremented

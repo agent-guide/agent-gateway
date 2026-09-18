@@ -18,7 +18,7 @@ func TestProxyForwardsOriginalBodyAndGovernsHeaders(t *testing.T) {
 		if !bytes.Equal(got, body) {
 			t.Errorf("body changed: %q", got)
 		}
-		if r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" || r.Header.Get("X-Forwarded-For") != "" {
+		if r.Header.Get("Authorization") != "Bearer upstream-secret" || r.Header.Get("X-Api-Key") != "" || r.Header.Get("Cookie") != "" || r.Header.Get("X-Forwarded-For") != "" {
 			t.Errorf("sensitive headers leaked: %#v", r.Header)
 		}
 		if r.Header.Get("A2A-Version") != "1.0" || r.URL.Query().Get("A2A-Version") != "" || r.URL.Query().Get("x") != "1" {
@@ -30,12 +30,15 @@ func TestProxyForwardsOriginalBodyAndGovernsHeaders(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	p, err := New(Options{InterfaceURL: upstream.URL + "/rpc?fixed=1", HTTPClient: upstream.Client()})
+	upstreamClient := upstream.Client()
+	upstreamClient.Transport = bearerTestTransport{base: upstreamClient.Transport, token: "upstream-secret"}
+	p, err := New(Options{InterfaceURL: upstream.URL + "/rpc?fixed=1", HTTPClient: upstreamClient})
 	if err != nil {
 		t.Fatal(err)
 	}
 	in := httptest.NewRequest(http.MethodPost, "https://gateway.example/a2a?A2A-Version=1.0&x=1", bytes.NewReader(body))
 	in.Header.Set("Authorization", "Bearer virtual-key")
+	in.Header.Set("X-Api-Key", "virtual-key")
 	in.Header.Set("Cookie", "client=secret")
 	in.Header.Set("X-Forwarded-For", "203.0.113.1")
 	meta, err := jsonrpc.InspectRequest(body)
@@ -50,6 +53,18 @@ func TestProxyForwardsOriginalBodyAndGovernsHeaders(t *testing.T) {
 	if resp.Header.Get("Set-Cookie") != "" || !bytes.Contains(resp.Buffered, []byte(`"ok":true`)) {
 		t.Fatalf("response = headers %#v body %q", resp.Header, resp.Buffered)
 	}
+}
+
+type bearerTestTransport struct {
+	base  http.RoundTripper
+	token string
+}
+
+func (t bearerTestTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	clone.Header = req.Header.Clone()
+	clone.Header.Set("Authorization", "Bearer "+t.token)
+	return t.base.RoundTrip(clone)
 }
 
 func TestCopyStreamPreservesFramesAndRejectsWrongID(t *testing.T) {

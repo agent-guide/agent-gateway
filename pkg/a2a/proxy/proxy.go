@@ -196,7 +196,7 @@ func governedRequestHeaders(in http.Header) http.Header {
 	out := in.Clone()
 	stripHopByHop(out)
 	for _, name := range []string{
-		"Host", "Authorization", "Proxy-Authorization", "Cookie", "Forwarded",
+		"Host", "Authorization", "Proxy-Authorization", "X-Api-Key", "Cookie", "Forwarded",
 		"X-Agent-Depth", "traceparent", "tracestate", "X-Trace-ID", "X-Span-ID",
 	} {
 		out.Del(name)
