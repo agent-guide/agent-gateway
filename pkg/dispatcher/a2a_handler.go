@@ -95,7 +95,6 @@ func (h *Handler) serveA2ARequest(w http.ResponseWriter, r *http.Request, route 
 	if !a2ajsonrpc.AllowedMethod(meta.Method) {
 		return writeA2AError(w, meta.ID, streaming, -32601, "Method not found")
 	}
-	streaming = meta.Method == a2ajsonrpc.MethodSendStreamingMessage || meta.Method == a2ajsonrpc.MethodSubscribeToTask
 	if meta.EmbeddedPushConfig {
 		return writeA2AError(w, meta.ID, streaming, -32602, "Invalid params")
 	}

@@ -176,6 +176,21 @@ func TestDispatchA2APathAEndToEnd(t *testing.T) {
 	if got := jsonRPCErrorCode(t, post(wrongTenant, "1.0", "vk-secret").Body.Bytes()); got != -32602 {
 		t.Fatalf("tenant error code = %d", got)
 	}
+	subscribeWrongTenant := []byte(`{"jsonrpc":"2.0","id":14,"method":"SubscribeToTask","params":{"tenant":"other"}}`)
+	subscribeTenantRec := post(subscribeWrongTenant, "1.0", "vk-secret")
+	if got := subscribeTenantRec.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("SubscribeToTask tenant rejection Content-Type = %q", got)
+	}
+	if got := jsonRPCErrorCode(t, subscribeTenantRec.Body.Bytes()); got != -32602 {
+		t.Fatalf("SubscribeToTask tenant error code = %d", got)
+	}
+	subscribeVersionRec := post(subscribeWrongTenant, "", "vk-secret")
+	if got := subscribeVersionRec.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("SubscribeToTask version rejection Content-Type = %q", got)
+	}
+	if got := jsonRPCErrorCode(t, subscribeVersionRec.Body.Bytes()); got != -32009 {
+		t.Fatalf("SubscribeToTask version error code = %d", got)
+	}
 	notification := []byte(`{"jsonrpc":"2.0","method":"SendMessage","params":{"tenant":"tenant-a"}}`)
 	if notificationRec := post(notification, "1.0", "vk-secret"); notificationRec.Code != http.StatusNoContent || notificationRec.Body.Len() != 0 {
 		t.Fatalf("notification = %d/%q", notificationRec.Code, notificationRec.Body.String())
