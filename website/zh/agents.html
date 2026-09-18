@@ -104,14 +104,14 @@
           <h3>HTTP — 注册你的外部 Agent</h3>
           <p>
             用任意框架构建、运行在你自己基础设施上的 agent，今天可以注册 Agent Card URL 与管理身份。
-            执行使用 A2A Protocol 1.0：通用 <code>/turn</code> API 今天已可翻译调用，
-            原生受治理 A2A 代理入口仍在路线图上；网关不持有远端 task 的持久状态。
+            执行使用 A2A Protocol 1.0：既可通过通用 <code>/turn</code> API 翻译调用，
+            也可使用原生受治理 A2A JSON-RPC 代理入口；网关不持有远端 task 的持久状态。
           </p>
         </div>
         <ul class="feature-list">
           <li><b>同一套身份模型</b> 路由、资源、策略、用量与健康，与其他运行时一致。</li>
           <li><b>归因引用</b> 路由归属明确时，绑定路由的流量会归因到该 agent。</li>
-          <li><b>执行边界</b> 通用轮次通过请求绑定的 A2A 翻译器执行；原生 A2A 代理入口仍在路线图上。</li>
+          <li><b>双入口</b> 通用轮次使用请求绑定的翻译器；原生 A2A 在同一治理边界内保留 JSON-RPC 请求体与 SSE 帧。</li>
           <li><b>无锁定</b> LangChain、ADK、自研栈 —— 网关一视同仁。</li>
         </ul>
       </div>

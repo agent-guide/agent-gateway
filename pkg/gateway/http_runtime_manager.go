@@ -843,7 +843,16 @@ func injectHTTPRuntimeTrace(req *http.Request) {
 	}
 	dims, _ := usage.DimensionsFromContext(req.Context())
 	if usage.ValidTraceID(dims.TraceID) && usage.ValidSpanID(dims.SpanID) {
-		req.Header.Set("traceparent", "00-"+dims.TraceID+"-"+dims.SpanID+"-01")
+		flags := dims.TraceFlags
+		if !usage.ValidLowerHex(flags, 2) {
+			flags = "01"
+		}
+		req.Header.Set("traceparent", "00-"+dims.TraceID+"-"+dims.SpanID+"-"+flags)
+		if strings.TrimSpace(dims.TraceState) != "" {
+			req.Header.Set("tracestate", strings.TrimSpace(dims.TraceState))
+		} else {
+			req.Header.Del("tracestate")
+		}
 		req.Header.Set("X-Trace-ID", dims.TraceID)
 		req.Header.Set("X-Span-ID", dims.SpanID)
 	}

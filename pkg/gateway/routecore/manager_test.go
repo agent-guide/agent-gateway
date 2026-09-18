@@ -49,6 +49,19 @@ func TestAgentRouteConfigManagerMatchRejectsMethod(t *testing.T) {
 	}
 }
 
+func TestAgentRouteConfigManagerLetsA2ADispatcherOwnMethodRejection(t *testing.T) {
+	manager := NewAgentRouteConfigManager(nil)
+	manager.InitStaticRoutes([]AgentRouteConfig{{
+		ID: "native-a2a", Kind: RouteKindAgent, Protocol: RouteProtocolA2A,
+		MatchPolicy: RouteMatchPolicy{Host: "gateway.example", PathPrefix: "/agent", Methods: []string{http.MethodGet, http.MethodPost}},
+	}})
+	req := httptest.NewRequest(http.MethodDelete, "http://gateway.example/agent", nil)
+	got, ok, err := manager.Match(context.Background(), req)
+	if err != nil || !ok || got.ID != "native-a2a" {
+		t.Fatalf("Match() = %#v, %v, %v", got, ok, err)
+	}
+}
+
 func TestAgentRouteConfigManagerMatchReturnsDisabledRoute(t *testing.T) {
 	manager := NewAgentRouteConfigManager(nil)
 	manager.InitStaticRoutes([]AgentRouteConfig{{

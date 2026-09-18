@@ -154,7 +154,7 @@ func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request, next NextHand
 			return
 		}
 		status := rec.StatusCode()
-		success := status < 400
+		success := status < 400 && !rec.Failed()
 		span.Finish(usage.InteractionOutcome{Success: success, StatusCode: status})
 	}()
 
@@ -212,7 +212,8 @@ func skipA2AVirtualKeyAdmission(cfg routecore.AgentRouteConfig, r *http.Request)
 // attribution index, including authentication and other pre-dispatch errors.
 func (h *Handler) routeInteractionDimensions(cfg routecore.AgentRouteConfig, traceCtx traceContext, virtualKeyID string) usage.InteractionDimensions {
 	dims := usage.InteractionDimensions{
-		TraceID: traceCtx.TraceID, SpanID: traceCtx.SpanID, ParentSpanID: traceCtx.ParentSpanID, AgentDepth: traceCtx.AgentDepth,
+		TraceID: traceCtx.TraceID, SpanID: traceCtx.SpanID, ParentSpanID: traceCtx.ParentSpanID,
+		TraceState: traceCtx.TraceState, TraceFlags: traceCtx.TraceFlags, AgentDepth: traceCtx.AgentDepth,
 		RouteID: cfg.ID, RouteKind: string(cfg.Kind), RouteProtocol: string(cfg.Protocol), VirtualKeyID: virtualKeyID,
 	}
 	if cfg.Kind != routecore.RouteKindAgent {

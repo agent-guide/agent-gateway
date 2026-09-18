@@ -1085,8 +1085,8 @@ in [Builtin Agent Runtime](builtin-agent-runtime.md); PB2 remains deferred.
 The `http` runtime design and implementation track live in
 [HTTP Agent Runtime](http-agent-runtime.md): A2A Protocol 1.0 JSON-RPC,
 shared `pkg/a2a`, Path B (`HTTPBackend`) before Path A (`protocol a2a`).
-HTTP Path B is implemented and dispatches common `/turn` requests through
-`HTTPBackend`; native Path A `protocol a2a` proxy ingress remains design-only.
+HTTP Path B dispatches common `/turn` requests through `HTTPBackend`; native
+Path A `protocol a2a` governed proxy ingress is also implemented.
 
 ### 11.1 Historical P0a — agent object and CRUD (superseded)
 

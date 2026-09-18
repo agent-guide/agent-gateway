@@ -7,9 +7,9 @@ This document is the authoritative product and technical design for
 lifecycle, with the gateway acting as a client (translating ingress) or a
 governed proxy (non-translating ingress).
 
-Status: **Path B implemented**. HTTP Agents execute through the common
-`protocol agent` `/turn` ingress using A2A 1.0 JSON-RPC southbound. Native
-`protocol a2a` routes (Path A, §8) do not exist yet.
+Status: **Paths A and B implemented**. HTTP Agents execute through the common
+`protocol agent` `/turn` ingress using A2A 1.0 JSON-RPC southbound, or through
+native governed `protocol a2a` routes (Path A, §8).
 
 The design records the direction chosen after evaluating alternatives:
 
@@ -20,7 +20,7 @@ The design records the direction chosen after evaluating alternatives:
   protocol invention. P0 does not dual-stack A2A v0.3.
 - **The target architecture has two northbound paths** for the same agents.
   The implemented `protocol agent` route translates A2A into the common turn
-  envelope (Path B). A future `protocol a2a` route will proxy A2A JSON-RPC
+  envelope (Path B). An implemented `protocol a2a` route proxies A2A JSON-RPC
   end-to-end without event translation (Path A). Both use the same ingress
   governance model and share the `pkg/a2a` protocol package as their common
   lower layer.
@@ -60,7 +60,7 @@ northbound protocol are three separate axes:
 |---|---|---|
 | `runtime.type` | `acp` / `http` / `builtin` | Who owns the agent's lifecycle? |
 | `runtime.http.protocol` | `a2a` (`custom` reserved, undesigned) | What dialect does the gateway speak to the service? |
-| AgentRoute `protocol` | `agent` / `a2a` (planned in Phase 2) / LLM family protocols | What protocol does the client speak to the gateway? |
+| AgentRoute `protocol` | `agent` / `a2a` / LLM family protocols | What protocol does the client speak to the gateway? |
 
 `runtime.type = "http"` keeps its control-plane meaning — "an external
 service owns its lifecycle; the gateway is a client over HTTP" — and every
@@ -151,12 +151,12 @@ the connect, response-header, idle-stream, and total-turn policy in §6.
 ## 5. Shared protocol package (`pkg/a2a`)
 
 A2A v1.0 is a **lower protocol package**, analogous to `pkg/acp` and
-`pkg/mcp`. Path B imports it today and Path A will reuse it in Phase 2. It is
+`pkg/mcp`. Both implemented paths reuse it. It is
 not an "HTTP Agent runtime" package: it contains no `agentruntime.Backend`, no
 dispatcher handler, no VirtualKey logic, and no `auth_ref` resolution.
 
 ```text
-pkg/dispatcher (planned Path A handler)
+pkg/dispatcher (Path A handler)
 pkg/gateway    (Path B HTTPBackend)
         \          /
          v        v
@@ -173,19 +173,19 @@ body-cap options.
 ```text
 pkg/a2a/
   card/      fetch and parse interfaces/security alternatives (implemented);
-             public Card rewrite helper (Phase 2)
+             public Card rewrite helper (implemented)
   jsonrpc/   v1.0 envelope validation and method names (implemented);
-             Path A allowlist/service-parameter/SSE helpers (Phase 2)
+             Path A allowlist/service-parameter/SSE helpers (implemented)
   client/    typed API used only by Path B (implemented)
-  proxy/     HTTP-terminated body/SSE pipe used only by Path A (Phase 2)
+  proxy/     HTTP-terminated body/SSE pipe used only by Path A (implemented)
 ```
 
-| Layer | Current surface | Phase 2 addition | Used by |
+| Layer | Current surface | Path A surface | Used by |
 |---|---|---|---|
-| `card/` | GET `/.well-known/agent-card.json`; parse and validate `"JSONRPC"` interface candidates; return structured Card security alternatives without credential policy | Rewrite the public URL and `securitySchemes` / `securityRequirements` from caller-supplied values | Path B now; both paths after Phase 2 |
-| `jsonrpc/` | JSON-RPC 2.0 envelope validation and local v1.0 method-name constants used by Path B guards/tests | Method allowlist, service-parameter parsing/injection, SSE splitter, and optional read-only frame peek | Path B now; Path A after Phase 2 |
+| `card/` | GET `/.well-known/agent-card.json`; parse and validate `"JSONRPC"` interface candidates; return structured Card security alternatives without credential policy | Rewrite the public URL and `securitySchemes` / `securityRequirements` from caller-supplied values | Both paths |
+| `jsonrpc/` | JSON-RPC 2.0 envelope validation and local v1.0 method-name constants used by Path B guards/tests | Method allowlist, service-parameter parsing/injection, and bounded SSE copying | Both paths |
 | `client/` | Thin wrapper over official `a2aclient` locked to JSON-RPC (`WithJSONRPCTransport` / `NewJSONRPCTransport`) | None | Path B only |
-| `proxy/` | Not present | Copy request body and SSE upstream↔downstream with flush and body caps; enforce `A2A-Version`; do not re-encode or fetch/forward the remote Agent Card | Path A only |
+| `proxy/` | HTTP-terminated governed proxy | Copy request body and SSE upstream↔downstream with flush and body caps; enforce `A2A-Version`; do not re-encode or fetch/forward the remote Agent Card | Path A only |
 
 Path A must **not** parse a JSON-RPC request into a typed `SendMessage` call
 and re-marshal the response. That would drop unknown fields and extensions
@@ -502,8 +502,8 @@ Validation rules:
   route accepts any executable `http` Agent regardless of dialect.
 
 The AgentRoute model (`pkg/gateway/agentroute`) currently forces
-`protocol = agent` in `Normalize` / `ToConfig`. Path A requires relaxing that
-invariant: `kind` stays `agent`, and `protocol` may be `agent` or `a2a`.
+`protocol = agent` or `protocol = a2a` in `Normalize` / `ToConfig`: `kind`
+stays `agent` for both paths.
 Changing runtime type or dialect still must not change the route id, URL, or
 VirtualKey allowlist. Dispatcher matching stays kind-based; `dispatchAgent`
 branches on `protocol` so `a2a` does not enter the `/turn` family.
@@ -637,7 +637,7 @@ matching `securityRequirements` entry when the route requires a VirtualKey.
 Do not copy the remote's `securitySchemes` / `securityRequirements` onto the
 served card.
 
-## 8. Path A: A2A proxy ingress (`protocol a2a`, Phase 2 — not implemented)
+## 8. Path A: A2A proxy ingress (`protocol a2a`, implemented)
 
 A route with `protocol a2a` speaks A2A JSON-RPC northbound and southbound.
 Event-level translation is zero: the JSON-RPC envelope, Messages/Parts, task
@@ -851,11 +851,13 @@ JSON-RPC body and SSE frames:
   northbound `/turn` headers to the remote.
 
 The served Card's public interface origin is derived only from trusted routing
-state: `protocol=a2a` requires a non-empty `match_policy.host`, and the scheme
-comes from the actual inbound TLS state (`https` with TLS, `http` otherwise).
-`Forwarded` and `X-Forwarded-*` are never used to construct the Card URL. The
-request Host must already match `match_policy.host` through ordinary route
-matching, preventing Host-header reflection in a public Card.
+state: `protocol=a2a` requires a non-empty `match_policy.host`, the request Host
+must match that configured hostname through ordinary route matching, and the
+scheme comes from the actual inbound TLS state (`https` with TLS, `http`
+otherwise). The matched request authority supplies an explicit listener port
+when present. `Forwarded` and `X-Forwarded-*` are never used to construct the
+Card URL; the response is `no-store`, preventing an untrusted Host from being
+reflected through a shared public Card cache.
 
 ### 8.4 Path A rejection and error envelope (closed)
 
@@ -1188,7 +1190,7 @@ never creates unbounded remote traffic.
 ## 10. Request flows (summary)
 
 ```text
-Path A (planned Phase 2; protocol a2a, no event translation):
+Path A (implemented; protocol a2a, no event translation):
   client --A2A JSON-RPC--> AgentRoute(protocol a2a)
     -> ingress governance (VirtualKey, rate limits)
     -> HTTPRuntimeManager.ResolveProxyTarget(agent_id) readiness gate
@@ -1240,12 +1242,12 @@ Current status:
 |---|---|---|
 | Phase 0 | **Complete for the shared Path B foundation** | Schema, scoped credentials, Card parsing/selection, immutable manager generation, retries/health, and JSON-RPC client prerequisites |
 | Phase 1 | **Complete** | Executable `HTTPBackend` on the common `protocol agent` `/turn` ingress |
-| Phase 2 | **Not implemented** | Native `protocol a2a` proxy ingress and its Path A-specific shared-manager/package extensions |
+| Phase 2 | **Complete** | Native `protocol a2a` proxy ingress and its Path A-specific shared-manager/package extensions |
 | Phase 3 | **Deferred** | Explicitly unscheduled follow-on capabilities |
 
 The original Phase 0 plan included several Path A-only artifacts. They are
 listed under Phase 2 below so “Phase 0 complete” describes the code that is
-actually present and does not imply that native A2A ingress exists.
+present at that milestone; Phase 2 subsequently delivered native A2A ingress.
 
 ### Phase 0 — shared Path B foundation (**complete**)
 
@@ -1348,9 +1350,9 @@ actually present and does not imply that native A2A ingress exists.
   cases, and add ready shared-snapshot cases that report executable and
   dispatch through `HTTPBackend`.
 - Once these tests pass, website wording changes to three execution runtimes;
-  only native Path A proxy ingress remains labeled roadmap.
+  the later Phase 2 update publishes native Path A as implemented.
 
-### Phase 2 — Path A: `protocol a2a` proxy ingress (**not implemented**)
+### Phase 2 — Path A: `protocol a2a` proxy ingress (**complete**)
 
 - Extend `pkg/a2a/card` with the caller-driven public Card rewrite helper,
   extend `pkg/a2a/jsonrpc` with the allowlist/service-parameter/SSE helpers,

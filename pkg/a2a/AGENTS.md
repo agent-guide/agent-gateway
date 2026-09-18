@@ -6,9 +6,9 @@ are repository-root relative; the root `AGENTS.md` rules apply. The
 authoritative product design is
 [`docs/design/http-agent-runtime.md`](../../docs/design/http-agent-runtime.md).
 
-Status: **Path B implemented**. `card/`, `jsonrpc/`, and the JSON-RPC-only
+Status: **Paths A and B implemented**. `card/`, `jsonrpc/`, and the JSON-RPC-only
 official SDK wrapper in `client/` are linked to the gateway `HTTPBackend`;
-Path A's `proxy/` remains design-only.
+`proxy/` serves governed native A2A ingress through the dispatcher.
 
 ## Boundaries
 

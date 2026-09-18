@@ -537,8 +537,10 @@ gateway-owned adapters execute through one run sequencer behind a unified
 `AgentRoute.agent_id` relationship. There is no unbound ACP ingress or
 runtime-specific public route family. HTTP Agents execute through the same
 `protocol agent` `/turn` ingress and a Path B backend translating to A2A
-Protocol 1.0 JSON-RPC via `pkg/a2a`; native Path A governed proxy ingress is
-still roadmap. See [HTTP Agent Runtime](../design/http-agent-runtime.md).
+Protocol 1.0 JSON-RPC via `pkg/a2a`. The same HTTP Agents can expose native
+governed A2A JSON-RPC through `protocol a2a` Path A routes, including a
+gateway-owned Agent Card, VirtualKey admission, credential replacement, and
+bounded JSON/SSE forwarding. See [HTTP Agent Runtime](../design/http-agent-runtime.md).
 Upper-layer Workflow Workers call the same AgentRoute/turn boundary while
 their external engine owns durable business state, retry, scheduling,
 approval, and DAG semantics. Gateway Request Pipelines deliberately exclude

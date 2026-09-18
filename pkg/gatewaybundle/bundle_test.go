@@ -808,6 +808,46 @@ virtualKeys:
 	}
 }
 
+func TestValidateNativeA2AAgentRoute(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+agents:
+  - id: remote
+    name: Remote
+    runtime:
+      type: http
+      http:
+        card_url: https://remote.example/.well-known/agent-card.json
+        protocol: a2a
+    routes: {}
+    resources: {}
+    policy: {}
+agentRoutes:
+  - protocol: a2a
+    agent_id: remote
+    match_policy:
+      host: gateway.example
+      path_prefix: /agents/remote
+      methods: [GET, POST]
+    auth_policy: {require_virtual_key: false}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bundle.ValidateForConfigStore(); err != nil {
+		t.Fatal(err)
+	}
+	if bundle.AgentRoutes[0].Protocol != agentroute.RouteProtocolA2A {
+		t.Fatalf("protocol = %q", bundle.AgentRoutes[0].Protocol)
+	}
+
+	bundle.AgentRoutes[0].MatchPolicy.Host = ""
+	if err := bundle.ValidateForConfigStore(); err == nil || !strings.Contains(err.Error(), "requires match_policy.host") {
+		t.Fatalf("missing-host validation error = %v", err)
+	}
+}
+
 func TestDecodeRejectsLegacyAgentRuntimeBundle(t *testing.T) {
 	_, err := DecodeYAML([]byte("apiVersion: gateway.agw/v1alpha1\nkind: GatewayBundle\nacpServices: []\n"))
 	if err == nil || !strings.Contains(err.Error(), "legacy_agent_runtime_config") {

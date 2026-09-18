@@ -265,8 +265,8 @@ func (s *eventSpan) Finish(outcome InteractionOutcome) {
 		case "builtin":
 			sink.Enqueue(builtinEvent(base, builtin))
 		default:
-			// HTTP is not executable until M8. Retain the generic event for any
-			// diagnostic sink without falsely classifying it as another runtime.
+			// HTTP/A2A has no token-usage contract or dedicated typed event table.
+			// Retain the generic interaction without classifying it as ACP/builtin.
 			sink.Enqueue(base)
 		}
 	default:

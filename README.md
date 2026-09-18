@@ -389,15 +389,63 @@ Agent route IDs are auto-generated as `agent:<agent_id>:<path-slug>` when omitte
 
 See [docs/getting-started/quickstart-acp.md](docs/getting-started/quickstart-acp.md), [docs/architecture/acp-architecture.md](docs/architecture/acp-architecture.md), [docs/reference/acp-technical-spec.md](docs/reference/acp-technical-spec.md), and [docs/reference/acp-api.md](docs/reference/acp-api.md) for the full ACP documentation.
 
+### Native A2A HTTP Agent ingress
+
+An HTTP Agent can use the common `/turn` route above or a native governed A2A
+route. Native routes require a trusted `match_policy.host`; their public Agent
+Card is available without a VirtualKey, while JSON-RPC POST retains ordinary
+VirtualKey and rate-limit admission:
+
+```yaml
+agents:
+  - id: remote-reviewer
+    name: Remote Reviewer
+    runtime:
+      type: http
+      http:
+        card_url: https://reviewer.internal/.well-known/agent-card.json
+        protocol: a2a
+        timeout_seconds: 120
+
+agentRoutes:
+  - id: remote-reviewer-a2a
+    protocol: a2a
+    agent_id: remote-reviewer
+    match_policy:
+      host: gateway.example.com
+      path_prefix: /agents/reviewer
+      methods: [GET, POST]
+    auth_policy:
+      require_virtual_key: true
+```
+
+The gateway serves `GET /agents/reviewer/.well-known/agent-card.json` and
+accepts A2A 1.0 JSON-RPC at `POST /agents/reviewer`. Clients must send
+`A2A-Version: 1.0` as a header or query service parameter. The allowed P0
+methods are `SendMessage`, `SendStreamingMessage`, `GetTask`, `ListTasks`,
+`CancelTask`, and `SubscribeToTask`; push notification configuration is denied.
+
+```bash
+curl -s https://gateway.example.com/agents/reviewer/.well-known/agent-card.json
+
+curl -s https://gateway.example.com/agents/reviewer \
+  -H 'Content-Type: application/json' \
+  -H 'A2A-Version: 1.0' \
+  -H "Authorization: Bearer $AGENT_API_KEY" \
+  -d '{"jsonrpc":"2.0","id":"demo-1","method":"SendMessage","params":{"message":{"messageId":"m1","role":"ROLE_USER","parts":[{"text":"Review this"}]}}}'
+```
+
 ## Metrics Admin API
 
 Usage metrics are backed by the SQLite usage event tables (`llm_usage_events`,
 `mcp_usage_events`, `acp_usage_events`, `builtin_usage_events`) when the sqlite
 config store backend is active. Unified Agent ingress keeps
-`route_kind=agent`/`route_protocol=agent` and selects the ACP or builtin typed
-table through `runtime_type`; new ACP Agent events use `agent_id` directly and
-do not populate the historical `service_id` column. Prometheus counters use
-only the bounded `route_kind` and `runtime_type` labels.
+`route_kind=agent`, with `route_protocol=agent` for common turns or
+`route_protocol=a2a` for native proxy requests. ACP and builtin select their
+typed table through `runtime_type`; HTTP requests retain the common interaction
+event because A2A has no token-usage contract. New ACP Agent events use
+`agent_id` directly and do not populate the historical `service_id` column.
+Prometheus counters use only the bounded `route_kind` and `runtime_type` labels.
 
 ```text
 GET /admin/metrics                       # per-kind summaries + pipeline health counters
@@ -449,7 +497,7 @@ See [docs/README.md](docs/README.md) for runtime-specific guides and references.
 - [docs/design/agents-control-plane.md](docs/design/agents-control-plane.md): cross-runtime agent control-plane design
 - [docs/design/request-pipeline.md](docs/design/request-pipeline.md): synchronous gateway request pipelines and the upper-layer Temporal/business-workflow boundary
 - [docs/design/builtin-agent-runtime.md](docs/design/builtin-agent-runtime.md): builtin ADK runtime design and implementation status
-- [docs/design/http-agent-runtime.md](docs/design/http-agent-runtime.md): HTTP agent runtime — register `runtime.http.card_url` with required `protocol: a2a`; Path B translates the common `/turn` API to A2A 1.0 JSON-RPC, while native Path A proxy ingress remains roadmap
+- [docs/design/http-agent-runtime.md](docs/design/http-agent-runtime.md): HTTP agent runtime — register `runtime.http.card_url` with required `protocol: a2a`; Path B translates the common `/turn` API and Path A exposes governed native A2A 1.0 JSON-RPC
 - [docs/design/guardrails.md](docs/design/guardrails.md): Community Guardrails Core and external check extension boundary
 - [docs/design/enterprise-extension-contract.md](docs/design/enterprise-extension-contract.md): protected SPI, distribution assembly, and cross-repository compatibility rules
 - [docs/design/gateway-bundle-yaml.md](docs/design/gateway-bundle-yaml.md): bundle YAML design

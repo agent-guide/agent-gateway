@@ -50,7 +50,8 @@ Important files:
   not accepted. The
   selected Card interface owns the service URL and tenant. Path B dispatches
   HTTP Agents through the common `/turn` contract using the `HTTPBackend` in
-  `pkg/gateway`; native Path A proxy ingress remains roadmap. A2A wire types and the JSON-RPC client/proxy live in
+  `pkg/gateway`; native Path A proxy ingress executes through `protocol=a2a`
+  AgentRoutes. A2A wire types and the JSON-RPC client/proxy live in
   `pkg/a2a`; this package must not import it. HTTP `auth_ref` points to an
   existing credential with exact non-provider scope `http-agent:<agent_id>`;
   Agent definitions and runtime snapshots never contain

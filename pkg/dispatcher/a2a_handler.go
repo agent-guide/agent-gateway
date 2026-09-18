@@ -125,6 +125,9 @@ func (h *Handler) serveA2ARequest(w http.ResponseWriter, r *http.Request, route 
 	w.WriteHeader(http.StatusOK)
 	if err := a2aproxy.CopyStream(w, resp.Body, meta.ID); err != nil {
 		usage.SpanFromContext(r.Context()).AddAnnotation("error_type", "a2a_stream_failed")
+		if marker, ok := w.(interface{ MarkFailed() }); ok {
+			marker.MarkFailed()
+		}
 		return err
 	}
 	return nil
@@ -166,7 +169,11 @@ func a2aPublicRouteURL(r *http.Request, route *agentroutepkg.AgentRoute) string 
 	if path != "/" {
 		path = strings.TrimRight(path, "/")
 	}
-	return scheme + "://" + route.MatchPolicy.Host + path
+	authority := strings.TrimSpace(r.Host)
+	if authority == "" {
+		authority = route.MatchPolicy.Host
+	}
+	return scheme + "://" + authority + path
 }
 
 func validateA2AContentType(value string) error {

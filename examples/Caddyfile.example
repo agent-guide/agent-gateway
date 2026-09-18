@@ -195,6 +195,10 @@ http://127.0.0.1:8080 {
 	}
 
 	agent_route_dispatcher {
+		# The same `agent` enablement serves both protocol=agent common turns and
+		# protocol=a2a native HTTP Agent routes created through the Admin API or a
+		# gateway bundle. Native A2A Card GET is public; JSON-RPC POST keeps the
+		# AgentRoute's VirtualKey policy.
 		llm_api openai
 		llm_api anthropic
 		llm_api cc

@@ -131,7 +131,9 @@ func (p *Proxy) Do(ctx context.Context, inbound *http.Request, body []byte, meta
 		return nil, &InvalidResponseError{Err: err}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return invalid(fmt.Errorf("HTTP status %d", resp.StatusCode))
+		resp.Body.Close()
+		cancel()
+		return nil, fmt.Errorf("A2A upstream HTTP status %d", resp.StatusCode)
 	}
 	if enc := strings.TrimSpace(resp.Header.Get("Content-Encoding")); enc != "" && !strings.EqualFold(enc, "identity") {
 		return invalid(fmt.Errorf("unsupported content encoding %q", enc))

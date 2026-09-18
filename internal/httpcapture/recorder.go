@@ -13,6 +13,7 @@ type ResponseRecorder struct {
 	status      int
 	wroteHeader bool
 	body        bytes.Buffer
+	failed      bool
 }
 
 // NewResponseRecorder wraps a response writer with status/body capture.
@@ -56,6 +57,12 @@ func (w *ResponseRecorder) StatusCode() int {
 func (w *ResponseRecorder) BodyBytes() []byte {
 	return w.body.Bytes()
 }
+
+// MarkFailed records a post-commit transport failure that can no longer be
+// represented by the HTTP status (for example an aborted SSE stream).
+func (w *ResponseRecorder) MarkFailed() { w.failed = true }
+
+func (w *ResponseRecorder) Failed() bool { return w.failed }
 
 func (w *ResponseRecorder) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter

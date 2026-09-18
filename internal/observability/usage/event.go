@@ -203,6 +203,8 @@ type InteractionDimensions struct {
 	TraceID       string
 	SpanID        string
 	ParentSpanID  string
+	TraceState    string
+	TraceFlags    string
 	AgentDepth    int
 	RouteID       string
 	RouteKind     string

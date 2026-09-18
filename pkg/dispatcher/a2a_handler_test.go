@@ -43,6 +43,15 @@ func TestDispatchA2APathAEndToEnd(t *testing.T) {
 			Method string          `json:"method"`
 		}
 		_ = json.Unmarshal(body, &envelope)
+		if string(envelope.ID) == "12" {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if string(envelope.ID) == "13" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"jsonrpc":"2.0","id":99,"result":{}}`)
+			return
+		}
 		if envelope.Method == "SendStreamingMessage" {
 			w.Header().Set("Content-Type", "text/event-stream")
 			fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"message\":{}}}\n\n", envelope.ID)
@@ -121,6 +130,8 @@ func TestDispatchA2APathAEndToEnd(t *testing.T) {
 		if key != "" {
 			req.Header.Set("Authorization", "Bearer "+key)
 		}
+		req.Header.Set("traceparent", "00-0123456789abcdef0123456789abcdef-0123456789abcdef-00")
+		req.Header.Set("tracestate", "vendor=value")
 		rec := httptest.NewRecorder()
 		if err := handler.Dispatch(rec, req, nil); err != nil {
 			t.Fatalf("Dispatch: %v", err)
@@ -138,7 +149,7 @@ func TestDispatchA2APathAEndToEnd(t *testing.T) {
 	if len(forwarded) != 1 || !bytes.Equal(forwarded[0], body) {
 		t.Fatalf("forwarded bodies = %q", forwarded)
 	}
-	if upstreamHeaders[0].Get("Authorization") != "" || upstreamHeaders[0].Get("A2A-Version") != "1.0" || !strings.HasPrefix(upstreamHeaders[0].Get("traceparent"), "00-") {
+	if upstreamHeaders[0].Get("Authorization") != "" || upstreamHeaders[0].Get("A2A-Version") != "1.0" || !strings.HasSuffix(upstreamHeaders[0].Get("traceparent"), "-00") || upstreamHeaders[0].Get("tracestate") != "vendor=value" {
 		t.Fatalf("upstream headers = %#v", upstreamHeaders[0])
 	}
 	mu.Unlock()
@@ -151,9 +162,35 @@ func TestDispatchA2APathAEndToEnd(t *testing.T) {
 	if got := jsonRPCErrorCode(t, post(push, "1.0", "vk-secret").Body.Bytes()); got != -32602 {
 		t.Fatalf("embedded push error code = %d", got)
 	}
+	if got := jsonRPCErrorCode(t, post([]byte(`{`), "1.0", "vk-secret").Body.Bytes()); got != -32700 {
+		t.Fatalf("parse error code = %d", got)
+	}
+	if got := jsonRPCErrorCode(t, post([]byte(`[]`), "1.0", "vk-secret").Body.Bytes()); got != -32600 {
+		t.Fatalf("batch error code = %d", got)
+	}
+	unknown := []byte(`{"jsonrpc":"2.0","id":10,"method":"GetExtendedAgentCard","params":{"tenant":"tenant-a"}}`)
+	if got := jsonRPCErrorCode(t, post(unknown, "1.0", "vk-secret").Body.Bytes()); got != -32601 {
+		t.Fatalf("denied method error code = %d", got)
+	}
+	wrongTenant := []byte(`{"jsonrpc":"2.0","id":11,"method":"GetTask","params":{"tenant":"other"}}`)
+	if got := jsonRPCErrorCode(t, post(wrongTenant, "1.0", "vk-secret").Body.Bytes()); got != -32602 {
+		t.Fatalf("tenant error code = %d", got)
+	}
+	notification := []byte(`{"jsonrpc":"2.0","method":"SendMessage","params":{"tenant":"tenant-a"}}`)
+	if notificationRec := post(notification, "1.0", "vk-secret"); notificationRec.Code != http.StatusNoContent || notificationRec.Body.Len() != 0 {
+		t.Fatalf("notification = %d/%q", notificationRec.Code, notificationRec.Body.String())
+	}
+	upstreamUnavailable := []byte(`{"jsonrpc":"2.0","id":12,"method":"GetTask","params":{"tenant":"tenant-a"}}`)
+	if got := jsonRPCErrorCode(t, post(upstreamUnavailable, "1.0", "vk-secret").Body.Bytes()); got != -32000 {
+		t.Fatalf("upstream status error code = %d", got)
+	}
+	invalidUpstream := []byte(`{"jsonrpc":"2.0","id":13,"method":"GetTask","params":{"tenant":"tenant-a"}}`)
+	if got := jsonRPCErrorCode(t, post(invalidUpstream, "1.0", "vk-secret").Body.Bytes()); got != -32006 {
+		t.Fatalf("invalid upstream error code = %d", got)
+	}
 	mu.Lock()
-	if len(forwarded) != 1 {
-		t.Fatalf("rejected requests were forwarded: %d", len(forwarded))
+	if len(forwarded) != 3 {
+		t.Fatalf("unexpected forwarded request count: %d", len(forwarded))
 	}
 	mu.Unlock()
 
@@ -170,6 +207,24 @@ func TestDispatchA2APathAEndToEnd(t *testing.T) {
 	}
 	if wrongRec.Code != http.StatusMethodNotAllowed || wrongRec.Header().Get("Allow") != http.MethodPost {
 		t.Fatalf("wrong method = %d/%#v", wrongRec.Code, wrongRec.Header())
+	}
+	wrongPath := httptest.NewRequest(http.MethodGet, "http://gateway.example/agents/remote/other", nil)
+	wrongPathRec := httptest.NewRecorder()
+	if err := handler.Dispatch(wrongPathRec, wrongPath, nil); err != nil {
+		t.Fatal(err)
+	}
+	if wrongPathRec.Code != http.StatusNotFound {
+		t.Fatalf("wrong path = %d/%s", wrongPathRec.Code, wrongPathRec.Body.String())
+	}
+	wrongMIME := httptest.NewRequest(http.MethodPost, "http://gateway.example/agents/remote?A2A-Version=1.0", strings.NewReader("{}"))
+	wrongMIME.Header.Set("Content-Type", "text/plain")
+	wrongMIME.Header.Set("Authorization", "Bearer vk-secret")
+	wrongMIMERec := httptest.NewRecorder()
+	if err := handler.Dispatch(wrongMIMERec, wrongMIME, nil); err != nil {
+		t.Fatal(err)
+	}
+	if wrongMIMERec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("wrong MIME = %d/%s", wrongMIMERec.Code, wrongMIMERec.Body.String())
 	}
 }
 
