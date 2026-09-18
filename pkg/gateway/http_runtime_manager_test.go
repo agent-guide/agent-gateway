@@ -21,6 +21,14 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/credential"
 )
 
+type httpRuntimeTestRefresher struct {
+	refresh func(context.Context, *credential.Credential) (*credential.Credential, error)
+}
+
+func (r httpRuntimeTestRefresher) Refresh(ctx context.Context, cred *credential.Credential) (*credential.Credential, error) {
+	return r.refresh(ctx, cred)
+}
+
 func TestHTTPRuntimeManagerReusesCardAndUsesLiveCredential(t *testing.T) {
 	var mu sync.Mutex
 	cardRequests := 0
@@ -105,6 +113,108 @@ func TestHTTPRuntimeManagerReusesCardAndUsesLiveCredential(t *testing.T) {
 	}
 	if len(authorizations) != 2 || authorizations[0] != "Bearer first" || authorizations[1] != "Bearer second" {
 		t.Fatalf("Authorization values = %#v", authorizations)
+	}
+}
+
+func TestHTTPRuntimeManagerRefreshesOAuthCredentialOnEveryOperation(t *testing.T) {
+	var mu sync.Mutex
+	var cardAuthorization string
+	var operationAuthorizations []string
+	var refreshCalls int
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/card":
+			mu.Lock()
+			cardAuthorization = r.Header.Get("Authorization")
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, "{\"name\":\"Remote\",\"description\":\"\",\"version\":\"1\",\"capabilities\":{\"streaming\":false},"+
+				"\"defaultInputModes\":[\"text/plain\"],\"defaultOutputModes\":[\"text/plain\"],\"skills\":[],"+
+				"\"supportedInterfaces\":[{\"url\":%q,\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],"+
+				"\"securitySchemes\":{\"bearer\":{\"httpAuthSecurityScheme\":{\"scheme\":\"Bearer\"}}},"+
+				"\"securityRequirements\":[{\"schemes\":{\"bearer\":[]}}]}", server.URL+"/a2a")
+		case "/a2a":
+			mu.Lock()
+			operationAuthorizations = append(operationAuthorizations, r.Header.Get("Authorization"))
+			mu.Unlock()
+			var request map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Error(err)
+				return
+			}
+			id, _ := request["id"].(string)
+			w.Header().Set("Content-Type", "application/json")
+			if request["method"] == "CancelTask" {
+				fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%q,"result":{"id":"task-1","contextId":"ctx-1","status":{"state":"TASK_STATE_CANCELED"}}}`, id)
+				return
+			}
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%q,"result":{"message":{"messageId":"m1","role":"ROLE_AGENT","parts":[{"text":"ok"}]}}}`, id)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	credentials := credential.NewManager(nil)
+	credentials.SetRefresher(httpRuntimeTestRefresher{refresh: func(_ context.Context, cred *credential.Credential) (*credential.Credential, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		refreshCalls++
+		updated := cred.Clone()
+		updated.Attributes["api_key"] = fmt.Sprintf("fresh-%d", refreshCalls)
+		// Keep the test token expired so the next southbound operation proves
+		// that the live transport consults the manager again.
+		updated.Metadata["expired"] = time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
+		return updated, nil
+	}})
+	if err := credentials.RegisterCredential(context.Background(), &credential.Credential{
+		ID: "remote-oauth", Type: credential.TypeOAuthToken, Scope: credential.HTTPAgentCredentialScope("remote"),
+		Attributes: map[string]string{"api_key": "stale"},
+		Metadata:   map[string]any{"expired": time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewHTTPRuntimeManager(nil, credentials, server.Client(), nil)
+	agent := testHTTPAgent("remote", server.URL+"/card", "remote-oauth")
+	manager.RefreshRuntimeConfigs(context.Background(), []agentpkg.Agent{agent})
+	execution, err := manager.ResolveExecution(agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := execution.bindings.claim("session-1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution.bindings.finish(claim, "ctx-1", "task-1")
+	if _, err := execution.Client.SendMessage(context.Background(), &a2a.SendMessageRequest{Message: a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("hello"))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := execution.Client.CancelTask(context.Background(), &a2a.CancelTaskRequest{ID: "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+	current, err := manager.ResolveExecution(agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current != execution {
+		t.Fatal("OAuth token refresh replaced the execution handle")
+	}
+	resumed, err := current.bindings.claim("session-1", true)
+	if err != nil || resumed.original.contextID != "ctx-1" || resumed.original.taskID != "task-1" {
+		t.Fatalf("OAuth token refresh retired binding: claim=%#v err=%v", resumed, err)
+	}
+	current.bindings.restore(resumed)
+	mu.Lock()
+	defer mu.Unlock()
+	if cardAuthorization != "" {
+		t.Fatalf("Card Authorization = %q, want empty", cardAuthorization)
+	}
+	if refreshCalls != 2 {
+		t.Fatalf("refresh calls = %d, want 2", refreshCalls)
+	}
+	if len(operationAuthorizations) != 2 || operationAuthorizations[0] != "Bearer fresh-1" || operationAuthorizations[1] != "Bearer fresh-2" {
+		t.Fatalf("operation Authorization values = %#v", operationAuthorizations)
 	}
 }
 
@@ -362,6 +472,57 @@ func TestHTTPRuntimeManagerHealthAllowsUnrelatedConcurrentProbes(t *testing.T) {
 		if probe := <-results; !probe.Healthy {
 			t.Fatalf("ProbeHealth() = %#v", probe)
 		}
+	}
+}
+
+func TestHTTPRuntimeManagerHealthProbeOutlivesCancelledCaller(t *testing.T) {
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var requests atomic.Int64
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.Header.Get("If-None-Match") != "" {
+			entered <- struct{}{}
+			<-release
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("ETag", "\"v1\"")
+		writeTestAgentCard(w, server.URL+"/a2a", false)
+	}))
+	defer server.Close()
+	manager := NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+	manager.RefreshRuntimeConfigs(context.Background(), []agentpkg.Agent{testHTTPAgent("remote", server.URL+"/card", "")})
+
+	callerCtx, cancel := context.WithCancel(context.Background())
+	firstDone := make(chan HTTPHealthProbe, 1)
+	go func() { firstDone <- manager.ProbeHealth(callerCtx, "remote") }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("health probe did not reach server")
+	}
+	cancel()
+	if probe := <-firstDone; probe.Healthy || !strings.Contains(probe.Message, context.Canceled.Error()) {
+		t.Fatalf("cancelled caller probe = %#v", probe)
+	}
+	secondDone := make(chan HTTPHealthProbe, 1)
+	go func() { secondDone <- manager.ProbeHealth(context.Background(), "remote") }()
+	close(release)
+	select {
+	case probe := <-secondDone:
+		if !probe.Healthy || probe.Drift {
+			t.Fatalf("shared probe after caller cancellation = %#v", probe)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("shared health probe did not finish")
+	}
+	if probe := manager.ProbeHealth(context.Background(), "remote"); !probe.Healthy {
+		t.Fatalf("cached health probe = %#v", probe)
+	}
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("Card requests = %d, want prepare plus one shared health probe", got)
 	}
 }
 

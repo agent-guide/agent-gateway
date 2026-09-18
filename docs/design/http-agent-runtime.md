@@ -1153,7 +1153,10 @@ reapplies/updates the Agent to accept a changed Card. It caches the remote
 `ETag` and `Last-Modified`, sends `If-None-Match` / `If-Modified-Since`, treats
 `304` as healthy/no-drift, and coalesces probes so one execution fingerprint is
 fetched at most once per 30 seconds. Concurrent callers share the in-flight
-probe; the health path never creates unbounded remote traffic.
+probe. The shared fetch owns an independent 10-second context: cancellation of
+one caller stops only that caller's wait and must neither cancel the fetch nor
+publish/cache a synthetic unhealthy result for other callers. The health path
+never creates unbounded remote traffic.
 
 ## 10. Request flows (summary)
 

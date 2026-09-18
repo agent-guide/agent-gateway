@@ -307,6 +307,9 @@ func (m *HTTPRuntimeManager) ProbeHealth(ctx context.Context, agentID string) HT
 		}
 		return HTTPHealthProbe{CheckedAt: now, Message: message}
 	}
+	if err := ctx.Err(); err != nil {
+		return HTTPHealthProbe{CheckedAt: now, Message: boundedConfigError("probe Agent Card", err)}
+	}
 	m.healthMu.Lock()
 	if cached, ok := m.health[entry.executionFingerprint]; ok && now.Sub(cached.CheckedAt) < 30*time.Second {
 		m.healthMu.Unlock()
@@ -314,22 +317,31 @@ func (m *HTTPRuntimeManager) ProbeHealth(ctx context.Context, agentID string) HT
 	}
 	if call := m.healthInFlight[entry.executionFingerprint]; call != nil {
 		m.healthMu.Unlock()
-		select {
-		case <-call.done:
-			return call.probe
-		case <-ctx.Done():
-			return HTTPHealthProbe{CheckedAt: now, Message: boundedConfigError("probe Agent Card", ctx.Err())}
-		}
+		return waitForHTTPHealthProbe(ctx, now, call)
 	}
 	call := &httpHealthCall{done: make(chan struct{})}
 	m.healthInFlight[entry.executionFingerprint] = call
 	m.healthMu.Unlock()
-	probeCtx, cancel := context.WithTimeout(ctx, httpHealthCardTimeout)
+	go m.runHealthProbe(agentID, entry, call)
+	return waitForHTTPHealthProbe(ctx, now, call)
+}
+
+func waitForHTTPHealthProbe(ctx context.Context, checkedAt time.Time, call *httpHealthCall) HTTPHealthProbe {
+	select {
+	case <-call.done:
+		return call.probe
+	case <-ctx.Done():
+		return HTTPHealthProbe{CheckedAt: checkedAt, Message: boundedConfigError("probe Agent Card", ctx.Err())}
+	}
+}
+
+func (m *HTTPRuntimeManager) runHealthProbe(agentID string, entry httpRuntimeEntry, call *httpHealthCall) {
+	probeCtx, cancel := context.WithTimeout(context.Background(), httpHealthCardTimeout)
 	defer cancel()
 	fetched, notModified, err := a2acard.Fetch(probeCtx, m.cardClient, entry.cardURL, a2acard.Validators{
 		ETag: entry.card.ETag, LastModified: entry.card.LastModified,
 	})
-	probe := HTTPHealthProbe{CheckedAt: now}
+	probe := HTTPHealthProbe{CheckedAt: time.Now().UTC()}
 	if err != nil {
 		probe.Message = boundedConfigError("probe Agent Card", err)
 	} else {
@@ -358,7 +370,6 @@ func (m *HTTPRuntimeManager) ProbeHealth(ctx context.Context, agentID string) HT
 	delete(m.healthInFlight, entry.executionFingerprint)
 	close(call.done)
 	m.healthMu.Unlock()
-	return probe
 }
 
 func (m *HTTPRuntimeManager) selectExecution(agentID, cardURL, authRef string, snapshot *a2acard.Snapshot) (a2a.AgentInterface, a2acard.SecurityAlternative, error) {

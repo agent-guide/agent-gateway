@@ -57,17 +57,21 @@ func (r *httpRunSlots) begin(runID string, cancel context.CancelFunc) *httpRunSl
 		return slot
 	}
 	r.mu.Lock()
-	r.entries[runID] = slot
+	if r.entries[runID] == nil {
+		r.entries[runID] = slot
+	}
 	r.mu.Unlock()
 	return slot
 }
 
-func (r *httpRunSlots) remove(runID string) {
+func (r *httpRunSlots) remove(runID string, slot *httpRunSlot) {
 	if strings.TrimSpace(runID) == "" {
 		return
 	}
 	r.mu.Lock()
-	delete(r.entries, runID)
+	if r.entries[runID] == slot {
+		delete(r.entries, runID)
+	}
 	r.mu.Unlock()
 }
 
@@ -259,6 +263,21 @@ func (b *httpSessionBindings) drop(claim httpBindingClaim) {
 	b.mu.Unlock()
 }
 
+// restore releases a claim after a failure that happened before any
+// southbound request could have reached the remote Agent. Existing bindings
+// keep their original expiry; a newly allocated placeholder is removed.
+func (b *httpSessionBindings) restore(claim httpBindingClaim) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !claim.hadOriginal {
+		delete(b.entries, claim.sessionID)
+		return
+	}
+	original := claim.original
+	original.claimed = false
+	b.entries[claim.sessionID] = original
+}
+
 func (b *httpSessionBindings) evictLocked() {
 	for len(b.entries) > httpBindingCap {
 		var oldestID string
@@ -354,10 +373,16 @@ func (b *HTTPBackend) ServeTurn(ctx context.Context, agent agentpkg.Agent, req a
 		return err
 	}
 	finished := false
+	southboundStarted := false
 	defer func() {
-		if !finished {
-			execution.bindings.drop(claim)
+		if finished {
+			return
 		}
+		if southboundStarted {
+			execution.bindings.drop(claim)
+			return
+		}
+		execution.bindings.restore(claim)
 	}()
 	turnTimeout := execution.Timeout
 	if deadline, ok := ctx.Deadline(); ok {
@@ -392,7 +417,7 @@ func (b *HTTPBackend) ServeTurn(ctx context.Context, agent agentpkg.Agent, req a
 	defer close(disconnectWatchDone)
 	defer func() {
 		slot.markDone()
-		execution.runs.remove(req.RunID)
+		execution.runs.remove(req.RunID, slot)
 	}()
 	if b.runs != nil {
 		if err := b.runs.Begin(agent.ID, agent.Runtime.Type, req.RunID, sessionID, func(cancelCtx context.Context, mode agentruntime.CancelMode) error {
@@ -428,6 +453,7 @@ func (b *HTTPBackend) ServeTurn(ctx context.Context, agent agentpkg.Agent, req a
 	}
 	sendRequest := &a2a.SendMessageRequest{Message: message}
 	var terminal terminalBinding
+	southboundStarted = true
 	if execution.Streaming {
 		terminal, err = b.serveStreaming(turnCtx, execution, slot, sendRequest, emit)
 	} else {

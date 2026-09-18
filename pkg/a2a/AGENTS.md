@@ -154,7 +154,9 @@ pkg/a2a/
   a frame.
 - Health Card fetches retain ETag/Last-Modified validators, use conditional
   requests, coalesce concurrent probes, and fetch at most once per execution
-  fingerprint per 30 seconds.
+  fingerprint per 30 seconds. The shared fetch has an independent 10-second
+  context; one caller's cancellation stops only its wait and is never cached as
+  runtime unhealthiness.
 - `pkg/gateway.HTTPRuntimeManager`, not this protocol package or
   `HTTPBackend`, owns the immutable Card-derived snapshot shared by Path A and
   Path B. Path A resolves a ready proxy target through `AgentGateway` and
@@ -204,7 +206,9 @@ trace/depth and exact selected-interface tenant propagation,
 whole-session atomic binding claims, independent 24h TTL/1,024-entry LRU,
 visible binding-reset metadata, and execution-fingerprint retirement. An
 omitted northbound `session_id` gets a new gateway session id before it is used
-as a binding key. Cover `SUBMITTED` with/without content, no-op `WORKING`,
+as a binding key. Pre-send failures restore the exact claimed binding; failures
+after the SDK operation begins drop ambiguous state. Cover `SUBMITTED`
+with/without content, no-op `WORKING`,
 unknown states, synchronous nonterminal cleanup/failure, pre-bind cancellation
 and disconnect races with exactly-once `CancelTask`, and `AUTH_REQUIRED`
 retaining context while clearing task resume.

@@ -360,6 +360,66 @@ func TestHTTPBackendInputRequiredResumesTask(t *testing.T) {
 	}
 }
 
+func TestHTTPBackendPreSendFailureRestoresInterruptedBinding(t *testing.T) {
+	var mu sync.Mutex
+	var messages []map[string]any
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/card" {
+			writeTestAgentCard(w, server.URL+"/a2a", true)
+			return
+		}
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		params, _ := request["params"].(map[string]any)
+		message, _ := params["message"].(map[string]any)
+		mu.Lock()
+		messages = append(messages, message)
+		call := len(messages)
+		mu.Unlock()
+		id, _ := request["id"].(string)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if call == 1 {
+			fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%q,\"result\":{\"task\":{\"id\":\"task-1\",\"contextId\":\"ctx-1\",\"status\":{\"state\":\"TASK_STATE_INPUT_REQUIRED\"}}}}\n\n", id)
+			return
+		}
+		fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%q,\"result\":{\"message\":{\"messageId\":\"m2\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"continued\"}],\"taskId\":\"task-1\",\"contextId\":\"ctx-1\"}}}\n\n", id)
+	}))
+	defer server.Close()
+
+	manager := NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+	agent := testHTTPAgent("remote", server.URL+"/card", "")
+	manager.RefreshRuntimeConfigs(context.Background(), []agentpkg.Agent{agent})
+	backend := NewHTTPBackend(manager)
+	request := agentruntime.TurnRequest{Input: "continue", SessionID: "session-1"}
+	if err := backend.ServeTurn(context.Background(), agent, agentruntime.TurnRequest{Input: "start", SessionID: request.SessionID}, func(agentruntime.TurnEvent) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	emitErr := errors.New("northbound stream closed")
+	if err := backend.ServeTurn(context.Background(), agent, request, func(event agentruntime.TurnEvent) error {
+		if event.Event == agentruntime.EventSession {
+			return emitErr
+		}
+		return nil
+	}); !errors.Is(err, emitErr) {
+		t.Fatalf("pre-send ServeTurn() error = %v, want %v", err, emitErr)
+	}
+	if err := backend.ServeTurn(context.Background(), agent, request, func(agentruntime.TurnEvent) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(messages) != 2 {
+		t.Fatalf("southbound messages = %d, want 2", len(messages))
+	}
+	if messages[1]["taskId"] != "task-1" || messages[1]["contextId"] != "ctx-1" {
+		t.Fatalf("binding was not restored after pre-send failure: %#v", messages[1])
+	}
+}
+
 func TestHTTPBackendStreamsArtifactUpdateAndRejectsIdentityDrift(t *testing.T) {
 	for _, test := range []struct {
 		name         string
