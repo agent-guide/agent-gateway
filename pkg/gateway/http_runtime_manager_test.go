@@ -82,6 +82,13 @@ func TestHTTPRuntimeManagerReusesCardAndUsesLiveCredential(t *testing.T) {
 	if first.Interface.Tenant != "tenant-a" || first.Streaming {
 		t.Fatalf("execution = %#v", first)
 	}
+	firstProxy, err := manager.ResolveProxyTarget("remote")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstProxy.Interface.Tenant != "tenant-a" || firstProxy.CardTemplate.Name != "remote" || firstProxy.Proxy == nil {
+		t.Fatalf("proxy target = %#v", firstProxy)
+	}
 	send := func() {
 		t.Helper()
 		_, err := first.Client.SendMessage(context.Background(), &a2a.SendMessageRequest{
@@ -104,6 +111,13 @@ func TestHTTPRuntimeManagerReusesCardAndUsesLiveCredential(t *testing.T) {
 	}
 	if first != second {
 		t.Fatal("secret-only rotation replaced execution handle")
+	}
+	secondProxy, err := manager.ResolveProxyTarget("remote")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstProxy.Proxy != secondProxy.Proxy || firstProxy.Fingerprint != secondProxy.Fingerprint {
+		t.Fatal("secret-only rotation replaced proxy target")
 	}
 	send()
 	mu.Lock()

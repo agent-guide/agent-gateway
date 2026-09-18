@@ -18,6 +18,7 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	a2acard "github.com/agent-guide/agent-gateway/pkg/a2a/card"
 	a2aclient "github.com/agent-guide/agent-gateway/pkg/a2a/client"
+	a2aproxy "github.com/agent-guide/agent-gateway/pkg/a2a/proxy"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/credential"
 	"go.uber.org/zap"
@@ -57,6 +58,10 @@ type httpRuntimeEntry struct {
 	executionFingerprint       string
 	card                       *a2acard.Snapshot
 	execution                  *HTTPExecution
+	proxy                      *a2aproxy.Proxy
+	publicCardTemplate         *a2a.AgentCard
+	proxyReady                 bool
+	proxyError                 string
 	authRef                    string
 	cardURL                    string
 	configError                string
@@ -243,6 +248,10 @@ func (m *HTTPRuntimeManager) prepareEntry(ctx context.Context, agent agentpkg.Ag
 		entry.configError = boundedConfigError("select Agent Card interface", err)
 		return entry, false
 	}
+	entry.publicCardTemplate, err = a2acard.PublicTemplate(entry.card.Card, agent.Name, agent.Description)
+	if err != nil {
+		entry.proxyError = boundedConfigError("build public Agent Card", err)
+	}
 	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
 	if timeout == 0 {
 		timeout = httpDefaultTurnTimeout
@@ -258,6 +267,8 @@ func (m *HTTPRuntimeManager) prepareEntry(ctx context.Context, agent agentpkg.Ag
 	})
 	if previous.execution != nil && previous.executionFingerprint == entry.executionFingerprint {
 		entry.execution = previous.execution
+		entry.proxy = previous.proxy
+		entry.proxyReady = entry.publicCardTemplate != nil && entry.proxy != nil
 		return entry, false
 	}
 	transport := newHTTPTransport()
@@ -275,6 +286,17 @@ func (m *HTTPRuntimeManager) prepareEntry(ctx context.Context, agent agentpkg.Ag
 		bindings:  newHTTPSessionBindings(),
 		runs:      newHTTPRunSlots(),
 		transport: transport,
+	}
+	entry.proxy, err = a2aproxy.New(a2aproxy.Options{
+		InterfaceURL: selectedInterface.URL,
+		HTTPClient:   httpClient,
+		TotalTimeout: timeout,
+		IdleTimeout:  httpIdleTimeout,
+	})
+	if err != nil {
+		entry.proxyError = boundedConfigError("create A2A proxy", err)
+	} else if entry.publicCardTemplate != nil {
+		entry.proxyReady = true
 	}
 	return entry, false
 }
@@ -471,6 +493,45 @@ func (m *HTTPRuntimeManager) ResolveExecution(agentID string) (*HTTPExecution, e
 		return nil, fmt.Errorf("HTTP runtime is not ready")
 	}
 	return entry.execution, nil
+}
+
+// HTTPProxyTarget is the immutable Path A view selected from the same runtime
+// generation as HTTPExecution. It contains no resolved credential secret.
+type HTTPProxyTarget struct {
+	Proxy        *a2aproxy.Proxy
+	Interface    a2a.AgentInterface
+	CardTemplate *a2a.AgentCard
+	AuthRef      string
+	Timeout      time.Duration
+	Fingerprint  string
+}
+
+func (m *HTTPRuntimeManager) ResolveProxyTarget(agentID string) (*HTTPProxyTarget, error) {
+	if m == nil {
+		return nil, fmt.Errorf("HTTP runtime manager is unavailable")
+	}
+	m.mu.RLock()
+	entry, ok := m.entries[strings.TrimSpace(agentID)]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("HTTP runtime config is not loaded for this agent")
+	}
+	if entry.disabled {
+		return nil, fmt.Errorf("HTTP runtime is disabled")
+	}
+	if !entry.proxyReady || entry.proxy == nil || entry.execution == nil || entry.publicCardTemplate == nil {
+		if entry.proxyError != "" {
+			return nil, fmt.Errorf("%s", entry.proxyError)
+		}
+		if entry.configError != "" {
+			return nil, fmt.Errorf("%s", entry.configError)
+		}
+		return nil, fmt.Errorf("HTTP A2A proxy is not ready")
+	}
+	return &HTTPProxyTarget{
+		Proxy: entry.proxy, Interface: entry.execution.Interface, CardTemplate: entry.publicCardTemplate,
+		AuthRef: entry.authRef, Timeout: entry.execution.Timeout, Fingerprint: entry.executionFingerprint,
+	}, nil
 }
 
 func buildHTTPReverseIndex(entries map[string]httpRuntimeEntry) map[string][]string {
