@@ -18,11 +18,12 @@ The design records the direction chosen after evaluating alternatives:
   "versioned HTTP Agent contract". Adopting the standard removes the
   wire-contract blocker; the remaining work is mapping and governance, not
   protocol invention. P0 does not dual-stack A2A v0.3.
-- **Two northbound paths** serve the same agents: the existing `protocol agent`
-  route translates A2A into the common turn envelope (Path B), and a new
-  `protocol a2a` route proxies A2A JSON-RPC end-to-end without event
-  translation (Path A). Both share ingress governance and the `pkg/a2a`
-  protocol package.
+- **The target architecture has two northbound paths** for the same agents.
+  The implemented `protocol agent` route translates A2A into the common turn
+  envelope (Path B). A future `protocol a2a` route will proxy A2A JSON-RPC
+  end-to-end without event translation (Path A). Both use the same ingress
+  governance model and share the `pkg/a2a` protocol package as their common
+  lower layer.
 - **Path A is a governed JSON-RPC proxy, not a byte-identical L4 pipe.** HTTP
   is terminated, credentials are swapped, and the Agent Card is gateway-served.
   The request/response body and SSE frames are forwarded without reassembly.
@@ -41,9 +42,9 @@ The design records the direction chosen after evaluating alternatives:
   contract.
 - [Builtin Agent Runtime](builtin-agent-runtime.md) is the sibling design for
   `runtime.type = "builtin"`.
-- [`pkg/a2a/AGENTS.md`](../../pkg/a2a/AGENTS.md) owns the protocol-package
-  invariants once code exists. Until then, §5 of this document is the package
-  contract.
+- [`pkg/a2a/AGENTS.md`](../../pkg/a2a/AGENTS.md) owns the implemented
+  protocol-package invariants; §5 records both the current Path B package
+  surface and the additions reserved for Path A.
 - This document owns the `http` runtime: schema, southbound dialects,
   credential use, the A2A proxy ingress, the translating backend, and the
   `pkg/a2a` layering. Other documents should summarize and link here rather
@@ -59,7 +60,7 @@ northbound protocol are three separate axes:
 |---|---|---|
 | `runtime.type` | `acp` / `http` / `builtin` | Who owns the agent's lifecycle? |
 | `runtime.http.protocol` | `a2a` (`custom` reserved, undesigned) | What dialect does the gateway speak to the service? |
-| AgentRoute `protocol` | `agent` / `a2a` (new) / LLM family protocols | What protocol does the client speak to the gateway? |
+| AgentRoute `protocol` | `agent` / `a2a` (planned in Phase 2) / LLM family protocols | What protocol does the client speak to the gateway? |
 
 `runtime.type = "http"` keeps its control-plane meaning — "an external
 service owns its lifecycle; the gateway is a client over HTTP" — and every
@@ -150,12 +151,12 @@ the connect, response-header, idle-stream, and total-turn policy in §6.
 ## 5. Shared protocol package (`pkg/a2a`)
 
 A2A v1.0 is a **lower protocol package**, analogous to `pkg/acp` and
-`pkg/mcp`. Path A and Path B both import it. It is not an "HTTP Agent
-runtime" package: it contains no `agentruntime.Backend`, no dispatcher
-handler, no VirtualKey logic, and no `auth_ref` resolution.
+`pkg/mcp`. Path B imports it today and Path A will reuse it in Phase 2. It is
+not an "HTTP Agent runtime" package: it contains no `agentruntime.Backend`, no
+dispatcher handler, no VirtualKey logic, and no `auth_ref` resolution.
 
 ```text
-pkg/dispatcher (Path A handler)
+pkg/dispatcher (planned Path A handler)
 pkg/gateway    (Path B HTTPBackend)
         \          /
          v        v
@@ -167,22 +168,24 @@ pkg/gateway    (Path B HTTPBackend)
 that performs live southbound auth, plus selected interface URL, timeout, and
 body-cap options.
 
-### 5.1 Package shape
+### 5.1 Package shape and implementation status
 
 ```text
 pkg/a2a/
-  card/      fetch, parse interfaces/security alternatives, rewrite helper
-  jsonrpc/   v1.0 JSON-RPC envelope, method names, SSE frame split
-  client/    typed API used only by Path B
-  proxy/     HTTP-terminated body/SSE pipe used only by Path A
+  card/      fetch and parse interfaces/security alternatives (implemented);
+             public Card rewrite helper (Phase 2)
+  jsonrpc/   v1.0 envelope validation and method names (implemented);
+             Path A allowlist/service-parameter/SSE helpers (Phase 2)
+  client/    typed API used only by Path B (implemented)
+  proxy/     HTTP-terminated body/SSE pipe used only by Path A (Phase 2)
 ```
 
-| Layer | Responsibility | Used by |
-|---|---|---|
-| `card/` | GET `/.well-known/agent-card.json`; parse and validate `"JSONRPC"` interface candidates and return structured Card security alternatives without credential policy; rewrite public URL and `securitySchemes` / `securityRequirements` from caller-supplied values | both (Path B reads the remote card; Path A serves a rewritten card) |
-| `jsonrpc/` | JSON-RPC 2.0 helpers Path A still needs (method allowlist, SSE splitter, read-only frame peek, `A2A-Version` parse/inject). Not a second Path B client. | Path A; Path B tests |
-| `client/` | thin wrapper over official `a2aclient` locked to JSON-RPC (`WithJSONRPCTransport` / `NewJSONRPCTransport`) | Path B only |
-| `proxy/` | Copy request body and SSE upstream↔downstream with flush and body caps; enforce `A2A-Version`; do not re-encode; do not fetch or forward the remote Agent Card | Path A only |
+| Layer | Current surface | Phase 2 addition | Used by |
+|---|---|---|---|
+| `card/` | GET `/.well-known/agent-card.json`; parse and validate `"JSONRPC"` interface candidates; return structured Card security alternatives without credential policy | Rewrite the public URL and `securitySchemes` / `securityRequirements` from caller-supplied values | Path B now; both paths after Phase 2 |
+| `jsonrpc/` | JSON-RPC 2.0 envelope validation and local v1.0 method-name constants used by Path B guards/tests | Method allowlist, service-parameter parsing/injection, SSE splitter, and optional read-only frame peek | Path B now; Path A after Phase 2 |
+| `client/` | Thin wrapper over official `a2aclient` locked to JSON-RPC (`WithJSONRPCTransport` / `NewJSONRPCTransport`) | None | Path B only |
+| `proxy/` | Not present | Copy request body and SSE upstream↔downstream with flush and body caps; enforce `A2A-Version`; do not re-encode or fetch/forward the remote Agent Card | Path A only |
 
 Path A must **not** parse a JSON-RPC request into a typed `SendMessage` call
 and re-marshal the response. That would drop unknown fields and extensions
@@ -190,8 +193,10 @@ and would turn Path A into a second translation path. The typed client exists
 because Path B has to emit the common turn envelope; the proxy exists because
 Path A must not.
 
-The package also owns an in-process JSON-RPC/SSE fake server used by both
-path tests (card, send, stream, cancel, timeout, disconnect).
+Current Path B tests use bounded in-process `httptest` servers close to the
+owning package. Phase 2 may extract a shared JSON-RPC/SSE fake server when both
+paths need the same card/send/stream/cancel/timeout/disconnect fixtures; a
+shared fake is not part of the implemented Path B API.
 
 ### 5.2 Official Go SDK
 
@@ -244,26 +249,29 @@ credential on **every** southbound operation before attaching Bearer auth (see
 §7). A prepared SDK client may retain that RoundTripper, but neither the client
 nor an execution snapshot may retain the resolved secret. The public Agent Card
 GET uses a separate unauthenticated client; redirects are not followed in P0.
-Both paths inject `A2A-Version: 1.0` on southbound HTTP (see §8.2). The injected
-header is a protocol requirement, not credential material.
+Path B injects `A2A-Version: 1.0` on southbound HTTP today; Phase 2 applies the
+same rule to Path A (see §8.2). The injected header is a protocol requirement,
+not credential material.
 
 ### 5.4 What stays out of `pkg/a2a`
 
 - `HTTPBackend` / `ServeTurn` / common-envelope mapping (Path B, `pkg/gateway`)
 - dispatcher, VirtualKey, rate limits, AgentRoute (Path A, `pkg/dispatcher`)
 - credential manager and `auth_ref` (gateway adapters)
-- Agent Card product policy (which Agent fields seed the card): `card/` only
-  rewrites values the caller supplies
+- Agent Card product policy (which Agent fields seed the card): the Phase 2
+  `card/` rewrite helper only rewrites values the caller supplies
 - REST and gRPC bindings
 - push webhooks, durable task mirroring, session/transcript emulation
 
 ### 5.5 Shared HTTP runtime snapshots
 
 `pkg/gateway.HTTPRuntimeManager` is the single owner of immutable, Card-derived
-HTTP execution state for both paths. It is registered exactly once as an Agent
-definition listener; `HTTPBackend` composes it rather than owning a second
-snapshot map. The manager imports `pkg/a2a/card`; when Path B lands, its typed
-execution view also constructs and owns `pkg/a2a/client` clients. `pkg/a2a`
+HTTP execution state. The implemented manager owns the Path B view and is
+registered exactly once as an Agent definition listener; `HTTPBackend`
+composes it rather than owning a second snapshot map. It imports
+`pkg/a2a/card`, constructs and owns `pkg/a2a/client` clients, and exposes
+`ResolveExecution(agent_id)`. Phase 2 extends this same manager with the Path A
+view rather than introducing a second listener or snapshot map. `pkg/a2a`
 keeps the lower-package dependency boundary in §5.
 
 For every `runtime.type=http` Agent, prepare validates configuration and keeps
@@ -281,11 +289,12 @@ three distinct identities:
   expiry). Secret/token bytes, expiry/refresh metadata, and `UpdatedAt` are
   deliberately excluded;
 - the **definition-input fingerprint** combines those two fingerprints plus
-  the Agent identity fields used by `public_card_template`. An identity-only
-  edit rebuilds the template from cached Card state without fetching. The
-  execution fingerprint additionally contains the selected Card interface
-  URL/tenant and effective credential principal, so it decides resource and
-  binding retirement but never whether a Card must be fetched.
+  the Agent identity fields reserved for the Phase 2 `public_card_template`.
+  Today an identity-only edit reuses cached Card state without fetching; once
+  Path A lands it also rebuilds that template locally. The execution
+  fingerprint additionally contains the selected Card interface URL/tenant
+  and effective credential principal, so it decides resource and binding
+  retirement but never whether a Card must be fetched.
 
 For a new or Card-input-changed Agent, prepare fetches the remote Card.
 `card/` returns ordered interface candidates plus structured security
@@ -303,8 +312,9 @@ deterministic selection algorithm:
 3. select the first retained interface and retained security alternative; if
    either side has no survivor, publish the Agent non-ready.
 
-The same selector supplies both Path A and Path B views; route validation never
-reimplements it. The manager then constructs one candidate snapshot:
+The implemented selector supplies the Path B view. Phase 2 reuses that exact
+selector for Path A; route validation must not reimplement it. The current
+candidate snapshot is equivalent to:
 
 ```text
 agent_id -> {
@@ -312,13 +322,13 @@ agent_id -> {
   definition_input_fingerprint, execution_fingerprint,
   parsed_interface_candidates, parsed_security_alternatives,
   interface_url, tenant, auth_ref, transport_policy,
-  selected_security, public_card_template,
-  path_b_executable, path_a_proxy_ready, config_error
+  selected_security, path_b_execution, config_error
 }
 ```
 
-The snapshot contains no credential secret. Its route-neutral
-`public_card_template` is synthesized from the Agent's identity plus the
+The snapshot contains no credential secret. Phase 2 adds
+`public_card_template` and `path_a_proxy_ready` to this generation. The
+route-neutral template is synthesized from the Agent's identity plus the
 accepted remote Card's skills, modes, and safely proxyable capabilities;
 signatures and remote interface/security values are excluded. It is cached for
 the complete definition generation, so a Path A Card GET never fetches the
@@ -411,17 +421,16 @@ credential-only non-ready snapshot does retain the current parsed candidates
 for local reselection. Health reports that bounded `config_error`, coalesces
 only probes for the same execution fingerprint, allows unrelated Agents to
 probe concurrently, and prunes retired health-cache fingerprints at commit.
-The manager exposes
-read-only `ResolveExecution(agent_id)` for Path B and
-`ResolveProxyTarget(agent_id)` for Path A. The latter returns the selected URL,
+The implemented manager exposes read-only `ResolveExecution(agent_id)` for
+Path B. Phase 2 adds `ResolveProxyTarget(agent_id)`, returning the selected URL,
 tenant, auth reference, transport policy, execution fingerprint, and Card
-template, and fails closed unless `path_a_proxy_ready` is true. The dispatcher
-obtains it through `AgentGateway.HTTPRuntimeManager()`; it never reaches into
-an `HTTPBackend` or reads the config store in a request hot path.
+template and failing closed unless `path_a_proxy_ready` is true. The dispatcher
+will obtain it through `AgentGateway.HTTPRuntimeManager()`; it must never reach
+into an `HTTPBackend` or read the config store in a request hot path.
 
-Path B execution may ship before Path A, but the shared manager lands in Phase
-0 and exists independently of runtime-backend registration. Path A therefore
-does not depend on `RuntimeRegistry.Resolve("http")` or Path B capability state.
+Path B has shipped on the shared manager. The manager exists independently of
+runtime-backend registration, so the Phase 2 Path A view will not depend on
+`RuntimeRegistry.Resolve("http")` or Path B capability state.
 
 ## 6. Schema
 
@@ -628,7 +637,7 @@ matching `securityRequirements` entry when the route requires a VirtualKey.
 Do not copy the remote's `securitySchemes` / `securityRequirements` onto the
 served card.
 
-## 8. Path A: A2A proxy ingress (`protocol a2a`)
+## 8. Path A: A2A proxy ingress (`protocol a2a`, Phase 2 — not implemented)
 
 A route with `protocol a2a` speaks A2A JSON-RPC northbound and southbound.
 Event-level translation is zero: the JSON-RPC envelope, Messages/Parts, task
@@ -876,7 +885,7 @@ gateway-synthesized frame without violating Path A's no-reencoding contract.
 Non-stream responses are buffered only up to 4 MiB so an oversize can still be
 replaced by the `-32006` envelope before downstream commit.
 
-## 9. Path B: translating backend (`agentruntime`)
+## 9. Path B: translating backend (`agentruntime`, implemented)
 
 Path B makes `runtime.type = "http"` executable for existing
 `protocol agent` routes: an `HTTPBackend` registered in the
@@ -1163,7 +1172,7 @@ never creates unbounded remote traffic.
 ## 10. Request flows (summary)
 
 ```text
-Path A (protocol a2a, no event translation):
+Path A (planned Phase 2; protocol a2a, no event translation):
   client --A2A JSON-RPC--> AgentRoute(protocol a2a)
     -> ingress governance (VirtualKey, rate limits)
     -> HTTPRuntimeManager.ResolveProxyTarget(agent_id) readiness gate
@@ -1171,7 +1180,7 @@ Path A (protocol a2a, no event translation):
     -> GET /.well-known/agent-card.json served from Agent-owned card
     -> pkg/a2a/proxy body/SSE <-> selected AgentInterface.url (JSON-RPC only)
 
-Path B (protocol agent, translation):
+Path B (implemented; protocol agent, translation):
   client --POST /turn + common envelope--> AgentRoute(protocol agent)
     -> existing dispatch (agent_handler.go)
     -> agentruntime.Registry.Resolve("http") -> HTTPBackend
@@ -1183,32 +1192,46 @@ Path B (protocol agent, translation):
 
 ## 11. Observability and attribution
 
-Both paths stamp agent identity on the interaction span through the existing
-`ResolveAgentID` attribution bridge. Path B additionally reports the common
-envelope's event accounting (event counts, stop reasons) exactly like the
-ACP/builtin backends. Path A records request-level usage in P0. Per-protocol
-metrics families gain an `a2a` ingress variant when Path A ships. A2A reports
-no token usage, so token-based attribution is a gateway-side estimate at
-best and is not fabricated into `usage` events.
+Implemented Path B stamps agent identity on the interaction span through the
+existing `ResolveAgentID` attribution bridge and reports the common envelope's
+event accounting (event counts, stop reasons) exactly like the ACP/builtin
+backends. Phase 2 applies the same identity bridge to Path A, records
+request-level usage, and adds an `a2a` ingress variant to the per-protocol
+metrics families. A2A reports no token usage, so token-based attribution is a
+gateway-side estimate at best and is not fabricated into `usage` events.
 
-Every southbound Path A and Path B call starts a child execution span and
-injects canonical W3C `traceparent` using that child span id plus the accepted
-`tracestate`. It does not forward a raw client `traceparent`, `X-Trace-ID`, or
-`X-Span-ID`. The outbound `X-Agent-Depth` is the dispatcher-normalized inbound
-depth plus one, matching the value returned by the current ingress trace
-bridge. An HTTP Agent that calls the gateway again therefore presents the
-incremented depth to the existing `metrics.max_agent_depth` gate instead of
-resetting the chain. Invalid/untrusted inbound trace/depth values follow the
-dispatcher normalization rules before any outbound header is created.
+Every southbound Path B call starts a child execution span and injects
+canonical W3C `traceparent` using that child span id plus the accepted
+`tracestate`; Phase 2 applies the same rule to Path A. Neither path forwards a
+raw client `traceparent`, `X-Trace-ID`, or `X-Span-ID`. The outbound
+`X-Agent-Depth` is the dispatcher-normalized inbound depth plus one, matching
+the value returned by the current ingress trace bridge. An HTTP Agent that
+calls the gateway again therefore presents the incremented depth to the
+existing `metrics.max_agent_depth` gate instead of resetting the chain.
+Invalid/untrusted inbound trace/depth values follow the dispatcher
+normalization rules before any outbound header is created.
 
 ## 12. Implementation track
 
-Path B ships before Path A. Path B is the unified-plan M8 deliverable: it
-makes `runtime.type = "http"` executable on the existing `protocol agent`
-ingress without relaxing the AgentRoute `protocol = agent` invariant. Path A
-is a later protocol-family extension.
+Path B shipped before Path A as the unified-plan M8 deliverable: it makes
+`runtime.type = "http"` executable on the existing `protocol agent` ingress
+without relaxing the AgentRoute `protocol = agent` invariant. Path A is a
+later protocol-family extension.
 
-### Phase 0 — shared foundation (both paths)
+Current status:
+
+| Phase | Status | Delivered boundary |
+|---|---|---|
+| Phase 0 | **Complete for the shared Path B foundation** | Schema, scoped credentials, Card parsing/selection, immutable manager generation, retries/health, and JSON-RPC client prerequisites |
+| Phase 1 | **Complete** | Executable `HTTPBackend` on the common `protocol agent` `/turn` ingress |
+| Phase 2 | **Not implemented** | Native `protocol a2a` proxy ingress and its Path A-specific shared-manager/package extensions |
+| Phase 3 | **Deferred** | Explicitly unscheduled follow-on capabilities |
+
+The original Phase 0 plan included several Path A-only artifacts. They are
+listed under Phase 2 below so “Phase 0 complete” describes the code that is
+actually present and does not imply that native A2A ingress exists.
+
+### Phase 0 — shared Path B foundation (**complete**)
 
 - `HTTPRuntime` schema: replace `endpoint` with `card_url`; add `protocol`,
   `timeout_seconds`, URL/origin validation (§6); require `protocol=a2a`
@@ -1230,13 +1253,15 @@ is a later protocol-family extension.
   creation without an LLM provider lookup, exact-owner
   validation, and `oauth_token` external refresh on a live request-time
   RoundTripper (§7).
-- `pkg/a2a`: `card/`, `jsonrpc/`, in-process fake JSON-RPC/SSE server;
-  `client/` and `proxy/` may land with their consuming phase.
+- `pkg/a2a/card`, the Path B subset of `pkg/a2a/jsonrpc`, and
+  `pkg/a2a/client`. Tests use package-local in-process HTTP servers; the Path A
+  helper surface and `proxy/` remain in Phase 2.
 - `pkg/gateway.HTTPRuntimeManager`: the sole definition-listener owner of the
-  immutable shared snapshot and `public_card_template`; Path B and Path A use
-  its separate fail-closed resolution views. Register it for credential
-  lifecycle callbacks, maintain the committed `auth_ref -> agent_id` reverse
-  index, and coalesce dependency-scoped Recommits (§5.5).
+  immutable Card-derived snapshot and Path B execution view. It is registered
+  for credential lifecycle callbacks, maintains the committed
+  `auth_ref -> agent_id` reverse index, and coalesces dependency-scoped
+  Recommits (§5.5). The Path A `public_card_template` and proxy resolution view
+  remain Phase 2 extensions to this same manager.
 - Pin `a2a-go/v2` at v2.5.0, build before/after binaries into a
   temporary directory, record their size delta, and inspect `go list -deps`
   output. Also record before/after `go list -m all` / `go mod graph` diffs: MVS
@@ -1249,7 +1274,8 @@ is a later protocol-family extension.
   `internal/observability/otelexport` regressions covering both OTLP/gRPC and
   OTLP/HTTP client creation, export, flush/shutdown, headers, TLS/insecure
   selection, and failure handling against local collectors.
-- Admin capability views present `http` honestly across both paths.
+- Admin capability and runtime-health views present implemented Path B
+  readiness honestly; Path A capability reporting is added with Phase 2.
 - Tests: schema validation, HTTP-owned credential create/update/bundle
   round-trip and cross-Agent/provider-credential rejection, request-time
   credential refresh with no snapshotted secret, card parse / exact `"JSONRPC"`
@@ -1268,7 +1294,7 @@ is a later protocol-family extension.
   client and bindings, unrelated credential mutation causes no Recommit, and
   callback coalescing has no manager lock cycle.
 
-### Phase 1 — Path B: `HTTPBackend` (unified-plan M8)
+### Phase 1 — Path B: `HTTPBackend` (unified-plan M8, **complete**)
 
 - `pkg/a2a/client` plus `HTTPBackend` behind `agentruntime.Backend`;
   registration in `agentgateway.go`; the backend composes the Phase 0
@@ -1308,8 +1334,16 @@ is a later protocol-family extension.
 - Once these tests pass, website wording changes to three execution runtimes;
   only native Path A proxy ingress remains labeled roadmap.
 
-### Phase 2 — Path A: `protocol a2a` proxy ingress
+### Phase 2 — Path A: `protocol a2a` proxy ingress (**not implemented**)
 
+- Extend `pkg/a2a/card` with the caller-driven public Card rewrite helper,
+  extend `pkg/a2a/jsonrpc` with the allowlist/service-parameter/SSE helpers,
+  and add `pkg/a2a/proxy`. Extract a shared fake A2A server only if it
+  materially reduces duplication between Path A and existing Path B tests.
+- Extend the existing `HTTPRuntimeManager` generation with
+  `public_card_template` and `path_a_proxy_ready`, and add the fail-closed
+  `ResolveProxyTarget(agent_id)` view. Reuse the implemented Card/interface/
+  security selector; do not add another definition listener or Card cache.
 - AgentRoute protocol family gains `a2a`; `Normalize`/`ToConfig` stop forcing
   `protocol = agent`; consistency validation (§6), including the requirement
   that `match_policy.methods` be empty or contain both `GET` and `POST`.
