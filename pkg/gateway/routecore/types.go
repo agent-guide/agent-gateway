@@ -25,6 +25,7 @@ const (
 	RouteProtocolCC        RouteProtocol = "cc"
 	RouteProtocolMCP       RouteProtocol = "mcp"
 	RouteProtocolAgent     RouteProtocol = "agent"
+	RouteProtocolA2A       RouteProtocol = "a2a"
 )
 
 type RouteTargetPolicyKind string

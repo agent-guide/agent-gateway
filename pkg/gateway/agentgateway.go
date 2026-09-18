@@ -134,6 +134,9 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	g.usageConfig = opts.UsageConfig.Normalized()
 	g.logger = opts.Logger
 	g.httpRuntimeManager = NewHTTPRuntimeManager(g.agentManager, g.credentialManager, nil, opts.Logger)
+	if g.agentRouteResolver != nil {
+		g.agentRouteResolver.SetA2AProxyLookup(g.httpRuntimeManager)
+	}
 	if err := g.configureModelCatalog(ctx, opts.ConfigStoreBackend, opts.Logger); err != nil {
 		return err
 	}

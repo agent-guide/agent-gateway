@@ -54,8 +54,9 @@ func TestNormalizeKeepsExplicitIDAndTrims(t *testing.T) {
 	if cfg.ID != "my-route" || cfg.AgentID != "worker" {
 		t.Fatalf("normalized id/agent = %q/%q", cfg.ID, cfg.AgentID)
 	}
-	// Foreign kind/protocol values are forced back to the agent family.
-	if cfg.Kind != routecore.RouteKindAgent || cfg.Protocol != routecore.RouteProtocolAgent {
+	// Kind is fixed, while an explicit protocol is retained for fail-closed
+	// validation instead of being silently rewritten.
+	if cfg.Kind != routecore.RouteKindAgent || cfg.Protocol != routecore.RouteProtocolOpenAI {
 		t.Fatalf("normalized kind/protocol = %q/%q", cfg.Kind, cfg.Protocol)
 	}
 	if cfg.MatchPolicy.PathPrefix != "/agents/x" || cfg.MatchPolicy.Host != "example.com" {
@@ -209,6 +210,10 @@ type staticAgentLookup map[string]bool
 
 func (l staticAgentLookup) HasAgent(id string) bool { return l[id] }
 
+type staticProxyLookup map[string]error
+
+func (l staticProxyLookup) A2AProxyReady(id string) error { return l[id] }
+
 // memoryRouteStore is a minimal in-memory route ConfigStore for resolver tests.
 type memoryRouteStore struct {
 	items map[string]routecore.AgentRouteConfig
@@ -337,5 +342,39 @@ func TestResolverValidatesTarget(t *testing.T) {
 	}
 	if route == nil || route.AgentID != "reviewer" {
 		t.Fatalf("resolved route = %+v", route)
+	}
+}
+
+func TestResolverValidatesA2AProtocolTargetAndMethods(t *testing.T) {
+	ctx := context.Background()
+	manager := routecore.NewAgentRouteConfigManager(newMemoryRouteStore())
+	manager.InitStaticRoutes(nil)
+	resolver := NewAgentRouteResolver(manager)
+	resolver.SetAgentLookup(staticAgentLookup{"remote": true})
+	resolver.SetA2AProxyLookup(staticProxyLookup{"remote": nil})
+	build := func(host string, methods []string) routecore.AgentRouteConfig {
+		cfg := AgentRouteConfig{AgentRouteBaseConfig: AgentRouteBaseConfig{
+			Protocol: RouteProtocolA2A, MatchPolicy: RouteMatch{Host: host, PathPrefix: "/remote", Methods: methods},
+		}, AgentID: "remote"}
+		cfg.Normalize()
+		stored, err := cfg.ToConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return stored
+	}
+	if err := resolver.CreateConfig(ctx, build("", nil), ""); err == nil {
+		t.Fatal("A2A route without trusted host accepted")
+	}
+	if err := resolver.CreateConfig(ctx, build("gateway.example", []string{"POST"}), ""); err == nil {
+		t.Fatal("POST-only A2A route accepted")
+	}
+	valid := build("gateway.example", []string{"GET", "POST"})
+	if err := resolver.CreateConfig(ctx, valid, ""); err != nil {
+		t.Fatalf("valid A2A route rejected: %v", err)
+	}
+	resolved, err := resolver.ResolveByID(ctx, valid.ID)
+	if err != nil || resolved.Protocol != RouteProtocolA2A {
+		t.Fatalf("resolved A2A route = %#v, %v", resolved, err)
 	}
 }

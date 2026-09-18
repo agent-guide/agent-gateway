@@ -534,6 +534,11 @@ func (m *HTTPRuntimeManager) ResolveProxyTarget(agentID string) (*HTTPProxyTarge
 	}, nil
 }
 
+func (m *HTTPRuntimeManager) A2AProxyReady(agentID string) error {
+	_, err := m.ResolveProxyTarget(agentID)
+	return err
+}
+
 func buildHTTPReverseIndex(entries map[string]httpRuntimeEntry) map[string][]string {
 	out := map[string][]string{}
 	for agentID, entry := range entries {

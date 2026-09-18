@@ -346,6 +346,18 @@ func (b *GatewayBundle) validate(_ bool) error {
 		if b.AgentRoutes[i].Kind != agentroute.RouteKindAgent {
 			errs.Append(fmt.Errorf("agentRoutes[%q]: kind must be %q", id, agentroute.RouteKindAgent))
 		}
+		if b.AgentRoutes[i].Protocol != agentroute.RouteProtocolAgent && b.AgentRoutes[i].Protocol != agentroute.RouteProtocolA2A {
+			errs.Append(fmt.Errorf("agentRoutes[%q]: protocol must be %q or %q", id, agentroute.RouteProtocolAgent, agentroute.RouteProtocolA2A))
+		}
+		if b.AgentRoutes[i].Protocol == agentroute.RouteProtocolA2A {
+			if strings.TrimSpace(b.AgentRoutes[i].MatchPolicy.Host) == "" {
+				errs.Append(fmt.Errorf("agentRoutes[%q]: protocol %q requires match_policy.host", id, agentroute.RouteProtocolA2A))
+			}
+			methods := b.AgentRoutes[i].MatchPolicy.Methods
+			if len(methods) > 0 && (!containsFold(methods, "GET") || !containsFold(methods, "POST")) {
+				errs.Append(fmt.Errorf("agentRoutes[%q]: protocol %q methods must be empty or contain both GET and POST", id, agentroute.RouteProtocolA2A))
+			}
+		}
 		if b.AgentRoutes[i].AgentID == "" {
 			errs.Append(fmt.Errorf("agentRoutes[%q]: agent_id is required", id))
 		} else {
@@ -392,6 +404,7 @@ func (b *GatewayBundle) validate(_ bool) error {
 		}
 	}
 	agentIDs := map[string]struct{}{}
+	agentsByID := map[string]agentpkg.Agent{}
 	agentRouteBindings := map[string]string{}
 	for i := range b.Agents {
 		b.Agents[i].Normalize()
@@ -404,6 +417,7 @@ func (b *GatewayBundle) validate(_ bool) error {
 			errs.Append(fmt.Errorf("agents[%q]: duplicate id", id))
 		} else {
 			agentIDs[id] = struct{}{}
+			agentsByID[id] = b.Agents[i]
 		}
 		if err := b.Agents[i].Validate(); err != nil {
 			errs.Append(fmt.Errorf("agents[%q]: %w", id, err))
@@ -446,12 +460,29 @@ func (b *GatewayBundle) validate(_ bool) error {
 				errs.Append(fmt.Errorf("agentRoutes[%q]: agent_id %q does not exist in bundle agents", routeID, targetID))
 			}
 		}
+		for _, route := range b.AgentRoutes {
+			if route.ID != routeID || route.Protocol != agentroute.RouteProtocolA2A {
+				continue
+			}
+			if target, ok := agentsByID[targetID]; ok && (target.Runtime.Type != agentpkg.RuntimeTypeHTTP || target.Runtime.HTTP == nil || target.Runtime.HTTP.Protocol != "a2a") {
+				errs.Append(fmt.Errorf("agentRoutes[%q]: protocol %q requires an http Agent with runtime.http.protocol=a2a", routeID, agentroute.RouteProtocolA2A))
+			}
+		}
 	}
 
 	if errs.HasErrors() {
 		return errs
 	}
 	return nil
+}
+
+func containsFold(values []string, want string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), want) {
+			return true
+		}
+	}
+	return false
 }
 
 func agentRouteIDs(agent agentpkg.Agent) []string {

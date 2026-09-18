@@ -3,6 +3,9 @@ package agentroute
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
@@ -22,12 +25,28 @@ type AgentLookup interface {
 	HasAgent(id string) bool
 }
 
+// A2AProxyLookup validates the shared HTTP runtime snapshot without exposing
+// gateway implementation types to the route-model package.
+type A2AProxyLookup interface {
+	A2AProxyReady(agentID string) error
+}
+
 type AgentRouteResolver struct {
 	configManager *routecore.AgentRouteConfigManager
 	base          *runtimecore.Resolver[routecore.AgentRouteConfig, *AgentRoute, RouteListOptions]
 
 	mu          sync.RWMutex
 	agentLookup AgentLookup
+	proxyLookup A2AProxyLookup
+}
+
+func (r *AgentRouteResolver) SetA2AProxyLookup(lookup A2AProxyLookup) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.proxyLookup = lookup
+	r.mu.Unlock()
 }
 
 func NewAgentRouteResolver(configManager *routecore.AgentRouteConfigManager) *AgentRouteResolver {
@@ -76,13 +95,13 @@ func (r *AgentRouteResolver) SetAgentLookup(lookup AgentLookup) {
 	r.mu.Unlock()
 }
 
-func (r *AgentRouteResolver) lookup() AgentLookup {
+func (r *AgentRouteResolver) lookups() (AgentLookup, A2AProxyLookup) {
 	if r == nil {
-		return nil
+		return nil, nil
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.agentLookup
+	return r.agentLookup, r.proxyLookup
 }
 
 // validateTarget enforces that a persisted AgentRoute names an existing Agent.
@@ -90,6 +109,12 @@ func (r *AgentRouteResolver) lookup() AgentLookup {
 // currently non-executable Agents are valid targets and fail at dispatch with
 // their normalized runtime error instead.
 func (r *AgentRouteResolver) validateTarget(route routecore.AgentRouteConfig) error {
+	if route.Kind != routecore.RouteKindAgent {
+		return fmt.Errorf("route %q kind must be %q", route.ID, routecore.RouteKindAgent)
+	}
+	if route.Protocol != routecore.RouteProtocolAgent && route.Protocol != routecore.RouteProtocolA2A {
+		return fmt.Errorf("route %q protocol must be %q or %q", route.ID, routecore.RouteProtocolAgent, routecore.RouteProtocolA2A)
+	}
 	agentID, err := DecodeTargetAgentID(route.TargetPolicy)
 	if err != nil {
 		return fmt.Errorf("route %q decode target policy: %w", route.ID, err)
@@ -97,10 +122,29 @@ func (r *AgentRouteResolver) validateTarget(route routecore.AgentRouteConfig) er
 	if agentID == "" {
 		return fmt.Errorf("route %q requires target_policy.agent_id", route.ID)
 	}
-	if lookup := r.lookup(); lookup != nil && !lookup.HasAgent(agentID) {
+	agentLookup, proxyLookup := r.lookups()
+	if agentLookup != nil && !agentLookup.HasAgent(agentID) {
 		return fmt.Errorf("route %q targets unknown agent %q", route.ID, agentID)
 	}
+	if route.Protocol == routecore.RouteProtocolA2A {
+		if strings.TrimSpace(route.MatchPolicy.Host) == "" {
+			return fmt.Errorf("route %q protocol %q requires match_policy.host", route.ID, route.Protocol)
+		}
+		if len(route.MatchPolicy.Methods) > 0 && (!containsMethod(route.MatchPolicy.Methods, http.MethodGet) || !containsMethod(route.MatchPolicy.Methods, http.MethodPost)) {
+			return fmt.Errorf("route %q protocol %q methods must be empty or contain both GET and POST", route.ID, route.Protocol)
+		}
+		if proxyLookup == nil {
+			return fmt.Errorf("route %q A2A proxy runtime lookup is not configured", route.ID)
+		}
+		if err := proxyLookup.A2AProxyReady(agentID); err != nil {
+			return fmt.Errorf("route %q target agent %q is not A2A proxy ready: %w", route.ID, agentID, err)
+		}
+	}
 	return nil
+}
+
+func containsMethod(methods []string, method string) bool {
+	return slices.ContainsFunc(methods, func(candidate string) bool { return strings.EqualFold(strings.TrimSpace(candidate), method) })
 }
 
 func (r *AgentRouteResolver) ConfigManager() *routecore.AgentRouteConfigManager {

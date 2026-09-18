@@ -25,6 +25,7 @@ type RouteProtocol = routecore.RouteProtocol
 
 const (
 	RouteProtocolAgent = routecore.RouteProtocolAgent
+	RouteProtocolA2A   = routecore.RouteProtocolA2A
 )
 
 type AgentRouteBaseConfig = routecore.AgentRouteConfig
@@ -52,7 +53,10 @@ type routeTargetPolicy struct {
 func normalizeConfigDefaults(cfg AgentRouteBaseConfig) AgentRouteBaseConfig {
 	cfg.ID = strings.TrimSpace(cfg.ID)
 	cfg.Kind = RouteKindAgent
-	cfg.Protocol = RouteProtocolAgent
+	cfg.Protocol = RouteProtocol(strings.TrimSpace(string(cfg.Protocol)))
+	if cfg.Protocol == "" {
+		cfg.Protocol = RouteProtocolAgent
+	}
 	cfg.Description = strings.TrimSpace(cfg.Description)
 	cfg.MatchPolicy.Host = strings.TrimSpace(cfg.MatchPolicy.Host)
 	cfg.MatchPolicy.PathPrefix = strings.TrimSpace(cfg.MatchPolicy.PathPrefix)
@@ -202,7 +206,7 @@ func (r AgentRouteConfig) ToConfig() (AgentRouteBaseConfig, error) {
 	cfg := r.AgentRouteBaseConfig
 	cfg.ID = r.ID
 	cfg.Kind = RouteKindAgent
-	cfg.Protocol = RouteProtocolAgent
+	cfg.Protocol = r.Protocol
 	cfg.Description = r.Description
 	cfg.Disabled = r.Disabled
 	cfg.AuthPolicy = r.AuthPolicy
