@@ -182,7 +182,9 @@ type flushingWriter struct{ io.Writer }
 func (w flushingWriter) Write(p []byte) (int, error) {
 	n, err := w.Writer.Write(p)
 	if err == nil {
-		if flusher, ok := w.Writer.(http.Flusher); ok {
+		if responseWriter, ok := w.Writer.(http.ResponseWriter); ok {
+			_ = http.NewResponseController(responseWriter).Flush()
+		} else if flusher, ok := w.Writer.(http.Flusher); ok {
 			flusher.Flush()
 		}
 	}
@@ -308,13 +310,23 @@ func IsInvalidResponse(err error) bool {
 
 // CopyHeaders replaces dst with the governed upstream response headers.
 func CopyHeaders(dst, source http.Header) {
-	for name := range dst {
-		dst.Del(name)
-	}
 	for name, values := range source {
+		if isGatewayResponseHeader(name) {
+			continue
+		}
+		dst.Del(name)
 		for _, value := range values {
 			dst.Add(name, value)
 		}
+	}
+}
+
+func isGatewayResponseHeader(name string) bool {
+	switch strings.ToLower(name) {
+	case "traceparent", "tracestate", "x-trace-id", "x-span-id", "x-agent-depth":
+		return true
+	default:
+		return false
 	}
 }
 

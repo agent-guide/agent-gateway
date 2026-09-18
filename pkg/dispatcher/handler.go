@@ -115,7 +115,11 @@ func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request, next NextHand
 		zap.Bool("require_virtual_key", cfg.AuthPolicy.RequireVirtualKey),
 	)
 
-	virtualKey, err := h.gateway.ResolveVirtualKey(r.Context(), r, cfg)
+	skipA2AAdmission := skipA2AVirtualKeyAdmission(cfg, r)
+	var virtualKey *virtualkeypkg.VirtualKey
+	if !skipA2AAdmission {
+		virtualKey, err = h.gateway.ResolveVirtualKey(r.Context(), r, cfg)
+	}
 	if err != nil {
 		span, _ := h.gateway.UsageObserver().Begin(r.Context(), baseDims)
 		defer span.Finish(usage.InteractionOutcome{Success: false, StatusCode: statuserr.StatusCode(err, http.StatusUnauthorized), ErrorType: "virtual_key_rejected"})
@@ -138,6 +142,10 @@ func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request, next NextHand
 	}
 	dims := h.routeInteractionDimensions(cfg, traceCtx, virtualKeyID)
 	span, spanCtx := h.gateway.UsageObserver().Begin(r.Context(), dims)
+	// Outbound trace/depth propagation must not depend on whether the configured
+	// observer stores dimensions in its returned context (the noop observer does
+	// not). Keep the normalized ingress identities available unconditionally.
+	spanCtx = usage.ContextWithDimensions(spanCtx, dims)
 	spanCtx = bindAgentRuntimeIdentity(spanCtx, span, cfg.Kind)
 	spanCtx, finishOwner := usage.ContextWithFinishOwnership(spanCtx)
 	r = r.WithContext(spanCtx)
@@ -185,6 +193,17 @@ func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request, next NextHand
 	default:
 		return WriteDispatchError(h.logger, string(cfg.Protocol), cfg.ID, "", http.StatusServiceUnavailable, rec, r, "dispatch route", "route kind is not configured", fmt.Errorf("route %q kind %q is not configured", cfg.ID, cfg.Kind))
 	}
+}
+
+// Path A validates path and method before protocol admission. Only the exact
+// JSON-RPC POST endpoint uses ordinary VirtualKey/rate-limit admission; public
+// Card discovery and transport-level 404/405 rejections bypass it.
+func skipA2AVirtualKeyAdmission(cfg routecore.AgentRouteConfig, r *http.Request) bool {
+	if cfg.Kind != routecore.RouteKindAgent || cfg.Protocol != routecore.RouteProtocolA2A || r == nil {
+		return false
+	}
+	rewritten := RewriteLLMRoutePath(r, cfg.MatchPolicy.PathPrefix)
+	return r.Method != http.MethodPost || rewritten.URL.Path != "/"
 }
 
 // routeInteractionDimensions resolves the stable AgentRoute target and the

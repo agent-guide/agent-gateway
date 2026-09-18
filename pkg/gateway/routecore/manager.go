@@ -165,7 +165,14 @@ func matchRouteConfigs(routes []AgentRouteConfig, r *http.Request) (AgentRouteCo
 		found     bool
 	)
 	for _, route := range routes {
-		if !routeMatchesRequest(route.MatchPolicy, r) {
+		match := route.MatchPolicy
+		// Native A2A owns its exact endpoint's 404/405 behavior. Its validated
+		// GET+POST method declaration must not prevent the dispatcher from
+		// returning protocol-correct transport errors for other methods.
+		if route.Kind == RouteKindAgent && route.Protocol == RouteProtocolA2A {
+			match.Methods = nil
+		}
+		if !routeMatchesRequest(match, r) {
 			continue
 		}
 		score := scoreRouteMatch(route.MatchPolicy)
