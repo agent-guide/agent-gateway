@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -53,6 +54,26 @@ func TestProxyForwardsOriginalBodyAndGovernsHeaders(t *testing.T) {
 	defer resp.Close()
 	if resp.Header.Get("Set-Cookie") != "" || !bytes.Contains(resp.Buffered, []byte(`"ok":true`)) {
 		t.Fatalf("response = headers %#v body %q", resp.Header, resp.Buffered)
+	}
+}
+
+func TestNewDoesNotMutateDefaultHTTPClient(t *testing.T) {
+	originalCheckRedirect := http.DefaultClient.CheckRedirect
+	http.DefaultClient.CheckRedirect = nil
+	t.Cleanup(func() { http.DefaultClient.CheckRedirect = originalCheckRedirect })
+
+	p, err := New(Options{InterfaceURL: "https://agent.example/rpc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if http.DefaultClient.CheckRedirect != nil {
+		t.Fatal("New mutated http.DefaultClient.CheckRedirect")
+	}
+	if p.client == http.DefaultClient {
+		t.Fatal("proxy retained the process-wide default client")
+	}
+	if err := p.client.CheckRedirect(nil, nil); !errors.Is(err, http.ErrUseLastResponse) {
+		t.Fatalf("proxy redirect policy error = %v", err)
 	}
 }
 

@@ -49,11 +49,12 @@ func New(opts Options) (*Proxy, error) {
 	if err != nil || !target.IsAbs() || target.Host == "" || target.User != nil || target.Fragment != "" {
 		return nil, fmt.Errorf("A2A interface URL must be absolute")
 	}
-	client := http.DefaultClient
-	if opts.HTTPClient != nil {
-		copy := *opts.HTTPClient
-		client = &copy
+	baseClient := opts.HTTPClient
+	if baseClient == nil {
+		baseClient = http.DefaultClient
 	}
+	clientCopy := *baseClient
+	client := &clientCopy
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	total := opts.TotalTimeout
 	if total <= 0 {
