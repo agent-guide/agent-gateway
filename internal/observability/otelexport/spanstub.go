@@ -20,6 +20,8 @@ import (
 // method), and its Snapshot form is what the OTLP exporter consumes.
 func spanStub(ev any) (tracetest.SpanStub, error) {
 	switch e := ev.(type) {
+	case usage.InteractionEvent:
+		return interactionSpanStub(e)
 	case usage.LLMUsageEvent:
 		return llmSpanStub(e)
 	case usage.MCPUsageEvent:
@@ -31,6 +33,14 @@ func spanStub(ev any) (tracetest.SpanStub, error) {
 	default:
 		return tracetest.SpanStub{}, fmt.Errorf("unsupported usage event type %T", ev)
 	}
+}
+
+func interactionSpanStub(ev usage.InteractionEvent) (tracetest.SpanStub, error) {
+	family := ev.RouteProtocol
+	if family == "" {
+		family = ev.RouteKind
+	}
+	return baseSpanStub(family, trace.SpanKindServer, ev, commonAttributes(ev))
 }
 
 // builtinInternalProtocol marks LLM/MCP child events produced inside a

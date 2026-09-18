@@ -46,6 +46,7 @@ func TestUsageWriterColumnsMatchSchema(t *testing.T) {
 		{table: "mcp_usage_events", columns: mcpUsageInsertColumns},
 		{table: "acp_usage_events", columns: acpUsageInsertColumns},
 		{table: "builtin_usage_events", columns: builtinUsageInsertColumns},
+		{table: "a2a_usage_events", columns: a2aUsageInsertColumns},
 	} {
 		t.Run(tt.table, func(t *testing.T) {
 			got, err := tableColumns(db, tt.table)

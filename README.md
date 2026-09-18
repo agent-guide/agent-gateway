@@ -438,12 +438,12 @@ curl -s https://gateway.example.com/agents/reviewer \
 ## Metrics Admin API
 
 Usage metrics are backed by the SQLite usage event tables (`llm_usage_events`,
-`mcp_usage_events`, `acp_usage_events`, `builtin_usage_events`) when the sqlite
-config store backend is active. Unified Agent ingress keeps
+`mcp_usage_events`, `acp_usage_events`, `builtin_usage_events`,
+`a2a_usage_events`) when the sqlite config store backend is active. Unified Agent ingress keeps
 `route_kind=agent`, with `route_protocol=agent` for common turns or
 `route_protocol=a2a` for native proxy requests. ACP and builtin select their
-typed table through `runtime_type`; HTTP requests retain the common interaction
-event because A2A has no token-usage contract. New ACP Agent events use
+typed table through `runtime_type`; HTTP/A2A requests use the A2A table without
+fabricating token usage. New ACP Agent events use
 `agent_id` directly and do not populate the historical `service_id` column.
 Prometheus counters use only the bounded `route_kind` and `runtime_type` labels.
 

@@ -155,6 +155,7 @@ type Summary struct {
 	MCP     MCPSummary     `json:"mcp"`
 	ACP     ACPSummary     `json:"acp"`
 	Builtin BuiltinSummary `json:"builtin"`
+	A2A     A2ASummary     `json:"a2a"`
 }
 
 type EventListOptions struct {
@@ -241,6 +242,16 @@ type ACPSummary struct {
 type BuiltinSummary struct {
 	RequestCount int64 `json:"request_count"`
 	TurnCount    int64 `json:"turn_count"`
+	SuccessCount int64 `json:"success_count"`
+	FailureCount int64 `json:"failure_count"`
+	AvgLatencyMS int64 `json:"avg_latency_ms"`
+}
+
+// A2ASummary covers both native protocol=a2a ingress and translated
+// protocol=agent turns backed by runtime.type=http. Neither path fabricates
+// token usage.
+type A2ASummary struct {
+	RequestCount int64 `json:"request_count"`
 	SuccessCount int64 `json:"success_count"`
 	FailureCount int64 `json:"failure_count"`
 	AvgLatencyMS int64 `json:"avg_latency_ms"`

@@ -7,9 +7,10 @@ operational descriptions in the architecture documentation rather than here.
 ## Event invariants
 
 - Usage is stored in typed SQLite event tables (`llm_usage_events`,
-  `mcp_usage_events`, `acp_usage_events`, `builtin_usage_events`), not generic
-  config stores or internal rollups. Preserve nullable `agent_id`, `run_id`,
-  and `runtime_type` correlation fields for direct non-Agent traffic.
+  `mcp_usage_events`, `acp_usage_events`, `builtin_usage_events`,
+  `a2a_usage_events`), not generic config stores or internal rollups. Preserve
+  nullable `agent_id`, `run_id`, and `runtime_type` correlation fields for
+  direct non-Agent traffic.
 - Unified `kind=agent` ingress selects the ACP/builtin typed event family from
   bounded `runtime_type` while preserving `route_kind=agent` and
   `route_protocol=agent`. Stamp `agent_id` directly from AgentRoute; never use

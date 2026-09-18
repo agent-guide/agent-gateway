@@ -55,6 +55,11 @@ func (s *SQLiteSink) Write(ev any) error {
 		return sqlite.InsertACPUsageEvent(s.db, typed)
 	case usage.BuiltinUsageEvent:
 		return sqlite.InsertBuiltinUsageEvent(s.db, typed)
+	case usage.InteractionEvent:
+		if typed.RouteKind == "agent" && typed.RuntimeType == "http" {
+			return sqlite.InsertA2AUsageEvent(s.db, typed)
+		}
+		return nil
 	default:
 		return nil
 	}

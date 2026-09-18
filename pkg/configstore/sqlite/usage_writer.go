@@ -46,6 +46,12 @@ var acpUsageInsertColumns = []string{
 	"event_counts_json", "usage_json", "result_status", "agent_id", "run_id", "runtime_type",
 }
 
+var a2aUsageInsertColumns = []string{
+	"event_id", "trace_id", "span_id", "parent_span_id", "agent_depth", "started_at", "finished_at",
+	"route_id", "route_kind", "route_protocol", "virtual_key_id", "success", "status_code", "error_type", "latency_ms",
+	"agent_id", "run_id", "runtime_type",
+}
+
 func InsertLLMUsageEvent(db *gorm.DB, ev usage.LLMUsageEvent) error {
 	names, _ := json.Marshal(ev.RequestToolNames)
 	toolNames, _ := json.Marshal(ev.ToolNames)
@@ -92,6 +98,14 @@ func InsertBuiltinUsageEvent(db *gorm.DB, ev usage.BuiltinUsageEvent) error {
 		ev.Operation, ev.SessionID, nullString(ev.RunID), ev.PermissionRequestID, ev.LinkTraceID, ev.LinkSpanID,
 		ev.TopologyKind, ev.ModelSteps, ev.ToolSteps,
 		string(counts), ev.ResultStatus, nullString(ev.AgentID), nullString(ev.RuntimeType),
+	).Error
+}
+
+func InsertA2AUsageEvent(db *gorm.DB, ev usage.InteractionEvent) error {
+	return db.Exec(usageInsertSQL("a2a_usage_events", a2aUsageInsertColumns),
+		ev.EventID, ev.TraceID, ev.SpanID, ev.ParentSpanID, ev.AgentDepth, unixMillis(ev.StartedAt), unixMillis(ev.FinishedAt),
+		ev.RouteID, ev.RouteKind, ev.RouteProtocol, ev.VirtualKeyID, boolInt(ev.Success), ev.StatusCode, ev.ErrorType, ev.LatencyMS,
+		nullString(ev.AgentID), nullString(ev.RunID), nullString(ev.RuntimeType),
 	).Error
 }
 

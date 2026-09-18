@@ -123,6 +123,24 @@ func TestSpanStubLLMEvent(t *testing.T) {
 	}
 }
 
+func TestSpanStubA2AInteraction(t *testing.T) {
+	ev := testInteraction()
+	ev.RouteKind = "agent"
+	ev.RouteProtocol = "a2a"
+	ev.RuntimeType = "http"
+
+	stub, err := spanStub(ev)
+	if err != nil {
+		t.Fatalf("spanStub() error = %v", err)
+	}
+	if stub.Name != "a2a" || stub.SpanKind != trace.SpanKindServer {
+		t.Fatalf("stub = name %q kind %v, want a2a server span", stub.Name, stub.SpanKind)
+	}
+	if got, ok := attrValue(t, stub.Attributes, "agw.agent.runtime_type"); !ok || got.AsString() != "http" {
+		t.Fatalf("runtime_type attribute = %v, %v", got, ok)
+	}
+}
+
 func TestSpanStubBuiltinInternalEventsAreInternalKind(t *testing.T) {
 	llm := testInteraction()
 	llm.RouteProtocol = "builtin"

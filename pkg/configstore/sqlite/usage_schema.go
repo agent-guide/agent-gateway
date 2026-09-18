@@ -75,7 +75,14 @@ func MigrateUsageTables(db *gorm.DB) error {
 			operation TEXT, session_id TEXT, run_id TEXT, permission_request_id TEXT,
 			link_trace_id TEXT, link_span_id TEXT, topology_kind TEXT, model_steps INTEGER NOT NULL DEFAULT 0,
 			tool_steps INTEGER NOT NULL DEFAULT 0, event_counts_json TEXT, result_status TEXT, agent_id TEXT,
-			runtime_type TEXT
+			 runtime_type TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS a2a_usage_events (
+			event_id TEXT PRIMARY KEY, trace_id TEXT, span_id TEXT NOT NULL, parent_span_id TEXT,
+			agent_depth INTEGER NOT NULL DEFAULT 0, started_at INTEGER NOT NULL, finished_at INTEGER NOT NULL,
+			route_id TEXT, route_kind TEXT NOT NULL DEFAULT 'agent', route_protocol TEXT, virtual_key_id TEXT,
+			success INTEGER NOT NULL DEFAULT 0, status_code INTEGER, error_type TEXT, latency_ms INTEGER,
+			agent_id TEXT, run_id TEXT, runtime_type TEXT
 		)`,
 	}
 	for _, stmt := range tables {
@@ -159,6 +166,12 @@ func MigrateUsageTables(db *gorm.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_builtin_events_run ON builtin_usage_events (run_id, started_at) WHERE run_id IS NOT NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_builtin_events_agent ON builtin_usage_events (agent_id, started_at) WHERE agent_id IS NOT NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_builtin_events_runtime ON builtin_usage_events (runtime_type, started_at) WHERE runtime_type IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_a2a_events_started ON a2a_usage_events (started_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_a2a_events_route ON a2a_usage_events (route_id, started_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_a2a_events_trace ON a2a_usage_events (trace_id, started_at) WHERE trace_id IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_a2a_events_agent ON a2a_usage_events (agent_id, started_at) WHERE agent_id IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_a2a_events_run ON a2a_usage_events (run_id, started_at) WHERE run_id IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_a2a_events_runtime ON a2a_usage_events (runtime_type, started_at) WHERE runtime_type IS NOT NULL`,
 	}
 	for _, stmt := range indexes {
 		if err := db.Exec(stmt).Error; err != nil {
@@ -230,7 +243,7 @@ func CleanupUsageEvents(db *gorm.DB, retention time.Duration) error {
 		return nil
 	}
 	cutoff := time.Now().UTC().Add(-retention).UnixMilli()
-	for _, table := range []string{"llm_usage_events", "mcp_usage_events", "acp_usage_events", "builtin_usage_events"} {
+	for _, table := range []string{"llm_usage_events", "mcp_usage_events", "acp_usage_events", "builtin_usage_events", "a2a_usage_events"} {
 		if err := db.Exec("DELETE FROM "+table+" WHERE started_at < ?", cutoff).Error; err != nil {
 			return err
 		}
