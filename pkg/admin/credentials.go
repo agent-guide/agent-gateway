@@ -246,6 +246,9 @@ func (h *Handler) buildCredentialForUpdate(existing *credential.ManagedCredentia
 	if existing == nil {
 		return nil, fmt.Errorf("credential not found")
 	}
+	if requestedType := strings.ToLower(strings.TrimSpace(req.Type)); requestedType != "" && requestedType != existing.Type {
+		return nil, fmt.Errorf("credential type cannot be changed from %q to %q", existing.Type, requestedType)
+	}
 	if credential.IsHTTPAgentCredentialScope(existing.Scope) {
 		if strings.TrimSpace(req.ProviderType) != "" || strings.TrimSpace(req.ProviderID) != "" {
 			return nil, fmt.Errorf("HTTP Agent credentials must not set provider_type or provider_id")

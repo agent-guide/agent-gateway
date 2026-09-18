@@ -10,6 +10,8 @@ resources.
 
 Current credential types are `api_key` and `oauth_token`. OAuth credentials
 carry access/refresh token material and request-time refresh metadata.
+Credential type is immutable after creation: Admin updates may omit `type` or
+repeat the existing type, but must reject attempts to convert a credential.
 
 HTTP Agent execution reuses this store rather than creating a second secret
 model. Its P0 upstream credentials use the dedicated non-provider scope

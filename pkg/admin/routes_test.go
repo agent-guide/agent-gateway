@@ -1866,6 +1866,20 @@ func TestCredentialCreateAcceptsHTTPAgentScopeWithoutProvider(t *testing.T) {
 	}
 }
 
+func TestCredentialUpdateRejectsTypeChange(t *testing.T) {
+	handler := &Handler{}
+	existing := &credential.ManagedCredential{Credential: credential.Credential{
+		ID: "remote-key", Type: credential.TypeAPIKey, Scope: "http-agent:remote",
+	}}
+	if _, err := handler.buildCredentialForUpdate(existing, credentialUpdateRequest{Type: credential.TypeOAuthToken}); err == nil || !strings.Contains(err.Error(), "credential type cannot be changed") {
+		t.Fatalf("buildCredentialForUpdate() error = %v", err)
+	}
+	updated, err := handler.buildCredentialForUpdate(existing, credentialUpdateRequest{Type: credential.TypeAPIKey, Label: "updated"})
+	if err != nil || updated.Type != credential.TypeAPIKey || updated.Label != "updated" {
+		t.Fatalf("same-type update = %#v, %v", updated, err)
+	}
+}
+
 func TestCredentialCreateRejectsUnknownProviderID(t *testing.T) {
 	credMgr := credential.NewManager(nil)
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
