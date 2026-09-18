@@ -177,6 +177,26 @@ func TestDispatchA2APathAEndToEnd(t *testing.T) {
 	if got := jsonRPCErrorCode(t, post(push, "1.0", "vk-secret").Body.Bytes()); got != -32602 {
 		t.Fatalf("embedded push error code = %d", got)
 	}
+	malformedStreamParams := []byte(`{"jsonrpc":"2.0","id":16,"method":"SendStreamingMessage","params":{"tenant":5}}`)
+	malformedStreamRec := post(malformedStreamParams, "1.0", "vk-secret")
+	if got := malformedStreamRec.Header().Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("malformed streaming params Content-Type = %q", got)
+	}
+	malformedStreamPayload := bytes.TrimSpace(bytes.TrimPrefix(malformedStreamRec.Body.Bytes(), []byte("data:")))
+	if got := jsonRPCErrorCode(t, malformedStreamPayload); got != -32602 {
+		t.Fatalf("malformed streaming params error code = %d", got)
+	}
+	var malformedStreamEnvelope struct {
+		ID json.RawMessage `json:"id"`
+	}
+	if err := json.Unmarshal(malformedStreamPayload, &malformedStreamEnvelope); err != nil || string(malformedStreamEnvelope.ID) != "16" {
+		t.Fatalf("malformed streaming params id = %s, error = %v", malformedStreamEnvelope.ID, err)
+	}
+	malformedVersionRec := post(malformedStreamParams, "0.3", "vk-secret")
+	malformedVersionPayload := bytes.TrimSpace(bytes.TrimPrefix(malformedVersionRec.Body.Bytes(), []byte("data:")))
+	if got := jsonRPCErrorCode(t, malformedVersionPayload); got != -32009 {
+		t.Fatalf("version must precede malformed params, got code %d", got)
+	}
 	if got := jsonRPCErrorCode(t, post([]byte(`{`), "1.0", "vk-secret").Body.Bytes()); got != -32700 {
 		t.Fatalf("parse error code = %d", got)
 	}
@@ -209,6 +229,10 @@ func TestDispatchA2APathAEndToEnd(t *testing.T) {
 	notification := []byte(`{"jsonrpc":"2.0","method":"SendMessage","params":{"tenant":"tenant-a"}}`)
 	if notificationRec := post(notification, "1.0", "vk-secret"); notificationRec.Code != http.StatusNoContent || notificationRec.Body.Len() != 0 {
 		t.Fatalf("notification = %d/%q", notificationRec.Code, notificationRec.Body.String())
+	}
+	malformedNotification := []byte(`{"jsonrpc":"2.0","method":"SendMessage","params":{"tenant":5}}`)
+	if malformedNotificationRec := post(malformedNotification, "1.0", "vk-secret"); malformedNotificationRec.Code != http.StatusNoContent || malformedNotificationRec.Body.Len() != 0 {
+		t.Fatalf("malformed notification = %d/%q", malformedNotificationRec.Code, malformedNotificationRec.Body.String())
 	}
 	events := eventsOfType[usage.InteractionEvent](sink.events)
 	if len(events) == 0 {

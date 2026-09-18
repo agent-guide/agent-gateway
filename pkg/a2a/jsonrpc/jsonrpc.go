@@ -27,6 +27,20 @@ func IsInvalidSSE(err error) bool {
 	return errors.As(err, &target)
 }
 
+// InvalidParamsError identifies a request whose JSON-RPC envelope is usable
+// but whose A2A params cannot be inspected safely. Callers can still use the
+// returned request metadata to preserve the id, method-specific response
+// channel, notification semantics, and validation order.
+type InvalidParamsError struct{ Err error }
+
+func (e *InvalidParamsError) Error() string { return "invalid A2A params: " + e.Err.Error() }
+func (e *InvalidParamsError) Unwrap() error { return e.Err }
+
+func IsInvalidParams(err error) bool {
+	var target *InvalidParamsError
+	return errors.As(err, &target)
+}
+
 const (
 	Version       = "2.0"
 	A2AVersion    = "1.0"
@@ -80,19 +94,19 @@ func InspectRequest(body []byte) (InspectedRequest, error) {
 	}
 	var params map[string]json.RawMessage
 	if err := json.Unmarshal(raw.Params, &params); err != nil {
-		return InspectedRequest{}, fmt.Errorf("params must be an object")
+		return inspected, &InvalidParamsError{Err: fmt.Errorf("params must be an object")}
 	}
 	if tenant, ok := params["tenant"]; ok {
 		inspected.TenantPresent = true
 		if err := json.Unmarshal(tenant, &inspected.Tenant); err != nil {
-			return InspectedRequest{}, fmt.Errorf("tenant must be a string")
+			return inspected, &InvalidParamsError{Err: fmt.Errorf("tenant must be a string")}
 		}
 	}
 	if raw.Method == MethodSendMessage || raw.Method == MethodSendStreamingMessage {
 		if configuration, ok := params["configuration"]; ok && !bytes.Equal(bytes.TrimSpace(configuration), []byte("null")) {
 			var cfg map[string]json.RawMessage
 			if err := json.Unmarshal(configuration, &cfg); err != nil {
-				return InspectedRequest{}, fmt.Errorf("configuration must be an object")
+				return inspected, &InvalidParamsError{Err: fmt.Errorf("configuration must be an object")}
 			}
 			if push, ok := cfg["taskPushNotificationConfig"]; ok && !bytes.Equal(bytes.TrimSpace(push), []byte("null")) {
 				inspected.EmbeddedPushConfig = true

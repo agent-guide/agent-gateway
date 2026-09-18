@@ -44,6 +44,22 @@ func TestInspectRequestPolicyFields(t *testing.T) {
 	}
 }
 
+func TestInspectRequestInvalidParamsPreservesEnvelope(t *testing.T) {
+	for _, body := range []string{
+		`{"jsonrpc":"2.0","id":7,"method":"SendStreamingMessage","params":[]}`,
+		`{"jsonrpc":"2.0","id":7,"method":"SendStreamingMessage","params":{"tenant":5}}`,
+		`{"jsonrpc":"2.0","id":7,"method":"SendStreamingMessage","params":{"configuration":[]}}`,
+	} {
+		got, err := InspectRequest([]byte(body))
+		if !IsInvalidParams(err) {
+			t.Fatalf("InspectRequest(%s) error = %v, want InvalidParamsError", body, err)
+		}
+		if got.Method != MethodSendStreamingMessage || string(got.ID) != "7" || got.Notification {
+			t.Fatalf("InspectRequest(%s) metadata = %#v", body, got)
+		}
+	}
+}
+
 func TestServiceVersionAndQueryRemoval(t *testing.T) {
 	header := http.Header{}
 	query := url.Values{"a2a-version": {"1.0"}, "A2A-Extensions": {"urn:x"}}

@@ -75,7 +75,7 @@ func (h *Handler) serveA2ARequest(w http.ResponseWriter, r *http.Request, route 
 		return httpjson.Error(w, http.StatusRequestEntityTooLarge, "request body too large")
 	}
 	meta, inspectErr := a2ajsonrpc.InspectRequest(body)
-	if inspectErr != nil {
+	if inspectErr != nil && !a2ajsonrpc.IsInvalidParams(inspectErr) {
 		if !json.Valid(body) {
 			return writeA2AError(r.Context(), w, nil, false, -32700, "Parse error")
 		}
@@ -99,6 +99,9 @@ func (h *Handler) serveA2ARequest(w http.ResponseWriter, r *http.Request, route 
 	}
 	if !a2ajsonrpc.AllowedMethod(meta.Method) {
 		return writeA2AError(r.Context(), w, meta.ID, streaming, -32601, "Method not found")
+	}
+	if inspectErr != nil {
+		return writeA2AError(r.Context(), w, meta.ID, streaming, -32602, "Invalid params")
 	}
 	if meta.EmbeddedPushConfig {
 		return writeA2AError(r.Context(), w, meta.ID, streaming, -32602, "Invalid params")
