@@ -50,7 +50,7 @@ func (h *Handler) serveA2ACard(w http.ResponseWriter, r *http.Request, route *ag
 		}
 		return httpjson.Error(w, status, message)
 	}
-	setA2AOperationExtension(r.Context(), a, "card", "")
+	setA2AOperationExtension(r.Context(), a, "card")
 	publicURL := a2aPublicRouteURL(r, route)
 	card, err := a2acard.RewritePublicCard(target.CardTemplate, publicURL, target.Interface.Tenant, route.AuthPolicy.RequireVirtualKey)
 	if err != nil {
@@ -82,6 +82,11 @@ func (h *Handler) serveA2ARequest(w http.ResponseWriter, r *http.Request, route 
 		return writeA2AError(w, nil, false, -32600, "Invalid Request")
 	}
 	if meta.Notification {
+		span := usage.SpanFromContext(r.Context())
+		span.AddAnnotation("error_type", "a2a_notification_rejected")
+		if marker, ok := w.(interface{ MarkFailed() }); ok {
+			marker.MarkFailed()
+		}
 		w.WriteHeader(http.StatusNoContent)
 		return nil
 	}
@@ -105,7 +110,7 @@ func (h *Handler) serveA2ARequest(w http.ResponseWriter, r *http.Request, route 
 	if err := a2ajsonrpc.ValidateTenant(meta, target.Interface.Tenant); err != nil {
 		return writeA2AError(w, meta.ID, streaming, -32602, "Invalid params")
 	}
-	setA2AOperationExtension(r.Context(), a, meta.Method, "")
+	setA2AOperationExtension(r.Context(), a, meta.Method)
 	resp, err := target.Proxy.Do(r.Context(), r, body, meta)
 	if err != nil {
 		if a2aproxy.IsInvalidResponse(err) {
@@ -224,11 +229,8 @@ func writeA2AError(w http.ResponseWriter, id json.RawMessage, streaming bool, co
 	return err
 }
 
-func setA2AOperationExtension(ctx context.Context, a agentpkg.Agent, operation, outcome string) {
+func setA2AOperationExtension(ctx context.Context, a agentpkg.Agent, operation string) {
 	span := usage.SpanFromContext(ctx)
 	span.SetExtension(usage.CommonExtension{AgentID: a.ID, RuntimeType: a.Runtime.Type})
 	span.AddAnnotation("a2a_operation", operation)
-	if outcome != "" {
-		span.AddAnnotation("a2a_outcome", outcome)
-	}
 }

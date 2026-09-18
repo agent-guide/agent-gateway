@@ -62,6 +62,8 @@ func (s *PrometheusSink) PrometheusSnapshot() usage.PrometheusSnapshot {
 
 func eventMetrics(ev any) (labels usage.PrometheusLabels, success bool, tokens int) {
 	switch e := ev.(type) {
+	case usage.InteractionEvent:
+		return prometheusLabels(e), e.Success, 0
 	case usage.LLMUsageEvent:
 		return prometheusLabels(e.InteractionEvent), e.Success, e.TotalTokens
 	case usage.MCPUsageEvent:

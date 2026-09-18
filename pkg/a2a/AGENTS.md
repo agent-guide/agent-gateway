@@ -149,7 +149,9 @@ pkg/a2a/
   SDK MIME, status, envelope, or trailing-input tolerance.
 - Path A follows design §8.4 exactly: transport failures before an envelope use
   HTTP errors; identified requests use JSON-RPC errors with id echo (or one SSE
-  error event for `SendStreamingMessage`); notifications return empty `204`;
+  error event for `SendStreamingMessage`); notifications return empty `204`
+  and record a failed interaction with bounded error type
+  `a2a_notification_rejected`;
   committed-stream timeout/disconnect/limit failures abort without synthesizing
   a frame.
 - Health Card fetches retain ETag/Last-Modified validators, use conditional

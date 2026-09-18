@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	configschema "github.com/agent-guide/agent-gateway/pkg/configstore/schema"
@@ -70,8 +71,12 @@ func TestDispatchA2APathAEndToEnd(t *testing.T) {
 	if err := configschema.RegisterDefaultStores(backend); err != nil {
 		t.Fatal(err)
 	}
+	sink := &builtinCaptureSink{}
 	gw := gateway.NewAgentGateway()
-	if err := gw.Bootstrap(ctx, gateway.BootstrapOptions{ConfigStoreBackend: backend}); err != nil {
+	if err := gw.Bootstrap(ctx, gateway.BootstrapOptions{
+		ConfigStoreBackend: backend,
+		UsageObserver:      usage.NewObserver(sink),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := gw.AgentManager().Create(ctx, agent.Agent{
@@ -194,6 +199,14 @@ func TestDispatchA2APathAEndToEnd(t *testing.T) {
 	notification := []byte(`{"jsonrpc":"2.0","method":"SendMessage","params":{"tenant":"tenant-a"}}`)
 	if notificationRec := post(notification, "1.0", "vk-secret"); notificationRec.Code != http.StatusNoContent || notificationRec.Body.Len() != 0 {
 		t.Fatalf("notification = %d/%q", notificationRec.Code, notificationRec.Body.String())
+	}
+	events := eventsOfType[usage.InteractionEvent](sink.events)
+	if len(events) == 0 {
+		t.Fatal("notification rejection did not emit an interaction event")
+	}
+	notificationEvent := events[len(events)-1]
+	if notificationEvent.Success || notificationEvent.StatusCode != http.StatusNoContent || notificationEvent.ErrorType != "a2a_notification_rejected" {
+		t.Fatalf("notification interaction = %+v", notificationEvent)
 	}
 	upstreamUnavailable := []byte(`{"jsonrpc":"2.0","id":12,"method":"GetTask","params":{"tenant":"tenant-a"}}`)
 	if got := jsonRPCErrorCode(t, post(upstreamUnavailable, "1.0", "vk-secret").Body.Bytes()); got != -32000 {

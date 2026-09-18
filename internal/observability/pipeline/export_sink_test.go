@@ -29,6 +29,16 @@ func TestPrometheusSinkSnapshot(t *testing.T) {
 	if snap.Requests[agentLabels] != 1 || snap.Failures[agentLabels] != 1 || len(snap.Requests) != 2 {
 		t.Fatalf("bounded Agent labels snapshot = %+v", snap)
 	}
+	if err := sink.Write(usage.InteractionEvent{
+		RouteKind: "agent", RouteProtocol: "a2a", RuntimeType: "http", AgentID: "another-high-cardinality-id", Success: false,
+	}); err != nil {
+		t.Fatalf("Write(generic HTTP Agent) error = %v", err)
+	}
+	snap = sink.Snapshot()
+	httpLabels := usage.PrometheusLabels{RouteKind: "agent", RuntimeType: "http"}
+	if snap.Requests[httpLabels] != 1 || snap.Failures[httpLabels] != 1 || len(snap.Requests) != 3 {
+		t.Fatalf("bounded HTTP Agent labels snapshot = %+v", snap)
+	}
 }
 
 type captureExporter struct {

@@ -861,10 +861,12 @@ reflected through a shared public Card cache.
 
 ### 8.4 Path A rejection and error envelope (closed)
 
-Path A validates in this order: exact route path/method, request content type
-and 4 MiB body limit, one JSON-RPC 2.0 request envelope, `A2A-Version`, method
-allowlist, method params (tenant and embedded push config), ready snapshot, and
-live credential. No failing request is forwarded.
+Path A first validates the exact route path/method, request content type and
+4 MiB body limit, and one JSON-RPC 2.0 request envelope. Notifications then
+take the dedicated `204` rejection path below. Requests with an id continue in
+this order: `A2A-Version`, method allowlist, snapshot-independent method params
+(embedded push config), ready snapshot, selected-interface tenant, and live
+credential. No failing request is forwarded.
 
 Failures before a single JSON-RPC request can be identified use HTTP transport
 errors: wrong path is `404`, wrong method is `405` with `Allow`, unsupported
@@ -895,7 +897,8 @@ The fixed mapping is:
 
 A JSON-RPC notification has no response by definition: Path A rejects it
 without forwarding and returns HTTP `204` with an empty body while recording a
-bounded rejection metric. Remote JSON-RPC errors and successful response bytes
+failed interaction with the bounded `a2a_notification_rejected` error type.
+Remote JSON-RPC errors and successful response bytes
 are forwarded unchanged. If an SSE response has already committed and then
 times out, disconnects, or crosses the per-event/aggregate limit, the proxy
 aborts the downstream stream and records the failure; it cannot append a
