@@ -443,7 +443,7 @@ is designed in [HTTP Agent Runtime](http-agent-runtime.md): A2A Protocol 1.0
 JSON-RPC is the first southbound dialect under `runtime.http.protocol`,
 reached through a shared `pkg/a2a` protocol package, the translating
 `HTTPBackend` (implemented Path B), and the governed `protocol a2a` JSON-RPC
-proxy (roadmap Path A).
+proxy (implemented Path A).
 
 - **`acp`** — the gateway owns the agent's external process lifecycle. Its
   adapter translates the Agent-owned `runtime.acp` block into
