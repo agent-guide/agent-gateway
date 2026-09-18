@@ -77,9 +77,9 @@ func (h *Handler) serveA2ARequest(w http.ResponseWriter, r *http.Request, route 
 	meta, inspectErr := a2ajsonrpc.InspectRequest(body)
 	if inspectErr != nil {
 		if !json.Valid(body) {
-			return writeA2AError(w, nil, false, -32700, "Parse error")
+			return writeA2AError(r.Context(), w, nil, false, -32700, "Parse error")
 		}
-		return writeA2AError(w, nil, false, -32600, "Invalid Request")
+		return writeA2AError(r.Context(), w, nil, false, -32600, "Invalid Request")
 	}
 	if meta.Notification {
 		span := usage.SpanFromContext(r.Context())
@@ -92,31 +92,31 @@ func (h *Handler) serveA2ARequest(w http.ResponseWriter, r *http.Request, route 
 	}
 	streaming := meta.Method == a2ajsonrpc.MethodSendStreamingMessage
 	if len(bytes.TrimSpace(meta.ID)) == 0 || bytes.Equal(bytes.TrimSpace(meta.ID), []byte("null")) {
-		return writeA2AError(w, nil, streaming, -32600, "Invalid Request")
+		return writeA2AError(r.Context(), w, nil, streaming, -32600, "Invalid Request")
 	}
 	if err := a2ajsonrpc.ValidateServiceVersion(r.Header, r.URL.Query()); err != nil {
-		return writeA2AError(w, meta.ID, streaming, -32009, "Version not supported")
+		return writeA2AError(r.Context(), w, meta.ID, streaming, -32009, "Version not supported")
 	}
 	if !a2ajsonrpc.AllowedMethod(meta.Method) {
-		return writeA2AError(w, meta.ID, streaming, -32601, "Method not found")
+		return writeA2AError(r.Context(), w, meta.ID, streaming, -32601, "Method not found")
 	}
 	if meta.EmbeddedPushConfig {
-		return writeA2AError(w, meta.ID, streaming, -32602, "Invalid params")
+		return writeA2AError(r.Context(), w, meta.ID, streaming, -32602, "Invalid params")
 	}
 	a, target, _ := h.resolveA2ATarget(route)
 	if a.ID == "" || target == nil {
-		return writeA2AError(w, meta.ID, streaming, -32000, "Server error")
+		return writeA2AError(r.Context(), w, meta.ID, streaming, -32000, "Server error")
 	}
 	if err := a2ajsonrpc.ValidateTenant(meta, target.Interface.Tenant); err != nil {
-		return writeA2AError(w, meta.ID, streaming, -32602, "Invalid params")
+		return writeA2AError(r.Context(), w, meta.ID, streaming, -32602, "Invalid params")
 	}
 	setA2AOperationExtension(r.Context(), a, meta.Method)
 	resp, err := target.Proxy.Do(r.Context(), r, body, meta)
 	if err != nil {
 		if a2aproxy.IsInvalidResponse(err) {
-			return writeA2AError(w, meta.ID, streaming, -32006, "Invalid agent response")
+			return writeA2AError(r.Context(), w, meta.ID, streaming, -32006, "Invalid agent response")
 		}
-		return writeA2AError(w, meta.ID, streaming, -32000, "Server error")
+		return writeA2AError(r.Context(), w, meta.ID, streaming, -32000, "Server error")
 	}
 	defer resp.Close()
 	a2aproxy.CopyHeaders(w.Header(), resp.Header)
@@ -204,7 +204,11 @@ type a2aErrorEnvelope struct {
 	} `json:"error"`
 }
 
-func writeA2AError(w http.ResponseWriter, id json.RawMessage, streaming bool, code int, message string) error {
+func writeA2AError(ctx context.Context, w http.ResponseWriter, id json.RawMessage, streaming bool, code int, message string) error {
+	usage.SpanFromContext(ctx).AddAnnotation("error_type", a2aErrorType(code))
+	if marker, ok := w.(interface{ MarkFailed() }); ok {
+		marker.MarkFailed()
+	}
 	if len(bytes.TrimSpace(id)) == 0 {
 		id = json.RawMessage("null")
 	}
@@ -227,6 +231,27 @@ func writeA2AError(w http.ResponseWriter, id json.RawMessage, streaming bool, co
 	w.WriteHeader(http.StatusOK)
 	_, err = w.Write(payload)
 	return err
+}
+
+func a2aErrorType(code int) string {
+	switch code {
+	case -32700:
+		return "a2a_parse_error"
+	case -32600:
+		return "a2a_invalid_request"
+	case -32009:
+		return "a2a_version_not_supported"
+	case -32601:
+		return "a2a_method_not_found"
+	case -32602:
+		return "a2a_invalid_params"
+	case -32000:
+		return "a2a_server_error"
+	case -32006:
+		return "a2a_invalid_agent_response"
+	default:
+		return "a2a_request_rejected"
+	}
 }
 
 func setA2AOperationExtension(ctx context.Context, a agentpkg.Agent, operation string) {

@@ -163,6 +163,11 @@ func TestDispatchA2APathAEndToEnd(t *testing.T) {
 	if badVersion.Code != http.StatusOK || jsonRPCErrorCode(t, badVersion.Body.Bytes()) != -32009 {
 		t.Fatalf("bad version = %d/%s", badVersion.Code, badVersion.Body.String())
 	}
+	badVersionEvents := eventsOfType[usage.InteractionEvent](sink.events)
+	badVersionEvent := badVersionEvents[len(badVersionEvents)-1]
+	if badVersionEvent.Success || badVersionEvent.StatusCode != http.StatusOK || badVersionEvent.ErrorType != "a2a_version_not_supported" {
+		t.Fatalf("bad version interaction = %+v", badVersionEvent)
+	}
 	push := []byte(`{"jsonrpc":"2.0","id":8,"method":"SendMessage","params":{"tenant":"tenant-a","configuration":{"taskPushNotificationConfig":{"url":"https://callback"}}}}`)
 	if got := jsonRPCErrorCode(t, post(push, "1.0", "vk-secret").Body.Bytes()); got != -32602 {
 		t.Fatalf("embedded push error code = %d", got)

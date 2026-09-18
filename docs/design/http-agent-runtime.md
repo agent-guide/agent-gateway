@@ -882,7 +882,9 @@ rejections return HTTP `200` with a JSON-RPC 2.0 error. A valid single request
 echoes its exact `id`; parse errors and invalid batches use `null`. A recognized
 `SendStreamingMessage` rejection is one `text/event-stream` data event carrying
 that error envelope followed by clean closure; other cases use
-`application/json`. This keeps the official SDK on its JSON-RPC decoding path.
+`application/json`. These gateway-generated rejection envelopes record a failed
+interaction with an error type selected from a fixed mapping of the JSON-RPC
+code. This keeps the official SDK on its JSON-RPC decoding path.
 The fixed mapping is:
 
 | Rejection | JSON-RPC code | Message |
