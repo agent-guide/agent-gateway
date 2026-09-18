@@ -328,6 +328,7 @@ func (b *GatewayBundle) validate(_ bool) error {
 	}
 	agentIngressRouteIDs := map[string]struct{}{}
 	agentRouteTargetByID := map[string]string{}
+	a2aAgentRouteIDs := map[string]struct{}{}
 	for i := range b.AgentRoutes {
 		b.AgentRoutes[i].Normalize()
 		id := b.AgentRoutes[i].ID
@@ -350,6 +351,7 @@ func (b *GatewayBundle) validate(_ bool) error {
 			errs.Append(fmt.Errorf("agentRoutes[%q]: protocol must be %q or %q", id, agentroute.RouteProtocolAgent, agentroute.RouteProtocolA2A))
 		}
 		if b.AgentRoutes[i].Protocol == agentroute.RouteProtocolA2A {
+			a2aAgentRouteIDs[id] = struct{}{}
 			if strings.TrimSpace(b.AgentRoutes[i].MatchPolicy.Host) == "" {
 				errs.Append(fmt.Errorf("agentRoutes[%q]: protocol %q requires match_policy.host", id, agentroute.RouteProtocolA2A))
 			}
@@ -460,10 +462,7 @@ func (b *GatewayBundle) validate(_ bool) error {
 				errs.Append(fmt.Errorf("agentRoutes[%q]: agent_id %q does not exist in bundle agents", routeID, targetID))
 			}
 		}
-		for _, route := range b.AgentRoutes {
-			if route.ID != routeID || route.Protocol != agentroute.RouteProtocolA2A {
-				continue
-			}
+		if _, isA2A := a2aAgentRouteIDs[routeID]; isA2A {
 			if target, ok := agentsByID[targetID]; ok && (target.Runtime.Type != agentpkg.RuntimeTypeHTTP || target.Runtime.HTTP == nil || target.Runtime.HTTP.Protocol != "a2a") {
 				errs.Append(fmt.Errorf("agentRoutes[%q]: protocol %q requires an http Agent with runtime.http.protocol=a2a", routeID, agentroute.RouteProtocolA2A))
 			}

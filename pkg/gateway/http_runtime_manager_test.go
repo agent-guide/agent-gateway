@@ -121,12 +121,26 @@ func TestHTTPRuntimeManagerReusesCardAndUsesLiveCredential(t *testing.T) {
 	}
 	send()
 	mu.Lock()
-	defer mu.Unlock()
-	if cardRequests != 1 {
-		t.Fatalf("Card requests = %d, want 1", cardRequests)
+	gotCardRequests := cardRequests
+	gotAuthorizations := append([]string(nil), authorizations...)
+	mu.Unlock()
+	if gotCardRequests != 1 {
+		t.Fatalf("Card requests = %d, want 1", gotCardRequests)
 	}
-	if len(authorizations) != 2 || authorizations[0] != "Bearer first" || authorizations[1] != "Bearer second" {
-		t.Fatalf("Authorization values = %#v", authorizations)
+	if len(gotAuthorizations) != 2 || gotAuthorizations[0] != "Bearer first" || gotAuthorizations[1] != "Bearer second" {
+		t.Fatalf("Authorization values = %#v", gotAuthorizations)
+	}
+
+	manager.mu.Lock()
+	failedProxy := manager.entries[agent.ID]
+	failedProxy.proxy = nil
+	failedProxy.proxyReady = false
+	failedProxy.proxyError = "create A2A proxy: synthetic failure"
+	manager.entries[agent.ID] = failedProxy
+	manager.mu.Unlock()
+	manager.RefreshRuntimeConfigs(context.Background(), []agentpkg.Agent{agent})
+	if _, err := manager.ResolveProxyTarget(agent.ID); err == nil || !strings.Contains(err.Error(), "synthetic failure") {
+		t.Fatalf("reused proxy error = %v", err)
 	}
 }
 

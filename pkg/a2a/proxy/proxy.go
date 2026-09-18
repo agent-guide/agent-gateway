@@ -12,7 +12,6 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -331,5 +330,3 @@ func isGatewayResponseHeader(name string) bool {
 		return false
 	}
 }
-
-func ContentLength(body []byte) string { return strconv.Itoa(len(body)) }

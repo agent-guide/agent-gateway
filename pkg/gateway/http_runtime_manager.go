@@ -268,6 +268,9 @@ func (m *HTTPRuntimeManager) prepareEntry(ctx context.Context, agent agentpkg.Ag
 	if previous.execution != nil && previous.executionFingerprint == entry.executionFingerprint {
 		entry.execution = previous.execution
 		entry.proxy = previous.proxy
+		if entry.proxyError == "" {
+			entry.proxyError = previous.proxyError
+		}
 		entry.proxyReady = entry.publicCardTemplate != nil && entry.proxy != nil
 		return entry, false
 	}
