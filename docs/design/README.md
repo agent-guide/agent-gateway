@@ -1,8 +1,16 @@
 # Design
 
-This section is for durable design notes, technical specifications, and
-roadmap documents that describe decisions and direction. Time-bound
-execution plans live in [`../plans/`](../plans/README.md) instead.
+This section is for durable design decisions and technical contracts. A design
+explains why the system has a particular shape and which boundaries,
+invariants, and tradeoffs must remain true.
+
+Each design declares its capability status as `Implemented` or `Proposed`.
+Capability limits such as an unsupported protocol binding belong in the
+design; completed phases, commit lists, rollout checklists, and file-by-file
+implementation tasks do not. Active execution work lives in
+[`../plans/`](../plans/README.md), current runtime behavior lives in
+[`../architecture/`](../architecture/README.md), and delivered version history
+lives in [`../releases/`](../releases/README.md).
 
 Current design pages:
 

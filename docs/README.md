@@ -14,12 +14,14 @@ The documentation is organized into these categories:
 - `reference/`
   - Caddyfile syntax, Admin API endpoints, CLI command reference, provider options, and runtime mode reference
 - `architecture/`
-  - current implemented system architecture and request flow
+  - current implemented system architecture, ownership, and request flow
 - `design/`
-  - durable design notes, technical specifications, and roadmap documents
+  - durable decisions, contracts, invariants, tradeoffs, and rejected alternatives
 - `plans/`
   - time-bound execution plans tied to a version line; deleted once their
     work lands and the permanent documents describe the result
+- `releases/`
+  - durable release notes describing user-visible changes between tags
 - `development/`
   - contributor-facing process or collaboration material
 
@@ -31,6 +33,7 @@ Category index:
 - [architecture/](architecture/README.md)
 - [design/](design/README.md)
 - [plans/](plans/README.md)
+- [releases/](releases/README.md)
 - [development/](development/README.md)
 
 ## Current Documents
@@ -63,3 +66,11 @@ Primary detailed documents:
 ## Notes
 
 - the root `README.md` is intentionally limited to overview and quick start
+- `design/` explains why the system has a shape and which rules must remain
+  true; it does not retain completed implementation phases
+- `architecture/` describes how the checked-in system currently runs; proposed
+  behavior belongs in a design document marked `Proposed`
+- `plans/` describes work that is actively being prepared or executed; Git
+  history, rather than completed plan files, preserves the implementation trail
+- `releases/` records what changed in a released version and is the source for
+  the corresponding hosted release description

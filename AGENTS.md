@@ -34,6 +34,19 @@ change to any page must be applied to both language versions. Keep marketing
 claims in sync with actual capabilities; features that are not implemented yet
 must be labeled as roadmap on the pages.
 
+## Documentation Ownership
+
+- `docs/design/` records durable decisions, contracts, invariants, tradeoffs,
+  and rejected alternatives; it may declare a capability `Implemented` or
+  `Proposed` but must not retain completed implementation phases
+- `docs/architecture/` describes how the checked-in system currently runs
+- `docs/plans/` contains only active, time-bound execution plans and deletes
+  them after permanent documentation describes the landed result
+- `docs/releases/` records user-visible changes between published tags and is
+  the source for hosted release descriptions
+- `docs/guides/` is task-oriented and `docs/reference/` is lookup-oriented;
+  neither should carry roadmap or implementation status
+
 ## Change Policy
 
 - by default, changes in this repository do not preserve backward compatibility
