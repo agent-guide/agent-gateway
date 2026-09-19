@@ -21,6 +21,9 @@ Lifecycle convention:
 
 Current plans:
 
+- [v0.6-documentation-unification.md](v0.6-documentation-unification.md):
+  release-preparation cleanup that separates durable design, current
+  architecture, active plans, and versioned release notes
 - [v0.4-completion.md](v0.4-completion.md): remaining work to close the
   `v0.4.x` line
 - [observability-implementation.md](observability-implementation.md):
