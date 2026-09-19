@@ -1,25 +1,22 @@
 # Builtin Agent Runtime
 
+Capability status: **Implemented**.
+
 ## 1. Purpose
 
 This document is the authoritative product and technical design for
 `runtime.type = "builtin"`: agent definitions materialized and executed
 inside the gateway process by the eino ADK host.
 
-The builtin runtime is implemented through PB1 and PB1b. PB2 remains deferred.
 This document owns the builtin definition schema, materialization and session
 lifecycle, topology and middleware behavior, route protocol, observability,
-interactive permissions, operator cancellation, implementation status, and
-remaining builtin-specific questions.
+interactive permissions, operator cancellation, and builtin-specific limits.
 
 Related documents deliberately own different concerns:
 
 - [Agents Control Plane](agents-control-plane.md) defines the shared `Agent`
   identity, resources, policy, attribution, runtime-backend contract, and
   external Workflow Activity boundary across `acp`, `http`, and `builtin`.
-- [Unified Agent Runtime and Routing](../plans/unified-agent-runtime.md)
-  defines the turn-first `agentruntime.Backend` adapter, common capability/event
-  plane, and breaking migration from BuiltinRoute/ACPRoute to AgentRoute.
 - [Eino Capability Reuse](eino-reuse.md) records which eino/eino-ext
   capabilities the repository adopts, defers, or rejects and why.
 - This document defines how the builtin runtime itself works. Other documents
@@ -236,12 +233,9 @@ Package: `pkg/agent/builtin`. The host owns:
   fail-closed (reject, not queue unboundedly).
 - **Disabled semantics**: a disabled agent rejects turns with a
   client-correctable `400`, matching the disabled-ACP-service contract.
-- **Session state**: eino v0.9.x Runner interrupt/checkpoint state is
-  in-memory only; durable session persistence is a v0.10 alpha
-  (`eino-reuse.md` §6.2). PB1 ships turns whose session state is
-  in-memory with documented restart-loss semantics; durable checkpoints are
-  deferred until eino v0.10 stabilizes and must not be hand-rolled before
-  that.
+- **Session state**: Runner interrupt/checkpoint state is in-memory with
+  documented restart-loss semantics. Durable checkpoints require a stable
+  eino persistence seam and must not be hand-rolled by the gateway.
 
 Dependency direction stays intact: `pkg/agent/builtin` depends on `eino/adk`,
 the two bridge adapters, and the runtime managers. The bridges themselves live
@@ -253,18 +247,16 @@ lower protocol layers still never import `pkg/agent`.
 
 - **Data-plane ingress**: a builtin agent is exposed through the unified
   `POST /<agent-route>/turn` streaming SSE endpoint, so clients and the
-  frontend keep one turn interaction language across runtimes. The event vocabulary is mapped from ADK
-  Runner events onto the existing turn event names where semantics align
-  (`delta`, `content`, `tool_call`, `usage`, `done`, `error`); whether the
-  vocabulary is exactly the ACP set or a marked subset is an open question
-  (see [§13](#13-open-questions)).
+  frontend keep one turn interaction language across runtimes. ADK Runner
+  events map onto the supported common turn events (`delta`, `content`,
+  `tool_call`, `usage`, `done`, and `error`).
 - **Unified turn adapter**: builtin is registered as a turn-first
   `agentruntime.Backend`; AgentRoute is its only public ingress.
 - **External Workflow Activity**: an upper-layer Worker invokes the same
   AgentRoute/turn adapter as any other caller. Temporal or another external
   engine may own durable business state, but it does not make the builtin
-  runtime's in-memory session/checkpoint state durable. PB2 is therefore a
-  backend persistence capability, not a gateway Workflow layer.
+  runtime's in-memory session/checkpoint state durable. Persistence remains a
+  backend capability, not a gateway Workflow layer.
 
 ## 8. Observability and attribution
 
@@ -286,9 +278,6 @@ lower protocol layers still never import `pkg/agent`.
   gate the dispatcher applies to inbound `X-Agent-Depth`.
 
 ## 9. Interrupt and human-in-the-loop (tool permissions)
-
-Status: implemented (PB1b). This section is the authoritative design; §12
-records the implementation notes.
 
 **Problem.** A builtin agent executes MCP tools with external side effects the
 moment the model asks. The ACP runtime already has a permission policy
@@ -396,8 +385,8 @@ mutually exclusive in one request.
 - The checkpoint store is an in-process `adk.CheckPointStore` (map keyed by
   `request_id`, with `CheckPointDeleter` for cleanup). This is transient
   interrupt state with the same restart-loss semantics as sessions — it is
-  *not* the hand-rolled durable checkpointing that PB2 forbids; when eino
-  v0.10 Runner persistence stabilizes, this store is the swap seam.
+  *not* a hand-rolled durable checkpoint store; a stable Runner persistence
+  implementation can replace it at this seam.
 - Alongside the checkpoint the host keeps the turn's commit set (user
   message, partial transcript, event counts) so the resumed completion can
   commit the full exchange; an interrupted turn commits nothing.
@@ -434,25 +423,20 @@ but request-oriented summaries exclude it so it cannot inflate request/success
 counts or skew average request latency. The interaction listing projects the
 link trace/span ids for direct operator inspection.
 
-**Admin surface.** `GET /admin/builtin/runtime` (new, mirroring
-`/admin/acp/runtime`) lists host entries and pending permissions (agent id,
-session id, run id, request id, tool calls, expiry). An operator decision escape
-hatch (`POST /admin/builtin/runtime/permissions/{request_id}`, which would
-need headless continuation semantics — the resumed events go nowhere but the
-session transcript and metrics) is deferred until a concrete operator need
-appears; see §13.
+**Admin surface.** `GET /admin/builtin/runtime` lists host entries and pending
+permissions, while `GET /admin/builtin/runtime/inflight` lists active turns.
+Common permission inspection and decisions use
+`/admin/agents/{id}/permissions` so runtime-specific diagnostics do not create
+a second logical control surface.
 
-**Non-goals.** Durable pending permissions (eino v0.10 rule); per-node
+**Non-goals.** Durable pending permissions; per-node
 permission modes; approval of anything other than MCP tool executions (model
 calls and topology transfers stay ungated); model-native deferred/approval
 tool protocols.
 
 ## 10. Operator turn cancellation (force / graceful)
 
-Status: implemented. This answers the §13 open question on stuck turns: PB1
-only drained in-flight turns on the old graph after a definition update and
-bounded each turn with `turn_timeout_seconds`, with no way to stop a specific
-running (or stuck) turn sooner. The builtin host now adopts the eino ADK
+The builtin host uses the eino ADK
 Runner cancel primitive (`adk.WithCancel` → `AgentCancelFunc`, `CancelMode`;
 `eino-reuse.md` §5) for operator-initiated cancellation.
 
@@ -494,128 +478,28 @@ Cancelling a queued turn that has not yet acquired its run (still waiting on
 the session serial or the concurrency slot) is not exposed — such a turn is
 the caller's to abandon by disconnecting.
 
-## 11. Implementation track
+## 11. Current constraints and open design questions
 
-The builtin runtime is its own track. PB0/PB1/PB1b have no dependency on a
-gateway Workflow roadmap. The turn-first builtin `agentruntime.Backend` adapter
-belongs to the unified Agent runtime foundation; PB2 is only the later durable
-builtin session/checkpoint capability used by direct callers or external
-Workflow Workers.
+The following limits are part of the current capability boundary or require a
+separate shared design:
 
-**PB0 — bridge adapters (no agent-model change):** implemented.
+- **Durable sessions and checkpoints:** sessions and checkpoint state are
+  in-memory. Adopt Runner-managed persistence only after eino exposes a stable
+  persistence seam; do not create a competing gateway state engine.
+- **Budget enforcement:** builtin execution must use the shared control-plane
+  budget model rather than a runtime-specific token, cost, or turn budget.
+- **Administrative HITL continuation:** data-plane permission continuation is
+  supported. A headless Admin decision flow requires an event destination for
+  the resumed turn before it can be introduced safely.
+- **Permission scope:** interactive permissions gate MCP executions. Topology
+  transfers and sub-Agent routing are not gated.
+- **Workspace-backed middleware:** filesystem middleware and reduction offload
+  require a gateway workspace and allowed-roots contract. Agent instructions
+  remain inline and reduction remains clear-only.
+- **External durable orchestration:** external Workers may call AgentRoute, but
+  their durable history does not make in-memory builtin sessions durable.
 
-- MCP → `InvokableTool` adapter over `pkg/mcp/service`: `pkg/mcp/einotool`
-  (tool selection by name is fail-closed: a missing tool is an error, not a
-  silent skip)
-- `RoutedProvider` → `model.ToolCallingChatModel` adapter:
-  `pkg/llm/provider/einomodel`
-- both are standalone libraries with tests; they are also independently
-  useful to any in-repo eino consumer
-
-**PB1 — runtime type, host, and ingress:** implemented.
-
-- `runtime.type = "builtin"` with the definition schema and validation from
-  [§4](#4-definition-schema), including the compiled-in factory registry
-  check for `topology.kind = "custom"`
-- the generic ADK host (`pkg/agent/builtin`): materialization cache, panic
-  containment, limits, disabled semantics
-- route-dispatched turn ingress (`POST /<agent-route>/turn`, SSE) through
-  `pkg/gateway/agentroute` and dispatcher `agent` enablement
-- the `builtin` usage event family and explicit `AgentID` span stamping; inner
-  model/tool calls get child spans (kinds `llm`/`mcp`) parented under the turn
-- workspace view keyed off `runtime.type = "builtin"` (definition summary,
-  materialization state, live turns — no ACP fields)
-- bundle/`adminclient`/`agwctl` parity, same as every other config object
-
-Scope notes of the landed slice: every topology kind materializes —
-`single`, `sequential`, `parallel`, `loop`, `supervisor`, `planexecute`
-(role models via `topology.plan_execute`, per [§4](#4-definition-schema)),
-`deep`, and `custom`. Middleware toggles cover `summarization` (using the
-agent's own model), `agentsmd` (over inline virtual documents served by an
-in-memory backend — the file-backend gap that originally deferred it), and
-`reduction` (clear-only; truncation/offload waits for a workspace design,
-per [§4](#4-definition-schema)). Sessions are in-memory
-per the PB1 restart-loss semantics. Dispatcher `agent` enablement is wired in
-both Caddy and standalone bootstrap paths.
-
-**PB1b — interrupt and human-in-the-loop tool permissions:** implemented
-([§9](#9-interrupt-and-human-in-the-loop-tool-permissions)).
-
-- root-level `permissions` block (`auto_approve` default / `interactive`),
-  approval gate over the `einotool` bridge, ADK Runner
-  checkpoint/interrupt/resume with an in-memory `CheckPointStore`
-- `permission` turn event + resume via `POST /<agent-route>/turn` with a
-  `permission` field; every lifecycle edge (TTL, definition update, capacity,
-  unanswered calls) fails closed
-- `GET /admin/builtin/runtime` pending-permission view
-
-**PB2 — durable builtin sessions/checkpoints:**
-
-- adopt Runner session/checkpoint persistence only after a stable eino
-  persistence surface exists; do not hand-roll a competing durable state
-  engine
-- advertise resume and external execution-key capabilities only after they are
-  supported end to end
-- let upper-layer Workflow Workers choose retry/resume policy from those
-  capabilities; no gateway-owned Workflow Agent task is introduced
-
-## 12. Implementation notes: PB1b interactive tool permissions
-
-- Implemented exactly per §9 on eino v0.9.12: the approval gate
-  (`pkg/agent/builtin/permission.go`) interrupts through `compose.Interrupt`
-  with the tool-call payload as the user-facing info, the ADK Runner
-  checkpoints into an in-memory `CheckPointStore` shared across
-  materializations (request id = checkpoint id), and resume goes through
-  `Runner.ResumeWithParams` with every pending interrupt point targeted —
-  unanswered calls carry an explicit deny payload, so no gate is left to
-  re-interrupt on its own.
-- The gate wraps the einotool bridge *outside* the observability wrapper:
-  interrupted and denied calls never open an `mcp` child span, so usage
-  events only record executions that actually reached the MCP service.
-- A resumed run that hits another gated call re-suspends under the same
-  request id (the runner rewrites the checkpoint in place); the pending entry
-  is re-registered with accumulated transcript and refreshed expiry, and
-  replacement never counts against `max_pending`.
-- Deviation from none of the design decisions was needed. One addition the
-  design left implicit: an interrupt that yields no permission calls (some
-  non-gate component interrupting) fails the turn as unresumable rather than
-  suspending — only the approval gate is a sanctioned interrupt source in a
-  builtin graph.
-- The `permission` payload types registered for checkpoint gob serialization
-  go through `schema.RegisterName`, mirroring how ADK registers its own
-  checkpoint types.
-- Verified end to end against the real Runner (no mocked ADK): interrupt →
-  checkpoint gob round-trip → targeted resume → allow executes / deny returns
-  a refusal tool result the model sees; plus TTL expiry, definition-update
-  invalidation, capacity rejection, suspended-session input rejection, and
-  the `auto_approve_tools` bypass.
-
-## 13. Open questions and deferred work
-
-The following builtin-specific items remain open:
-
-- **Durable sessions and checkpoints:** PB1 uses in-memory sessions and
-  checkpoint state. Adopt Runner-managed persistence only after a stable eino
-  release provides the required seam; do not hand-roll a competing durable
-  state engine.
-- **Budget enforcement:** builtin is a convenient enforcement point because
-  the gateway is the caller, but it must use the shared control-plane budget
-  model rather than introduce a runtime-specific token, cost, or turn budget.
-- **Administrative HITL continuation:** the data-plane resume flow is
-  implemented. An Admin API decision endpoint remains deferred because it
-  requires headless continuation whose events have no streaming client.
-- **Permission scope:** interactive permissions gate MCP executions only.
-  Gating topology transfers or sub-agent routing remains deferred until a
-  concrete operator need exists.
-- **Workspace-backed middleware:** filesystem middleware and reduction
-  offload require a gateway workspace and allowed-roots design. Until then,
-  agentsmd documents and skills remain inline, and reduction remains
-  clear-only.
-- **External durable orchestration:** upper-layer Workers already use the
-  shared AgentRoute turn contract. Durable builtin session/checkpoint support
-  remains PB2 and is independent of the external engine's history.
-
-The turn event vocabulary and explicit operator cancellation are decided:
-builtin exposes the documented ACP-compatible subset, and force/graceful
-cancellation is implemented. Definition updates continue to drain turns on
-the old graph unless an operator explicitly cancels them.
+The turn event vocabulary and operator cancellation contract are closed:
+builtin exposes the documented common subset, and supports force and graceful
+cancellation. Definition updates drain turns on the old graph unless an
+operator explicitly cancels them.
