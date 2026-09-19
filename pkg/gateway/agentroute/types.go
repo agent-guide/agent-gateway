@@ -1,9 +1,8 @@
-// Package agentroute defines the unified Agent ingress route model
-// (docs/plans/unified-agent-runtime.md §6). An AgentRoute targets a stable
+// Package agentroute defines the unified Agent ingress route model described by
+// docs/design/agents-control-plane.md. An AgentRoute targets a stable
 // agent_id; the resolved Agent's runtime.type selects the execution backend,
 // so changing an Agent's runtime never changes its route, URL, or VirtualKey
-// allowlist. M5 exposes this model through Admin, CLI, bundles, Caddy, and the
-// standalone dispatcher.
+// allowlist. Admin, CLI, bundle, Caddy, and dispatcher surfaces share this model.
 package agentroute
 
 import (

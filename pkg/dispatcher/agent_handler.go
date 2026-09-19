@@ -17,7 +17,7 @@ import (
 )
 
 // dispatchAgent serves the unified kind=agent ingress
-// (docs/plans/unified-agent-runtime.md §6.4-§6.5): resolve the AgentRoute,
+// (docs/design/agents-control-plane.md): resolve the AgentRoute,
 // resolve the target Agent from the manager's definition snapshot (never the
 // config store), reject disabled Agents before any stream starts, match the
 // endpoint operation, resolve the backend by runtime.type, check the backend

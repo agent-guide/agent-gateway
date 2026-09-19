@@ -60,7 +60,6 @@ Primary detailed documents:
 - [design/route-target-policy.md](design/route-target-policy.md): route target policy architecture
 - [design/memory.md](design/memory.md): memory subsystem design
 - [design/observability.md](design/observability.md): observability design
-- [plans/observability-implementation.md](plans/observability-implementation.md): observability implementation plan
 - [design/protocol-support-strategy.md](design/protocol-support-strategy.md): durable protocol-family and extension policy
 - [development/ai-assisted-refactor-collaboration-templates.md](development/ai-assisted-refactor-collaboration-templates.md): contributor collaboration templates
 

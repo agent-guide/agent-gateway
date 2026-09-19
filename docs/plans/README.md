@@ -24,15 +24,3 @@ Current plans:
 - [v0.6-documentation-unification.md](v0.6-documentation-unification.md):
   release-preparation cleanup that separates durable design, current
   architecture, active plans, and versioned release notes
-- [v0.4-completion.md](v0.4-completion.md): remaining work to close the
-  `v0.4.x` line
-- [observability-implementation.md](observability-implementation.md):
-  implementation plan companion to `design/observability.md`
-- [unified-agent-runtime.md](unified-agent-runtime.md): implementation plan for
-  one turn-first Agent runtime capability layer and one AgentRoute across ACP,
-  HTTP, and builtin Agent identities, with ACP config owned directly by
-  `Agent.runtime.acp` rather than a separate service object; upper-layer
-  durable Workflow Workers call the same AgentRoute boundary, while the
-  gateway's own
-  [Request Pipeline](../design/request-pipeline.md) remains synchronous and
-  non-durable

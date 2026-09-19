@@ -13,7 +13,7 @@ const (
 	RouteKindMCP RouteKind = "mcp"
 	// RouteKindAgent is the unified Agent ingress route kind. It targets an
 	// agent_id and stays runtime-neutral: the resolved Agent's runtime.type
-	// selects the execution backend (docs/plans/unified-agent-runtime.md §6).
+	// selects the execution backend (docs/design/agents-control-plane.md).
 	RouteKindAgent RouteKind = "agent"
 )
 

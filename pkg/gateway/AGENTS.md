@@ -105,8 +105,8 @@ Current shape:
 
 ## `agentroute/`
 
-Defines the unified `kind=agent` ingress route model
-(docs/plans/unified-agent-runtime.md §6): an AgentRoute targets a stable
+Defines the unified `kind=agent` ingress route model described by
+[`docs/design/agents-control-plane.md`](../../docs/design/agents-control-plane.md): an AgentRoute targets a stable
 `agent_id`, and the resolved Agent's `runtime.type` selects the execution
 backend, so a runtime change never changes the route id, URL, or VirtualKey
 allowlist. `Normalize`/`ToConfig` accept `protocol = agent` or `protocol = a2a`;

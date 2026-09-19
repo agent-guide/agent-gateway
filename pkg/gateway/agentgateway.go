@@ -178,7 +178,7 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	// The canonical ACP runtime-config snapshot follows the Agent definition
 	// generation: it preloads at bootstrap and rebuilds (with fingerprint
 	// retirement) on every definition commit, so turn dispatch never reads the
-	// service store (docs/plans/unified-agent-runtime.md M4).
+	// config store (docs/design/agents-control-plane.md).
 	if acpBackend != nil && g.agentManager != nil {
 		g.agentManager.AddDefinitionListener(acpBackend.PrepareRuntimeConfigs)
 		acpBackend.RefreshRuntimeConfigs(ctx, g.agentManager.Snapshot())
