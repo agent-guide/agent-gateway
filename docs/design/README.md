@@ -21,11 +21,16 @@ Current design pages:
 - [enterprise-extension-contract.md](enterprise-extension-contract.md) — Community-side SPI, compatibility, assembly, and cross-repository rules for separately maintained distributions
 - [model-first-routing.md](model-first-routing.md)
 - [route-target-policy.md](route-target-policy.md)
+- [provider-type-startup-policy.md](provider-type-startup-policy.md)
+- [virtual-key-rate-limiting.md](virtual-key-rate-limiting.md)
 - [gateway-bundle-yaml.md](gateway-bundle-yaml.md)
 - [mcp-tool-policy.md](mcp-tool-policy.md)
 - [memory.md](memory.md)
 - [observability.md](observability.md)
 - [external-agent-observability-correlation.md](external-agent-observability-correlation.md)
-- [protocol-support-roadmap.md](protocol-support-roadmap.md)
+- [protocol-support-strategy.md](protocol-support-strategy.md)
 - [anthropic-protocol-fidelity.md](anthropic-protocol-fidelity.md) — target architecture for shared Anthropic/CC protocol handling, native-state fidelity, stream encoding, and dialect capabilities
+- [anthropic-stream-transition-table.md](anthropic-stream-transition-table.md)
 - [eino-reuse.md](eino-reuse.md)
+- [request-pipeline.md](request-pipeline.md)
+- [zhipu-vision-model-routing.md](zhipu-vision-model-routing.md)

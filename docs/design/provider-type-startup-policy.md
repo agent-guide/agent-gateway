@@ -1,5 +1,7 @@
 # Provider Type Startup Policy
 
+Capability status: **Implemented**.
+
 ## Purpose
 
 Provider types are process capabilities. They are registered by compiled Go packages and enabled or disabled only during gateway startup.

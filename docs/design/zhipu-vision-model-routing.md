@@ -1,8 +1,11 @@
 # Zhipu Coding Plan Vision Request Pipeline
 
-## 1. Status
+Capability status: **Proposed**.
 
-This document defines a proposed design. It is not implemented.
+## 1. Purpose
+
+This document defines a request-pipeline design for image-bearing Coding Plan
+requests.
 
 It replaces the earlier provider-local proposal that detected image content
 inside the `zhipu` provider and silently swapped the upstream model. That
@@ -560,62 +563,8 @@ Structural validation checks the service reference and tool name; apply or
 startup performs discovery and fails readiness when the required tool is
 missing.
 
-## 17. Testing
 
-### Pipeline unit tests
-
-- text-only input skips MCP and calls the LLM step once;
-- one image creates one MCP child step;
-- multiple images serialize calls to the reused stdio service and join results
-  in original order;
-- dependency failure prevents the LLM step;
-- cancellation removes artifacts and stops active MCP calls;
-- terminal stream ownership is unique.
-
-### Protocol tests
-
-- Responses data URL is extracted, analyzed, removed, and replaced with text;
-- Chat Completions image URL/data URL shape is handled;
-- Anthropic/CC base64 image shape is handled;
-- client tools and tool history survive rewrite unchanged;
-- text-only wire payload remains semantically equivalent;
-- rewritten provider request contains no image bytes or image content parts.
-
-### Security tests
-
-- malformed base64;
-- MIME mismatch;
-- per-image and aggregate size limits;
-- generated path cannot escape the run directory;
-- cleanup on success, error, timeout, cancellation, and panic;
-- remote URL rejected by default;
-- logs and errors never contain base64, authorization values, or image bytes.
-
-### Integration tests
-
-- local stdio Vision MCP reads the generated path;
-- remote MCP cannot be configured with local-path mode;
-- MCP failure maps to the documented protocol error;
-- LLM credential scheduling/fallback still applies;
-- MCP and LLM usage events share one trace and correct attribution;
-- Codex and Claude Code streaming remain protocol-compatible.
-
-## 18. Rollout
-
-1. Implement Request Pipeline G0–G2 from
-   [request-pipeline.md](request-pipeline.md#13-implementation-plan).
-2. Add protocol-neutral media extraction and rewrite hooks.
-3. Register the two media Transform handlers.
-4. Configure and verify the local Zhipu Vision MCP service.
-5. Add the `glm-coding-plan` provider instance.
-6. Apply the Request Pipeline Definition without binding production routes.
-7. Run protocol and security integration tests.
-8. Bind one canary LLM route through
-   `execution_policy.type = request_pipeline`.
-9. Compare text-only latency and image-request success/usage.
-10. Expand routing after MCP capacity and timeout behavior are verified.
-
-## 19. Rejected Alternatives
+## 17. Rejected Alternatives
 
 ### Swap To A Vision Chat Model In `zhipu`
 

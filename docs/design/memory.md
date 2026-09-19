@@ -1,5 +1,7 @@
 # Agent Gateway Memory Design
 
+Capability status: **Proposed**.
+
 ## 1. Scope
 
 This document describes the design for route-level memory infrastructure in `agent-gateway`.
@@ -36,7 +38,7 @@ This design does not attempt to:
 
 - expose memory as MCP tools
 - apply memory policy to MCP protocol requests
-- make every LLM ingress shape memory-aware in phase 1
+- make every LLM ingress shape memory-aware in the initial scope
 - require the gateway to infer session identity from prompt text alone
 - build a general-purpose standalone vector database product
 
@@ -62,12 +64,12 @@ The current `pkg/dispatcher.Handler` resolves the route and selects the protocol
 
 Memory support is not uniform across all current LLM ingress shapes.
 
-### 5.1 Supported In Phase 1
+### 5.1 Initial Retrieval Scope
 
 - OpenAI-compatible chat completions: retrieval and injection
 - Anthropic messages: retrieval and injection
 
-### 5.2 Supported In Phase 2
+### 5.2 Async Extraction Extension
 
 - OpenAI-compatible chat completions: async extraction
 - Anthropic messages: async extraction
@@ -157,7 +159,7 @@ Every memory retrieval or extraction audit record must carry the same `trace_id`
 
 Memory isolation is tenant-scoped first, namespace-scoped second.
 
-Phase 1 tenant identity is:
+The initial scope tenant identity is:
 
 - `virtual_key_id` when the route requires a VirtualKey
 - otherwise route-scoped only, with shared memory disabled by default
@@ -168,7 +170,7 @@ Shared namespaces must never cross tenant boundaries unless an explicit later-ph
 
 The gateway must not infer session identity from prompt text.
 
-Phase 1 session resolution precedence is:
+The initial scope session resolution precedence is:
 
 1. explicit gateway header `X-Session-ID`
 2. protocol-specific session field explicitly mapped by the ingress adapter, when one is later defined
@@ -189,7 +191,7 @@ The gateway must distinguish route identity from agent identity.
 - `route_id` identifies gateway policy ownership
 - `agent_id` identifies the logical agent writer/reader when supplied by the caller or later orchestration layers
 
-Phase 1 does not require `agent_id`. Route-private namespaces therefore key by route, not by inferred agent name.
+The initial scope does not require `agent_id`. Route-private namespaces therefore key by route, not by inferred agent name.
 
 ## 8. Memory Policy Model
 
@@ -249,17 +251,17 @@ Fields:
 
 - `route_private`: whether to query the route-private namespace
 - `shared_namespaces`: ordered list of shared scopes to query
-- `session_namespaces`: whether to query the resolved session namespace; phase 1 only supports `["session"]`
+- `session_namespaces`: whether to query the resolved session namespace; the initial scope only supports `["session"]`
 - `top_k`: maximum number of raw candidates before final ranking and token filtering
 - `token_budget`: maximum tokens allocated to injected memory
-- `injection`: where to inject context. Phase 1 supports `system_prompt_suffix` only
-- `format`: how to format injected memory. Phase 1 supports `structured_summary`
+- `injection`: where to inject context. The initial scope supports `system_prompt_suffix` only
+- `format`: how to format injected memory. The initial scope supports `structured_summary`
 
 ### 8.4 Extraction Policy
 
 Fields:
 
-- `mode`: `rules` or `async_llm` in phase 2; `inband` is opt-in and not recommended
+- `mode`: `rules` or `async_llm` in the async extraction extension; `inband` is opt-in and not recommended
 - `write_private`: write extracted entries to the route-private namespace
 - `write_session`: write extracted entries to the resolved session namespace when session identity exists
 - `promote_to_shared_namespaces`: shared scopes eligible for promotion
@@ -273,7 +275,7 @@ Fields:
 
 The retrieval query is built from normalized conversational content, not from raw HTTP bodies.
 
-Phase 1 query input:
+The initial scope query input:
 
 - current system prompt or equivalent instruction field, when present
 - the most recent user turns from the normalized protocol request
@@ -294,7 +296,7 @@ Session continuity is high priority only when a resolved session identity exists
 
 ### 9.3 Injection Format
 
-Phase 1 uses a structured summary format only.
+The initial scope uses a structured summary format only.
 
 Example:
 
@@ -322,13 +324,14 @@ When retrieved entries exceed `token_budget`:
 3. compress by type summary when available
 4. drop lowest-value entries last
 
-Phase 1 does not require LLM-based compression on the request path.
+The initial retrieval contract does not require LLM-based compression on the
+request path.
 
 ## 10. Extraction Design
 
 ### 10.1 Supported Extraction Modes
 
-Phase 2 supports:
+The proposed async extraction extension supports:
 
 - `rules`: low-cost pattern extraction for explicit preferences, corrections, and simple facts
 - `async_llm`: asynchronous extraction from normalized request/response content using a secondary model
@@ -384,7 +387,7 @@ The store must support version-aware updates so later corrections or changed dec
 
 This design extends the existing `pkg/llm/memory/` abstraction rather than creating a parallel top-level memory subsystem.
 
-Phase 1 and 2 storage must evolve `pkg/llm/memory` to support:
+Retrieval and extraction storage must evolve `pkg/llm/memory` to support:
 
 - explicit tenant scope
 - explicit namespace class and namespace ID
@@ -548,45 +551,8 @@ Protocol handlers remain responsible for:
 - encoding protocol-specific responses
 - exposing enough normalized request and response structure for the execution seam
 
-## 17. Implementation Order
 
-### Phase 1: Identity And Retrieval
-
-Goal: safe route-level retrieval and injection for chat-style requests.
-
-1. define `MemoryPolicy` and validation for LLM routes
-2. extend shared route persistence to round-trip `memory_policy`
-3. extend `pkg/llm/memory` with tenant, namespace, typed entry, and search support
-4. add request identity resolution for `trace_id`, `virtual_key_id`, and optional `session_id`
-5. introduce a shared LLM execution seam
-6. implement retrieval, ranking, formatting, and injection for OpenAI chat completions and Anthropic messages
-7. emit memory retrieval observability records correlated to the parent LLM interaction
-
-### Phase 2: Async Extraction
-
-Goal: write high-value memory without changing the client-visible response contract.
-
-1. implement rules-based extraction
-2. implement async LLM extraction from normalized interaction content
-3. implement deduplication, supersession, and confidence thresholds
-4. write to private and session scopes
-5. emit extraction observability records
-
-### Phase 3: Shared Promotion And Admin Management
-
-Goal: controlled multi-route shared memory.
-
-1. implement shared promotion policy and confidence gates
-2. add namespace admin CRUD and debug search endpoints
-3. add shared namespace inspection and retention management
-
-### Later Phase
-
-- optional `Responses` API adapter support
-- optional opt-in `inband` extraction for narrowly safe request classes
-- richer tenant identity beyond `virtual_key_id`
-
-## 18. Relationship To Existing Documents
+## 17. Relationship To Existing Documents
 
 `observability.md`:
 
@@ -605,9 +571,9 @@ Goal: controlled multi-route shared memory.
 - route policy controls what context the model receives automatically, just as MCP tool policy controls what capabilities the model can invoke explicitly
 - both are gateway-level behavior layers that must respect shared route foundations and protocol-aware runtime boundaries
 
-## 19. Value Proposition And Positioning
+## 18. Value Proposition And Positioning
 
-### 19.1 The Core Distinction
+### 18.1 The Core Distinction
 
 Gateway memory and SDK/framework memory (LangChain, Mem0, LlamaIndex, MemGPT, etc.) differ fundamentally in **who owns memory control**: the application developer or the infrastructure operator.
 
@@ -615,7 +581,7 @@ Gateway memory is infrastructure. It operates below the application layer and is
 
 Neither model is universally superior. The right choice depends on the target scenario.
 
-### 19.2 Where Gateway Memory Has An Advantage
+### 18.2 Where Gateway Memory Has An Advantage
 
 **Zero-intrusion integration**
 
@@ -637,7 +603,7 @@ Memory policy lives in route configuration. Platform teams can adjust `token_bud
 
 Memory events carry the same `trace_id` as the LLM interaction that triggered them. No application-layer instrumentation is required.
 
-### 19.3 Where Gateway Memory Has A Disadvantage
+### 18.3 Where Gateway Memory Has A Disadvantage
 
 **Limited semantic depth**
 
@@ -653,7 +619,7 @@ The gateway must not infer session identity from prompt text. Callers must send 
 
 **Injection point constraints**
 
-Phase 1 supports only `system_prompt_suffix`. SDK-based memory can inject context as user messages, tool results, structured context blocks, or dynamically within a conversation. The optimal injection point varies by model and task type, and gateway memory cannot adapt to those differences in phase 1.
+The initial scope supports only `system_prompt_suffix`. SDK-based memory can inject context as user messages, tool results, structured context blocks, or dynamically within a conversation. The optimal injection point varies by model and task type, and gateway memory cannot adapt to those differences in the initial scope.
 
 **Async extraction means memory is not available within the same session**
 
@@ -663,7 +629,7 @@ Async extraction means that memory written during the current conversation is no
 
 Historical conversation data or existing memory state held in an application database cannot be directly imported into gateway memory namespaces without a custom migration. SDK-based systems can initialize memory directly from existing data stores.
 
-### 19.4 Positioning Summary
+### 18.4 Positioning Summary
 
 Gateway memory is best suited as a **shared working memory layer** across agents: project context, cross-session preferences, team-level decisions. It is not intended to replace fine-grained agent-driven memory control within a single agent's reasoning process.
 
@@ -672,11 +638,11 @@ The two models are not mutually exclusive. A recommended composition pattern is:
 - gateway memory handles cross-agent shared context and route-level preference injection automatically
 - application-layer agents use MCP tools for explicit, agent-driven memory operations when precision and agent awareness are required
 
-## 20. Effectiveness Evaluation
+## 19. Effectiveness Evaluation
 
 Memory effectiveness cannot be measured by system metrics alone. The evaluation strategy covers three layers: retrieval quality, injection value, and extraction quality.
 
-### 20.1 Retrieval Quality
+### 19.1 Retrieval Quality
 
 **Offline evaluation with labeled datasets**
 
@@ -693,7 +659,7 @@ Construct a labeled dataset: given a conversation context, annotate which memory
 - **Injection rate**: `entries_injected / entries_retrieved`. A persistently low ratio indicates that retrieved entries are low quality or the token budget is too tight.
 - **Hit stability**: within a session, similar queries should consistently retrieve overlapping entries. High volatility suggests ranking instability.
 
-### 20.2 Injection Effectiveness
+### 19.2 Injection Effectiveness
 
 Injection effectiveness is the hardest layer to measure directly. The primary method is controlled experimentation.
 
@@ -719,7 +685,7 @@ memory_value_ratio = tokens_injected / total_prompt_tokens
 
 Combined with output quality scoring, this identifies the optimal `token_budget` range for a given route.
 
-### 20.3 Extraction Quality
+### 19.3 Extraction Quality
 
 **Precision and recall over replayed conversations**
 
@@ -733,7 +699,7 @@ For a batch of historical conversations, run extraction offline and evaluate:
 - Rate at which the same key is written multiple times (deduplication failure rate)
 - Whether confidence for the same information converges monotonically across sessions
 
-### 20.4 System-Level Metrics
+### 19.4 System-Level Metrics
 
 These can be driven directly from `MemoryRetrievalEvent` and `MemoryExtractionEvent`:
 
@@ -745,9 +711,9 @@ memory write QPS vs read QPS ratio
 shared promotion trigger rate (used to calibrate shared_promotion_min_confidence)
 ```
 
-### 20.5 Minimum Viable Evaluation For Phase 1
+### 19.5 Minimum Viable Evaluation
 
-Phase 1 delivers retrieval and injection only. The recommended starting evaluation set is:
+The initial scope delivers retrieval and injection only. The recommended starting evaluation set is:
 
 1. **Offline Recall@5 baseline**: hand-label 50–100 test cases covering the primary routes
 2. **Online injection rate monitoring**: track `entries_injected / entries_retrieved` per route
@@ -755,9 +721,9 @@ Phase 1 delivers retrieval and injection only. The recommended starting evaluati
 
 These three metrics answer the three foundational questions: did we retrieve the right entries, did we inject them, and did injection help.
 
-## 21. Tradeoffs And Recommendations
+## 20. Tradeoffs And Recommendations
 
-### 21.1 Scenario Decision Matrix
+### 20.1 Scenario Decision Matrix
 
 | Scenario | Recommended Approach |
 |---|---|
@@ -769,7 +735,7 @@ These three metrics answer the three foundational questions: did we retrieve the
 | Fine-grained memory within a single session | SDK/framework or hybrid — async extraction has inherent latency |
 | Multi-tenant SaaS platform with operator-managed policy | Gateway memory — tenant isolation and policy ownership are infrastructure concerns |
 
-### 21.2 Recommended Composition Pattern
+### 20.2 Recommended Composition Pattern
 
 Gateway memory and SDK/framework memory are not mutually exclusive. The recommended pattern for systems that need both is:
 
@@ -787,16 +753,16 @@ application memory layer (via MCP tools exposed through the gateway)
 
 The gateway handles the background memory infrastructure. The agent handles deliberate, agent-initiated memory operations through explicit MCP tool calls.
 
-### 21.3 Key Constraints To Accept In Phase 1
+### 20.3 Initial Constraints
 
 The following limitations are by design and should be accepted rather than worked around:
 
 - **Session identity must be explicit**: do not attempt to infer `X-Session-ID` from prompt content; degrade gracefully to route-private retrieval only when session identity is absent
-- **Injection point is fixed at system prompt suffix**: do not add injection modes until phase 1 retrieval quality is validated at production scale
+- **Injection point is fixed at system prompt suffix**: do not add injection modes until the initial scope retrieval quality is validated at production scale
 - **Async extraction only**: do not introduce synchronous extraction on the critical path; the latency cost is not justified until extraction quality is proven
-- **Generic extraction schema in phase 2**: resist domain-specific extraction customization until the base extraction pipeline is stable and quality is measured
+- **Generic extraction schema in the async extraction extension**: resist domain-specific extraction customization until the base extraction pipeline is stable and quality is measured
 
-### 21.4 When To Revisit These Tradeoffs
+### 20.4 When To Revisit These Tradeoffs
 
 The following conditions should trigger a reassessment of the gateway memory approach:
 

@@ -1,6 +1,6 @@
 # Anthropic Messages Stream Transition Table
 
-Status: migration contract
+Capability status: **Implemented**.
 
 This table freezes the stream lifecycle required by
 `anthropic-protocol-fidelity.md`. The executable copy lives in
@@ -50,8 +50,3 @@ Global rules applied in addition to the executable matrix:
    fabricated.
 8. Deferred text and tool arguments are bounded. Overflow is `invalid_state`
    and the payload is never logged.
-
-Phase 0 deliberately characterizes two existing violations rather than
-changing production output: provider-open failure currently follows a committed
-SSE error, and unmappable native block events are currently dropped. Phase 1
-must replace those characterizations with the target transitions above.

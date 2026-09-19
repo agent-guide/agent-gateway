@@ -1,5 +1,7 @@
 # Gateway Bundle YAML
 
+Capability status: **Implemented**.
+
 ## 1. Purpose
 
 This document describes the architecture and current technical implementation of the gateway bundle YAML workflow.
@@ -236,7 +238,7 @@ agentRoutes:
 
 Field naming is intentionally kept close to existing JSON model fields so the bundle can reuse current runtime types.
 
-## 8. Current Implemented Scope
+## 8. Supported Object Scope
 
 The current implemented bundle path covers:
 
@@ -428,7 +430,7 @@ What it changes is the recommended CLI write path:
 
 For configuration-type objects, the CLI no longer exposes per-object JSON `create` / `update` / `upsert` commands as the normal path.
 
-## 17. Current Limitations
+## 17. Limits
 
 Known current limitations:
 

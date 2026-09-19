@@ -1,10 +1,10 @@
 # Gateway Request Pipeline And External Orchestration
 
-## 1. Status And Decision
+Capability status: **Proposed**.
 
-This document defines the proposed Pipeline/Workflow boundary for
-`agent-gateway`. It is
-not implemented.
+## 1. Decision
+
+This document defines the Pipeline/Workflow boundary for `agent-gateway`.
 
 The architecture has two deliberately separate orchestration layers:
 
@@ -603,42 +603,8 @@ apply/export/validate. They are applied after referenced MCP services and
 resource LLM routes, and before ingress LLM routes that pin them. Executions, events,
 Projects, schedules, and external engine objects never enter a gateway bundle.
 
-## 13. Implementation Plan
 
-### G0: In-Memory Runner
-
-- add `pkg/requestpipeline` definitions, validation, bounded DAG runner, step
-  SPI, in-memory state, cancellation cascade, and request artifact store;
-- implement Transform and MCP handlers;
-- implement closed step-error classification;
-- test fan-out ordering, bounds, cancellation, cleanup, and retry safety.
-
-### G1: Definition Management
-
-- add the `request_pipelines` config store and immutable manager snapshot;
-- add `/admin/request-pipelines` definition CRUD;
-- add bundle apply/export/validation and revision pinning;
-- keep execution state non-persistent and without an Execution Admin API.
-
-### G2: LLM Route Profile
-
-- add `execution_policy.type = request_pipeline` to LLM routes;
-- add normalized protocol request/media hooks and `ResponseStreamer`;
-- implement the LLM handler over `RoutedProvider`;
-- implement route binding validation;
-- ship the Zhipu vision pipeline as the first end-to-end consumer.
-
-### G3: External Orchestration Contract
-
-- document Worker-safe AgentRoute/LLM/MCP invocation patterns;
-- define trusted correlation metadata and stable execution-key propagation;
-- publish a Temporal reference Worker/sample outside the runtime core;
-- test cancellation, duplicate Activity delivery, permission capability
-  discovery, event relay, and trace correlation;
-- do not add Temporal SDK dependencies to `pkg/requestpipeline`,
-  `pkg/agent/runtime`, or protocol packages.
-
-## 14. Rejected Alternatives
+## 13. Rejected Alternatives
 
 ### Gateway-Owned Durable Workflow Engine
 

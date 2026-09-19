@@ -1,7 +1,8 @@
 # Eino Capability Reuse
 
-Capability status: **Implemented**, with explicitly conditional future
-adoptions.
+Capability status: **Implemented**.
+
+Future adoptions remain explicitly conditional.
 
 ## 1. Purpose
 

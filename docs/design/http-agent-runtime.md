@@ -7,7 +7,9 @@ This document is the authoritative product and technical design for
 lifecycle, with the gateway acting as a client (translating ingress) or a
 governed proxy (non-translating ingress).
 
-Capability status: **Implemented**. HTTP Agents execute through the common
+Capability status: **Implemented**.
+
+HTTP Agents execute through the common
 `protocol agent` `/turn` ingress using A2A 1.0 JSON-RPC southbound, or through
 native governed `protocol a2a` routes (Path A, §8).
 

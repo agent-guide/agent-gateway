@@ -1,10 +1,11 @@
 # Community Guardrails Core
 
-## 1. Status and purpose
+Capability status: **Proposed**.
 
-This document defines the Community Guardrails Core for `agent-gateway`. It is
-a design and implementation direction; the subsystem described here is not yet
-implemented. Its integration points are aligned with the current unified
+## 1. Purpose
+
+This document defines the Community Guardrails Core for `agent-gateway`. Its
+integration points are aligned with the current unified
 `kind=agent` runtime and LLM/MCP dispatcher; names in code blocks below are
 proposed API shapes, not claims about existing exported Go types.
 
@@ -550,42 +551,8 @@ Decision events use the existing asynchronous event pipeline and retention
 mechanism. They are operational events, not a financial ledger or immutable
 compliance archive.
 
-## 16. Community implementation order
 
-### C0: enforceable chat boundary
-
-- [ ] runtime package, engine, types, policy, registry, and coverage metadata;
-- [ ] trust-zone fields and complete route-candidate validation;
-- [ ] policy manager, ConfigStore schema, bundle object, and route binding;
-- [ ] typed OpenAI/Anthropic/CC chat views and lossless rewrites;
-- [ ] deterministic `pii_scan` and generic internal-model checker executor;
-- [ ] baseline `topic_filter`;
-- [ ] monitor/enforce, bounded input, deadlines, cancellation, and failure matrix;
-- [ ] typed block errors and protocol-shaped pre-stream HTTP responses;
-- [ ] sanitized decision events, metrics, and trace correlation;
-- [ ] real client compatibility tests for blocked streaming responses.
-
-### C1: operation-complete gateway coverage
-
-- [ ] OpenAI Responses and embeddings views;
-- [ ] upstream MCP method views and insertion points;
-- [ ] unified Agent turn view and runtime-neutral insertion point;
-- [ ] prove `RoutedProvider` coverage for builtin `Generate`/`Stream`, including
-  supervisor, deep, plan-execute, tool-result, and resumed turns;
-- [ ] operation capability endpoint;
-- [ ] Admin runtime query and `agwctl` read surface.
-
-### C2: hardening
-
-- [ ] policy update concurrency and immutable snapshot tests;
-- [ ] checker-route fallback, recursion, and trust-boundary tests;
-- [ ] malformed verdict, invalid UTF-8 span, overlap, and rewrite tests;
-- [ ] latency and throughput benchmarks for documented starter profiles;
-- [ ] fuzzing of normalized views and protocol block renderers;
-- [ ] Caddy and standalone assembly parity;
-- [ ] upgrade guidance from the opt-in gate to enforced external-route policy.
-
-## 17. External extension boundary
+## 16. External extension boundary
 
 Once implemented and designated, separately maintained modules may register
 checks through the Community Check SPI, but their product behavior is not
@@ -600,7 +567,7 @@ Before relying on it across repositories, it must be explicitly designated,
 documented, versioned, and covered by the contract and compatibility rules in
 `enterprise-extension-contract.md`.
 
-## 18. Related documents
+## 17. Related documents
 
 - [Architecture Overview](../architecture/architecture-overview.md)
 - [Agent Control Plane](agents-control-plane.md)

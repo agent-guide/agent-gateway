@@ -1,5 +1,7 @@
 # Model-First Routing Architecture And Technical Specification
 
+Capability status: **Implemented**.
+
 ## 1. Scope
 
 This document defines the current model-first routing architecture in `agent-gateway`.

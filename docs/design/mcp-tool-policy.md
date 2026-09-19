@@ -1,5 +1,7 @@
 # MCP Tool Policy Design
 
+Capability status: **Proposed**.
+
 ## 1. Scope
 
 This document describes the design for MCP tool policy in `agent-gateway`.
@@ -35,13 +37,13 @@ This design does not attempt to:
 
 - apply tool policy to LLM-level function calling (request-side tools in LLM API payloads)
 - implement tool policy enforcement at the MCP service level; policy is always route-level
-- implement synthetic tool execution in phase 2; that is a later phase
+- implement synthetic tool execution in the initial policy scope; that is a later phase
 
 ## 4. Capability Overview
 
 MCP routes may declare a `tool_policy` that controls what the gateway exposes to downstream clients.
 
-Phase 2 supports three policy controls:
+The initial policy scope supports three policy controls:
 
 - **Tool filtering**: allowlist or denylist of tool names. Applied to `tools/list` responses and enforced on `tools/call` requests.
 - **Description override**: replace upstream tool description with a shorter or more precise gateway-defined description. Reduces per-request token overhead when tool definitions are large.
@@ -251,7 +253,7 @@ The service manager internally delegates to lower-level service-only methods aft
 
 ### 6.6 Future Extension: Tool Replacement
 
-The phase 2 policy is limited to filtering, aliasing, and description rewrite. That is enough to reduce token overhead and improve governance, but it is not yet full tool replacement.
+The the initial policy scope policy is limited to filtering, aliasing, and description rewrite. That is enough to reduce token overhead and improve governance, but it is not yet full tool replacement.
 
 If the gateway later needs to replace an upstream tool with a gateway-implemented or gateway-wrapped tool, that requires a separate execution model:
 
@@ -259,7 +261,7 @@ If the gateway later needs to replace an upstream tool with a gateway-implemente
 - explicit audit attribution of `presented_tool_name` versus `executed_tool_name`
 - optional comparison fields for token savings or alternate implementation path
 
-That work is intentionally out of scope for phase 2.
+That work is intentionally out of scope for the initial policy scope.
 
 ### 6.7 Synthetic Tool Replacement
 
@@ -447,7 +449,7 @@ It should not default to returning unrestricted `git diff` or `git status --verb
 
 #### 6.7.7 Audit Impact
 
-Synthetic replacement extends the audit model defined in `observability.md`. The `MCPUsageEvent` already carries `presented_tool_name`, `executed_tool_name`, `execution_mode`, and `policy_action` fields from phase 1. The tool policy layer is responsible for populating these fields when it resolves the tool call:
+Synthetic replacement extends the audit model defined in `observability.md`. The `MCPUsageEvent` already carries `presented_tool_name`, `executed_tool_name`, `execution_mode`, and `policy_action` fields in the observability event schema. The tool policy layer is responsible for populating these fields when it resolves the tool call:
 
 - `presented_tool_name`: set to the client-provided tool name (the alias or synthetic name)
 - `executed_tool_name`: set to the upstream tool name (for aliases) or synthetic executor ID (for synthetic tools)
@@ -456,16 +458,6 @@ Synthetic replacement extends the audit model defined in `observability.md`. The
 
 This preserves full observability when the agent-visible tool is not the same as the executed implementation.
 
-#### 6.7.8 Scope And Phasing
-
-Synthetic tool replacement is feasible in this architecture because the gateway already terminates the client-facing MCP session and is allowed to execute protocol-aware logic before returning a result.
-
-Recommended phasing:
-
-- phase 2: filtering, aliasing, description rewrite
-- later phase: synthetic tool registry and gateway-executed tool replacement
-
-That later phase should be treated as an extension of MCP tool policy, not as a small variation of aliasing.
 
 ## 7. Admin API
 
@@ -475,7 +467,7 @@ Tool policy is stored on the MCP route config. The existing MCP route CRUD endpo
 - `PUT /admin/mcp/routes/{id}` — update route; replace or clear `tool_policy`
 - `GET /admin/mcp/routes/{id}` — includes `tool_policy` in the response
 
-No dedicated tool policy endpoints are needed in phase 2; the policy is a field on the route object.
+No dedicated tool policy endpoints are needed in the initial policy scope; the policy is a field on the route object.
 
 For bundle workflows, the `tool_policy` field participates in the bundle schema, validation, and export as part of the MCP route config.
 
@@ -510,32 +502,8 @@ pkg/mcp/service/
 - add `ToolPolicy *ToolPolicy` field to `MCPRouteConfig` and `MCPRoute`
 - `ToolPolicy` is marshaled/unmarshaled as part of the route JSON stored in the config store
 
-## 10. Implementation Order
 
-### Phase 2: MCP Tool Policy (target scope)
-
-Goal: route-level tool filtering and description overrides.
-
-1. Add `ToolPolicy` and `ToolOverride` types to `pkg/gateway/mcproute/tool_policy.go`
-2. Add `ToolPolicy` field to `MCPRouteConfig` and `MCPRoute` in `types.go`; update JSON marshal/unmarshal
-3. Implement `ListToolsForRoute` in `pkg/mcp/service/tool_policy.go`: fetch upstream list, apply filter, apply overrides
-4. Implement `CallToolForRoute`: resolve alias, check allow set, forward or return `-32601`
-5. Update `pkg/dispatcher/mcp_handler.go` to call route-aware helpers for `tools/list` and `tools/call`
-6. Add `tool_policy` to Admin CRUD for MCP routes (accept in POST/PUT, return in GET)
-7. Add `tool_policy` to bundle schema, validation, and export
-
-### Phase 5: Synthetic MCP Tools
-
-Goal: allow the gateway to expose and execute synthetic tools such as `well_git`.
-
-1. Define route-visible synthetic tool config (`SyntheticTool`, `SyntheticToolExecutor`) and validation
-2. Implement `SyntheticToolRegistry` and `Executor` interface in `pkg/mcp/service/`
-3. Merge synthetic tools into `tools/list` output in `ListToolsForRoute`
-4. Extend `CallToolForRoute` to resolve `tools/call` to forwarded, wrapped, or synthetic execution
-5. Populate `presented_tool_name`, `executed_tool_name`, and `execution_mode` on the `InteractionSpan` for synthetic execution paths (see `observability.md` §7.1)
-6. Add admin and bundle support for synthetic tool definitions
-
-## 11. Relationship To Existing Documents
+## 10. Relationship To Existing Documents
 
 `observability.md`:
 - the `MCPUsageEvent` in that document carries `presented_tool_name`, `executed_tool_name`, `execution_mode`, and `policy_action` fields that this tool policy layer is responsible for populating

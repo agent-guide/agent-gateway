@@ -1,5 +1,10 @@
 # Enterprise Extension Contract
 
+Capability status: **Implemented**.
+
+Individual extension surfaces are protected only when explicitly designated
+by released code and contract tests.
+
 ## 1. Purpose and status
 
 This document defines the Community-side rules required for a separately

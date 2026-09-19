@@ -1,5 +1,7 @@
 # Route Target Policy Architecture And Technical Specification
 
+Capability status: **Implemented**.
+
 ## 1. Scope
 
 This document defines the current route target policy architecture in `agent-gateway`.
