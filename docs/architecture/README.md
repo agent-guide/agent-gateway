@@ -12,4 +12,5 @@ Current pages:
 - [llm-request-flow.md](llm-request-flow.md)
 - [mcp-architecture.md](mcp-architecture.md)
 - [acp-architecture.md](acp-architecture.md)
+- [http-agent-architecture.md](http-agent-architecture.md)
 - [configstore-architecture.md](configstore-architecture.md)

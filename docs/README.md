@@ -42,8 +42,9 @@ Primary detailed documents:
 
 - [architecture/architecture-overview.md](architecture/architecture-overview.md): current repository architecture overview
 - [architecture/configstore-architecture.md](architecture/configstore-architecture.md): ConfigStore architecture and persistence contract
-- [architecture/mcp-architecture.md](architecture/mcp-architecture.md): MCP gateway architecture and implementation status
+- [architecture/mcp-architecture.md](architecture/mcp-architecture.md): current MCP gateway architecture
 - [architecture/acp-architecture.md](architecture/acp-architecture.md): ACP gateway architecture and implementation status
+- [architecture/http-agent-architecture.md](architecture/http-agent-architecture.md): current HTTP Agent Path A and Path B architecture
 - [getting-started/quickstart-acp.md](getting-started/quickstart-acp.md): ACP gateway quick start
 - [reference/acp-api.md](reference/acp-api.md): ACP dispatcher and Admin API reference
 - [reference/acp-technical-spec.md](reference/acp-technical-spec.md): ACP service, route, runtime, and event specification

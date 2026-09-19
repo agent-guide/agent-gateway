@@ -2,9 +2,9 @@
 
 ## 1. Scope
 
-This document describes the current architecture of `agent-gateway` as it exists in the repository today, plus the intended extension points that are already visible in the codebase.
-
-It is not a pure future-state blueprint anymore. Where the implementation is partial, this document calls that out explicitly.
+This document describes the current architecture of `agent-gateway` as it
+exists in the repository today. Proposed capabilities are documented
+separately under `docs/design/`.
 
 ## 2. Design Goals
 
@@ -13,7 +13,8 @@ The project is built around four practical goals:
 - Reuse Caddy's module system and config model where they fit, while keeping the core runtime reusable by the standalone daemon
 - Expose familiar LLM-compatible HTTP APIs to agent clients
 - Centralize provider configuration, upstream credentials, and gateway-side API keys
-- Leave room for richer agent runtime features such as MCP, ACP, memory, and orchestration without forcing them into every caller
+- Keep LLM, MCP, and Agent protocol concerns separated behind shared routing,
+  credential, and observability foundations
 
 The current Go module path is `github.com/agent-guide/agent-gateway`.
 
@@ -58,17 +59,17 @@ Shared gateway runtime
   - Agent-owned ACP runtime/process manager
   - agent manager (Agent CRUD + immutable definition snapshot)
   - builtin ADK host (in-process materialization of builtin-runtime agents)
-  - usage event pipeline (typed llm/mcp/acp/builtin events, spans, optional OTLP export)
+  - usage event pipeline (typed llm/mcp/acp/builtin/a2a events, spans, optional OTLP export)
   |
   v
 External systems
   - upstream LLM providers (OpenAI / Anthropic / Gemini / DeepSeek / Qwen / Zhipu / OpenRouter / Ollama / Codex / Claude Code)
   - upstream MCP services
   - local ACP agent or adapter processes (codex, opencode)
-  - remote HTTP agents registered by Agent Card URL and executed through common `/turn` translation to A2A Protocol 1.0 JSON-RPC
+  - remote HTTP agents registered by Agent Card URL and reached through common
+    `/turn` translation or governed native A2A Protocol 1.0 JSON-RPC
   - SQLite config database and usage event tables
   - optional OpenTelemetry collector (metrics.otlp span export)
-  - future memory backends
 ```
 
 Builtin-runtime agents live inside the shared runtime layer (the builtin ADK
@@ -133,7 +134,10 @@ profile's declared ingress difference is its local `count_tokens` estimate
 shim; provider authentication and Claude Code fingerprint shaping remain in the
 provider layer.
 
-MCP handling is enabled with the dispatcher-local `mcp` option instead of a separate HTTP handler module. ACP handling is enabled the same way with `acp`; it uses gateway-owned route endpoints for turns, permission decisions, route-scoped session listing, and transcript replay, then routes to `pkg/acp` instead of the LLM provider interface.
+MCP handling is enabled with the dispatcher-local `mcp` option instead of a
+separate HTTP handler module. Unified Agent handling is enabled with `agent`;
+it dispatches `protocol=agent` turns to the target Agent runtime backend and
+handles `protocol=a2a` routes through the native HTTP Agent proxy path.
 
 The runtime dispatcher in `pkg/dispatcher` does not define route policy inline. Instead, it asks the shared gateway route manager to match the HTTP request against `AgentRoute.match`, strips the matched route path prefix, selects the route's `protocol`, and resolves the matched route and target provider.
 
@@ -157,15 +161,23 @@ Today it exposes working endpoints for:
 - unified Agent route CRUD
 - virtual key CRUD
 - credential list/get/delete
-- async CLI login and login status
 - MCP service discovery and execution endpoints
 - MCP dispatcher runtime inspection endpoints
 - ACP runtime inspection and operator escape-hatch endpoints
 - metrics summary, event, timeseries, breakdown, and Prometheus exposition endpoints
 
-The `/admin/agents` family is implemented (CRUD; unified AgentRoute CRUD; workspace/activity/usage/interactions/resources/health; runtime capabilities; exact-run list/cancel; one-shot permission list/decision; and capability-gated session/transcript reads). ACP and builtin both enter through `kind=agent`, `protocol=agent` routes. The same route table still defines memory endpoints that are not yet implemented.
+The `/admin/agents` family provides CRUD, unified AgentRoute CRUD,
+workspace/activity/usage/interactions/resources/health, runtime capabilities,
+exact-run list/cancel, one-shot permission list/decision, and capability-gated
+session/transcript reads. ACP, builtin, and HTTP runtimes enter through
+`kind=agent`, `protocol=agent` routes; HTTP Agents may additionally use
+`protocol=a2a`.
 
-This means the admin package is now the active control-plane entrypoint for LLM, MCP, ACP, agents, and metrics inspection, while the memory admin family remains future work. ACP consumer runtime APIs that should be scoped by route and VirtualKey, such as turns, permission decisions, session listing, and transcript replay, stay under the dispatcher route prefix rather than under `/admin/acp`.
+This makes the admin package the control-plane entrypoint for LLM, MCP, ACP,
+agents, and metrics inspection. The reserved memory family returns `501 Not
+Implemented`. Consumer runtime APIs scoped by route and VirtualKey, such as
+turns, permission decisions, session listing, and transcript replay, stay
+under the dispatcher route prefix rather than under `/admin/acp`.
 
 ### 4.4 `pkg/llm/provider/`: Provider Abstraction
 
@@ -246,13 +258,11 @@ It persists:
 
 SQLite is the only storage backend that is provisioned end-to-end today.
 
-The runtime storage API is schema-bound. `ConfigStoreBackend.Register(name, schema)` validates a schema, prepares storage, creates a schema-bound generic `ConfigStore`, and caches it. `ConfigStoreBackend.Get(name)` returns the cached store. The gateway registers the canonical schemas for providers, credentials, routes, virtual keys, and managed models during startup. Generic store interfaces and schema primitives live under `pkg/configstore/`; built-in business schemas live under `pkg/configstore/schema/`.
+The runtime storage API is schema-bound. `ConfigStoreBackend.Register(name, schema)` validates a schema, prepares storage, creates a schema-bound generic `ConfigStore`, and caches it. `ConfigStoreBackend.Get(name)` returns the cached store. The gateway registers the canonical schemas for providers, credentials, routes, virtual keys, managed models, MCP services, and Agents during startup. Generic store interfaces and schema primitives live under `pkg/configstore/`; built-in business schemas live under `pkg/configstore/schema/`.
 
 The config store is important for one reason beyond persistence: it allows some route and provider updates to take effect dynamically without rewriting the entire Caddy config.
 
-### 4.7 `pkg/mcp/`, `pkg/acp/`, `pkg/agent/`, `pkg/llm/memory/`
-
-These packages are present because the gateway is intended to grow beyond plain API proxying.
+### 4.7 `pkg/mcp/`, `pkg/acp/`, `pkg/a2a/`, `pkg/agent/`, `pkg/llm/memory/`
 
 Current status:
 
@@ -260,8 +270,7 @@ Current status:
   - protocol types, transport clients, service runtime, and runtime registry are active
   - `pkg/mcp/service` manages `mcp_services`, discovery, execution, and session reuse
   - `pkg/mcp/runtime` tracks in-flight requests and progress for the MCP dispatcher
-  - `streamable_http` is the active upstream transport path today
-  - `stdio` and `sse` code exist but are not yet equally integrated
+  - `streamable_http`, `stdio`, and legacy `sse` are integrated upstream transports
 - `pkg/acp/`
   - Agent-owned runtime config, turn request/event types, agent SPI, stdio JSON-RPC transport, activity tracking, and Admin/dispatcher integration are active
   - first-version service config allows only `codex` and `opencode`
@@ -277,10 +286,14 @@ Current status:
   - `pkg/agent/builtin/` is the in-process eino ADK host for `runtime.type = "builtin"` agents and executes behind the same AgentRoute contract as ACP
   - composes the protocol subsystems and observes them; the protocol packages do not depend on it
   - the legacy `pkg/llm/agent` LLM-native orchestrator has been removed, per the external-control-plane direction; see [../design/agents-control-plane.md](../design/agents-control-plane.md)
+- `pkg/a2a/`
+  - A2A Protocol 1.0 Card, JSON-RPC, client, and governed proxy primitives
+  - used by the HTTP Agent translating backend and native A2A ingress; see
+    [http-agent-architecture.md](http-agent-architecture.md)
 - `pkg/llm/memory/`
   - interfaces exist
   - SQLite and Mem0-related code exists
-  - not yet fully active in normal request execution
+  - not active in normal request execution
 
 Architecturally, MCP and ACP are active native runtime subsystems, and `pkg/agent` is the active external control plane that composes them (it does not own an agent's internal reasoning loop). Memory is still an extension subsystem.
 
@@ -451,7 +464,7 @@ The Gateway has no authenticator configuration or login-session endpoints.
 
 ## 8. Current Implementation Boundaries
 
-The following are implemented enough to be production-shape code, even if still early:
+The current implementation includes:
 
 - Caddy app provisioning
 - standalone server assembly
@@ -464,32 +477,24 @@ The following are implemented enough to be production-shape code, even if still 
 - MCP route CRUD
 - virtual key CRUD
 - credential inspection and deletion
-- CLI login orchestration
 - OpenAI-compatible and Anthropic-compatible ingress handlers
 - MCP dispatcher, upstream discovery, upstream execution, and runtime inspection
+- unified Agent control-plane CRUD and AgentRoute dispatch across ACP, builtin,
+  and HTTP runtimes
+- translated HTTP Agent `/turn` execution and governed native A2A ingress
 - SQLite-backed usage metrics summaries and recent interaction event inspection,
-  including unified AgentRoute dimensions and typed ACP/builtin persistence;
+  including unified AgentRoute dimensions and typed ACP/builtin/A2A persistence;
   Agent ingress carries direct `agent_id`, `run_id`, and `runtime_type`
 - bounded-label Prometheus counters grouped by `route_kind` and `runtime_type`
 - OTLP span export of usage events to an OpenTelemetry collector (opt-in via the `metrics.otlp` config)
 
-The following are partial or placeholder:
+The following surfaces are reserved or intentionally unsupported:
 
 - memory admin APIs
-- agent admin APIs
-- first-class non-HTTP MCP transports such as stdio in the active request path
 - full upstream progress relay back to MCP clients
 - full memory retrieval and writeback in request path
-- the `agents` control plane, ACP/builtin runtime adapters, unified AgentRoute,
-  Agent-owned ACP configuration, common capability plane, and observability
-  cutover are implemented through M6; physical legacy-source deletion and the
-  HTTP execution backend remain follow-up work. HTTP execution is specified
-  in [HTTP Agent Runtime](../design/http-agent-runtime.md) (A2A Protocol 1.0
-  JSON-RPC, `pkg/a2a`, Path B then Path A), not as a gateway-owned task
-  backend. See
-  [Unified Agent Runtime and Routing](../plans/unified-agent-runtime.md).
 - the Gateway Request Pipeline for synchronous, request-bound LLM/MCP/transform
-  composition remains future work. Durable Project/Team/Agent workflows,
+  composition is not implemented. Durable Project/Team/Agent workflows,
   scheduling, human approval, and multi-Agent DAGs belong to an upper-layer
   workbench and an external engine such as Temporal; its Workers call the
   gateway data plane. See
@@ -522,14 +527,13 @@ A backend-specific creator should implement `pkg/configstore.ConfigStoreCreator`
 
 This path exists architecturally, but SQLite is the only end-to-end store currently exercised by the main runtime.
 
-### 9.4 Future MCP / Memory / Agent Runtime Extensions
+### 9.4 Agent Runtime Composition
 
-The MCP and memory packages are structured as internal subsystem boundaries. The intended direction is:
-
-- MCP expands from the current Streamable HTTP gateway path into broader transport coverage and richer runtime semantics
-- memory becomes retrieval and persistence around model calls
-
-The agent direction is different and is intentionally **not** an internal execution mode inside `pkg/llm`. A first-class `agents` layer (`pkg/agent`) becomes an **external control plane** that composes the LLM, MCP, ACP, and metrics subsystems: it manages agent identities and their runtime-specific configuration, governs the resources they may use, and observes their sessions, usage, and call chains. It does not own an agent's internal reasoning loop. The legacy `pkg/llm/agent` orchestrator is removed rather than expanded. This supersedes the earlier "agent orchestration becomes an execution mode" direction. See [Agent Control Plane](../design/agents-control-plane.md).
+The `pkg/agent` control plane composes the LLM, MCP, ACP, HTTP, builtin, and
+metrics subsystems. It manages agent identities and runtime-specific
+configuration, governs declared resources, and observes sessions, usage, and
+call chains. It does not own an Agent's internal reasoning loop. See
+[Agent Control Plane](../design/agents-control-plane.md).
 
 The execution boundary for ACP and builtin turns is one
 turn-first `agentruntime.Backend` layer registered by `AgentGateway`. The
@@ -545,7 +549,7 @@ Upper-layer Workflow Workers call the same AgentRoute/turn boundary while
 their external engine owns durable business state, retry, scheduling,
 approval, and DAG semantics. Gateway Request Pipelines deliberately exclude
 an `agent` step. See
-[Unified Agent Runtime and Routing](../plans/unified-agent-runtime.md) and
+[HTTP Agent Runtime Architecture](http-agent-architecture.md) and
 [Gateway Request Pipeline And External Orchestration](../design/request-pipeline.md).
 
 ACP service is no longer a first-class product/config object.
@@ -553,56 +557,3 @@ An ACP Agent owns its execution config under `Agent.runtime.acp`, and
 `agent_id` directly owns the ACP process pool, sessions, permissions, runtime
 diagnostics, and attribution. Native `/admin/acp/runtime` diagnostics remain
 Agent-keyed.
-
-Those boundaries are already visible in code, but they should still be treated as evolving.
-
-## 10. Design Tradeoffs
-
-### 10.1 Why Support Both a Caddy App and a Standalone Gateway Server
-
-Using a Caddy app gives the project:
-
-- a mature module graph
-- shared provisioning lifecycle
-- established HTTP pipeline integration
-- existing config loading and deployment patterns
-
-The standalone daemon avoids coupling everything to Caddy's lifecycle and makes it easier to run the gateway as a conventional service. The downside is that the project must maintain two assembly paths over the same runtime core.
-
-### 10.2 Why Hybrid Static + Dynamic Config
-
-Only static config would make operational updates clumsy. Only dynamic config would weaken the value of reproducible startup composition, especially in the Caddy-based runtime.
-
-The hybrid model keeps:
-
-- static infra wiring in the Caddyfile or standalone bundle
-- mutable provider and route records in SQLite
-
-This is slightly more complex, but it matches how the gateway is meant to be operated.
-
-### 10.3 Why Keep the Route Model Ahead of the Caddyfile Grammar
-
-The repository already needs a richer route object for admin APIs and internal policy evaluation. Shipping the richer data model first allows the runtime and storage layers to settle before the public Caddyfile grammar is expanded.
-
-That means some fields are representable in JSON and Go types before they are representable in the Caddyfile.
-
-## 11. Near-Term Evolution
-
-The most coherent next steps for the architecture are:
-
-- extend MCP runtime beyond the current Streamable HTTP and request-scoped cancellation model
-- include MCP objects in bundle/export/apply flows
-- finish the missing admin handlers for memory
-- complete the legacy source-deletion follow-up after the unified
-  AgentRoute/Agent-owned ACP configuration and observability cutover
-- implement the
-  [Gateway Request Pipeline](../design/request-pipeline.md) for request-bound
-  LLM/MCP/transform composition, and harden AgentRoute as the Activity boundary
-  used by upper-layer Temporal Workers; do not add gateway-owned durable Agent
-  Tasks, schedules, or multi-Agent DAG state
-- expand enforcement of route policy beyond the currently active subset
-- integrate memory into the request path
-- expand Caddyfile route syntax to cover more of the existing route data model
-- decide how the separate web UI becomes a first-class operator surface
-
-Until then, the project should be understood primarily as a route-based LLM gateway with both Caddy-based and standalone deployment modes, and with a broader agent-runtime architecture still under active construction.

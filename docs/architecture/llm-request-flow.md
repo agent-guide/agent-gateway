@@ -24,7 +24,8 @@ This page records the current LLM request path at a high level.
 - Anthropic-compatible:
   - `POST /v1/messages`
 
-Current partial support:
+Current endpoint limits:
 
 - OpenAI `/v1/embeddings` is recognized by path matching but not fully wired through the serving path
-- Anthropic `POST /v1/messages/count_tokens` returns `501 Not Implemented`
+- Anthropic `POST /v1/messages/count_tokens` is a local estimate path; it does
+  not resolve or call a provider

@@ -241,6 +241,8 @@ const (
 	StoreRoutes        = "routes"
 	StoreVirtualKeys   = "virtual_keys"
 	StoreManagedModels = "managed_models"
+	StoreMCPServices   = "mcp_services"
+	StoreAgents        = "agents"
 )
 ```
 
@@ -342,6 +344,26 @@ Managed models are addressed with ordered composite keys:
 store.Get(ctx, providerID, upstreamModel)
 store.Delete(ctx, providerID, upstreamModel)
 ```
+
+### 6.6 MCP Services
+
+- schema variable: `schema.MCPServiceSchema`
+- store name and table: `mcp_services`
+- primary key: `id`
+- tag value: `MCPServiceConfig.Transport`
+- data column: `config`
+- timestamped: yes
+- decoded type: `*service.MCPServiceConfig`
+
+### 6.7 Agents
+
+- schema variable: `schema.AgentSchema`
+- store name and table: `agents`
+- primary key: `id`
+- tag value: the Agent runtime type
+- data column: `config`
+- timestamped: yes
+- decoded type: `*agent.Agent`
 
 ## 7. Backend Opening and Registration
 
