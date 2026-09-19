@@ -21,6 +21,4 @@ Lifecycle convention:
 
 Current plans:
 
-- [v0.6-documentation-unification.md](v0.6-documentation-unification.md):
-  release-preparation cleanup that separates durable design, current
-  architecture, active plans, and versioned release notes
+- none
