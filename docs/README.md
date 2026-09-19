@@ -43,7 +43,7 @@ Primary detailed documents:
 - [architecture/architecture-overview.md](architecture/architecture-overview.md): current repository architecture overview
 - [architecture/configstore-architecture.md](architecture/configstore-architecture.md): ConfigStore architecture and persistence contract
 - [architecture/mcp-architecture.md](architecture/mcp-architecture.md): current MCP gateway architecture
-- [architecture/acp-architecture.md](architecture/acp-architecture.md): ACP gateway architecture and implementation status
+- [architecture/acp-architecture.md](architecture/acp-architecture.md): current ACP gateway architecture
 - [architecture/http-agent-architecture.md](architecture/http-agent-architecture.md): current HTTP Agent Path A and Path B architecture
 - [getting-started/quickstart-acp.md](getting-started/quickstart-acp.md): ACP gateway quick start
 - [getting-started/quickstart-http-agent.md](getting-started/quickstart-http-agent.md): HTTP Agent quick start for common turns and native A2A ingress
@@ -53,7 +53,7 @@ Primary detailed documents:
 - [reference/acp-technical-spec.md](reference/acp-technical-spec.md): ACP service, route, runtime, and event specification
 - [design/agents-control-plane.md](design/agents-control-plane.md): shared Agent identity, resources, runtime contracts, and the external Business Workflow boundary
 - [design/request-pipeline.md](design/request-pipeline.md): synchronous Gateway Request Pipelines and upper-layer durable orchestration through Temporal or another external engine
-- [design/builtin-agent-runtime.md](design/builtin-agent-runtime.md): builtin ADK host, schema, lifecycle, permissions, and implementation status
+- [design/builtin-agent-runtime.md](design/builtin-agent-runtime.md): builtin ADK host decisions for schema, lifecycle, and permissions
 - [design/http-agent-runtime.md](design/http-agent-runtime.md): HTTP agent runtime, A2A Protocol 1.0 JSON-RPC, shared `pkg/a2a`, Path B then Path A
 - [design/guardrails.md](design/guardrails.md): Community Guardrails Core and external check extension boundary
 - [design/enterprise-extension-contract.md](design/enterprise-extension-contract.md): Community-side SPI, compatibility, assembly, and cross-repository rules for separately maintained distributions

@@ -22,7 +22,7 @@ Related extension design notes live in `docs/` when a topic needs more detail
 than this architecture overview. The ConfigStore architecture and technical
 specification is documented in
 [configstore-architecture.md](configstore-architecture.md). The gateway bundle
-YAML proposal is documented in
+YAML contract is documented in
 [../design/gateway-bundle-yaml.md](../design/gateway-bundle-yaml.md). Protected
 external SPI, reusable distribution entry points, and their designation gates
 are defined by the
@@ -117,7 +117,7 @@ agent_route_dispatcher {
     llm_api anthropic
     llm_api cc
     mcp
-    acp
+    agent
 }
 ```
 
@@ -280,12 +280,13 @@ Current status:
   - each pooled instance caches the latest session metadata (config options, slash commands, title, mode, usage) from a lifetime updates subscription; the cache is replayed as snapshot events at every turn start and exposed through the runtime Admin inspection
   - runtime hardening: `PATH` preflight, stderr capture, a setup-handshake timeout, an idle janitor, dead-instance eviction, `fresh_session`, scope rebind (a session-addressed turn adopts the thread's live instance instead of spawning a second process), and `CloseScope`/`CloseThread` teardown
   - permission modes `deny`/`auto_approve`/`interactive`: interactive requests follow the runtime capability's advertised continuation mode and common Agent permission controls
-  - verified end to end against the real `opencode acp` and `codex-acp` binaries (deterministic full-lifecycle and interactive-permission integration tests plus gated real-agent handshake, session-lifecycle, and prompt-level real-model smokes); crash retry and the codex app-server bridge (v2) are deferred, and codex stable-session id resolution is a verified non-gap for v1 (the driver seams for v2 are wired)
+  - verified end to end against the real `opencode acp` and `codex-acp`
+    binaries; automatic crash retry and an in-repository Codex app-server
+    bridge are not supported
 - `pkg/agent/`
   - the external agent control plane: the `Agent` model, `agents` store, unified `AgentRoute.agent_id` ingress, and runtime-neutral capability APIs
   - `pkg/agent/builtin/` is the in-process eino ADK host for `runtime.type = "builtin"` agents and executes behind the same AgentRoute contract as ACP
   - composes the protocol subsystems and observes them; the protocol packages do not depend on it
-  - the legacy `pkg/llm/agent` LLM-native orchestrator has been removed, per the external-control-plane direction; see [../design/agents-control-plane.md](../design/agents-control-plane.md)
 - `pkg/a2a/`
   - A2A Protocol 1.0 Card, JSON-RPC, client, and governed proxy primitives
   - used by the HTTP Agent translating backend and native A2A ingress; see
@@ -499,7 +500,6 @@ The following surfaces are reserved or intentionally unsupported:
   workbench and an external engine such as Temporal; its Workers call the
   gateway data plane. See
   [Gateway Request Pipeline And External Orchestration](../design/request-pipeline.md).
-- the legacy `pkg/llm/agent` orchestrator has been removed
 - richer static Caddyfile route syntax for all route fields
 
 ## 9. Extension Points

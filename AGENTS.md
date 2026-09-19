@@ -13,7 +13,7 @@ The current primary LLM path is:
 6. the credential manager invokes the configured external refresh command for an expiring `oauth_token` credential when required
 7. the selected provider executes `Generate` or `Stream`
 
-MCP is active through `agent_route_dispatcher` with MCP enabled. ACP, builtin, and HTTP execution enter through unified `kind=agent` routes (`pkg/gateway/agentroute`, dispatcher `agent` enablement, `POST /<agent-route>/turn` SSE); the target Agent's `runtime.type` selects the registered backend. ACP execution config is owned inline by `Agent.runtime.acp`, builtin definitions are materialized by the in-process eino ADK host, and HTTP turns translate to A2A Protocol 1.0 JSON-RPC through the selected Agent Card interface. The agent control plane is exposed through `/admin/agents` and `/admin/agents/routes`. Memory is not shipped in v0.5.x; `/admin/memory/...` is reserved and returns `501 Not Implemented`.
+MCP is active through `agent_route_dispatcher` with MCP enabled. ACP, builtin, and HTTP execution enter through unified `kind=agent` routes (`pkg/gateway/agentroute`, dispatcher `agent` enablement, `POST /<agent-route>/turn` SSE); the target Agent's `runtime.type` selects the registered backend. ACP execution config is owned inline by `Agent.runtime.acp`, builtin definitions are materialized by the in-process eino ADK host, and HTTP Agents support both translated common turns and governed native A2A Protocol 1.0 JSON-RPC ingress. The agent control plane is exposed through `/admin/agents` and `/admin/agents/routes`. Memory is not implemented; `/admin/memory/...` is reserved and returns `501 Not Implemented`.
 
 Future gateway Pipeline support is limited to synchronous, request-bound
 `llm`/`mcp`/`transform` composition. Durable Project/Team workflows, Agent
@@ -241,12 +241,12 @@ Implemented families:
 
 Stubbed families currently return `501 Not Implemented`:
 
-- `/admin/memory/...` (reserved; memory is not shipped in v0.5.x)
+- `/admin/memory/...` (reserved; memory is not implemented)
 
 ## Files To Check Before Large Changes
 
 - `README.md`: user-facing setup and API examples
-- `docs/architecture/architecture-overview.md`: broader architecture and roadmap
+- `docs/architecture/architecture-overview.md`: current broader architecture
 - `docs/design/enterprise-extension-contract.md`: protected external SPI,
   distribution assembly, and cross-repository compatibility rules
 - `Caddyfile.example`: working reference config

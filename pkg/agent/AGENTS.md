@@ -128,5 +128,5 @@ Important files:
 Agents are a first-class gateway-bundle object (apply/export/validate) and have
 an `agwctl agent` read surface; create/update flow through the bundle.
 See `docs/design/agents-control-plane.md` for the cross-runtime direction and
-`docs/design/builtin-agent-runtime.md` for the builtin runtime design and
-implementation status.
+`docs/design/builtin-agent-runtime.md` for the builtin runtime decisions and
+invariants.

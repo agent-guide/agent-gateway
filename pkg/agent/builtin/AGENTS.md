@@ -2,8 +2,8 @@
 
 Scope: the in-process eino ADK host for agents with
 `runtime.type = "builtin"`. The root and parent `AGENTS.md` files apply. The
-design source of truth is `docs/design/builtin-agent-runtime.md`; keep detailed
-feature inventories and implementation status there.
+design source of truth is `docs/design/builtin-agent-runtime.md`; current
+runtime structure belongs in `docs/architecture/architecture-overview.md`.
 
 ## Runtime invariants
 

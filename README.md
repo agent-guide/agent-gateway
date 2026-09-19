@@ -48,6 +48,7 @@ WHERE config LIKE '%"cliauth_token"%';
 - expose the first native ACP control surface for codex/opencode agent routing
 - host builtin agents in-process on eino ADK and serve them through the same `POST /<agent-route>/turn` SSE contract as ACP-backed Agents; interactive tool permissions can suspend a turn on an ADK checkpoint until a human allows or denies each call
 - execute ACP and builtin Agents through one runtime-neutral backend registry and unified AgentRoutes, with shared run ids, ordered event sequencing, normalized errors, and cross-runtime usage correlation
+- connect remote HTTP Agents through translated common turns or governed native A2A Protocol 1.0 JSON-RPC ingress
 - run with either a Caddyfile-based runtime or a standalone daemon with a config store
 
 ## Architecture
@@ -106,7 +107,7 @@ http://127.0.0.1:8080 {
 		llm_api anthropic
 		llm_api cc
 		mcp
-		acp
+		agent
 	}
 }
 ```
@@ -155,8 +156,8 @@ virtualKeys:
 ```
 
 `rate_limits` is optional. It independently limits LLM, MCP, and agent ingress
-for a VirtualKey with in-memory token buckets; `agent` configures separate ACP
-and builtin buckets. Exceeded requests return `429` with `Retry-After`.
+for a VirtualKey with in-memory token buckets; `agent` covers common Agent
+turns and native A2A POSTs. Exceeded requests return `429` with `Retry-After`.
 
 Set the admin Basic Auth credentials for agwctl as an environment variable, then apply the bundle:
 
@@ -494,14 +495,14 @@ See [docs/README.md](docs/README.md) for runtime-specific guides and references.
 
 ## Documentation
 
-- [docs/README.md](docs/README.md): documentation index and split plan
+- [docs/README.md](docs/README.md): documentation index and ownership model
 - [docs/architecture/architecture-overview.md](docs/architecture/architecture-overview.md): current architecture overview
 - [docs/architecture/mcp-architecture.md](docs/architecture/mcp-architecture.md): MCP gateway architecture
 - [docs/architecture/acp-architecture.md](docs/architecture/acp-architecture.md): ACP gateway architecture
 - [docs/architecture/configstore-architecture.md](docs/architecture/configstore-architecture.md): config store architecture
 - [docs/design/agents-control-plane.md](docs/design/agents-control-plane.md): cross-runtime agent control-plane design
 - [docs/design/request-pipeline.md](docs/design/request-pipeline.md): synchronous gateway request pipelines and the upper-layer Temporal/business-workflow boundary
-- [docs/design/builtin-agent-runtime.md](docs/design/builtin-agent-runtime.md): builtin ADK runtime design and implementation status
+- [docs/design/builtin-agent-runtime.md](docs/design/builtin-agent-runtime.md): builtin ADK runtime decisions and invariants
 - [docs/design/http-agent-runtime.md](docs/design/http-agent-runtime.md): HTTP agent runtime — register `runtime.http.card_url` with required `protocol: a2a`; Path B translates the common `/turn` API and Path A exposes governed native A2A 1.0 JSON-RPC
 - [docs/design/guardrails.md](docs/design/guardrails.md): Community Guardrails Core and external check extension boundary
 - [docs/design/enterprise-extension-contract.md](docs/design/enterprise-extension-contract.md): protected SPI, distribution assembly, and cross-repository compatibility rules
@@ -514,8 +515,8 @@ See [docs/README.md](docs/README.md) for runtime-specific guides and references.
 - MCP is active in the dispatcher and Admin API surface, but some adjacent subsystems are still evolving
 - ACP is a functional native route/admin/dispatcher surface with a reusable stdio runtime driver and thin codex/opencode agent adapters; crash retry and the in-repo Codex app-server bridge remain deferred
 - metrics Admin APIs expose durable SQLite-backed summaries (with pipeline drop/failure counters), recent LLM/MCP/ACP interaction events, and aggregate breakdowns; a Prometheus exposition endpoint (`GET /admin/metrics/prometheus`) serves O(1) in-process counters, and usage events can be exported as OpenTelemetry spans to an OTLP collector (`metrics { otlp { endpoint ... } }` in the Caddyfile or `--metrics-otlp-*` agwd flags; see the commented OTLP profile in `examples/Caddyfile.example`) — events carry W3C trace/span/parent ids, so the collector sees the full interaction span tree including builtin-agent internal calls; an optional `components` toggle nests one span per eino chat-model component call under the interaction span
-- the agents control plane is active: `pkg/agent`, the `agents` config store, gateway-bundle parity, and `/admin/agents` CRUD plus workspace/activity/usage/interactions/resources/health; the M3 runtime control plane adds capabilities, exact-run list/cancel, one-shot permissions, and capability-gated sessions/transcripts; usage events carry optional `agent_id`, `run_id`, and `runtime_type` correlation
-- memory is not shipped in v0.5.x; `/admin/memory/...` is a reserved Admin API family whose endpoints return `501 Not Implemented`
+- the agents control plane is active: `pkg/agent`, the `agents` config store, gateway-bundle parity, `/admin/agents` CRUD, runtime capabilities, exact-run list/cancel, one-shot permissions, and capability-gated sessions/transcripts; usage events carry optional `agent_id`, `run_id`, and `runtime_type` correlation
+- memory is not implemented; `/admin/memory/...` is a reserved Admin API family whose endpoints return `501 Not Implemented`
 
 ## Development
 

@@ -236,4 +236,4 @@ data-plane traffic.
 - [admin-auth.md](../guides/admin-auth.md): Admin API auth and session behavior
 - [runtime-modes.md](../reference/runtime-modes.md): `agw`, `agwd`, and `agwctl`
 - [caddyfile-reference.md](../reference/caddyfile-reference.md): full Caddyfile config reference
-- `quickstart-mcp.md`: MCP gateway quick start (planned)
+- [quickstart-mcp.md](quickstart-mcp.md): MCP gateway quick start

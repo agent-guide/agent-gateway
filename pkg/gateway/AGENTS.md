@@ -136,7 +136,7 @@ according to
 [`docs/design/http-agent-runtime.md`](../../docs/design/http-agent-runtime.md).
 `HTTPRuntimeManager` is the sole definition listener/snapshot
 owner for both HTTP paths. It imports `pkg/a2a/card`, owns typed
-`pkg/a2a/client` clients once Path B lands, publishes separate Path A
+`pkg/a2a/client` clients, publishes separate Path A
 proxy-ready and Path B executable views, and is exposed through `AgentGateway`
 so the dispatcher never reads config or reaches into a backend.
 `HTTPBackend` then registers next to `ACPBackend`/`BuiltinBackend` and composes

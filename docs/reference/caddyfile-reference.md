@@ -32,7 +32,9 @@ http://127.0.0.1:8080 {
 	agent_route_dispatcher {
 		llm_api openai
 		llm_api anthropic
+		llm_api cc
 		mcp
+		agent
 	}
 }
 ```
@@ -175,14 +177,15 @@ agent_route_dispatcher {
 	llm_api anthropic
 	llm_api cc
 	mcp
-	acp
+	agent
 }
 ```
 
 - `llm_api <name>` enables a protocol handler
 - current LLM handler names are `openai`, `anthropic`, and `cc`
 - `mcp` enables MCP protocol handling in the dispatcher
-- `acp` enables ACP turn, permission, session-list, and transcript handling in the dispatcher
+- `agent` enables unified ACP, builtin, and HTTP Agent ingress, including
+  `protocol=agent` common turns and `protocol=a2a` native HTTP Agent routes
 
 ## `agent_gateway_admin`
 
