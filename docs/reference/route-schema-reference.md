@@ -22,6 +22,7 @@ Current route kinds:
 - `llm`
 - `mcp`
 - `agent`
+- `a2a`
 
 Current route protocols:
 
@@ -110,7 +111,7 @@ Behavior:
 ### Agent Mode
 
 An AgentRoute targets a stable Agent identity. The Agent's `runtime.type`
-selects ACP, builtin, or a future executable backend without changing the
+selects ACP, builtin, or HTTP execution without changing the
 route URL, ID, or VirtualKey allowlist:
 
 ```json
@@ -134,6 +135,10 @@ When `id` is omitted, it defaults to the deterministic, slash-free
 `root`). Route ids must be slash-free so they are addressable as a single Admin
 API path segment. Manage these routes through bundle `agentRoutes`,
 `/admin/agents/routes`, or `agwctl agent-route`.
+
+For native A2A ingress, use `protocol: "a2a"`. The target must be a ready HTTP
+Agent, `match_policy.host` is required, and `methods` must be empty or contain
+both `GET` and `POST`. See [a2a-ingress.md](a2a-ingress.md).
 
 ## Static Config Restrictions
 

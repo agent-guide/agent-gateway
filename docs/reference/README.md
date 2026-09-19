@@ -8,6 +8,7 @@ Current reference pages:
 - [admin-api-reference.md](admin-api-reference.md)
 - [acp-api.md](acp-api.md)
 - [acp-technical-spec.md](acp-technical-spec.md)
+- [a2a-ingress.md](a2a-ingress.md)
 - [agwctl-reference.md](agwctl-reference.md)
 - [runtime-modes.md](runtime-modes.md)
 - [provider-option-reference.md](provider-option-reference.md)

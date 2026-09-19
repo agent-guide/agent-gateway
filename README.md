@@ -435,6 +435,11 @@ curl -s https://gateway.example.com/agents/reviewer \
   -d '{"jsonrpc":"2.0","id":"demo-1","method":"SendMessage","params":{"message":{"messageId":"m1","role":"ROLE_USER","parts":[{"text":"Review this"}]}}}'
 ```
 
+See [HTTP Agent Quick Start](docs/getting-started/quickstart-http-agent.md),
+[HTTP Agent Guide](docs/guides/http-agents.md), and
+[Native A2A Ingress Reference](docs/reference/a2a-ingress.md) for setup,
+authentication, session, error, header, and limit details.
+
 ## Metrics Admin API
 
 Usage metrics are backed by the SQLite usage event tables (`llm_usage_events`,
