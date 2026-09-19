@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/a2a/jsonrpc"
 )
@@ -74,6 +76,41 @@ func TestNewDoesNotMutateDefaultHTTPClient(t *testing.T) {
 	}
 	if err := p.client.CheckRedirect(nil, nil); !errors.Is(err, http.ErrUseLastResponse) {
 		t.Fatalf("proxy redirect policy error = %v", err)
+	}
+}
+
+func TestProxyAppliesIdleTimeoutToNonStreamingResponse(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer upstream.Close()
+
+	p, err := New(Options{
+		InterfaceURL: upstream.URL,
+		HTTPClient:   upstream.Client(),
+		TotalTimeout: 2 * time.Second,
+		IdleTimeout:  20 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"jsonrpc":"2.0","id":7,"method":"GetTask","params":{"id":"task-1"}}`)
+	meta, err := jsonrpc.InspectRequest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := httptest.NewRequest(http.MethodPost, "https://gateway.example/a2a", bytes.NewReader(body))
+
+	started := time.Now()
+	_, err = p.Do(in.Context(), in, body, meta)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Do error = %v, want idle deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed >= time.Second {
+		t.Fatalf("non-stream response timed out after %v, want idle timeout before total timeout", elapsed)
 	}
 }
 

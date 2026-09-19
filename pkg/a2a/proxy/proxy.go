@@ -146,8 +146,9 @@ func (p *Proxy) Do(ctx context.Context, inbound *http.Request, body []byte, meta
 		return invalid(err)
 	}
 	result := &Response{Header: governedResponseHeaders(resp.Header), Streaming: streaming, cancel: cancel}
+	resp.Body = newIdleTimeoutBody(resp.Body, p.idleTimeout)
 	if streaming {
-		result.Body = newIdleTimeoutBody(resp.Body, p.idleTimeout)
+		result.Body = resp.Body
 		return result, nil
 	}
 	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, MaxBodyBytes+1))
