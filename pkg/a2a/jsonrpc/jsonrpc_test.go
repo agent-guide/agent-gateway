@@ -3,10 +3,12 @@ package jsonrpc
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
+	"testing/iotest"
 )
 
 func TestValidateResponse(t *testing.T) {
@@ -85,6 +87,44 @@ func TestCopyValidatedSSEPreservesBytes(t *testing.T) {
 	}
 	if !bytes.Equal(out.Bytes(), raw) {
 		t.Fatalf("copied bytes = %q", out.Bytes())
+	}
+}
+
+func TestCopyValidatedSSESupportsAllLineEndings(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		lineEnding string
+		oneByte    bool
+	}{
+		{name: "LF", lineEnding: "\n"},
+		{name: "CR", lineEnding: "\r"},
+		{name: "CRLF across reads", lineEnding: "\r\n", oneByte: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			eol := tc.lineEnding
+			raw := []byte(": heartbeat" + eol + eol +
+				`data: {"jsonrpc":"2.0","id":1,"result":{"sequence":1}}` + eol + eol +
+				`data: {"jsonrpc":"2.0","id":1,"result":{"sequence":2}}` + eol + eol)
+			var src io.Reader = bytes.NewReader(raw)
+			if tc.oneByte {
+				src = iotest.OneByteReader(src)
+			}
+
+			var out bytes.Buffer
+			validated := 0
+			if err := CopyValidatedSSE(&out, src, 1<<20, 1<<20, func(data []byte) error {
+				validated++
+				return ValidateResponse(data, json.RawMessage("1"))
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if validated != 2 {
+				t.Fatalf("validated events = %d, want 2", validated)
+			}
+			if !bytes.Equal(out.Bytes(), raw) {
+				t.Fatalf("copied bytes = %q, want %q", out.Bytes(), raw)
+			}
+		})
 	}
 }
 

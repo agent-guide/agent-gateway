@@ -3,7 +3,6 @@
 package jsonrpc
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -244,10 +243,11 @@ func jsonEqual(a, b json.RawMessage) bool {
 // while bounding each event and the aggregate stream. onEvent validates every
 // non-heartbeat data payload before that record is written.
 func CopyValidatedSSE(dst io.Writer, src io.Reader, maxEventBytes, maxStreamBytes int64, onEvent func([]byte) error) error {
-	reader := bufio.NewReaderSize(src, 32<<10)
 	var event bytes.Buffer
 	var total int64
-	var lineBytes int64
+	var lineContentBytes int64
+	var pendingCR bool
+	var pendingBlankCR bool
 	flush := func() error {
 		if event.Len() == 0 {
 			return nil
@@ -266,26 +266,61 @@ func CopyValidatedSSE(dst io.Writer, src io.Reader, maxEventBytes, maxStreamByte
 		_, err := dst.Write(raw)
 		return err
 	}
-	for {
-		fragment, err := reader.ReadSlice('\n')
-		total += int64(len(fragment))
+	appendByte := func(b byte) error {
+		total++
 		if total > maxStreamBytes {
 			return &InvalidSSEError{Err: fmt.Errorf("A2A stream exceeds %d bytes", maxStreamBytes)}
 		}
-		if int64(event.Len()+len(fragment)) > maxEventBytes {
+		if int64(event.Len()+1) > maxEventBytes {
 			return &InvalidSSEError{Err: fmt.Errorf("A2A SSE event exceeds %d bytes", maxEventBytes)}
 		}
-		event.Write(fragment)
-		lineBytes += int64(len(fragment))
-		if err == bufio.ErrBufferFull {
-			continue
+		return event.WriteByte(b)
+	}
+	consumeByte := func(b byte) error {
+		if pendingCR {
+			pendingCR = false
+			if b == '\n' {
+				if err := appendByte(b); err != nil {
+					return err
+				}
+				if pendingBlankCR {
+					return flush()
+				}
+				return nil
+			}
+			if pendingBlankCR {
+				if err := flush(); err != nil {
+					return err
+				}
+			}
 		}
-		blankLine := lineBytes == 1 && bytes.Equal(fragment, []byte("\n")) ||
-			lineBytes == 2 && bytes.Equal(fragment, []byte("\r\n"))
-		lineBytes = 0
-		if blankLine {
-			if flushErr := flush(); flushErr != nil {
-				return flushErr
+
+		if err := appendByte(b); err != nil {
+			return err
+		}
+		switch b {
+		case '\r':
+			pendingCR = true
+			pendingBlankCR = lineContentBytes == 0
+			lineContentBytes = 0
+		case '\n':
+			blankLine := lineContentBytes == 0
+			lineContentBytes = 0
+			if blankLine {
+				return flush()
+			}
+		default:
+			lineContentBytes++
+		}
+		return nil
+	}
+
+	buffer := make([]byte, 32<<10)
+	for {
+		n, err := src.Read(buffer)
+		for _, b := range buffer[:n] {
+			if consumeErr := consumeByte(b); consumeErr != nil {
+				return consumeErr
 			}
 		}
 		if err == io.EOF {
@@ -300,7 +335,9 @@ func CopyValidatedSSE(dst io.Writer, src io.Reader, maxEventBytes, maxStreamByte
 func sseData(raw []byte) ([]byte, bool) {
 	var data []string
 	hasFields := false
-	for _, line := range strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n") {
+	normalized := strings.ReplaceAll(string(raw), "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	for _, line := range strings.Split(normalized, "\n") {
 		if line == "" || strings.HasPrefix(line, ":") {
 			continue
 		}
