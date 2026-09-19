@@ -1221,9 +1221,11 @@ Path A uses the same identity bridge, records request-level usage, and adds an
 usage, so token-based attribution is a gateway-side estimate at best and is not
 fabricated into `usage` events.
 
-Every southbound call starts a child execution span and injects canonical W3C
-`traceparent` using that child span id plus the accepted `tracestate`. Neither
-path forwards a raw client `traceparent`, `X-Trace-ID`, or `X-Span-ID`. The outbound
+Every southbound call injects canonical W3C `traceparent` using the current
+ingress interaction span id plus the accepted `tracestate`. The remote Agent's
+span is therefore a child of the gateway interaction span; the gateway does
+not create a separately persisted southbound execution span. Neither path
+forwards a raw client `traceparent`, `X-Trace-ID`, or `X-Span-ID`. The outbound
 `X-Agent-Depth` is the dispatcher-normalized inbound depth plus one, matching
 the value returned by the current ingress trace bridge. An HTTP Agent that
 calls the gateway again therefore presents the incremented depth to the

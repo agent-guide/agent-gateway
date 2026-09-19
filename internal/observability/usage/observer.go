@@ -265,8 +265,9 @@ func (s *eventSpan) Finish(outcome InteractionOutcome) {
 		case "builtin":
 			sink.Enqueue(builtinEvent(base, builtin))
 		default:
-			// HTTP/A2A has no token-usage contract or dedicated typed event table.
-			// Retain the generic interaction without classifying it as ACP/builtin.
+			// HTTP/A2A has no token-usage contract or dedicated Go event
+			// extension. Retain the generic interaction without classifying it
+			// as ACP/builtin; SQLite persists it in a2a_usage_events.
 			sink.Enqueue(base)
 		}
 	default:

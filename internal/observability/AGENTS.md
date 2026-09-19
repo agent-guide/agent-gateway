@@ -12,9 +12,11 @@ operational descriptions in the architecture documentation rather than here.
   nullable `agent_id`, `run_id`, and `runtime_type` correlation fields for
   direct non-Agent traffic.
 - Unified `kind=agent` ingress selects the ACP/builtin typed event family from
-  bounded `runtime_type` while preserving `route_kind=agent` and
-  `route_protocol=agent`. Stamp `agent_id` directly from AgentRoute; never use
-  the historical ACP `service_id` column as an active Agent identity.
+  bounded `runtime_type` while preserving `route_kind=agent`.
+  `route_protocol=agent` identifies translated ingress and
+  `route_protocol=a2a` identifies native A2A ingress. Stamp `agent_id` directly
+  from AgentRoute; never use the historical ACP `service_id` column as an
+  active Agent identity.
 - A failed span without an explicit `error_type` maps 4xx statuses to
   `client_error` and other statuses to `internal_error`.
 - When the dispatcher passes an unhandled request to the next handler, call
