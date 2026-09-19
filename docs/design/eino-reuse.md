@@ -1,9 +1,12 @@
 # Eino Capability Reuse
 
+Capability status: **Implemented**, with explicitly conditional future
+adoptions.
+
 ## 1. Purpose
 
 This document records which capabilities of the eino framework
-(github.com/cloudwego/eino, currently v0.9.12) and its component ecosystem
+(github.com/cloudwego/eino, currently v0.9.15) and its component ecosystem
 (github.com/cloudwego/eino-ext) this project reuses directly, which
 capabilities are planned for adoption, and which are deliberately not
 adopted. The goal is to keep provider/protocol plumbing delegated to eino
@@ -11,7 +14,7 @@ wherever a maintained component exists, so this repository stays focused on
 agent observation, management, scheduling, and builtin multi-agent
 coordination.
 
-Baseline facts in this document were verified against eino v0.9.12 and the
+Baseline facts in this document apply to eino v0.9.15 and the
 eino-ext component versions listed below.
 
 ## 2. Current Baseline
@@ -81,7 +84,7 @@ effort defaults and sampling-field stripping are applied on both paths.
 
 ### 4.1 `eino/callbacks` as an observability tap
 
-Status: implemented. `internal/observability/einotap` registers the global
+Current behavior: `internal/observability/einotap` registers the global
 handler (both `agw` app provision and the standalone server call
 `einotap.Register()`, guarded by a `sync.Once`); `cached_tokens` and
 `reasoning_tokens` are captured end to end (extension → event → SQLite columns
@@ -98,7 +101,7 @@ retries). Registering a global callbacks handler and forwarding events into
 complementing the existing dispatcher-level spans. This is the highest
 value-to-effort reuse item.
 
-Verified against v0.9.12: global handlers fire on standalone component
+With v0.9.15, global handlers fire on standalone component
 calls too — `callbacks.EnsureRunInfo` initializes the callback manager from
 `GlobalHandlers` when the context carries none, and every eino-ext chat
 model calls it at the top of `Generate`/`Stream`. The handler receives the
@@ -167,7 +170,7 @@ tables.
 
 ### 4.2 `schema.ConcatMessages` for stream aggregation
 
-Status: adopt in new code as the need arises.
+Decision: use it in new stream-aggregation code.
 
 The official stream-chunk merge function used inside eino components. Any
 gateway code that aggregates a streamed response into one final message
@@ -177,9 +180,9 @@ argument concatenation, `ReasoningContent`, and `ResponseMeta` merging.
 
 ### 4.3 ADK model retry / failover
 
-Status: retry adopted for builtin nodes; failover not adopted.
+Decision: retry is adopted for builtin nodes; failover is not adopted.
 
-In v0.9.12 both ship as `ChatModelAgentConfig` fields (`ModelRetryConfig` /
+In v0.9.15 both ship as `ChatModelAgentConfig` fields (`ModelRetryConfig` /
 `ModelFailoverConfig`, also exposed by the `deep` prebuilt) rather than the
 standalone wrappers of v0.9.7. The builtin definition's `model.retry` block
 (`max_retries`) maps onto `ModelRetryConfig` with an `IsRetryAble` mirroring
@@ -201,7 +204,7 @@ stays unadopted.
 
 ### 4.4 eino-ext callbacks handlers for platform export
 
-Status: the gateway-side OTel exit is implemented — usage events export as
+Current behavior: the gateway-side OTel exit exports usage events as
 OTLP spans through `internal/observability/otelexport` behind
 `pipeline.OpenTelemetrySink`, enabled by the `metrics.otlp` config block.
 The callbacks→OTLP component tap is also implemented (`metrics.otlp`
@@ -251,12 +254,10 @@ every exit.
 
 ## 5. ADK Reuse for the Builtin Runtime
 
-Status: implemented through PB1 and PB1b.
-
 This document owns only the framework-adoption decision: the builtin runtime
 uses eino ADK as its orchestration engine and does not reimplement ADK
 behavior inside the gateway. The authoritative builtin schema, lifecycle,
-protocol, permissions, cancellation, implementation track, and deferred work
+protocol, permissions, cancellation, and current constraints
 live in [Builtin Agent Runtime](builtin-agent-runtime.md).
 
 Adopted ADK capabilities:
@@ -292,7 +293,7 @@ Externally built eino/ADK agents are outside this track. They consume gateway
 LLM and MCP routes as clients and fit the control plane's `http` runtime.
 
 
-## 6. Deferred: Track Until Stable
+## 6. Conditional Future Adoption
 
 ### 6.1 AgenticMessage / AgenticModel (Beta)
 
@@ -311,12 +312,12 @@ codex) Responses paths once the AgenticModel interface and the agentic*
 components leave Beta. Until then the classic `model/openai` component is
 Chat-Completions-only and the self-implemented Responses transport stays.
 
-### 6.2 v0.10 alpha features
+### 6.2 Runner persistence and memory features
 
 Runner-managed session persistence, auto-memory middleware, and permission
-gates are previewed in v0.10 alphas and are not in v0.9.12. Do not depend
-on them yet. The auto-memory middleware overlaps with this project's
-reserved `/admin/memory` surface (501 in v0.4.x); when v0.10 stabilizes,
+gates do not yet provide a stable contract adopted by this gateway. The
+auto-memory middleware overlaps with this project's reserved `/admin/memory`
+surface, which returns `501 Not Implemented`; when those APIs stabilize,
 evaluate "gateway memory = ADK memory middleware + gateway-owned storage
 and Admin API" before designing a separate memory engine.
 
@@ -328,38 +329,10 @@ config store, Admin APIs, MCP/ACP protocol serving, client-compat shims
 Eino is a framework for building agents; these are the gateway's
 infrastructure surfaces.
 
-## 8. Adoption Sequence
 
-1. ~~Wire `eino/callbacks` into the observability pipeline, including
-   instrumenting the self-implemented providers with the callback aspect
-   functions so coverage is uniform (§4.1).~~ Done.
-2. Use `schema.ConcatMessages` for any new stream-aggregation code (§4.2).
-   The builtin host's turn loop already does.
-3. ~~Build the `builtin` agent runtime on ADK (§5).~~ Done (PB1): bridges,
-   generic ADK host, definition schema, turn ingress, and management parity
-   all landed; see `builtin-agent-runtime.md` §11 for the scope notes and the
-   PB2 remainder (durable builtin session/checkpoint capability after a stable
-   eino persistence surface exists). Upper-layer Workflow Workers continue to
-   call the turn-first backend through AgentRoute; the adapter belongs to the
-   [Unified Agent Runtime](../plans/unified-agent-runtime.md) foundation, not
-   PB2.
-4. Migrate openai/codex Responses paths to agentic* components after they
-   graduate from Beta (§6.1).
-5. ~~Wire the gateway-side OTel exit (§4.4).~~ Done: usage events export
-   as OTLP spans via `internal/observability/otelexport` when
-   `metrics.otlp.endpoint` is configured. Vendor callbacks handlers stay
-   on-request for platforms that need component-level detail beyond the
-   usage-event grain.
-6. ~~ADK model retry for builtin nodes (§4.3).~~ Done: the definition's
-   `model.retry` block; failover stays unadopted by design.
-7. ~~ADK Runner cancel for operator turn cancellation (§5).~~ Done:
-   `adk.WithCancel`/`CancelMode` behind the Admin API force/graceful cancel of
-   in-flight builtin turns (`builtin-agent-runtime.md` §10).
+## 8. Integration Constraints
 
-## 9. Known Integration Gotchas
-
-Lessons from the migrations already done; they apply to any future
-component adoption:
+These constraints apply to current and future component adoption:
 
 - `acl/openai`'s `WithExtraFields` replaces the whole extra-fields map
   instead of merging. Component options that internally append their own

@@ -1,11 +1,13 @@
 # VirtualKey Request Rate Limiting
 
-## 1. Status
+Capability status: **Implemented**.
 
-This document defines the implemented first version of request-frequency rate
+## 1. Scope
+
+This document defines request-frequency rate
 limiting by VirtualKey.
 
-This first version is deliberately scoped for a fast landing: admission is a
+Admission is a
 single central check keyed by VirtualKey ID and route kind, performed right
 after VirtualKey validation and interaction-span setup, and before protocol
 dispatch. It counts requests, not operations, so it needs no per-protocol
@@ -23,7 +25,7 @@ integration points.
 
 ## 3. Non-Goals
 
-The first version does not provide:
+The current contract does not provide:
 
 - token-per-minute, token-per-day, or monetary quota enforcement
 - request queuing or delayed admission
@@ -427,65 +429,7 @@ separate bucket. With two replicas configured for 60 RPM, the deployment may
 admit approximately 120 RPM for the same VirtualKey if traffic is evenly
 distributed.
 
-This is an explicit first-version constraint. SQLite must not be used as a
+This is an explicit deployment constraint. SQLite must not be used as a
 per-request distributed counter because it would add contention and storage IO
 to the request hot path. Exact deployment-wide limits require a future shared
 limiter backend, such as Redis, or enforcement in an upstream load balancer.
-
-## 14. Test Requirements
-
-The implementation should cover at least:
-
-- omitted policies remain unlimited
-- invalid rate and burst values are rejected on create, update, and bundle
-  validation
-- unknown dimensions and settings inside `rate_limits` are rejected
-- an omitted `rate_limits` field remains omitted after Admin and GatewayBundle
-  round trips
-- `GetByKey`, `GetByID`, and `List` results do not share mutable slices or
-  rate-limit pointers with the manager cache, store objects, or one another
-- LLM and MCP buckets are independent for one VirtualKey
-- ACP and builtin both inherit `agent` settings
-- ACP and builtin counters remain independent
-- routes of the same kind share one bucket for a VirtualKey
-- different VirtualKeys never share buckets
-- burst capacity and refill behavior are deterministic under a fake clock
-- concurrent admission never exceeds the configured burst
-- concurrent denied admissions do not consume tokens or delay future capacity
-- a route that does not require a VirtualKey (nil resolved key) bypasses
-  admission entirely and is never rate limited
-- streaming requests consume exactly one token
-- builtin internal LLM and MCP calls do not consume ingress buckets
-- an explicit HTTP re-entry from an agent consumes the target route kind's
-  ingress token
-- matched requests that would later pass through still consume a token and
-  return 429 when the bucket is exhausted
-- rejected requests return 429 and a `Retry-After` header that is never zero
-  (always `>= 1` second)
-- the 429 is written through the response recorder so the finished interaction
-  records status 429 and the `rate_limited` annotation is preserved
-- rejected requests emit `rate_limited` with VirtualKey attribution
-- updates atomically replace the applicable immutable bucket; concurrent
-  admission observes either the old settings or the new settings, never mixed
-  limiter and refill-rate state
-- delete and reset remove limiter state
-- Admin and GatewayBundle round trips preserve the complete policy
-
-## 15. Implementation Scope
-
-The expected primary change areas are:
-
-- `pkg/gateway/virtualkey`: configuration, validation, and the limiter registry
-  keyed by `(virtual_key_id, route_kind)`, including strict decoding for the
-  otherwise non-strict `rate_limits` policy subtree and deep-clone support
-- `pkg/dispatcher`: one central admission check in the request handler, after
-  VirtualKey validation and before the route-kind dispatch switch
-- `pkg/admin` and `pkg/adminclient`: management API propagation
-- `pkg/gatewaybundle` and `cmd/agwctl`: apply/export/validation propagation
-- dispatcher, manager, Admin API, and bundle tests
-- user-facing configuration and architecture documentation
-
-Because route matching, VirtualKey resolution, and route-kind selection are
-already centralized in the dispatcher, the in-memory first version needs a
-single admission call and does not touch the protocol handlers, providers, MCP
-services, ACP drivers, or the builtin ADK host.

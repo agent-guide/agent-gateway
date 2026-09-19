@@ -1,37 +1,11 @@
 # Anthropic Messages Protocol Fidelity Architecture
 
-Status: implemented (2026-08-23)
+Capability status: **Implemented**.
 
-This document defines the implemented architecture for Anthropic Messages ingress,
-the Claude Code (`cc`) ingress profile, protocol-native state preservation, and
-Anthropic SSE generation. It replaces incremental handler-specific fixes with
-explicit protocol contracts and a testable streaming state machine.
-
-The migration was delivered as independently verified phases:
-
-| Phase | Commit | Result |
-|---|---|---|
-| 0 | `78c9ba9` | Froze lifecycle, block, usage, and terminal invariants. |
-| 1 | `8e90d60` | Centralized response lifecycle ownership and stream encoding. |
-| 2 | `ee370a5` | Split standard Anthropic and Claude Code into sibling profiles over one Messages core. |
-| 3 | `3344fe0` | Added scoped protocol state, registered codecs, enriched execution, and native relay. |
-| 4 | `272e37e` | Derived immutable atomic requirements from the AST and made route filtering generic. |
-| 5 | `f2fa3a9` | Proved extension with a second test-only dialect and no routing-core branch. |
-
-A post-implementation review then closed the following regression gaps:
-
-| Commit | Result |
-|---|---|
-| `f5b716a` | Restored pre-commit HTTP errors and delayed SSE header commitment. |
-| `48037a8` | Restored Claude Code tool names inside native relay events. |
-| `af55a8b` | Classified encoder, invalid-state, and sink terminal outcomes. |
-| `5e466ed` | Made the transition table executable and added fuzz/race coverage. |
-| `76ae622` | Made provider dialect registration explicit and deterministic. |
-| `291b877` | Hardened relay completeness, usage, metrics, folding, and requirement-gap status. |
-| `1e2d252` | Removed replaced paths and made fragment validation explicit. |
-
-The phase exit gates and completion criteria below remain the regression
-contract for future changes.
+This document defines the durable architecture for Anthropic Messages ingress,
+the Claude Code (`cc`) ingress profile, protocol-native state preservation,
+and Anthropic SSE generation. It replaces handler-specific fixes with explicit
+protocol contracts and a testable streaming state machine.
 
 ## 1. Problem Statement
 
@@ -1445,149 +1419,14 @@ A declaration is not accepted merely because its dependencies are internally
 consistent. The provider package must run and pass every selected conformance
 case in CI.
 
-### 6.6 Commit-Level Verification
 
-Every migration commit must compile and pass its relevant tests independently.
-Tests may not depend on helpers introduced by a later commit. This constraint is
-part of the design because independently reviewable changes reduce the chance
-of hiding protocol behavior inside a large mixed diff.
 
-## 7. Migration Plan
-
-### Phase 0: Freeze message, block, and terminal invariants
-
-- document the full HTTP/message/block/terminal transition table, grouped as in
-  section 4.2;
-- add characterization and captured-traffic fixtures;
-- strengthen the block-discipline assertion to reject globally overlapping
-  blocks on normalized output and on relay under the current Anthropic codec;
-- add pre-commit/open-error, message metadata, usage, ping, buffer-limit, and
-  terminal-path tests before moving implementation.
-
-Exit gate: current valid behavior and known corrections are reproducible without
-an HTTP server.
-
-### Phase 1: Fix the typed stream contract and extract the encoder
-
-- introduce the complete typed provider stream-event algebra and an in-memory
-  sink, including message-level and block-level native events;
-- introduce the exactly-once `ResponseLifecycle` finalizer, make the response
-  coordinator its sole semantic terminal caller, and make the stream encoder
-  delegate outcome, usage, and commit metadata through that coordinator;
-- make the dispatcher explicitly transfer interaction-span finish ownership to
-  the lifecycle before handing off a provider-backed or local LLM response;
-- introduce the dialect-valid identifier generator for synthesized message and
-  tool-use IDs, with Anthropic prefix choice owned by its codec;
-- move block indexes, tool buffers, deferred text, native index remapping, and
-  message/terminal handling out of `handler.go`;
-- delay HTTP success commitment until the provider stream opens and the encoder
-  emits its committing event;
-- enforce the deferred-text and tool-argument buffer limits;
-- keep wire output stable except where the old output violated an invariant;
-- make both handlers use the encoder.
-
-Message-level native inputs have no producer in this phase; provider adapters
-still consume them upstream until phase 3. Defining their encoder contract here
-is deliberate, so phase 3 becomes a producer-only change. They are covered by
-fixtures and encoder tests only.
-
-Exit gate: the HTTP handler contains no message or content-block lifecycle state,
-cannot write protocol events directly, and every terminal path records an
-outcome plus last-known usage when available.
-
-### Phase 2: Replace handler embedding with profiles
-
-- introduce the shared Messages core and explicit profile contract;
-- make standard Anthropic and `cc` thin sibling handlers;
-- move only proven Claude Code-specific behavior into the `cc` profile;
-- add cross-profile contract tests.
-
-Exit gate: `cc` does not embed `anthropic.Handler`, and the shared core contains
-no Claude Code fingerprint or compact-mode policy.
-
-### Phase 3: Introduce `ProtocolState`, shared response semantics, and relay
-
-- introduce scoped `ProtocolState` and `NativeEnvelope` values for request
-  tools/requirements, message history, native stream events, and non-streaming
-  response bodies;
-- add `ChatRequest.ProtocolState` for request scope and one neutral
-  `schema.Message.Extra` key for message/history/response/stream scopes, and
-  carry request scope across the eino boundary as one impl-specific option;
-- replace `ChatExtraFields.AnthropicTools` and `AnthropicToolChoice` with
-  request-scoped envelopes and move their readers to the resolved state;
-- introduce the dialect codec registry with `init` registration and the blank
-  imports in `cmd/agw`, `cmd/agwd`, and `cmd/agwctl`;
-- add the enriched `ExecuteChat`/`ExecuteStreamChat` routed contract returning a
-  single `ResolvedExecution`, keep ordinary provider methods as adapters, and
-  stop rewriting `ChatRequest.Model` in place;
-- define response/body consumption and history-folding rules plus the closed
-  stream-concat merge algebra;
-- centralize capture, projection, differential overlay, and replay in the
-  dialect codec using complete modeled-field baseline digests;
-- introduce the ordered response-item model shared by batch and stream output;
-- introduce the single feature-definition registry and provider support-set
-  shape, initially registering only the two `mode_selection` relay features;
-- carry the response-body envelope on the returned message, exposing at most a
-  convenience accessor on `ChatResponse`;
-- add native relay mode for streaming and non-streaming responses, selected once
-  per response through `StreamOpen` or `ResponseOpen`, with a closed rewrite set;
-- make the batch encoder use the shared `ResponseLifecycle` for provider,
-  rewrite, encoding, and sink outcomes, and make enriched routed execution
-  return attribution without writing usage so the lifecycle is the single span
-  extension writer on that path;
-- stop swallowing upstream message-level events and response bodies in provider
-  adapters;
-- add stream/non-stream equivalence and replay round-trip properties.
-
-Exit gate: one protocol state explains native fidelity, normalized and relay
-responses have one lifecycle owner, `stream: false` and `stream: true` reach
-equal same-dialect fidelity, both relay transports have an explicit provider
-contract, `ProtocolState` survives an `einomodel` `Generate` and a concatenated
-eino stream without retaining transport-only payloads, an in-process agent turn
-carries the same request state as HTTP ingress, mode selection reads the served
-candidate, no dialect-specific field remains on `ChatExtraFields`, request state
-remains independent of message ordering, and stream/non-stream semantic
-equivalence passes.
-
-### Phase 4: Derive requirements from the AST and feature route eligibility
-
-- derive immutable requirements only from the parsed Messages AST;
-- attach request-wide envelopes and requirements to
-  `ChatRequest.ProtocolState`, never to an arbitrary message;
-- register the four `requirement`-class features in the feature-definition
-  registry introduced in phase 3, then replace broad native/reasoning sets;
-- construct requirements only through `NewProtocolRequirementSet` and return
-  `RequirementGap` from candidate filtering instead of a bare no-candidate
-  error;
-- branch non-generative endpoints before requirement derivation and route target
-  resolution through the generic execution-disposition contract;
-- make route selection a generic set-inclusion operation;
-- migrate internal callers through the parser/normalizer or an explicit typed
-  protocol-state adapter;
-- remove handler reparse bypasses, Anthropic-specific generic-provider helpers,
-  old extra keys, and temporary duplicate detectors;
-- add feature-indexed provider conformance tests and improve rejection metrics.
-
-Exit gate: `pkg/gateway/llmroute` contains no Anthropic-specific capability
-logic or payload inspection, no layer rediscovers requirements from a generic
-message projection, and `count_tokens` no longer participates in candidate
-filtering or credential selection.
-
-### Phase 5: Prove extension with a second dialect
-
-Before adding production support for another raw-replay dialect, implement a
-test-only dialect using the same envelope, minimal feature registry, route
-filtering, conformance matrix, and encoder-facing native event contract.
-
-Exit gate: the extension adds registrations and dialect-owned codecs without
-adding new dialect fields or `if dialect == ...` branches to routing core.
-
-## 8. Rollout and Compatibility
+## 7. Compatibility Contract
 
 This repository does not preserve internal backward compatibility by default.
-Each phase should switch all in-repository callers atomically and remove the old
-internal shape in the same phase. Do not keep permanent dual writers, aliases,
-or fallback serializers.
+Internal changes switch all in-repository callers atomically and remove the old
+shape. Permanent dual writers, aliases, and fallback serializers are not
+retained.
 
 Client-visible compatibility is different: valid Anthropic Messages JSON and
 SSE output should remain stable. Intentional changes are limited to correcting
@@ -1595,17 +1434,13 @@ invalid streams, preserving upstream identity and usage that were previously
 lost, replacing silent loss with typed errors, and making route rejections more
 precise. Those changes require fixtures and release notes.
 
-Three of those corrections are user-visible and must be called out explicitly:
-the non-streaming response gains a non-empty message ID, `message_start`
-preserves exact initial usage when available and identifies estimate/fallback
-authority internally when it is not, and a `count_tokens` request carrying
-native state is answered instead of rejected by native-dialect filtering.
+The non-streaming response carries a non-empty message ID. `message_start`
+preserves exact initial usage when available and records estimate/fallback
+authority internally when it is not. A `count_tokens` request carrying native
+state is answered locally instead of entering native-dialect provider
+filtering.
 
-No phase should combine provider rewrites, unrelated route behavior, or new
-product features. The migration is complete only when the old state owner is
-deleted, not when a second abstraction is layered on top of it.
-
-## 9. Risks and Mitigations
+## 8. Risks and Mitigations
 
 | Risk | Mitigation |
 |---|---|
@@ -1642,81 +1477,5 @@ deleted, not when a second abstraction is layered on top of it.
 | Raw and modeled state diverge | Baseline every modeled mutable field with a canonical presence-aware digest and apply differential overlay through the dialect codec. |
 | Capability declarations overstate provider support | Keep the initial vocabulary minimal, validate dependencies, and require feature-indexed provider conformance tests. |
 | Error or cancellation loses consumed-token accounting | Route every completion, failure, and cancellation through one terminal routine that records the outcome and any observed usage. |
-| Migration creates two sources of truth | Use phase exit gates and delete the replaced path in each phase. |
+| Refactoring creates two sources of truth | Switch callers atomically and delete the replaced path. |
 | `cc` behavior leaks into standard Anthropic | Use explicit profiles and cross-profile contract tests. |
-
-## 10. Completion Criteria
-
-The architectural problem is considered resolved when all of the following are
-true:
-
-- `anthropic` and `cc` are thin profile handlers over one shared Messages core;
-- neither handler owns message/content-block lifecycle state or writes protocol
-  events directly;
-- provider-open failure remains an HTTP error, while post-commit failure follows
-  the typed SSE terminal contract;
-- the stream encoder enforces the documented invariant groups for normal, EOF,
-  error, cancellation, ping, native relay, normalized, and parallel-tool
-  sequences, and enforces construction rules only where they apply;
-- the committing event set is closed and a keepalive cannot commit a response;
-- complete same-dialect responses preserve upstream message identity, usage,
-  block indexes, and unmodified fields through validated native relay in both
-  streaming and non-streaming form;
-- streaming event relay and non-streaming body relay have separate atomic
-  capabilities and explicit provider/encoder contracts in one feature registry;
-- streaming and non-streaming responses share one ordered semantic model and
-  pass the replay-equivalence contract in both modes;
-- encoder buffering is bounded and overflow is a named terminal outcome;
-- initial usage preserves exact provider data when available and records an
-  internal estimated/unavailable authority otherwise without delaying the
-  stream to final usage;
-- non-generative endpoints use the generic local execution disposition and
-  answer before requirement derivation, candidate filtering, and credential
-  selection;
-- raw replay and explicit modifications use one `ProtocolState` overlay
-  contract with complete modeled-field baseline digests;
-- request state and requirements live on `ChatRequest.ProtocolState`, reachable
-  identically from HTTP ingress and from an in-process agent turn, with no
-  dialect-specific request field left on `ChatExtraFields`, while
-  message/history/response/stream state uses one neutral message key with
-  explicit scope and retention rules;
-- requirements are constructed only through the class-checking constructor and
-  retain every ordered reason, while route rejections identify the complete
-  provider/model candidate and report its missing features;
-- message state survives the `einomodel` bridge and stream concatenation,
-  concat conflicts fail deterministically, and transport-only state does not
-  accumulate in history;
-- the routing layer returns the served candidate as `ResolvedExecution`, mode
-  selection and the client-visible model derive from it, and the caller's
-  request is never mutated in place;
-- dialect-neutral components reach dialect logic only through the registered
-  codec, capture/overlay/replay are executable codec operations, and an
-  unregistered dialect or wrong projection type is a controlled error rather
-  than a drop;
-- provider/local execution and stream/batch transport use one exactly-once
-  `ResponseLifecycle` contract, the coordinator is the sole semantic terminal
-  caller, and `response_outcome` carries the last known usage when available;
-- the dispatcher explicitly transfers interaction-span finish ownership to the
-  lifecycle, and enriched routed execution returns attribution without becoming
-  a second usage writer;
-- client-visible usage contains only the served attempt; attempt-level usage for
-  failed fallback candidates is outside this design and is never fabricated;
-- synthesized message and tool-use IDs are dialect-valid, collision-free, and
-  survive the client's next-turn `tool_result` reference;
-- local execution remains metered, rate limited, and traced, with estimated
-  usage only for successful endpoints that actually produce an estimate;
-- requirements are derived once from the parsed protocol AST and never inferred
-  from generic message extras;
-- provider fidelity is declared through the minimal dialect feature set,
-  provider declarations pass the conformance matrix, and route filtering is
-  generic set inclusion;
-- internal and HTTP callers attach the same immutable requirement set before
-  provider or credential selection, with no handler reparse bypass;
-- every terminal path records its outcome and last known usage when available;
-- no malformed tool, native block, buffered text, or usage is silently
-  discarded;
-- captured fixtures, state-table tests, replay properties, fuzz properties,
-  stream/non-stream equivalence, provider conformance, and cross-profile
-  contract tests pass;
-- adding a test dialect requires no new dialect-specific field or routing-core
-  branch.
