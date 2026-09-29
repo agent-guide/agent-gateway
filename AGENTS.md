@@ -51,7 +51,7 @@ must be labeled as roadmap on the pages.
 
 - by default, changes in this repository do not preserve backward compatibility
 - do not keep legacy aliases, deprecated field names, old route shapes, old module IDs, old CLI flags, or old API-visible IDs unless the change request explicitly requires compatibility
-- when renaming or reshaping behavior, update the code, tests, `README.md`, `docs/architecture/architecture-overview.md`, `Caddyfile.example`, this file, and the nearest nested `AGENTS.md` to describe only the current behavior unless compatibility is explicitly required
+- when renaming or reshaping behavior, update the code, tests, `README.md`, `docs/architecture/architecture-overview.md`, `examples/Caddyfile.example`, this file, and the nearest nested `AGENTS.md` to describe only the current behavior unless compatibility is explicitly required
 - protected Enterprise SPI and reusable distribution entry points follow the
   compatibility policy in
   [`docs/design/enterprise-extension-contract.md`](docs/design/enterprise-extension-contract.md)
@@ -72,7 +72,7 @@ go build -o agwd ./cmd/agwd
 go build -o agwctl ./cmd/agwctl
 
 # Run with a Caddyfile
-./agw run --config ./Caddyfile.example
+./agw run --config ./examples/Caddyfile.example
 
 # Format
 go fmt ./...
@@ -216,8 +216,8 @@ mode and upstream model name in direct-provider mode.
 
 ## Caddyfile Shape
 
-The main config lives in the global `agent_gateway` block. `Caddyfile.example`
-is the working reference config.
+The main config lives in the global `agent_gateway` block.
+`examples/Caddyfile.example` is the working reference config.
 
 Important current directives:
 
@@ -249,7 +249,7 @@ Stubbed families currently return `501 Not Implemented`:
 - `docs/architecture/architecture-overview.md`: current broader architecture
 - `docs/design/enterprise-extension-contract.md`: protected external SPI,
   distribution assembly, and cross-repository compatibility rules
-- `Caddyfile.example`: working reference config
+- `examples/Caddyfile.example`: working reference config
 - `cmd/agw/main.go`: the definitive list of linked modules
 
 If you change module IDs, route semantics, provider registration, or Admin API paths, update this file, the affected nested `AGENTS.md`, and `README.md` in the same change.

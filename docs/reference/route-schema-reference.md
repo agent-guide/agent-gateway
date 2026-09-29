@@ -22,7 +22,6 @@ Current route kinds:
 - `llm`
 - `mcp`
 - `agent`
-- `a2a`
 
 Current route protocols:
 
@@ -31,6 +30,10 @@ Current route protocols:
 - `cc`
 - `mcp`
 - `agent`
+- `a2a`
+
+`a2a` is a route protocol, not a route kind. Native A2A routes use
+`kind=agent` together with `protocol=a2a`.
 
 ## `match_policy`
 

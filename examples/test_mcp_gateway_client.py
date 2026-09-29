@@ -16,7 +16,7 @@ Prerequisites
        agwctl virtualkey get vk-mcp-test
 
 4. Run the gateway:
-       ./agw run --config ./Caddyfile.example
+       ./agw run --config ./examples/Caddyfile.example
 
 Usage
 -----

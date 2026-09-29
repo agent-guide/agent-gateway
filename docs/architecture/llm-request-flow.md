@@ -27,5 +27,7 @@ This page records the current LLM request path at a high level.
 Current endpoint limits:
 
 - OpenAI `/v1/embeddings` is recognized by path matching but not fully wired through the serving path
-- Anthropic `POST /v1/messages/count_tokens` is a local estimate path; it does
-  not resolve or call a provider
+- on `protocol=cc` routes, `POST /v1/messages/count_tokens` returns a local
+  estimate without resolving or calling a provider; the standard
+  `protocol=anthropic` profile recognizes the endpoint but returns
+  `501 Not Implemented`
