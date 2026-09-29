@@ -20,7 +20,7 @@ Important files:
   `AgentGateway` registers the shipping ACP and builtin adapters during
   bootstrap; all public ACP/builtin turns enter through unified AgentRoute
   dispatch and share its run sequencer and identity bridge.
-  The gateway-owned run registry and permission broker provide M3 exact-run
+  The gateway-owned run registry and permission broker provide exact-run
   cancellation, bounded terminal tombstones, and one-shot opaque continuation
   claims. Claimed permission ids retain short-lived owner/runtime routing
   metadata so concurrent Agent entry points keep converging on the
@@ -93,10 +93,10 @@ Important files:
   resolves to more than one agent is dropped from the map (and
   `ResolveAgentID` returns `ok=false`) rather than silently picking a last
   writer.
-- `snapshot.go`: the deep-cloned, generation-swapped definition snapshot
-  (unified-agent-runtime plan §11 decision 3). `GetSnapshot(id)`, `Snapshot()`,
-  and `HasAgent(id)` read only the immutable current generation and never
-  touch the config store — they are the required lookups for per-request
+- `snapshot.go`: the deep-cloned, generation-swapped definition snapshot.
+  `GetSnapshot(id)`, `Snapshot()`, and `HasAgent(id)` read only the immutable
+  current generation and never touch the config store — they are the required
+  lookups for per-request
   dispatch. Create/Update/Delete build and validate a complete prospective
   generation before the store write, then commit the infallible swap after
   the store operation succeeds; `Refresh` decodes and deep-clones the complete

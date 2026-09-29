@@ -520,12 +520,6 @@ request. The Admin endpoint never starts a builtin continuation in the
 background because the gateway has no caller-independent business execution
 owner or headless event sink.
 
-During M2-M4 only, a legacy ACPRoute whose service is not bound to exactly one
-Agent remains on the pre-unification native ACP path because it has no truthful
-Agent identity for `Backend.ServeTurn`. It receives no synthetic `agent_id` and
-no Agent-scoped controls. M5 rejects such migration input and removes this
-temporary exception.
-
 ### 5.5 Agent Policy
 
 Agent policy is external governance. It should control the resources and
