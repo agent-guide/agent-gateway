@@ -214,6 +214,9 @@ relays that native response with only the client-visible model rewritten.
 `/v1/messages/count_tokens` is classified as local execution during parsing,
 so it still passes route auth, size, and rate-limit governance but does not
 resolve a provider, candidate, credential, or protocol-fidelity requirement.
+On `protocol=cc` routes it returns the local estimate used by Claude Code; on
+standard `protocol=anthropic` routes the recognized endpoint returns
+`501 Not Implemented`.
 
 ## MCP Quick Start
 

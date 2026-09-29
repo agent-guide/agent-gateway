@@ -17,8 +17,8 @@ integration points.
 
 - Configure request-frequency limits on each persisted VirtualKey.
 - Limit LLM, MCP, and agent traffic independently.
-- Use one `agent` configuration for both ACP and builtin traffic while keeping
-  their runtime counters independent.
+- Use one shared `agent` configuration and limiter bucket for every unified
+  AgentRoute, including ACP, builtin, translated HTTP, and native A2A traffic.
 - Apply the same behavior to every route protected by the same VirtualKey.
 - Reject excess traffic immediately with HTTP `429 Too Many Requests`.
 - Keep the request hot path in memory and avoid config-store reads per request.
@@ -138,36 +138,28 @@ policy pointers.
 
 ## 5. Runtime Dimensions
 
-Configuration has three entries, but runtime enforcement uses four independent
-limiter dimensions:
+Configuration and runtime enforcement use the same three limiter dimensions:
 
 | Route kind | Configuration | Runtime limiter key |
 | --- | --- | --- |
 | LLM | `rate_limits.llm` | `(virtual_key_id, llm)` |
 | MCP | `rate_limits.mcp` | `(virtual_key_id, mcp)` |
-| ACP | `rate_limits.agent` | `(virtual_key_id, acp)` |
-| builtin | `rate_limits.agent` | `(virtual_key_id, builtin)` |
+| Agent | `rate_limits.agent` | `(virtual_key_id, agent)` |
 
-ACP and builtin therefore use the same configured rate and burst values but do
-not share available capacity. For example, with agent RPM 20, exhausting the
-ACP bucket does not prevent the same VirtualKey from starting builtin turns.
+ACP, builtin, translated HTTP Path B, and native A2A Path A requests all enter
+through `kind=agent` routes and therefore share the same available capacity.
+For example, with agent RPM 20, an ACP request and a native A2A request consume
+tokens from the same `(virtual_key_id, agent)` bucket.
 
-> Note: a single `agent` policy produces two independent buckets, so the
-> effective aggregate agent admission for a VirtualKey that uses both ACP and
-> builtin routes is up to twice the configured `requests_per_minute`. This is
-> intentional for the first version — the runtime bucket falls out of the route
-> kind for free — but operators sizing an `agent` limit should account for it.
-> Its effective aggregate instantaneous capacity is likewise up to twice the
-> configured `burst`.
-
-Selecting the runtime bucket is trivial: it is the matched route kind
-(`llm` / `mcp` / `acp` / `builtin`), which is already resolved before protocol
-dispatch. No per-protocol operation parsing is involved.
+Selecting the limiter bucket is the matched route kind (`llm` / `mcp` /
+`agent`), which is already resolved before protocol dispatch. Runtime type and
+Agent protocol do not create sub-buckets, and no per-protocol operation parsing
+is involved.
 
 All routes of the same runtime dimension share the VirtualKey's bucket. Two LLM
 routes used by `team-a`, for example, consume the same `(team-a, llm)` capacity.
-This version does not create a bucket for every route, ACP service, or builtin
-agent definition.
+This version does not create a bucket for every route, Agent definition,
+runtime type, or Agent protocol.
 
 ## 6. Rate and Burst Semantics
 
@@ -204,8 +196,9 @@ given kind consumes exactly one token of that kind's bucket:
 
 - one request matched to an LLM route consumes one LLM token
 - one request matched to an MCP route consumes one MCP token
-- one request matched to an ACP route consumes one ACP token
-- one request matched to a builtin route consumes one builtin token
+- one request matched to an Agent route consumes one shared Agent token,
+  regardless of whether it dispatches to ACP, builtin, translated HTTP Path B,
+  or native A2A Path A
 
 A streaming request consumes one token when the request is admitted. Stream
 duration and the number of emitted events do not consume additional tokens.
@@ -217,7 +210,7 @@ particular:
 - MCP protocol handshakes (`initialize`, `tools/list`) and notifications each
   consume one MCP token, not only `tools/call`.
 - ACP permission decisions, session listing, and transcript reads each consume
-  one ACP token, the same as an ACP turn.
+  one Agent token, the same as any other request on an Agent route.
 - Malformed requests that reach the dispatcher on a VirtualKey-protected route
   consume one token of the matched route kind, because the limiter runs before
   protocol parsing. This is acceptable and mildly protective: a client cannot
@@ -238,7 +231,7 @@ A future version may refine any of these to per-operation accounting.
 
 Only requests that enter through the HTTP dispatcher are counted. In-process
 builtin LLM and MCP calls do not re-enter the dispatcher, so a builtin turn
-consumes one builtin token and its nested calls consume no additional ingress
+consumes one Agent token and its nested calls consume no additional ingress
 tokens. The same rule applies to ACP or any future runtime: an internal action
 that does not re-enter the dispatcher is not counted, while an agent process
 that explicitly calls a gateway route with a VirtualKey creates a new inbound
@@ -257,7 +250,7 @@ match route
     -> reject disabled route
     -> resolve and validate VirtualKey
     -> no VirtualKey resolved (route does not require one) -> skip admission
-    -> map matched route kind to llm / mcp / acp / builtin bucket
+    -> map matched route kind to llm / mcp / agent bucket
     -> load the matching VirtualKey rate-limit policy (omitted -> unlimited)
     -> allow: consume one token and dispatch to the protocol handler
     -> deny: return 429 without invoking any protocol handler or downstream work
@@ -306,8 +299,8 @@ An exceeded limit returns:
 - the resolved `virtual_key_id`, route id, route kind, and route protocol in
   observability dimensions
 
-No downstream provider, MCP service, ACP process, or builtin host call may
-start after admission is denied.
+No downstream provider, MCP service, or Agent runtime call may start after
+admission is denied.
 
 Rate-limit errors are gateway admission failures. They must not trigger LLM
 candidate fallback, credential rotation, or provider retry behavior.
@@ -315,8 +308,8 @@ candidate fallback, credential rotation, or provider retry behavior.
 ## 10. Runtime Ownership and Lifecycle
 
 The runtime limiter registry belongs alongside VirtualKey runtime management.
-It is keyed by VirtualKey ID and concrete runtime dimension, never by the
-secret bearer value.
+It is keyed by VirtualKey ID and route-kind dimension, never by runtime type,
+Agent protocol, or the secret bearer value.
 
 The registry must:
 

@@ -138,10 +138,10 @@ Both paths use the dispatcher interaction span and stamp `agent_id` and
 `route_protocol=a2a`. The current interaction span id is injected southbound,
 so a remote Agent span can use it as its parent.
 
-Path A has no token contract. Its request-level events are stored in
-`a2a_usage_events`, participate in unified interaction queries and OTLP export,
-and increment bounded Prometheus counters. Path B uses the common Agent event
-accounting while retaining the HTTP runtime dimension.
+HTTP Agent interactions have no token contract. Request-level events from both
+Path A and Path B are stored in `a2a_usage_events`, distinguished by
+`route_protocol`, included in unified interaction queries and OTLP export, and
+counted by bounded Prometheus metrics.
 
 ## Failure And Readiness
 

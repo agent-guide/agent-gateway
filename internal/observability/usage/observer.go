@@ -267,7 +267,7 @@ func (s *eventSpan) Finish(outcome InteractionOutcome) {
 		default:
 			// HTTP/A2A has no token-usage contract or dedicated Go event
 			// extension. Retain the generic interaction without classifying it
-			// as ACP/builtin; SQLite persists it in a2a_usage_events.
+			// as ACP/builtin; persistence sinks own its storage projection.
 			sink.Enqueue(base)
 		}
 	default:

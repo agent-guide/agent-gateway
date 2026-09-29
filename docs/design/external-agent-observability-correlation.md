@@ -33,7 +33,7 @@ Current runtime behavior is:
 | Runtime | Agent attribution | Trace propagation | Authenticated callback correlation |
 |---|---|---|---|
 | builtin | exact `agent_id` on the turn and inherited child spans | in-process parent/child context | inherent to the in-process call path |
-| HTTP | exact `agent_id` on Path A and Path B; Path A uses `a2a_usage_events` | current interaction span injected southbound | not implemented for later callbacks |
+| HTTP | exact `agent_id` on Path A and Path B; both paths use `a2a_usage_events` | current interaction span injected southbound | not implemented for later callbacks |
 | ACP | exact `agent_id` on the turn and ACP runtime events | gateway turn context exists; adapter behavior varies | not implemented for later callbacks |
 
 A VirtualKey may identify permitted routes but does not by itself prove which

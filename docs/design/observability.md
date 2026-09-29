@@ -117,14 +117,15 @@ Every completed ACP Agent operation produces one persisted usage event containin
 
 ACP event payloads must not store turn input, deltas, content, reasoning text, transcript text, raw permission params, or other agent output content.
 
-### 4.4 Builtin And Native A2A Observability
+### 4.4 Builtin And HTTP Agent Observability
 
 Builtin turns persist topology, model/tool step, event-count, permission, run,
 and asynchronous-resume link dimensions without storing prompt or response
-content. Native A2A ingress persists one request-level event with
-`route_protocol=a2a`, `runtime_type=http`, the target Agent, HTTP/JSON-RPC
-outcome, and latency. A2A does not define token reporting, so the gateway does
-not fabricate token usage for these requests.
+content. HTTP Agent Path A and Path B each persist one request-level event with
+`runtime_type=http`, the target Agent, outcome, and latency. Path A uses
+`route_protocol=a2a`; Path B uses `route_protocol=agent`. A2A does not define
+token reporting, so the gateway does not fabricate token usage for either
+path.
 
 ## 5. Architecture
 
@@ -702,7 +703,7 @@ protocol-owned fields.
 | `mcp_usage_events` | service, JSON-RPC method/request id, tool/resource/prompt/completion identity, cancellation, optional audited arguments, and reserved policy attribution |
 | `acp_usage_events` | ACP operation, adapter type, thread/session/permission identity, event counts, usage snapshot, and result status |
 | `builtin_usage_events` | operation, session/run/permission identity, linked resume trace, topology and model/tool step counts, event counts, and result status |
-| `a2a_usage_events` | request-level Path A outcome and Agent/runtime attribution; A2A defines no token accounting contract |
+| `a2a_usage_events` | request-level HTTP Agent Path A/Path B outcome and Agent/runtime attribution; A2A defines no token accounting contract |
 
 Indexes support time ordering plus the bounded route, trace, Agent, run,
 runtime, and protocol-specific filters exposed by the query service. Schema

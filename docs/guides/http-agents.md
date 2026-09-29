@@ -140,9 +140,11 @@ Use the Agent management surface:
 ./agwctl agent runs remote-reviewer
 ```
 
-Native A2A interactions use `route_kind=agent`, `route_protocol=a2a`, and
-`runtime_type=http`. SQLite stores them in `a2a_usage_events`; they also appear
-in unified interaction queries, OTLP export, and Prometheus request counters.
+Both HTTP Agent paths use `route_kind=agent` and `runtime_type=http`. Common
+turns use `route_protocol=agent`; native A2A requests use
+`route_protocol=a2a`. SQLite stores both in `a2a_usage_events`; they also
+appear in unified interaction queries, OTLP export, and Prometheus request
+counters.
 
 ## Troubleshooting
 
