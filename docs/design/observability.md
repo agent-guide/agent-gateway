@@ -152,7 +152,8 @@ path.
 ┌──────────────────────────────────────────────────────┐
 │              internal/observability/usage             │
 │   InteractionObserver / InteractionSpan interfaces    │
-│   InteractionEvent + LLM/MCP/ACP/builtin/A2A events  │
+│   common InteractionEvent + typed LLM/MCP/ACP/builtin │
+│   events; HTTP/A2A retains the common event directly  │
 │   no-op and pipeline-backed implementations           │
 └──────────────────────────────────────────────────────┘
                          │
@@ -169,6 +170,8 @@ path.
 │   llm_usage_events table                             │
 │   mcp_usage_events table                             │
 │   acp_usage_events table                             │
+│   builtin_usage_events table                         │
+│   a2a_usage_events table                             │
 │   event tables queried directly for aggregates        │
 └──────────────────────────────────────────────────────┘
                          │
@@ -185,7 +188,11 @@ path.
 
 ### 5.1 Unified Event Model
 
-All protocol-specific events embed a shared `InteractionEvent` base type. This base captures dimensions common to every gateway interaction regardless of protocol, enabling cross-protocol analytics and consistent governance queries.
+Protocol-specific typed events embed a shared `InteractionEvent` base type.
+HTTP Agent Path A and Path B have no token-usage extension and enqueue that
+common event directly. The base captures dimensions common to every gateway
+interaction regardless of protocol, enabling cross-protocol analytics and
+consistent governance queries.
 
 ```go
 // InteractionEvent is the common base for all gateway interaction records.
@@ -198,17 +205,24 @@ type InteractionEvent struct {
     StartedAt    time.Time
     FinishedAt   time.Time
     RouteID      string
-    RouteKind    string    // llm | mcp | agent
-    RouteProtocol string   // openai | anthropic | cc | mcp | agent
+    RouteKind    string    // llm | mcp | agent; acp/builtin on direct internal spans
+    RouteProtocol string   // openai | anthropic | cc | mcp | agent | a2a | builtin
     VirtualKeyID string
     Success      bool
     StatusCode   int
     ErrorType    string
     LatencyMS    int64
+    AgentID      string    // stable Agent attribution when unambiguous
+    RuntimeType  string    // acp | builtin | http for Agent execution
+    RunID        string    // common Agent run correlation when available
 }
 ```
 
-`LLMUsageEvent`, `MCPUsageEvent`, and `ACPUsageEvent` embed `InteractionEvent` and add protocol-specific fields. Future route kinds follow the same embedding pattern without modifying the shared base.
+`LLMUsageEvent`, `MCPUsageEvent`, `ACPUsageEvent`, and `BuiltinUsageEvent`
+embed `InteractionEvent` and add protocol-specific fields. HTTP/A2A remains a
+plain `InteractionEvent`; the SQLite sink projects Agent events with
+`runtime_type=http` into `a2a_usage_events`. Future typed event families follow
+the same embedding pattern without modifying the shared base.
 
 The `InteractionObserver` interface is the single call-site interface used by dispatchers:
 
@@ -722,14 +736,14 @@ configuration. Cleanup runs at startup and periodically in the SQLite sink.
 
 ```
 internal/observability/usage/
-    event.go         InteractionEvent base; LLMUsageEvent, MCPUsageEvent, ACPUsageEvent
+    event.go         common event; typed LLM, MCP, ACP, and builtin events
     observer.go      InteractionObserver and InteractionSpan interfaces
     noop.go          no-op observer
     service.go       UsageService wired by caddy/gateway/app.go
 
 internal/observability/pipeline/
     pipeline.go      EventPipeline: buffered input channel, fan-out loop, Sink interface
-    sqlite_sink.go   SQLite sink
+    sqlite_sink.go   SQLite sink, including common HTTP/A2A event projection
     prom_sink.go     Prometheus sink
 
 pkg/configstore/sqlite/
