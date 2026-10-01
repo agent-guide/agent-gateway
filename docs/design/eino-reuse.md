@@ -224,8 +224,8 @@ eino-ext ships ready-made callbacks handlers as standalone modules under
 When LLM-call export to such a platform is wanted, register the vendor
 handler globally instead of writing an exporter; global handlers are a
 list, so it composes with the gateway's own tap handler (§4.1). Exported
-coverage follows §4.1: full once the self-implemented providers are
-instrumented, eino-backed providers only until then.
+coverage follows §4.1: both eino-backed providers and the self-implemented
+`codex` and `claudecode` chat paths invoke the shared callback lifecycle.
 
 There is no vendor lock-in to these platforms; the OTel route is open:
 

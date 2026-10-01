@@ -4,7 +4,7 @@ Capability status: **Implemented**.
 
 This table freezes the stream lifecycle required by
 `anthropic-protocol-fidelity.md`. The executable copy lives in
-`pkg/dispatcher/llmapi/anthropic/stream_contract_test.go`; adding an input kind
+`pkg/dispatcher/llmapi/anthropicmsg/stream_contract_test.go`; adding an input kind
 or state requires defining every cell before production code changes.
 
 The response states are:

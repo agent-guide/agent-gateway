@@ -59,7 +59,7 @@ func (h *Handler) dispatchAgent(w http.ResponseWriter, r *http.Request, next Nex
 	}
 
 	// The Agent definition comes from the manager's immutable generation
-	// snapshot; per-request dispatch must not read the config store (M4 gate).
+	// snapshot; per-request dispatch must not read the config store.
 	agentManager := h.gateway.AgentManager()
 	if agentManager == nil {
 		return WriteDispatchError(h.logger, string(route.Protocol), route.ID, "", http.StatusServiceUnavailable, w, rewritten, "dispatch agent request", "agent manager is not configured", fmt.Errorf("agent manager is not configured"))

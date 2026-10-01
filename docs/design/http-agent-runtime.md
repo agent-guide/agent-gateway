@@ -473,11 +473,11 @@ Validation rules:
   fields: TCP connect and TLS handshake are each 10 seconds, response-header
   wait is 30 seconds, and an established response/SSE stream may be idle for
   60 seconds. The idle timer resets on every body byte, including an SSE
-  comment/heartbeat; it does not extend the total deadline. A Card request has
-  a 10-second standalone ceiling and the same connect/header bounds; during
-  definition prepare it is further capped by the remaining five-second
-  listener budget (§5.5), while health probes receive the full 10 seconds. All
-  values participate in the execution fingerprint so a
+  comment/heartbeat; it does not extend the total deadline. During definition
+  prepare, a Card fetch has a four-second ceiling and is additionally capped by
+  the remaining five-second listener budget (§5.5). A health-probe Card fetch
+  is outside definition prepare and has a 10-second ceiling. Both use the same
+  connect/header bounds. All values participate in the execution fingerprint so a
   policy change retires the old client and bindings. The control-plane design
   already assigns "`runtime.http` owns Card URL/auth/timeouts" (§5.3); the
   schema field plus this transport policy complete that assignment.
@@ -713,9 +713,9 @@ What is absent by design on this path: no `ServeTurn`, no run registry, no
 permission broker, no event sequencer. Cancellation and resumption are the
 client's own `CancelTask` / `SubscribeToTask`, forwarded. Run views,
 permission resolution, and transcripts are fail-closed for these routes.
-Admin capability surfaces must present this honestly: an Agent can be
-reachable through Path A while remaining non-executable on `protocol agent`
-routes until Path B ships.
+Admin capability surfaces present the two implemented paths independently:
+native `protocol=a2a` reachability requires a ready Path A proxy target, while
+common `protocol=agent` turns execute through Path B.
 
 Path A has its own dispatch-time admission path; it must not borrow or bypass
 Path B readiness accidentally. `dispatchAgent` is refactored in this order:

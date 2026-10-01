@@ -264,11 +264,13 @@ routes from the in-memory AgentRoute snapshot. `routes.llm_route_ids` and
 `routes.mcp_route_ids` remain because they describe resources the Agent may use,
 not ingress ownership.
 
-AgentRoute management validation requires the target Agent to exist, but does
-not require it to be enabled or currently executable. Disabled Agents and HTTP
-Agents whose runtime is not ready may be configured in advance; capability
-and workspace views expose that state, while dispatch fails with
-`agent_disabled` or `runtime_not_executable` before backend invocation.
+AgentRoute management validation always requires the target Agent to exist.
+For `protocol=agent`, it does not require the Agent to be enabled or currently
+executable: disabled Agents and HTTP Agents whose Path B runtime is not ready
+may be configured in advance, and dispatch later fails with `agent_disabled`
+or `runtime_not_executable`. For `protocol=a2a`, create and update instead fail
+closed unless the HTTP Agent has a ready Path A proxy target. Capability and
+workspace views expose the accepted runtime state.
 
 The removed pre-unification tree implemented this indirectly through a second
 ACP identity and runtime-specific ingress route families. That shape is

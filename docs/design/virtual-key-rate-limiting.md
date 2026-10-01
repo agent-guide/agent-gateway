@@ -146,10 +146,11 @@ Configuration and runtime enforcement use the same three limiter dimensions:
 | MCP | `rate_limits.mcp` | `(virtual_key_id, mcp)` |
 | Agent | `rate_limits.agent` | `(virtual_key_id, agent)` |
 
-ACP, builtin, translated HTTP Path B, and native A2A Path A requests all enter
-through `kind=agent` routes and therefore share the same available capacity.
-For example, with agent RPM 20, an ACP request and a native A2A request consume
-tokens from the same `(virtual_key_id, agent)` bucket.
+ACP, builtin, translated HTTP Path B, and admitted native A2A Path A execution
+requests all enter through `kind=agent` routes and therefore share the same
+available capacity. For example, with agent RPM 20, an ACP request and a
+native A2A JSON-RPC `POST /` consume tokens from the same
+`(virtual_key_id, agent)` bucket.
 
 Selecting the limiter bucket is the matched route kind (`llm` / `mcp` /
 `agent`), which is already resolved before protocol dispatch. Runtime type and
@@ -191,14 +192,16 @@ traffic may be.
 ## 7. What Counts as One Request
 
 Admission counts inbound HTTP requests at route-kind granularity, decided
-before the protocol operation is parsed. One admitted request to a route of a
-given kind consumes exactly one token of that kind's bucket:
+before the protocol operation is parsed. Path A first excludes its public Card
+and transport-level rejection paths as described below. One request that enters
+ordinary admission for a route of a given kind consumes exactly one token of
+that kind's bucket:
 
 - one request matched to an LLM route consumes one LLM token
 - one request matched to an MCP route consumes one MCP token
-- one request matched to an Agent route consumes one shared Agent token,
-  regardless of whether it dispatches to ACP, builtin, translated HTTP Path B,
-  or native A2A Path A
+- one admitted request matched to an Agent route consumes one shared Agent
+  token, regardless of whether it dispatches to ACP, builtin, translated HTTP
+  Path B, or native A2A Path A
 
 A streaming request consumes one token when the request is admitted. Stream
 duration and the number of emitted events do not consume additional tokens.
@@ -211,11 +214,16 @@ particular:
   consume one MCP token, not only `tools/call`.
 - ACP permission decisions, session listing, and transcript reads each consume
   one Agent token, the same as any other request on an Agent route.
+- Native A2A Path A applies VirtualKey and rate-limit admission only to the
+  exact JSON-RPC `POST /` endpoint after route-prefix rewriting. Public Agent
+  Card `GET` requests and requests that will receive transport-level 404/405
+  rejections bypass admission and consume no token.
 - Malformed requests that reach the dispatcher on a VirtualKey-protected route
   consume one token of the matched route kind, because the limiter runs before
   protocol parsing. This is acceptable and mildly protective: a client cannot
   bypass the limit by sending malformed payloads.
-- A request whose host, path prefix, and method match an AgentRouteConfig
+- Except for the Path A exclusions above, a request whose host, path prefix,
+  and method match an AgentRouteConfig
   consumes one token even if the protocol handler later rejects its rewritten
   subpath or would otherwise pass it to the next Caddy handler. When its bucket
   is exhausted, the dispatcher returns 429 instead of passing that request
