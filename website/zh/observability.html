@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>观测与治理 — AgentGuide</title>
-<meta name="description" content="为经网关路由的 LLM、MCP、ACP 与 builtin 流量提供类型化用量事件、trace 和条件式 Agent 归因，并实施 fail-closed 运行控制。">
+<meta name="description" content="为经网关路由的 LLM、MCP、ACP、builtin 与 HTTP/A2A 流量提供持久化用量事件、trace 和条件式 Agent 归因，并实施 fail-closed 运行控制。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -51,11 +51,11 @@
   <section class="section" id="events">
     <div class="wrap">
       <p class="eyebrow">用量事件</p>
-      <h2>四类事件，一套归因模型。</h2>
+      <h2>五类持久化事件，一套归因模型。</h2>
       <p class="lede">
-        LLM、MCP、ACP 与 builtin 流量各自产生持久化的类型化用量事件。
-        统一 AgentRoute 入口会为 ACP 与 builtin 轮次直接写入目标 agent id 和所选运行时；
-        直接 LLM 与 MCP 流量仍然可见，但不会虚构归属。
+        网关流量按五类用量持久化：LLM、MCP、ACP、builtin 与 A2A。
+        统一 AgentRoute 入口会为 ACP、builtin 与 HTTP/A2A 轮次直接写入目标 agent id
+        和所选运行时；直接 LLM 与 MCP 流量仍然可见，但不会虚构归属。
       </p>
 
       <div class="table-scroll">
@@ -102,6 +102,14 @@
               <td class="mono-cell">turn · session 7f3a</td>
               <td class="num">12,050 / 2,340</td>
               <td class="num"><span class="err-dot"></span>timeout</td>
+            </tr>
+            <tr>
+              <td class="mono-cell">14:02:27</td>
+              <td><span class="tag">a2a</span></td>
+              <td class="mono-cell">remote-research</td>
+              <td class="mono-cell">http · protocol a2a</td>
+              <td class="num">—</td>
+              <td class="num"><span class="ok-dot"></span>890ms</td>
             </tr>
           </tbody>
         </table>
