@@ -55,8 +55,8 @@ Start the gateway:
 ## 2. Apply The HTTP Agent And Routes
 
 Replace the `card_url` below with the remote service's Agent Card URL. The
-native route's `host` must match the authority clients use to reach the
-gateway.
+native route's `host` matches only the hostname clients use to reach the
+gateway; do not include the listener port.
 
 ```yaml
 apiVersion: gateway.agw/v1alpha1
@@ -88,7 +88,7 @@ agentRoutes:
     protocol: a2a
     agent_id: remote-reviewer
     match_policy:
-      host: 127.0.0.1:8080
+      host: 127.0.0.1
       path_prefix: /a2a/reviewer
       methods: [GET, POST]
     auth_policy:
