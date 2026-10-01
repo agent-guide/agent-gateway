@@ -393,14 +393,19 @@ Agent route IDs are auto-generated as `agent:<agent_id>:<path-slug>` when omitte
 
 See [docs/getting-started/quickstart-acp.md](docs/getting-started/quickstart-acp.md), [docs/architecture/acp-architecture.md](docs/architecture/acp-architecture.md), [docs/reference/acp-technical-spec.md](docs/reference/acp-technical-spec.md), and [docs/reference/acp-api.md](docs/reference/acp-api.md) for the full ACP documentation.
 
-### Native A2A HTTP Agent ingress
+## HTTP Agent Quick Start
 
-An HTTP Agent can use the common `/turn` route above or a native governed A2A
-route. Native routes require a trusted `match_policy.host`; their public Agent
-Card is available without a VirtualKey, while JSON-RPC POST retains ordinary
-VirtualKey and rate-limit admission:
+Register an existing A2A Protocol 1.0 service as an HTTP Agent, then expose it
+through either the gateway's common `/turn` API or governed native A2A ingress.
+Replace `card_url` with the remote service's Agent Card URL. HTTPS is required
+except for loopback development addresses.
+
+Create `gateway.bundle.http-agent.yaml`:
 
 ```yaml
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+
 agents:
   - id: remote-reviewer
     name: Remote Reviewer
@@ -410,34 +415,76 @@ agents:
         card_url: https://reviewer.internal/.well-known/agent-card.json
         protocol: a2a
         timeout_seconds: 120
+    routes: {}
+    resources: {}
+    policy: {}
 
 agentRoutes:
-  - id: remote-reviewer-a2a
+  - id: reviewer-turn
+    protocol: agent
+    agent_id: remote-reviewer
+    match_policy:
+      path_prefix: /agents/reviewer
+    auth_policy:
+      require_virtual_key: true
+
+  - id: reviewer-a2a
     protocol: a2a
     agent_id: remote-reviewer
     match_policy:
-      host: gateway.example.com
-      path_prefix: /agents/reviewer
+      host: 127.0.0.1
+      path_prefix: /a2a/reviewer
       methods: [GET, POST]
     auth_policy:
       require_virtual_key: true
+
+virtualKeys:
+  - id: reviewer-key
+    allowed_route_ids: [reviewer-turn, reviewer-a2a]
 ```
 
-The gateway serves `GET /agents/reviewer/.well-known/agent-card.json` and
-accepts A2A 1.0 JSON-RPC at `POST /agents/reviewer`. Clients must send
-`A2A-Version: 1.0` as a header or query service parameter. The allowed P0
-methods are `SendMessage`, `SendStreamingMessage`, `GetTask`, `ListTasks`,
-`CancelTask`, and `SubscribeToTask`; push notification configuration is denied.
+The native route's `host` is the hostname clients use to reach the gateway; do
+not include the listener port. Apply the bundle and retrieve its generated
+VirtualKey:
 
 ```bash
-curl -s https://gateway.example.com/agents/reviewer/.well-known/agent-card.json
+export AGW_ADMIN_BASIC_AUTH=admin:your-password
 
-curl -s https://gateway.example.com/agents/reviewer \
+./agwctl validate -f gateway.bundle.http-agent.yaml
+./agwctl apply -f gateway.bundle.http-agent.yaml
+./agwctl agent get remote-reviewer
+./agwctl agent-route list
+
+AGENT_API_KEY=$(./agwctl virtualkey get reviewer-key | jq -r '.key')
+```
+
+Send a turn through the runtime-neutral Agent API. The gateway translates the
+request to A2A and returns the common Agent SSE event contract:
+
+```bash
+curl -N -s http://127.0.0.1:8080/agents/reviewer/turn \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $AGENT_API_KEY" \
+  -d '{"input":"Review this change"}'
+```
+
+Or discover the rewritten public Card and use native A2A JSON-RPC. Card
+discovery is public; native POSTs retain VirtualKey and rate-limit admission:
+
+```bash
+curl -s http://127.0.0.1:8080/a2a/reviewer/.well-known/agent-card.json
+
+curl -s http://127.0.0.1:8080/a2a/reviewer \
   -H 'Content-Type: application/json' \
   -H 'A2A-Version: 1.0' \
   -H "Authorization: Bearer $AGENT_API_KEY" \
   -d '{"jsonrpc":"2.0","id":"demo-1","method":"SendMessage","params":{"message":{"messageId":"m1","role":"ROLE_USER","parts":[{"text":"Review this"}]}}}'
 ```
+
+Route creation fails closed unless the Card exposes a usable, same-origin A2A
+1.0 `JSONRPC` interface. If the remote Card requires bearer authentication,
+configure an Agent-owned credential and set `runtime.http.auth_ref` as described
+in the guide.
 
 See [HTTP Agent Quick Start](docs/getting-started/quickstart-http-agent.md),
 [HTTP Agent Guide](docs/guides/http-agents.md), and
