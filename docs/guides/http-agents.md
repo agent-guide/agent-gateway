@@ -104,8 +104,10 @@ Additional path segments are not A2A REST operations and return `404`.
 
 For routes with `require_virtual_key: true`, common turns and native POSTs
 accept either `Authorization: Bearer <virtual-key>` or `x-api-key:
-<virtual-key>`. The rewritten Card GET remains public discovery. Native POSTs
-also consume the Agent rate-limit bucket configured on the VirtualKey.
+<virtual-key>`. After VirtualKey admission, common `POST /turn` requests and
+native A2A `POST /` requests consume the same Agent rate-limit bucket configured
+on the VirtualKey. The rewritten Card GET remains public discovery and does not
+consume that bucket.
 
 The served Card always points to the gateway URL. It advertises gateway bearer
 security only when the route requires a VirtualKey, omits remote signatures,

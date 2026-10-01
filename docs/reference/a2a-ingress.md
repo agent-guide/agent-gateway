@@ -88,8 +88,11 @@ Gateway-generated failures use HTTP `200` and preserve a valid request ID:
 | `-32000` | `Server error` | target unavailable or upstream transport/status failure |
 | `-32006` | `Invalid agent response` | invalid, oversized, or mismatched upstream response |
 
-For `SendStreamingMessage`, these rejections are one SSE `data:` error event.
-Other methods, including rejected `SubscribeToTask` requests, use
+After the gateway has accepted a valid single-request envelope and identified
+`SendStreamingMessage`, subsequent JSON-RPC rejections are returned as one SSE
+`data:` error event. Parse errors and envelope or batch failures occur before a
+method is accepted and therefore use `application/json`; other identified
+methods, including rejected `SubscribeToTask` requests, also use
 `application/json`. HTTP-layer failures occur before JSON-RPC handling:
 
 - `404` for an unknown subpath;

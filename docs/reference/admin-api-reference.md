@@ -335,14 +335,17 @@ resume-mode, allowlisted action id/display-name fields, and exact ACP option
 id/kind/display-name fields. They never expose
 native ACP payloads, builtin checkpoints, tool arguments, transcripts, or
 trace-link state.
-P0/P1 agents are management-plane groupings: data-plane requests still
-authenticate through VirtualKeys and route policy. Agent usage and activity
-views prefer durable `agent_id` attribution and fall back to the agent's owned
-routes and ACP runtime service for older or untagged events.
+The unified Agent management plane is independent of the `kind=agent` data
+plane: data-plane requests still authenticate through VirtualKeys and route
+policy. Agent usage and activity views prefer durable `agent_id` attribution
+and fall back to the agent's owned routes and ACP runtime service for older or
+untagged events.
 
 Run cancellation returns `503 Service Unavailable` with `Retry-After: 1` when
-an ACP run is registered but its live protocol session is not bound yet. The
-run remains active, so the same exact-run cancellation request can be retried.
+the selected runtime reports `backend_unavailable` during a retryable binding
+window. This includes an ACP run whose live protocol session is not bound yet
+and an HTTP Agent run whose upstream task ID is not known yet. The run remains
+active, so the same exact-run cancellation request can be retried.
 
 ## Stubbed Families
 

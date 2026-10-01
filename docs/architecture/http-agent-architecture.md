@@ -104,8 +104,8 @@ security only when the route requires a VirtualKey.
 
 ```text
 POST /<agent-route>
-  -> content type, size, envelope, id, version, and method checks
   -> VirtualKey and rate-limit admission when required
+  -> content type, size, envelope, id, version, and method checks
   -> proxy readiness and interface-tenant validation
   -> ingress credential removal and auth_ref credential injection
   -> pkg/a2a/proxy forwards unchanged JSON-RPC bytes
@@ -115,7 +115,11 @@ POST /<agent-route>
 The native path admits the six request methods defined by the design and
 rejects push-configuration operations. JSON-RPC notifications receive HTTP
 204 after bounded rejection accounting. Gateway-generated JSON-RPC failures
-use the original request id whenever the envelope supplied a valid id.
+use the original request id whenever the envelope supplied a valid id. The
+exact JSON-RPC `POST /` endpoint completes dispatcher authentication and
+rate-limit admission before its body is read or validated, so rejected
+protocol payloads still require a valid VirtualKey and consume admission when
+the route requires one.
 
 ## HTTP And Security Boundary
 
