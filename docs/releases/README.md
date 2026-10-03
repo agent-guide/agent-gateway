@@ -18,4 +18,5 @@ checklists do not belong here.
 
 Current release notes:
 
+- [v0.6.1.md](v0.6.1.md)
 - [v0.6.0.md](v0.6.0.md)
