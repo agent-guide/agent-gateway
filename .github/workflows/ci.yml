@@ -19,3 +19,5 @@ jobs:
           cache: true
       - name: Verify release candidate
         run: make verify-release
+      - name: Smoke release processes
+        run: make smoke-release

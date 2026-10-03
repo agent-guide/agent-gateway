@@ -92,7 +92,12 @@ func serveRPC(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, request.ID, map[string]any{"message": agentMessage("example-message")})
 	case "SendStreamingMessage":
 		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-		writeSSE(w, request.ID, map[string]any{"message": agentMessage("example-stream-message")})
+		writeSSE(w, request.ID, map[string]any{"task": map[string]any{
+			"id": taskID, "contextId": contextID,
+			"status": map[string]any{
+				"state": "TASK_STATE_WORKING", "message": agentMessage("example-stream-message"),
+			},
+		}})
 		writeSSE(w, request.ID, map[string]any{"statusUpdate": map[string]any{
 			"taskId": taskID, "contextId": contextID,
 			"status": map[string]any{"state": "TASK_STATE_COMPLETED"},
