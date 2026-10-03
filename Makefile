@@ -1,6 +1,6 @@
 # Makefile for Caddy LLM Router
 
-.PHONY: all build build-agw build-agwd build-agwctl build-xcaddy clean deps fmt
+.PHONY: all build build-agw build-agwd build-agwctl build-xcaddy clean deps fmt verify-release
 
 # Binary names
 BINARY_NAME=agw
@@ -57,3 +57,7 @@ deps:
 fmt:
 	@echo "Formatting code..."
 	$(GOCMD) fmt ./...
+
+# Run the same non-mutating release gates used by CI.
+verify-release:
+	./scripts/verify-release
