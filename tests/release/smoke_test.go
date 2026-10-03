@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -17,6 +18,8 @@ import (
 )
 
 const processTimeout = 15 * time.Second
+
+var readinessClient = &http.Client{Timeout: time.Second}
 
 type childProcess struct {
 	name    string
@@ -60,9 +63,10 @@ func TestReleaseProcesses(t *testing.T) {
 	exampleURL := pollFile(t, exampleAddressFile)
 	pollHTTP(t, exampleURL+"/healthz", http.StatusOK)
 
-	adminPort := freePort(t)
-	dataPort := freePort(t)
-	caddyAdminPort := freePort(t)
+	gatewayPorts := reservePorts(t, 3)
+	adminPort := gatewayPorts.port(0)
+	dataPort := gatewayPorts.port(1)
+	caddyAdminPort := gatewayPorts.port(2)
 	dbPath := filepath.Join(temp, "caddy", "configstore.db")
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		t.Fatal(err)
@@ -89,6 +93,10 @@ http://127.0.0.1:%d {
 	}
 }
 `, caddyAdminPort, dbPath, adminPort, dataPort))
+	// Keep the ports bound until the configuration is ready, then release them
+	// immediately before the child starts. This guarantees distinct ports and
+	// minimizes the unavoidable handoff window for a process-level smoke test.
+	gatewayPorts.release(t)
 	agw := startChild(t, repo, filepath.Join(temp, "agw.log"), filepath.Join(repo, "agw"),
 		"run", "--config", caddyfile, "--adapter", "caddyfile")
 	agw.name = "agw"
@@ -169,10 +177,12 @@ virtualKeys:
 	}
 	pollInteraction(t, adminURL, traceID)
 
-	standalonePort := freePort(t)
-	standaloneAdminPort := freePort(t)
+	standalonePorts := reservePorts(t, 2)
+	standalonePort := standalonePorts.port(0)
+	standaloneAdminPort := standalonePorts.port(1)
 	staticPath := filepath.Join(temp, "standalone.yaml")
 	writeFile(t, staticPath, "apiVersion: gateway.agw/v1alpha1\nkind: GatewayBundle\n")
+	standalonePorts.release(t)
 	agwd := startChild(t, repo, filepath.Join(temp, "agwd.log"), filepath.Join(repo, "agwd"),
 		"--addr", fmt.Sprintf("127.0.0.1:%d", standalonePort),
 		"--admin-addr", fmt.Sprintf("127.0.0.1:%d", standaloneAdminPort),
@@ -194,14 +204,40 @@ func repositoryRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(dir, "..", ".."))
 }
 
-func freePort(t *testing.T) int {
+type portReservation struct {
+	listeners []net.Listener
+}
+
+func reservePorts(t *testing.T, count int) *portReservation {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	reservation := &portReservation{}
+	for range count {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			reservation.release(t)
+			t.Fatal(err)
+		}
+		reservation.listeners = append(reservation.listeners, listener)
 	}
-	defer listener.Close()
-	return listener.Addr().(*net.TCPAddr).Port
+	t.Cleanup(func() { reservation.release(t) })
+	return reservation
+}
+
+func (r *portReservation) port(index int) int {
+	return r.listeners[index].Addr().(*net.TCPAddr).Port
+}
+
+func (r *portReservation) release(t *testing.T) {
+	t.Helper()
+	for _, listener := range r.listeners {
+		if listener == nil {
+			continue
+		}
+		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			t.Errorf("release port reservation: %v", err)
+		}
+	}
+	r.listeners = nil
 }
 
 func writeFile(t *testing.T, path, content string) {
@@ -300,7 +336,7 @@ func pollHTTP(t *testing.T, url string, status int) {
 	t.Helper()
 	deadline := time.Now().Add(processTimeout)
 	for time.Now().Before(deadline) {
-		response, err := http.Get(url)
+		response, err := readinessClient.Get(url)
 		if err == nil {
 			_, _ = io.Copy(io.Discard, response.Body)
 			_ = response.Body.Close()

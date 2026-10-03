@@ -99,7 +99,7 @@ func TestSQLiteSinkUpgradesPreV06DatabaseAndPreservesUsage(t *testing.T) {
 	if err := configsqlite.MigrateUsageTables(db); err != nil {
 		t.Fatal(err)
 	}
-	now := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	legacy := usage.InteractionEvent{StartedAt: now, FinishedAt: now.Add(time.Millisecond), Success: true, StatusCode: 200}
 	if err := configsqlite.InsertLLMUsageEvent(db, usage.LLMUsageEvent{InteractionEvent: withLegacyID(legacy, "legacy-llm", "llm")}); err != nil {
 		t.Fatal(err)

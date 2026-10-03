@@ -71,7 +71,7 @@ Start the gateway:
 
 ## 2. Apply The HTTP Agent And Routes
 
-Use the local Card URL from step 0 below, or replace it with your service's
+Use the local Card URL from step 0 above, or replace it with your service's
 Agent Card URL. The native route's `host` matches only the hostname clients use
 to reach the gateway; do not include the listener port.
 
