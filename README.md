@@ -400,6 +400,17 @@ through either the gateway's common `/turn` API or governed native A2A ingress.
 Replace `card_url` with the remote service's Agent Card URL. HTTPS is required
 except for loopback development addresses.
 
+For a self-contained local run, start the development-only fixture first and
+use `http://127.0.0.1:8090/.well-known/agent-card.json` as `card_url`:
+
+```bash
+go run ./examples/a2a-agent --listen 127.0.0.1:8090
+curl -fsS http://127.0.0.1:8090/healthz
+```
+
+The fixture implements deterministic `SendMessage` and
+`SendStreamingMessage` responses and is not a production Agent SDK.
+
 Create `gateway.bundle.http-agent.yaml`:
 
 ```yaml

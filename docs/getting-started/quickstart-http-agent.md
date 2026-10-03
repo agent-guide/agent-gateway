@@ -1,14 +1,31 @@
 # Quick Start: HTTP Agent
 
-This guide registers an existing A2A Protocol 1.0 service as an HTTP Agent,
-then exposes both the common Agent turn API and governed native A2A ingress.
+This guide registers an A2A Protocol 1.0 service as an HTTP Agent, then exposes
+both the common Agent turn API and governed native A2A ingress. You can use the
+repository's local fixture or bring your own service.
 
 ## Prerequisites
 
-- a running A2A 1.0 JSON-RPC service with an HTTPS Agent Card URL (loopback
-  HTTP is accepted for local development);
+- a running A2A 1.0 JSON-RPC service with an HTTPS Agent Card URL (the local
+  fixture below uses the permitted loopback HTTP exception);
 - Go toolchain, `curl`, and `jq`;
 - the gateway binaries built with `make build`.
+
+## 0. Optional: Start The Local A2A Fixture
+
+For a self-contained walkthrough, start the development-only deterministic
+fixture in a separate terminal:
+
+```bash
+go run ./examples/a2a-agent --listen 127.0.0.1:8090
+curl -fsS http://127.0.0.1:8090/healthz
+```
+
+Its Card URL is
+`http://127.0.0.1:8090/.well-known/agent-card.json`. The fixture implements
+only `SendMessage` and `SendStreamingMessage`, returns the stable A2A context
+`example-context`, and is intended for development and verification rather
+than production use.
 
 ## 1. Start The Gateway
 
@@ -54,9 +71,9 @@ Start the gateway:
 
 ## 2. Apply The HTTP Agent And Routes
 
-Replace the `card_url` below with the remote service's Agent Card URL. The
-native route's `host` matches only the hostname clients use to reach the
-gateway; do not include the listener port.
+Use the local Card URL from step 0 below, or replace it with your service's
+Agent Card URL. The native route's `host` matches only the hostname clients use
+to reach the gateway; do not include the listener port.
 
 ```yaml
 apiVersion: gateway.agw/v1alpha1
@@ -68,7 +85,7 @@ agents:
     runtime:
       type: http
       http:
-        card_url: https://reviewer.internal/.well-known/agent-card.json
+        card_url: http://127.0.0.1:8090/.well-known/agent-card.json
         protocol: a2a
         timeout_seconds: 120
     routes: {}
