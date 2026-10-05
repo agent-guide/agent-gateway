@@ -389,7 +389,7 @@ func pollInteraction(t *testing.T, adminURL, traceID string) {
 	url := adminURL + "/admin/metrics/interactions?trace_id=" + traceID + "&route_id=smoke-a2a"
 	deadline := time.Now().Add(processTimeout)
 	for time.Now().Before(deadline) {
-		response, err := http.Get(url)
+		response, err := readinessClient.Get(url)
 		if err == nil {
 			payload, readErr := io.ReadAll(response.Body)
 			_ = response.Body.Close()
