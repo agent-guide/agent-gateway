@@ -1,6 +1,9 @@
 # Enterprise Extension Contract
 
-Capability status: **Implemented**.
+Capability status: **Implemented** for the repository ownership and protection
+policy. The v0.7 foundation contracts in section 11 are **Proposed** until their
+implementations and external-consumer suites land; no protected v0.7 API is
+claimed by this document alone.
 
 Individual extension surfaces are protected only when explicitly designated
 by released code and contract tests.
@@ -19,6 +22,13 @@ truth for implementation status. A surface becomes protected by this contract
 only when its package documentation explicitly designates it as an Enterprise
 SPI or reusable distribution entry point and a released Community tag contains
 the corresponding contract tests.
+
+The active v0.7 plan applies this contract to a common extension foundation:
+reusable distribution entry points, a linked capability manifest, bounded
+registered configuration, Admin route composition, public attribution/event
+contracts, and the first domain-owned proof SPI (`LimiterBackend`). Guardrails
+and other domain SPIs remain separate vertical slices and are not prerequisites
+for that foundation.
 
 ## 2. Repository and dependency direction
 
@@ -50,6 +60,26 @@ The following rules are mandatory:
 - The Enterprise repository consumes a released Community tag. Committed
   `replace` directives, floating branches, and a checked-in `go.work` are not
   release inputs.
+
+### 2.1 Foundation versus domain capabilities
+
+The shared foundation solves composition, not product policy. It has four
+layers:
+
+1. reusable entry packages and a compile-time linked capability manifest;
+2. bounded module identity/configuration and Admin composition contracts;
+3. trusted attribution and deliberately public event DTO boundaries;
+4. reusable external-consumer contract suites and compatibility evidence.
+
+Domain behavior remains in narrow SPIs introduced with real consumers. A
+limiter backend, Guardrail check, identity resolver, policy evaluator, secret
+resolver, retriever, and ConfigStore creator do not implement one generic
+interface and do not gain access to the complete gateway. Shipping one of them
+does not make the others Enterprise-ready.
+
+The common foundation must be useful to Community custom distributions. It may
+not contain private module IDs, commercial defaults, entitlement decisions, or
+configuration that Community cannot validate and execute.
 
 ## 3. Protected public surfaces
 
@@ -93,6 +123,13 @@ ConfigStore creator, agent runtime, identity or policy evaluator, event sink,
 secret resolver, and Admin API route contributor. This list is not a commitment
 to implement all seams or a statement of Enterprise product scope.
 
+`LimiterBackend` is the v0.7 proof slice because the current in-process
+VirtualKey limiter provides an independently useful reference implementation
+and its request-bound failure semantics exercise the distribution, manifest,
+configuration, Admin, attribution, and event boundaries. This choice does not
+make limiting the universal extension abstraction and does not make a
+production distributed backend part of Community.
+
 Registries exposed to external repositories must follow consistent failure
 semantics:
 
@@ -127,6 +164,12 @@ Community and Enterprise assembly should be checked using code-generated or
 code-owned manifests. Documentation must not copy the complete blank-import
 list or become a second source of truth.
 
+The manifest reports what is linked, not what is licensed for a customer or
+healthy at a particular instant. Serialized entries contain only bounded stable
+module identity, version, schema version, and capability metadata. Runtime
+factory pointers, secrets, tenant data, and entitlement state never appear in
+the manifest.
+
 A package does not qualify as a reusable distribution entry point merely
 because its import path is public. Before designation, its exported
 configuration, constructors, callbacks, and return types must be usable from a
@@ -151,6 +194,21 @@ External event sinks must not import or freeze
 Community first defines a deliberately stable public DTO and an adapter between
 that DTO and the internal event model. Public event evolution and redaction
 rules are reviewed independently from the internal observability model.
+
+The v0.7 shared attribution contract defines optional fields for authenticated
+subject, tenant, route, Agent, run, VirtualKey, trace, span, and parent
+correlation, plus bounded namespaced attributes with an explicit allowlist and
+size limits. Identity fields are populated only when established by an existing
+trusted boundary or a future designated resolver, and correlation fields remain
+absent when the corresponding runtime does not provide them. A caller-provided
+tenant header is not trusted by itself. The foundation transports attribution;
+it does not implement enterprise authentication, tenant storage, or
+authorization.
+
+The v0.7 public event envelope covers only event families needed to prove the
+foundation. Guardrail decisions, financial metering, compliance audit, and
+policy decisions receive versioned public DTOs with their own vertical slices;
+the foundation does not predeclare empty product interfaces for them.
 
 ## 7. Runtime invariants
 
@@ -210,3 +268,266 @@ licensing, customers, or delivery dates.
 - [Gateway Bundle YAML](gateway-bundle-yaml.md)
 - [Request Pipeline](request-pipeline.md)
 - [Observability](observability.md)
+
+## 11. v0.7 foundation contract decisions
+
+These decisions fix the implementation target. They do not describe APIs already
+available in the current tree. Changes to this target must update this design
+and the active plan together before an implementation is designated protected.
+
+### 11.1 Package ownership and public boundary
+
+| Public package | Owner and intended protected surface |
+| --- | --- |
+| `pkg/distribution/caddycmd` | Caddy command construction/run adapter and assembly options |
+| `pkg/distribution/daemoncmd` | Standalone command construction/run adapter and assembly options |
+| `pkg/distribution/ctlcmd` | Management command construction/run adapter and local validation options |
+| `pkg/distribution` | Edition metadata, public metrics configuration, and explicit assembly options |
+| `pkg/extension` | Linked module descriptors, registry, manifest, configuration envelope and prepared snapshot lifecycle |
+| `pkg/attribution` | Immutable request attribution values and context accessors |
+| `pkg/event` | Versioned public envelopes, sink lifecycle and bounded delivery options |
+| `pkg/admin/contribution` | Route declarations and narrow contribution dependencies |
+| `pkg/gateway/virtualkey/limiter` | Backend, factory, policy snapshot, admission and lifecycle contracts |
+| `pkg/extension/contracttest` | Reusable manifest, configuration, Admin, attribution and event suites |
+| `pkg/gateway/virtualkey/limiter/contracttest` | Backend lifecycle and admission suite |
+
+Only symbols named in landed package documentation become protected. The table
+does not protect all exports in those packages. Existing `standalone/server`,
+`caddy/gateway`, `pkg/admin`, and `pkg/gateway` remain implementation surfaces
+unless separately designated.
+
+The new entry options use public value types; adapters translate public metrics
+options into `usage.Config` internally. External assembly does not construct an
+internal observer, query service or pipeline. Public signatures and their
+transitive required types must expose no Community `internal/` package. Internal
+implementation imports are allowed.
+
+Command construction creates fresh command/flag state per invocation. Loading
+`.env.local` then `.env`, signal ownership and `os.Exit` occur in execution,
+never on importing a reusable package. Preserve current defaults, environment
+precedence, flags, stdout/stderr and exit codes. Final main packages retain
+edition-specific imports. Caddy continues to delegate standard command behavior
+to Caddy rather than maintaining a second command implementation.
+
+### 11.2 Identity, manifest and registration
+
+Module and capability IDs use lower-case reverse-domain names, at most 128 ASCII
+bytes, with nonempty dot-separated segments containing letters, digits or
+hyphens. They are distinct from existing Caddy module IDs and provider type names;
+no runtime identifier is renamed to satisfy this metadata format. Community IDs
+use `online.agentguide.community.*`; the independent fixture uses
+`example.fixture.*`. Private IDs belong only in the private repository.
+
+Module versions are semantic-version strings. Schema versions are positive
+integers; unsupported versions fail without implicit migration. Manifests sort
+modules by ID and capabilities/dependencies lexically, reject duplicates, and
+serialize roles from the fixed set `runtime`, `validation`, `admin`, `spi`.
+Bound each descriptor to 64 capabilities, 64 dependencies and 64 KiB serialized
+JSON; bound an assembled manifest to 256 modules. Exceeding these limits fails
+assembly explicitly.
+Runtime factories are held separately from serialized descriptors. Both server
+entries receive the same runtime descriptors; CLI entries receive the declared
+validation projection, not a claim to execute server modules.
+
+Registry assembly returns typed errors with stable codes `invalid_registration`,
+`duplicate_module`, `unknown_module`, `missing_dependency`, `dependency_cycle`,
+and `schema_mismatch`. Dependency resolution is deterministic and topological;
+ties sort by ID. Freeze the registry before serving. Factories are never invoked
+by a manifest query or request-time directory lookup.
+
+### 11.3 Configuration ownership, mutation and secrets
+
+Add `extensions` to GatewayBundle as a list of envelopes containing `module_id`,
+`schema_version` and `config` (`json.RawMessage`). One envelope per module is
+allowed. Module-owned strict decoding validates its config; this envelope cannot
+override providers, routes or protocol fields. Limit the list to 64 entries,
+each config to 256 KiB of encoded JSON and nesting to 32 levels. Unknown configured
+modules fail local validation when unavailable locally, and always fail on the
+server when not linked. CLI validation cannot authorize server execution.
+
+Persist dynamic envelopes in a schema-bound `extensions` store in the existing
+ConfigStore backend. Static envelopes remain startup-owned, visible but read-only;
+a static/dynamic duplicate ID is a startup error. Caddy JSON and its Caddyfile
+adapter feed the same envelope validator as standalone static bundles. The
+Caddyfile adds `extension <module_id> <schema_version> <config-file>`; the file
+contains module-owned JSON and uses the same secret-reference handling.
+
+Community owns `GET /admin/extensions` and
+`GET|PUT|DELETE /admin/extensions/{module_id}`. List/get return reference-preserving
+envelopes. PUT performs server validation, dependency checking and bounded
+resource preparation before persistence. Preparation cannot mutate live state.
+Persist the candidate, then atomically publish its prepared snapshot; publication
+is infallible. Persistence failure disposes prepared resources and leaves the
+old snapshot active. Serialize dependent mutations, and publish one generation
+covering all affected dependencies. Requests retain their admitted generation;
+retire resources after its in-flight users drain, with bounded shutdown.
+Preparation and health calls receive contexts with a five-second maximum budget,
+capped by the caller's deadline. Snapshot publication performs no I/O. Factories
+must support concurrent snapshot reads and honor lifecycle cancellation.
+DELETE rejects a module still required by another configured envelope with 409.
+
+Bundle apply first applies extensions in dependency order, then follows the
+existing resource order. It stops before dependent resources if extension apply
+fails. The whole Bundle remains a sequence of resource mutations, with explicit
+partial-result reporting and no cross-resource rollback promise. Export includes
+the effective extension envelopes and their static/dynamic ownership. Existing
+Bundle ownership semantics remain in force; no second configuration authority
+or event store is introduced.
+
+Factories declare secret fields using exact JSON Pointers. At those locations,
+only an object of the form `{"$secret_ref":"env:NAME"}` is accepted for a secret;
+literal secrets and undeclared `$secret_ref` objects are rejected. `NAME` follows
+the existing environment-variable name grammar. v0.7 supports environment
+references only; it adds no SecretResolver SPI. Walk and classify references
+before generic `${NAME}` expansion. Local validation checks syntax but does not
+resolve references; server preparation resolves from the server environment.
+Missing references fail preparation with a bounded code and field path, never
+the value. Persisted/exported config retains the reference object, including
+when the environment variable is set. Resolved values exist only in owned
+runtime resources; they never enter DTOs, events, diagnostics or manifests.
+Environment rotation requires explicit reapply/reload and creates a generation.
+
+### 11.4 Attribution and public events
+
+The existing validated VirtualKey boundary establishes subject as
+`virtualkey:<id>` and sets VirtualKey ID. It supplies no tenant. An explicitly
+injected trusted attribution producer may provide subject/tenant; it is not
+selected from client headers and receives no general gateway service locator.
+Mount authentication alone does not synthesize a subject unless a trusted
+adapter supplies it. Route/Agent/run fields come from the selected runtime;
+trace/span/parent come from the existing validated tracing lifecycle. Missing
+fields remain absent. A tenant header has no effect.
+
+Identity/correlation fields are bounded to 256 UTF-8 bytes each (trace IDs retain
+their existing format). Attributes are string values with exact keys allowlisted
+by assembly; keys must begin with a linked module's ID plus `/`. Limit to 16
+attributes, 128 bytes per key, 256 bytes per value and 4 KiB total. Copy values
+on context insertion and retrieval. Invalid producer values return a typed
+error; optional attribution must not replace valid core correlation or leak an
+unbounded value into events.
+
+The v1 event envelope contains schema version, event ID, family, UTC timestamp,
+attribution, bounded outcome/reason codes and a typed family DTO. Protect only
+`limiter.admission` (dimension, allow/deny/degraded outcome, retry-after and backend
+ID) and `extension.mutation` (module ID, operation and success/failure outcome)
+in this slice. Successful contribution mutations use the latter hook after
+commit; failed mutations emit a bounded failure code. The mutation DTO permits a
+boolean `state_reset` for a committed limiter policy/backend reset. Neither DTO
+admits arbitrary
+maps, error strings, prompts, tool arguments, bearer keys, secret references or
+resolved values. IDs remain event fields, never metric labels. Encoded envelopes
+are at most 16 KiB; reject invalid events before enqueue and count rejection.
+
+Adapt the existing pipeline as the single event authority. Its public sink
+adapter projects internal events into allowlisted DTOs. Each external sink has
+a bounded queue (default 256 events, configurable 1–4096), one worker and FIFO
+delivery for accepted events. Ingress never waits on a sink. Queue overflow drops
+the newest event for that sink and increments its drop counter. Delivery is
+best-effort, without retry or durable replay; a sink error increments its failure
+counter and does not fail admission or another sink.
+
+Sink `Write`, `Flush` and `Close` receive contexts. Default write budget is one
+second; flush/close share a shutdown budget of five seconds, bounded by the
+caller's deadline. Sinks must honor cancellation; no unbounded goroutine is
+created per write to hide a non-cooperative sink. Flush waits for events accepted
+before its barrier. Shutdown rejects new events, drains accepted events within
+budget, counts undelivered queued events, and closes exactly once. Concurrent
+flush/close and repeated close are defined and tested. Process teardown returns
+at its deadline even if an invalid sink remains stuck; that violation is reported
+as unhealthy and must fail its contract suite. No parallel usage-accounting
+pipeline is created.
+
+### 11.5 Admin ownership and body policy
+
+Contributions own only `/admin/extensions/<module_id>/...`; Community envelope
+CRUD owns the module root. Reserve all other Community prefixes, including
+`/admin/memory`. Route declarations specify method, pattern and owner. Reject
+duplicate, overlapping or ambiguous patterns at assembly with typed
+`route_conflict`, including conflicts across the existing AgentRoute mux boundary.
+Check the entire declaration set before registering handlers; do not expose a
+ServeMux panic as the public conflict API.
+
+Dependencies consist of immutable module config, logger, attribution access,
+public event publisher and module-owned health/lifecycle hooks. They do not expose
+AgentGateway, raw ConfigStore, credentials or unrestricted route replacement.
+Contributed routes run through the existing Admin mount authentication, CORS,
+panic recovery and logging. Initialization failure prevents startup; readiness
+reports module health. Stop admitting requests before draining handlers and
+closing module resources in reverse dependency order.
+
+All Admin request bodies are limited to 4 MiB (4,194,304 bytes), measured as
+received bytes; compressed request bodies are unsupported and return 415. The
+shared boundary reads at most limit+1 before invoking a mutation handler, including
+unknown-length/chunked bodies, so an oversized trailing body cannot commit a
+mutation first. Oversize returns 413 with exactly
+`{"error":"request body exceeds 4194304 bytes"}` and no payload echo. Error JSON
+is bounded to 1 KiB with stable codes in new extension errors; existing supported
+success payloads and existing error shapes remain unless explicitly changed.
+Panic recovery emits a generic bounded JSON 500. The same policy covers existing
+Community and contributed routes. Bundle apply is per-object HTTP: the 4 MiB limit
+applies to each serialized resource, not to the total local YAML file.
+
+### 11.6 Limiter backend semantics
+
+The backend receives a context, immutable policy generation, VirtualKey ID and
+one of `llm`, `mcp`, `agent`. Admission is one atomic consume-or-deny operation
+per key/dimension, consuming exactly one request token on allow and none on deny.
+No multi-dimension transaction or global ordering is promised. Retry-after is a
+nonnegative duration, rounded up to at least one second when writing a denied
+HTTP response. Backends expose only bounded diagnostic codes.
+
+Keep the existing process-local backend as the default. Configure an alternate
+backend through its registered extension and the Community-owned envelope
+`online.agentguide.community.limiter`, schema 1. Its config contains
+`backend_module_id`, `backend_type`, `timeout_ms` and `failure_mode`
+(`closed` or `open`); defaults select the linked in-process implementation,
+100 ms and `closed`. This selection declares a dependency on the selected backend
+module and is prepared with that module in the same mutation generation;
+never fall back to a local bucket silently. Admission defaults to a 100 ms
+budget, configurable 1 ms–1 s and capped by the request deadline. Caller
+cancellation terminates admission without fail-open handling. On timeout or
+backend failure, a configured hard limit defaults to fail-closed (HTTP 503 with
+a bounded `limiter_unavailable` error); explicit fail-open permits the request
+with a degraded event/counter. Exhaustion remains HTTP 429. No configured policy
+means unlimited and does not call the backend.
+
+An uncertain remote operation may have consumed a token: the gateway never
+automatically retries admission. Backend implementations must document this
+possibility and honor cancellation. Health cannot bypass a configured hard limit.
+Initialize and prepare policy snapshots before activation, publish atomically,
+and reject unknown or unavailable selected backends at startup/mutation.
+
+Policy generations scope all bucket operations. Existing admitted requests may
+finish against their generation; new requests use the committed generation.
+Update/delete/reset retires affected bucket state. Unchanged policies preserve
+their buckets; changed policies start full buckets, matching current Community
+behavior. A backend switch resets state;
+v0.7 promises no cross-backend token transfer. Report resets through the
+`extension.mutation` DTO's `state_reset` field. Remote implementations must fence
+retired generations so late operations cannot recreate active old buckets.
+Shutdown stops new admissions, drains/cancels in-flight calls and closes once
+within the common five-second module budget. Counters label only dimension,
+outcome and bounded backend type, never VirtualKey, route, tenant or subject IDs.
+
+### 11.7 Evidence and release sequence
+
+Create `tests/extensionconsumer` as a separate Go module in F1 and build all
+three consumer commands immediately. Development tests may inject a temporary
+absolute replacement for the checked-out Community tree; do not commit that
+replacement or a `go.work`. The fixture is independently maintained test code,
+not a copy of Community commands or a mock of their assembly.
+
+Grow its evidence with each surface: manifest projection, reference-preserving
+config, protected Admin routing, attribution/events and the deterministic limiter.
+Run both Community and fixture backends through the public limiter suite,
+including race, cancellation and ambiguous-error cases. Compare process flags,
+environment precedence, exit codes, cancellation, streaming and usage evidence
+before removing old command assembly. Perform a transitive public-signature
+check and private-import isolation check, not merely a text search of main files.
+
+Candidate compatibility validates an exact commit; Community release gates do
+not require the not-yet-existing release tag. After Community tagging, private
+release gates consume that tag with `GOWORK=off` and no local replacement.
+Private-repository evidence is a separate required deliverable and cannot be
+claimed from Community fixture results. Publish the exact protected symbol list
+only after these gates pass.
