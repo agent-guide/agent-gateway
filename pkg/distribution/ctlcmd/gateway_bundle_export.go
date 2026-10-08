@@ -1,8 +1,9 @@
-package main
+package ctlcmd
 
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 
@@ -10,8 +11,8 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
 )
 
-func runGatewayExport(ctx context.Context, path string) error {
-	client := newGatewayClient()
+func (s *commandState) runGatewayExport(ctx context.Context, path string) error {
+	client := s.newGatewayClient()
 
 	providers, err := client.ListProviders(ctx, adminclient.ProviderListOptions{})
 	if err != nil {
@@ -89,19 +90,19 @@ func runGatewayExport(ctx context.Context, path string) error {
 		return err
 	}
 	if path == "" {
-		_, err = cmdOrStdout().Write(yamlBytes)
+		_, err = s.cmdOrStdout().Write(yamlBytes)
 		return err
 	}
 	if err := os.WriteFile(path, yamlBytes, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
-	if outputFormat == "json" {
-		return printJSON(map[string]any{
+	if s.outputFormat == "json" {
+		return s.printJSON(map[string]any{
 			"status": "ok",
 			"file":   path,
 		})
 	}
-	fmt.Fprintf(cmdOrStdout(), "gateway bundle exported: %s\n", path)
+	fmt.Fprintf(s.cmdOrStdout(), "gateway bundle exported: %s\n", path)
 	return nil
 }
 
@@ -135,6 +136,6 @@ func sortGatewayBundle(bundle *gatewaybundle.GatewayBundle) {
 	})
 }
 
-func cmdOrStdout() *os.File {
-	return os.Stdout
+func (s *commandState) cmdOrStdout() io.Writer {
+	return s.rootCmd.OutOrStdout()
 }

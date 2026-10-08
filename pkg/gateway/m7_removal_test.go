@@ -71,7 +71,8 @@ func TestM7RemovedRuntimeSpecificSource(t *testing.T) {
 		}
 		rel, _ := filepath.Rel(root, path)
 		if entry.IsDir() {
-			if rel == ".git" || rel == "vendor" || strings.HasPrefix(rel, "vendor"+string(filepath.Separator)) {
+			// Hidden tool/worktree directories are not active Go source.
+			if path != root && (strings.HasPrefix(entry.Name(), ".") || entry.Name() == "vendor") {
 				return filepath.SkipDir
 			}
 			return nil

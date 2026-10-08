@@ -1,7 +1,8 @@
 package main
 
 import (
-	caddycmd "github.com/caddyserver/caddy/v2/cmd"
+	"github.com/agent-guide/agent-gateway/pkg/distribution"
+	"github.com/agent-guide/agent-gateway/pkg/distribution/caddycmd"
 
 	// Standard Caddy modules
 	_ "github.com/caddyserver/caddy/v2/modules/standard"
@@ -35,5 +36,5 @@ import (
 )
 
 func main() {
-	caddycmd.Main()
+	caddycmd.New(distribution.CommunityRuntime()).Run()
 }

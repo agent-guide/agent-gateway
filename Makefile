@@ -1,6 +1,6 @@
 # Makefile for Caddy LLM Router
 
-.PHONY: all build build-agw build-agwd build-agwctl build-xcaddy clean deps fmt verify-release smoke-release
+.PHONY: all build build-agw build-agwd build-agwctl build-xcaddy clean deps fmt verify-release smoke-release test-extension-consumer
 
 # Binary names
 BINARY_NAME=agw
@@ -65,3 +65,8 @@ verify-release:
 # Exercise the built binaries and both HTTP Agent ingress paths as processes.
 smoke-release: build
 	AGW_RELEASE_SMOKE=1 $(GOTEST) ./tests/release -run TestReleaseProcesses -v
+
+# Build the independent Go-module entries against this checkout using a temporary
+# replacement only; no go.work or replace directive is checked in.
+test-extension-consumer:
+	./scripts/test-extension-consumer

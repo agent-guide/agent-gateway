@@ -1,4 +1,4 @@
-package main
+package ctlcmd
 
 import (
 	"errors"
@@ -7,16 +7,6 @@ import (
 
 	"github.com/joho/godotenv"
 )
-
-// init runs before any cmd_*.go init() because file names beginning with "a"
-// sort earlier than "c".  This guarantees that envOr() calls in flag defaults
-// already see the values from .env.local / .env.
-func init() {
-	if err := loadRuntimeEnv(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-}
 
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {

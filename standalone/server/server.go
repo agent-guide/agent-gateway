@@ -5,6 +5,8 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"github.com/agent-guide/agent-gateway/internal/distributionmetrics"
+	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"net"
 	"net/http"
 	"strings"
@@ -44,7 +46,7 @@ type Options struct {
 	CredentialRefreshCommand string
 	CredentialRefreshArgs    []string
 	AdminBasicAuthHash       string
-	Metrics                  usage.Config
+	Metrics                  distribution.MetricsConfig
 }
 
 func (o *Options) setDefaults() {
@@ -177,7 +179,7 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 	if err := schema.RegisterDefaultStores(configstoreBackend); err != nil {
 		return nil, nil, err
 	}
-	usageService := newUsageService(configstoreBackend, logger, opts.Metrics)
+	usageService := newUsageService(configstoreBackend, logger, distributionmetrics.From(opts.Metrics))
 
 	credentialStore, err := configstoreBackend.Get(schema.StoreCredentials)
 	if err != nil {
@@ -204,7 +206,7 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 		UsageQuery:          usageService.Query(),
 		UsageStats:          usageService,
 		UsagePrometheus:     usageService.Prometheus(),
-		UsageConfig:         opts.Metrics.Normalized(),
+		UsageConfig:         distributionmetrics.From(opts.Metrics).Normalized(),
 		Logger:              logger,
 	}); err != nil {
 		return nil, nil, fmt.Errorf("bootstrap agent gateway: %w", err)

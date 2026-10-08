@@ -27,6 +27,7 @@ case "${1:-all}" in
 		format_check
 		go mod verify
 		go test ./...
+		./scripts/test-extension-consumer
 		race_check
 		go vet ./...
 		make build

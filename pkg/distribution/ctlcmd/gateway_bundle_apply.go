@@ -1,4 +1,4 @@
-package main
+package ctlcmd
 
 import (
 	"context"
@@ -41,7 +41,7 @@ type gatewayApplySummaryCounts struct {
 	Error  int `json:"error"`
 }
 
-func runGatewayApply(ctx context.Context, path string) error {
+func (s *commandState) runGatewayApply(ctx context.Context, path string) error {
 	if path == "" {
 		return fmt.Errorf("--file is required")
 	}
@@ -53,7 +53,7 @@ func runGatewayApply(ctx context.Context, path string) error {
 		return err
 	}
 
-	client := newGatewayClient()
+	client := s.newGatewayClient()
 	summary := gatewayApplySummary{
 		File:   path,
 		Status: "ok",
@@ -105,12 +105,12 @@ func runGatewayApply(ctx context.Context, path string) error {
 		return err
 	}
 
-	if outputFormat == "json" {
-		if err := printJSON(summary); err != nil {
+	if s.outputFormat == "json" {
+		if err := s.printJSON(summary); err != nil {
 			return err
 		}
 	} else {
-		printGatewayApplySummary(summary)
+		s.printGatewayApplySummary(summary)
 	}
 	if len(applyErrs) > 0 {
 		return fmt.Errorf("apply finished with %d error(s)", len(applyErrs))
@@ -634,16 +634,16 @@ func managedModelKey(providerID, upstreamModel string) string {
 	return strings.TrimSpace(providerID) + "/" + strings.TrimSpace(upstreamModel)
 }
 
-func printGatewayApplySummary(summary gatewayApplySummary) {
-	fmt.Fprintf(rootCmd.OutOrStdout(), "apply: %s\n", summary.File)
+func (s *commandState) printGatewayApplySummary(summary gatewayApplySummary) {
+	fmt.Fprintf(s.rootCmd.OutOrStdout(), "apply: %s\n", summary.File)
 	for _, action := range summary.Actions {
 		if action.Error != "" {
-			fmt.Fprintf(rootCmd.OutOrStdout(), "  %s %s %s: %s\n", action.Action, action.Kind, action.ID, action.Error)
+			fmt.Fprintf(s.rootCmd.OutOrStdout(), "  %s %s %s: %s\n", action.Action, action.Kind, action.ID, action.Error)
 			continue
 		}
-		fmt.Fprintf(rootCmd.OutOrStdout(), "  %s %s %s\n", action.Action, action.Kind, action.ID)
+		fmt.Fprintf(s.rootCmd.OutOrStdout(), "  %s %s %s\n", action.Action, action.Kind, action.ID)
 	}
-	fmt.Fprintf(rootCmd.OutOrStdout(), "summary: create=%d update=%d skip=%d error=%d\n",
+	fmt.Fprintf(s.rootCmd.OutOrStdout(), "summary: create=%d update=%d skip=%d error=%d\n",
 		summary.Counts.Create,
 		summary.Counts.Update,
 		summary.Counts.Skip,

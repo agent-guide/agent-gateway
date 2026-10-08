@@ -85,6 +85,20 @@ authoritative runtime design.
 
 The `caddy/gateway.App` type is the root Caddy app module with module ID `agent_gateway`. The standalone daemon in `standalone/server/` assembles the same core runtime services without depending on a Caddy app lifecycle.
 
+The thin `cmd/agw`, `cmd/agwd`, and `cmd/agwctl` mains retain edition-specific
+imports and delegate to public entries under `pkg/distribution/{caddycmd,daemoncmd,ctlcmd}`.
+Both server mains supply `distribution.CommunityRuntime()` metadata, while CLI
+supplies its validation projection. These snapshots describe explicit linking;
+validated registries and runtime manifest queries are still planned.
+Daemon and CLI constructors create fresh Cobra trees without loading dotenv.
+Their process runners load `.env.local` before `.env` with shell values taking
+precedence. Daemon signal handling is installed only when serving. Caddy delegates
+its command construction, signal handling and process exit to upstream Caddy.
+CLI command implementations and instance state live in `pkg/distribution/ctlcmd`.
+Both server assemblies accept public `distribution.MetricsConfig` values and
+adapt them to internal usage configuration during bootstrap.
+
+
 Its responsibilities are:
 
 - Provision the configured config store

@@ -1,0 +1,28 @@
+#!/bin/sh
+# Development gate against this checkout. Local replacements exist only in a
+# temporary modfile, never in the checked-in consumer go.mod or a go.work.
+set -eu
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+work=$(mktemp -d "${TMPDIR:-/tmp}/agw-extension-consumer.XXXXXX")
+trap 'rm -rf "$work"' EXIT HUP INT TERM
+cp "$repo/tests/extensionconsumer/go.mod" "$work/go.mod"
+cp "$repo/tests/extensionconsumer/go.sum" "$work/go.sum"
+cd "$repo/tests/extensionconsumer"
+export GOWORK=off
+go mod edit -modfile="$work/go.mod" -replace="github.com/agent-guide/agent-gateway=$repo"
+go test -modfile="$work/go.mod" -mod=readonly -race ./...
+for command in agw agwd agwctl; do
+ go build -modfile="$work/go.mod" -mod=readonly -o "$work/bin/$command" "./cmd/$command"
+done
+cd "$repo"
+go list -deps -f '{{.ImportPath}}' ./cmd/... > "$work/community-deps"
+if grep -E '^github.com/agent-guide/agent-gateway-enterprise(/|$)' "$work/community-deps"; then
+ echo 'Community commands link private Enterprise code' >&2
+ exit 1
+else
+ import_status=$?
+ if [ "$import_status" -ne 1 ]; then
+  exit "$import_status"
+ fi
+fi
+AGW_DISTRIBUTION_BIN_DIR="$work/bin" go test ./tests/distribution -count=1 -v

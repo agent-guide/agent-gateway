@@ -211,7 +211,7 @@ Definitions cover parameterizable structure. An agent that needs custom Go
 logic (bespoke tools, custom graph nodes) uses the repository's established
 extension pattern instead: implement a builtin-agent factory SPI, register it
 (mirroring `provider.RegisterProviderFactory`), and blank-import the package in
-`cmd/agw/main.go`, `cmd/agwd/main.go`, and `cmd/agwctl/cmd_gateway.go` (agwctl
+`cmd/agw/main.go`, `cmd/agwd/main.go`, and `cmd/agwctl/main.go` (agwctl
 needs it so bundle `validate`/`apply` can check the factory name). The
 definition selects it with `topology.kind = "custom"` plus a `factory` name;
 validation rejects a factory name absent from the linked registry — the same

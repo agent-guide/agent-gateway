@@ -1,4 +1,4 @@
-package main
+package ctlcmd
 
 import (
 	"bytes"
@@ -1595,59 +1595,11 @@ mcpRoutes:
 
 func executeAGWCTL(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
-
-	oldArgs := os.Args
-	oldStdout := os.Stdout
-	oldStderr := os.Stderr
-	oldOutputFormat := outputFormat
-	oldGatewayExportFile := gatewayExportFile
-	oldGatewayBundleFile := gatewayBundleFile
-	defer func() {
-		os.Args = oldArgs
-		os.Stdout = oldStdout
-		os.Stderr = oldStderr
-		outputFormat = oldOutputFormat
-		gatewayExportFile = oldGatewayExportFile
-		gatewayBundleFile = oldGatewayBundleFile
-		rootCmd.SetArgs(nil)
-		rootCmd.SetOut(oldStdout)
-		rootCmd.SetErr(oldStderr)
-	}()
-
-	stdoutR, stdoutW, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("stdout pipe: %v", err)
-	}
-	stderrR, stderrW, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("stderr pipe: %v", err)
-	}
-
-	var stdoutBuf bytes.Buffer
-	var stderrBuf bytes.Buffer
-	stdoutDone := make(chan struct{})
-	stderrDone := make(chan struct{})
-	go func() {
-		_, _ = io.Copy(&stdoutBuf, stdoutR)
-		close(stdoutDone)
-	}()
-	go func() {
-		_, _ = io.Copy(&stderrBuf, stderrR)
-		close(stderrDone)
-	}()
-
-	os.Stdout = stdoutW
-	os.Stderr = stderrW
-	rootCmd.SetOut(stdoutW)
-	rootCmd.SetErr(stderrW)
-	rootCmd.SetArgs(args)
-
-	runErr := rootCmd.Execute()
-
-	_ = stdoutW.Close()
-	_ = stderrW.Close()
-	<-stdoutDone
-	<-stderrDone
-
-	return stdoutBuf.String(), stderrBuf.String(), runErr
+	cmd := NewCommand(Options{})
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	return stdout.String(), stderr.String(), err
 }

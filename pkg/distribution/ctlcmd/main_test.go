@@ -1,4 +1,4 @@
-package main
+package ctlcmd
 
 import (
 	"os"
@@ -23,7 +23,7 @@ func TestRootCommandExposesGatewayResourcesDirectly(t *testing.T) {
 		"responses": {},
 	}
 
-	for _, cmd := range rootCmd.Commands() {
+	for _, cmd := range NewCommand(Options{}).Commands() {
 		if _, ok := direct[cmd.Name()]; ok {
 			direct[cmd.Name()] = true
 		}

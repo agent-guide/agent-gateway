@@ -3,6 +3,8 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"github.com/agent-guide/agent-gateway/internal/distributionmetrics"
+	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"strings"
 
 	"github.com/caddyserver/caddy/v2"
@@ -47,7 +49,7 @@ type App struct {
 	LLMRoutes []routecore.AgentRouteConfig `json:"llm_routes,omitempty"`
 	// Metrics configures observability retention, agent-chain governance, and
 	// optional OTLP span export of usage events.
-	Metrics usage.Config `json:"metrics,omitzero"`
+	Metrics distribution.MetricsConfig `json:"metrics,omitzero"`
 
 	logger          *zap.Logger
 	credentialMgr   *credential.Manager
@@ -121,7 +123,7 @@ func (a *App) Provision(ctx caddy.Context) error {
 		UsageQuery:          a.usageService.Query(),
 		UsageStats:          a.usageService,
 		UsagePrometheus:     a.usageService.Prometheus(),
-		UsageConfig:         a.Metrics.Normalized(),
+		UsageConfig:         distributionmetrics.From(a.Metrics).Normalized(),
 		Logger:              a.logger,
 	}); err != nil {
 		return fmt.Errorf("configure agent gateway: %w", err)
@@ -199,7 +201,7 @@ func (a *App) provisionUsageService() {
 		a.usageService = usage.NewUsageService(nil, nil)
 		return
 	}
-	sink, query, err := pipeline.NewSQLiteSink(dbProvider, a.Metrics)
+	sink, query, err := pipeline.NewSQLiteSink(dbProvider, distributionmetrics.From(a.Metrics))
 	if err != nil {
 		a.logger.Warn("usage metrics sqlite sink unavailable", zap.Error(err))
 		a.usageService = usage.NewUsageService(nil, nil)
@@ -207,7 +209,7 @@ func (a *App) provisionUsageService() {
 	}
 	promSink := pipeline.NewPrometheusSink()
 	sinks := []pipeline.Sink{sink, promSink}
-	if otlp := a.Metrics.Normalized().OTLP; otlp.Enabled() {
+	if otlp := distributionmetrics.From(a.Metrics).Normalized().OTLP; otlp.Enabled() {
 		exporter, err := otelexport.New(context.Background(), otlp)
 		if err != nil {
 			a.logger.Warn("otlp usage exporter unavailable", zap.Error(err))

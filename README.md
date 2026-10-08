@@ -593,3 +593,16 @@ go test ./pkg/llm/provider/...
 ./agw adapt --config ./Caddyfile
 ./agw run --config ./Caddyfile
 ```
+
+Reusable distribution entries live in `pkg/distribution/caddycmd`,
+`pkg/distribution/daemoncmd`, and `pkg/distribution/ctlcmd`. Separate binaries
+keep their own explicit factory/module imports and supply `distribution.Assembly`
+metadata. `daemoncmd.NewCommand` and `ctlcmd.NewCommand` create independent Cobra
+commands; their `Run` helpers load dotenv and return an exit code for main.
+`caddycmd.New(...).Run()` delegates process behavior to upstream Caddy.
+Public metrics options use `distribution.MetricsConfig` and `OTLPConfig`.
+Assembly metadata does not dynamically load modules or validate registrations;
+those capabilities remain part of the active v0.7 plan.
+
+Run `make test-extension-consumer` to build and test the separate-module consumer
+against this checkout; the same gate is included in `make verify-release`.

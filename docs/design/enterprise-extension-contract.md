@@ -1,9 +1,9 @@
 # Enterprise Extension Contract
 
 Capability status: **Implemented** for the repository ownership and protection
-policy. The v0.7 foundation contracts in section 11 are **Proposed** until their
-implementations and external-consumer suites land; no protected v0.7 API is
-claimed by this document alone.
+policy. Reusable entries and their external-consumer suite are **Implemented**
+on the active branch; the remaining section 11 contracts are **Proposed**.
+Protection requires a released tag containing the designated APIs and tests.
 
 Individual extension surfaces are protected only when explicitly designated
 by released code and contract tests.
@@ -271,9 +271,12 @@ licensing, customers, or delivery dates.
 
 ## 11. v0.7 foundation contract decisions
 
-These decisions fix the implementation target. They do not describe APIs already
-available in the current tree. Changes to this target must update this design
-and the active plan together before an implementation is designated protected.
+These decisions fix the implementation target. Entry construction and public
+metrics values are implemented in the current tree; the registry, configuration,
+event, Admin and limiter contracts below remain Proposed. Entry consumer evidence
+is a candidate gate, not a released-tag
+or paired-private-repository Enterprise-ready declaration. Changes to the target
+must update this design and the active plan together.
 
 ### 11.1 Package ownership and public boundary
 
@@ -308,6 +311,28 @@ never on importing a reusable package. Preserve current defaults, environment
 precedence, flags, stdout/stderr and exit codes. Final main packages retain
 edition-specific imports. Caddy continues to delegate standard command behavior
 to Caddy rather than maintaining a second command implementation.
+
+The landed reusable entry surface is `distribution.Edition`, `Assembly`,
+`Assembly.Clone`, `MetricsConfig`, `OTLPConfig`; `caddycmd.Command`, `New`,
+`Command.Assembly`, `Command.Run`; `daemoncmd.Options`, `ServerOptions`,
+`NewCommand`, `Run`; and `ctlcmd.Options`, `NewCommand`, `Run`.
+`extension.Descriptor` supplies the metadata value carried by Assembly.
+Caddy `New` owns a defensive metadata snapshot; `Run` delegates the fresh command
+tree and process lifecycle to upstream `Main`, including `os.Exit`. Daemon/CLI
+`Run` return exit codes for main to use. Their constructors accept public values,
+read current environment defaults, and leave dotenv loading to execution.
+
+Both Community server mains pass `CommunityRuntime()` metadata, CLI passes
+`CommunityValidation()`, and module imports remain explicit in mains. The entries retain
+metadata snapshots in the Caddy adapter and daemon/CLI command annotations.
+Annotations and Community metadata helpers are not independently protected APIs;
+Validated registries, manifest projection and runtime query wiring remain
+Proposed.
+The separate `tests/extensionconsumer` module builds all three entries and walks
+their required public type closure. `make test-extension-consumer` runs this
+candidate gate with a temporary replacement and `GOWORK=off`; no local
+replacement or workspace file is committed. Release protection still requires
+the tag-level gates in section 9.
 
 ### 11.2 Identity, manifest and registration
 

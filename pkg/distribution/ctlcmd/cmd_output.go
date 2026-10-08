@@ -1,9 +1,8 @@
-package main
+package ctlcmd
 
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -13,20 +12,16 @@ import (
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 )
 
-var outputFormat string
-
-func initOutputFlag() {
-	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "table", "output format: table or json")
+func (s *commandState) initOutputFlag() {
+	s.rootCmd.PersistentFlags().StringVarP(&s.outputFormat, "output", "o", "table", "output format: table or json")
 }
 
-// newTabWriter returns a tabwriter suitable for aligned CLI output.
-func newTabWriter() *tabwriter.Writer {
-	return tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+func (s *commandState) newTabWriter() *tabwriter.Writer {
+	return tabwriter.NewWriter(s.rootCmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 }
 
-// printTable writes headers and rows to stdout using tabwriter.
-func printTable(headers []string, rows [][]string) {
-	w := newTabWriter()
+func (s *commandState) printTable(headers []string, rows [][]string) {
+	w := s.newTabWriter()
 	fmt.Fprintln(w, strings.Join(headers, "\t"))
 	sep := make([]string, len(headers))
 	for i, h := range headers {
@@ -39,14 +34,12 @@ func printTable(headers []string, rows [][]string) {
 	w.Flush()
 }
 
-// printJSON pretty-prints v as JSON to stdout.
-func printJSON(v any) error {
-	enc := json.NewEncoder(os.Stdout)
+func (s *commandState) printJSON(v any) error {
+	enc := json.NewEncoder(s.rootCmd.OutOrStdout())
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
 }
 
-// boolStr returns "yes" or "no" for boolean values.
 func boolStr(b bool) string {
 	if b {
 		return "yes"
@@ -54,7 +47,6 @@ func boolStr(b bool) string {
 	return "no"
 }
 
-// dash returns s if non-empty, otherwise "-".
 func dash(s string) string {
 	if s == "" {
 		return "-"
@@ -62,15 +54,12 @@ func dash(s string) string {
 	return s
 }
 
-// joinOrDash joins a string slice with sep; returns "-" if empty.
 func joinOrDash(parts []string, sep string) string {
 	s := strings.Join(parts, sep)
 	return dash(s)
 }
 
-// ── Caddy table formatters ────────────────────────────────────────────────────
-
-func printCaddyServersTable(servers []*caddyadminclient.ServerResponse) {
+func (s *commandState) printCaddyServersTable(servers []*caddyadminclient.ServerResponse) {
 	headers := []string{"ID", "LISTEN", "READ-ONLY", "SOURCE", "PUBLIC-URL"}
 	rows := make([][]string, 0, len(servers))
 	for _, s := range servers {
@@ -82,10 +71,10 @@ func printCaddyServersTable(servers []*caddyadminclient.ServerResponse) {
 			dash(s.PublicURL),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printCaddyRoutesTable(routes []*caddyadminclient.RouteResponse) {
+func (s *commandState) printCaddyRoutesTable(routes []*caddyadminclient.RouteResponse) {
 	headers := []string{"ID", "ORDER", "PATHS", "HOSTS", "HANDLERS"}
 	rows := make([][]string, 0, len(routes))
 	for _, r := range routes {
@@ -101,7 +90,7 @@ func printCaddyRoutesTable(routes []*caddyadminclient.RouteResponse) {
 			joinOrDash(handlerDescs, " "),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
 func describeHandler(h caddyadminclient.HandlerConf) string {
@@ -126,11 +115,7 @@ func describeHandler(h caddyadminclient.HandlerConf) string {
 	}
 }
 
-// ── Gateway table formatters ──────────────────────────────────────────────────
-
-// printGatewayProvidersTable renders a list of ProviderView items.
-// Fields: id, provider_type, default_model, disabled, source.
-func printGatewayProvidersTable(items []adminclient.Provider) {
+func (s *commandState) printGatewayProvidersTable(items []adminclient.Provider) {
 	headers := []string{"ID", "TYPE", "DEFAULT-MODEL", "DISABLED", "SOURCE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -142,12 +127,10 @@ func printGatewayProvidersTable(items []adminclient.Provider) {
 			dash(item.Source),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-// printGatewayLLMRoutesTable renders a list of LLMRouteView items.
-// Fields: id, protocol, path_prefix (from match), disabled, target, source.
-func printGatewayLLMRoutesTable(items []adminclient.LLMRoute) {
+func (s *commandState) printGatewayLLMRoutesTable(items []adminclient.LLMRoute) {
 	headers := []string{"ID", "PROTOCOL", "PATH-PREFIX", "DISABLED", "TARGET", "SOURCE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -160,10 +143,10 @@ func printGatewayLLMRoutesTable(items []adminclient.LLMRoute) {
 			dash(item.Source),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayMCPServicesTable(items []adminclient.MCPServiceView) {
+func (s *commandState) printGatewayMCPServicesTable(items []adminclient.MCPServiceView) {
 	headers := []string{"ID", "NAME", "TRANSPORT", "ENDPOINT", "DISABLED", "SOURCE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -180,10 +163,10 @@ func printGatewayMCPServicesTable(items []adminclient.MCPServiceView) {
 			dash(item.Source),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayMCPSessionTable(item *adminclient.MCPServiceSessionView) {
+func (s *commandState) printGatewayMCPSessionTable(item *adminclient.MCPServiceSessionView) {
 	headers := []string{"SERVICE-ID", "SESSION-ID", "UPSTREAM-SESSION-ID", "TRANSPORT", "STATE", "CREATED-AT", "LAST-USED-AT"}
 	rows := [][]string{}
 	if item != nil {
@@ -197,10 +180,10 @@ func printGatewayMCPSessionTable(item *adminclient.MCPServiceSessionView) {
 			dash(formatTimestamp(item.LastUsedAt)),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayMCPToolsTable(items []adminclient.MCPTool) {
+func (s *commandState) printGatewayMCPToolsTable(items []adminclient.MCPTool) {
 	headers := []string{"NAME", "DESCRIPTION"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -209,10 +192,10 @@ func printGatewayMCPToolsTable(items []adminclient.MCPTool) {
 			dash(item.Description),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayMCPResourcesTable(items []adminclient.MCPResource) {
+func (s *commandState) printGatewayMCPResourcesTable(items []adminclient.MCPResource) {
 	headers := []string{"URI", "NAME", "MIME-TYPE", "DESCRIPTION"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -223,10 +206,10 @@ func printGatewayMCPResourcesTable(items []adminclient.MCPResource) {
 			dash(item.Description),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayMCPResourceTemplatesTable(items []adminclient.MCPResourceTemplate) {
+func (s *commandState) printGatewayMCPResourceTemplatesTable(items []adminclient.MCPResourceTemplate) {
 	headers := []string{"NAME", "TITLE", "URI-TEMPLATE", "MIME-TYPE", "DESCRIPTION"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -238,10 +221,10 @@ func printGatewayMCPResourceTemplatesTable(items []adminclient.MCPResourceTempla
 			dash(item.Description),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayMCPPromptsTable(items []adminclient.MCPPrompt) {
+func (s *commandState) printGatewayMCPPromptsTable(items []adminclient.MCPPrompt) {
 	headers := []string{"NAME", "DESCRIPTION"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -250,10 +233,10 @@ func printGatewayMCPPromptsTable(items []adminclient.MCPPrompt) {
 			dash(item.Description),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayMCPRoutesTable(items []adminclient.MCPRouteView) {
+func (s *commandState) printGatewayMCPRoutesTable(items []adminclient.MCPRouteView) {
 	headers := []string{"ID", "PATH-PREFIX", "SERVICE-ID", "VIRTUALKEY", "DISABLED", "SOURCE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -266,22 +249,22 @@ func printGatewayMCPRoutesTable(items []adminclient.MCPRouteView) {
 			dash(item.Source),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayMCPRuntimeOverview(runtime *adminclient.MCPRuntimeView) {
+func (s *commandState) printGatewayMCPRuntimeOverview(runtime *adminclient.MCPRuntimeView) {
 	if runtime == nil {
-		printGatewayMCPRuntimeInFlightTable(nil)
-		fmt.Fprintln(os.Stdout)
-		printGatewayMCPRuntimeProgressTable(nil)
+		s.printGatewayMCPRuntimeInFlightTable(nil)
+		fmt.Fprintln(s.rootCmd.OutOrStdout())
+		s.printGatewayMCPRuntimeProgressTable(nil)
 		return
 	}
-	printGatewayMCPRuntimeInFlightTable(runtime.InFlight)
-	fmt.Fprintln(os.Stdout)
-	printGatewayMCPRuntimeProgressTable(runtime.Progress)
+	s.printGatewayMCPRuntimeInFlightTable(runtime.InFlight)
+	fmt.Fprintln(s.rootCmd.OutOrStdout())
+	s.printGatewayMCPRuntimeProgressTable(runtime.Progress)
 }
 
-func printGatewayMCPRuntimeInFlightTable(items []adminclient.MCPRuntimeInFlightRequest) {
+func (s *commandState) printGatewayMCPRuntimeInFlightTable(items []adminclient.MCPRuntimeInFlightRequest) {
 	headers := []string{"ROUTE-ID", "REQUEST-ID", "METHOD", "STARTED-AT", "PROGRESS-TOKEN", "CANCELLED"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -294,10 +277,10 @@ func printGatewayMCPRuntimeInFlightTable(items []adminclient.MCPRuntimeInFlightR
 			boolStr(!item.CancelledAt.IsZero()),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayMCPRuntimeProgressTable(items []adminclient.MCPRuntimeProgressNotification) {
+func (s *commandState) printGatewayMCPRuntimeProgressTable(items []adminclient.MCPRuntimeProgressNotification) {
 	headers := []string{"ROUTE-ID", "REQUEST-ID", "METHOD", "PROGRESS", "TOTAL", "MESSAGE", "UPDATED-AT"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -315,10 +298,10 @@ func printGatewayMCPRuntimeProgressTable(items []adminclient.MCPRuntimeProgressN
 			dash(formatTimestamp(item.UpdatedAt)),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayMCPRuntimeHistoryTable(items []adminclient.MCPRuntimeCompletedRequest) {
+func (s *commandState) printGatewayMCPRuntimeHistoryTable(items []adminclient.MCPRuntimeCompletedRequest) {
 	headers := []string{"ROUTE-ID", "REQUEST-ID", "METHOD", "STARTED-AT", "COMPLETED-AT", "CANCELLED", "ERROR"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -332,10 +315,10 @@ func printGatewayMCPRuntimeHistoryTable(items []adminclient.MCPRuntimeCompletedR
 			dash(item.Error),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayAgentsTable(items []adminclient.AgentView) {
+func (s *commandState) printGatewayAgentsTable(items []adminclient.AgentView) {
 	headers := []string{"ID", "NAME", "RUNTIME", "RUNTIME-STATE", "EXECUTABLE", "RUNTIME-TARGET", "DISABLED", "SOURCE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -364,30 +347,30 @@ func printGatewayAgentsTable(items []adminclient.AgentView) {
 			dash(item.Source),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayACPRuntimeOverview(runtime *adminclient.ACPRuntimeView) {
+func (s *commandState) printGatewayACPRuntimeOverview(runtime *adminclient.ACPRuntimeView) {
 	if runtime == nil {
 		runtime = &adminclient.ACPRuntimeView{}
 	}
-	printGatewayACPInFlightTable(runtime.InFlight)
-	fmt.Fprintln(os.Stdout)
-	printGatewayACPInstancesTable(runtime.Instances)
-	fmt.Fprintln(os.Stdout)
-	printGatewayACPPendingPermissionsTable(runtime.PendingPermissions)
+	s.printGatewayACPInFlightTable(runtime.InFlight)
+	fmt.Fprintln(s.rootCmd.OutOrStdout())
+	s.printGatewayACPInstancesTable(runtime.Instances)
+	fmt.Fprintln(s.rootCmd.OutOrStdout())
+	s.printGatewayACPPendingPermissionsTable(runtime.PendingPermissions)
 }
 
-func printGatewayACPInFlightTable(items []adminclient.ACPInFlightTurn) {
+func (s *commandState) printGatewayACPInFlightTable(items []adminclient.ACPInFlightTurn) {
 	headers := []string{"SCOPE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
 		rows = append(rows, []string{dash(item.Scope)})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayACPInstancesTable(items []adminclient.ACPPooledInstanceInfo) {
+func (s *commandState) printGatewayACPInstancesTable(items []adminclient.ACPPooledInstanceInfo) {
 	headers := []string{"SCOPE", "SESSION-ID", "ALIVE", "ACTIVE", "LAST-USED"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -399,10 +382,10 @@ func printGatewayACPInstancesTable(items []adminclient.ACPPooledInstanceInfo) {
 			dash(formatTimestamp(item.LastUsed)),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayACPPendingPermissionsTable(items []adminclient.ACPPendingPermissionInfo) {
+func (s *commandState) printGatewayACPPendingPermissionsTable(items []adminclient.ACPPendingPermissionInfo) {
 	headers := []string{"REQUEST-ID", "AGENT-ID", "SESSION-ID", "CREATED-AT"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -413,12 +396,10 @@ func printGatewayACPPendingPermissionsTable(items []adminclient.ACPPendingPermis
 			dash(formatTimestamp(item.CreatedAt)),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-// printGatewayVirtualKeysTable renders a list of VirtualKeyView items.
-// Fields: id, key (truncated), tag, disabled, allowed_route_ids, rate_limits, source.
-func printGatewayVirtualKeysTable(items []adminclient.VirtualKey) {
+func (s *commandState) printGatewayVirtualKeysTable(items []adminclient.VirtualKey) {
 	headers := []string{"ID", "KEY", "TAG", "DISABLED", "ALLOWED-ROUTES", "RATE-LIMITS", "SOURCE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -448,12 +429,10 @@ func printGatewayVirtualKeysTable(items []adminclient.VirtualKey) {
 			dash(item.Source),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-// printGatewayCredentialsTable renders a list of CredentialView items.
-// Fields: id, provider_id, provider_type, label, disabled, unavailable.
-func printGatewayCredentialsTable(items []adminclient.Credential) {
+func (s *commandState) printGatewayCredentialsTable(items []adminclient.Credential) {
 	headers := []string{"ID", "PROVIDER-ID", "PROVIDER-TYPE", "TYPE", "LABEL", "DISABLED", "UNAVAILABLE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -467,10 +446,10 @@ func printGatewayCredentialsTable(items []adminclient.Credential) {
 			boolStr(item.Unavailable),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayDiscoveredModelsTable(items []adminclient.DiscoveredModel) {
+func (s *commandState) printGatewayDiscoveredModelsTable(items []adminclient.DiscoveredModel) {
 	headers := []string{"PROVIDER-ID", "UPSTREAM-MODEL", "TYPE", "STATUS", "DISPLAY-NAME", "LAST-ERROR"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -483,10 +462,10 @@ func printGatewayDiscoveredModelsTable(items []adminclient.DiscoveredModel) {
 			dash(item.LastError),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayManagedModelsTable(items []adminclient.ManagedModel) {
+func (s *commandState) printGatewayManagedModelsTable(items []adminclient.ManagedModel) {
 	headers := []string{"PROVIDER-ID", "UPSTREAM-MODEL", "ENABLED", "SCOPE", "TYPE", "SNAPSHOT"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -499,10 +478,10 @@ func printGatewayManagedModelsTable(items []adminclient.ManagedModel) {
 			dash(string(item.SnapshotState)),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayProviderTypesTable(items []adminclient.ProviderType) {
+func (s *commandState) printGatewayProviderTypesTable(items []adminclient.ProviderType) {
 	headers := []string{"PROVIDER-TYPE", "ENABLED"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -511,10 +490,10 @@ func printGatewayProviderTypesTable(items []adminclient.ProviderType) {
 			boolStr(item.Enabled),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
-func printGatewayLLMAPIHandlerTypesTable(items []adminclient.LLMAPIHandlerType) {
+func (s *commandState) printGatewayLLMAPIHandlerTypesTable(items []adminclient.LLMAPIHandlerType) {
 	headers := []string{"HANDLER-TYPE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -522,7 +501,7 @@ func printGatewayLLMAPIHandlerTypesTable(items []adminclient.LLMAPIHandlerType) 
 			dash(item.LLMApiHandlerType),
 		})
 	}
-	printTable(headers, rows)
+	s.printTable(headers, rows)
 }
 
 func formatTimestamp(ts time.Time) string {

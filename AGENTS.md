@@ -52,6 +52,8 @@ must be labeled as roadmap on the pages.
 - by default, changes in this repository do not preserve backward compatibility
 - do not keep legacy aliases, deprecated field names, old route shapes, old module IDs, old CLI flags, or old API-visible IDs unless the change request explicitly requires compatibility
 - when renaming or reshaping behavior, update the code, tests, `README.md`, `docs/architecture/architecture-overview.md`, `examples/Caddyfile.example`, this file, and the nearest nested `AGENTS.md` to describe only the current behavior unless compatibility is explicitly required
+- Reusable command implementation rules and the exact F1 surface list live in
+  `pkg/distribution/AGENTS.md`.
 - protected Enterprise SPI and reusable distribution entry points follow the
   compatibility policy in
   [`docs/design/enterprise-extension-contract.md`](docs/design/enterprise-extension-contract.md)
@@ -88,6 +90,8 @@ go test ./path/to/package -run TestName -v
 Notes:
 
 - `make build` builds `agw` from `cmd/agw/main.go`, `agwd` from `cmd/agwd/main.go`, and `agwctl` from `cmd/agwctl/main.go`.
+- The three mains own explicit linked-module imports and delegate to `pkg/distribution/caddycmd`, `daemoncmd`, and `ctlcmd`. Command construction must keep flag state local; dotenv, signals, and process exit belong to execution.
+- Both server mains pass `distribution.CommunityRuntime()`; CLI passes `CommunityValidation()`. These are assembly metadata inputs; F2 owns validated manifests and runtime queries. Keep declarations aligned with main imports.
 - The resulting binary is a standard Caddy binary with custom modules compiled in, so normal Caddy subcommands such as `run`, `reload`, `validate`, and `hash-password` work.
 
 ## Core Modules
@@ -168,7 +172,7 @@ authentication is delegated to the HTTP mount layer such as Caddy
 Deep per-subsystem rules live in nested `AGENTS.md` files next to the code.
 Read the applicable subsystem file before changing either its runtime package
 or a cross-cutting adapter for it (for example `caddy/admin`,
-`caddy/dispatcher`, `standalone/server`, `pkg/gatewaybundle`, or `cmd/agwctl`):
+`caddy/dispatcher`, `standalone/server`, `pkg/gatewaybundle`, or `pkg/distribution/ctlcmd`):
 
 - `pkg/gateway/` — runtime route/VirtualKey/provider resolution (`AgentGateway`) and the public route-model packages (`llmroute`, `modelcatalog`, `mcproute`, `agentroute`, `virtualkey`) → `pkg/gateway/AGENTS.md`
 - `pkg/acp/` — native ACP runtime (`codex`, `opencode`): pooling, sessions, permissions, transcripts → `pkg/acp/AGENTS.md`
