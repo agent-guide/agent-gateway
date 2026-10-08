@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
+	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/agentroute"
 	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
 )
@@ -59,5 +60,56 @@ func TestApplyAgentRoutesStripsExportedManagedTimestamps(t *testing.T) {
 	}
 	if !created {
 		t.Fatal("AgentRoute create was not called")
+	}
+}
+
+func TestApplyExtensionsPreservesLargeIntegerChanges(t *testing.T) {
+	for _, tc := range []struct{ name, stored, desired, action string }{
+		{"different", `{"epoch":9007199254740992}`, `{"epoch":9007199254740993}`, "update"},
+		{"negative", `{"epoch":-9223372036854775808}`, `{"epoch":-9223372036854775807}`, "update"},
+		{"unchanged", `{"epoch":9007199254740993}`, `{"epoch":9007199254740993}`, "skip"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id := "example.fixture.numeric"
+			writes := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && r.URL.Path == "/admin/extensions" {
+					_ = json.NewEncoder(w).Encode(map[string]any{"items": []extension.Envelope{{ModuleID: id, SchemaVersion: 1, Config: json.RawMessage(tc.stored), Source: "dynamic"}}})
+					return
+				}
+				if r.Method == http.MethodPut && r.URL.Path == "/admin/extensions/"+id {
+					writes++
+					var e extension.Envelope
+					if err := json.NewDecoder(r.Body).Decode(&e); err != nil {
+						t.Error(err)
+					}
+					if string(e.Config) != tc.desired {
+						t.Errorf("changed numeric payload: %s", e.Config)
+					}
+					_ = json.NewEncoder(w).Encode(e)
+					return
+				}
+				t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer srv.Close()
+			bundle := &gatewaybundle.GatewayBundle{Extensions: []extension.Envelope{{ModuleID: id, SchemaVersion: 1, Config: json.RawMessage(tc.desired)}}}
+			action := ""
+			err := applyExtensions(context.Background(), adminclient.New(adminclient.Config{BaseURL: srv.URL}), bundle, func(_, _, a string, err error) {
+				if err != nil {
+					t.Error(err)
+				}
+				action = a
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if action != tc.action {
+				t.Fatalf("action=%s want %s", action, tc.action)
+			}
+			if (writes == 1) != (tc.action == "update") {
+				t.Fatalf("writes=%d", writes)
+			}
+		})
 	}
 }

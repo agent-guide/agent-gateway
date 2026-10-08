@@ -2,6 +2,7 @@ package admin
 
 import (
 	"fmt"
+	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"net/http"
 	"strings"
 
@@ -28,6 +29,8 @@ import (
 
 // Handler handles Admin API requests under /admin/.
 type Handler struct {
+	gateway                  *gateway.AgentGateway
+	extensions               *extension.Manager
 	credentialManager        *credential.Manager
 	configStoreBackend       configstore.ConfigStoreBackend
 	routeConfigManager       *routecore.AgentRouteConfigManager
@@ -107,6 +110,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 	}
 
 	h := &Handler{
+		gateway:                  agentGateway,
 		credentialManager:        credentialMgr,
 		configStoreBackend:       configStoreBackend,
 		routeConfigManager:       routeConfigManager,
@@ -129,6 +133,9 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 		usageStats:               usageStats,
 		usagePrometheus:          usagePrometheus,
 		logger:                   logger,
+	}
+	if agentGateway != nil {
+		h.extensions = agentGateway.Extensions()
 	}
 	h.mux = http.NewServeMux()
 	h.agentRoutesMux = http.NewServeMux()

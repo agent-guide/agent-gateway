@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/agent-guide/agent-gateway/internal/distributionmetrics"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
+	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"net"
 	"net/http"
 	"strings"
@@ -38,6 +39,8 @@ import (
 const shutdownTimeout = 10 * time.Second
 
 type Options struct {
+	Registry                 *extension.Registry
+	Assembly                 distribution.Assembly
 	Addr                     string
 	AdminAddr                string
 	ConfigStorePath          string
@@ -167,6 +170,18 @@ func newDispatchHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) 
 }
 
 func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*gateway.AgentGateway, *usage.UsageService, error) {
+	if opts.Registry == nil {
+		a := opts.Assembly
+		if a.Modules == nil {
+			a = distribution.CommunityRuntime()
+			opts.Assembly = a
+		}
+		r, err := a.Registry()
+		if err != nil {
+			return nil, nil, err
+		}
+		opts.Registry = r
+	}
 	staticConfig, err := loadStaticConfig(ctx, opts)
 	if err != nil {
 		return nil, nil, err
@@ -197,6 +212,7 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 	}
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(ctx, gateway.BootstrapOptions{
+		ExtensionRegistry: opts.Registry, StaticExtensions: staticConfig.Extensions, Distribution: opts.Assembly,
 		StaticLLMRoutes:     staticConfig.LLMRoutes,
 		StaticProviders:     staticConfig.Providers,
 		ConfigStoreBackend:  configstoreBackend,
@@ -209,6 +225,7 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 		UsageConfig:         distributionmetrics.From(opts.Metrics).Normalized(),
 		Logger:              logger,
 	}); err != nil {
+		agentGateway.Close()
 		return nil, nil, fmt.Errorf("bootstrap agent gateway: %w", err)
 	}
 	if attribution := usageService.Attribution(); attribution != nil {
@@ -258,12 +275,23 @@ func newUsageService(backend configstore.ConfigStoreBackend, logger *zap.Logger,
 }
 
 type staticConfig struct {
-	Providers map[string]provider.Provider
-	LLMRoutes []routecore.AgentRouteConfig
+	Extensions []extension.Envelope
+	Providers  map[string]provider.Provider
+	LLMRoutes  []routecore.AgentRouteConfig
 }
 
 func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) {
-	_ = ctx
+	if opts.Registry == nil {
+		a := opts.Assembly
+		if a.Modules == nil {
+			a = distribution.CommunityRuntime()
+		}
+		r, err := a.Registry()
+		if err != nil {
+			return nil, err
+		}
+		opts.Registry = r
+	}
 	cfg := &staticConfig{
 		Providers: map[string]provider.Provider{},
 	}
@@ -275,13 +303,14 @@ func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) 
 	if err != nil {
 		return nil, fmt.Errorf("load static gateway bundle: %w", err)
 	}
-	if err := bundle.ValidateForStaticConfig(); err != nil {
+	if err := bundle.ValidateForStaticConfigWithRegistry(ctx, opts.Registry); err != nil {
 		return nil, fmt.Errorf("validate static gateway bundle: %w", err)
 	}
 	providers, err := instantiateStaticProviders(bundle)
 	if err != nil {
 		return nil, err
 	}
+	cfg.Extensions = bundle.Extensions
 	cfg.Providers = providers
 	cfg.LLMRoutes = append([]routecore.AgentRouteConfig(nil), bundle.LLMRoutes...)
 	return cfg, nil

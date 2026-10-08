@@ -2,7 +2,8 @@
 
 Capability status: **Implemented** for the repository ownership and protection
 policy. Reusable entries and their external-consumer suite are **Implemented**
-on the active branch; the remaining section 11 contracts are **Proposed**.
+along with linked registries, manifests and configuration generations. Public
+attribution/events, contributed Admin routes and the limiter SPI remain **Proposed**.
 Protection requires a released tag containing the designated APIs and tests.
 
 Individual extension surfaces are protected only when explicitly designated
@@ -271,10 +272,10 @@ licensing, customers, or delivery dates.
 
 ## 11. v0.7 foundation contract decisions
 
-These decisions fix the implementation target. Entry construction and public
-metrics values are implemented in the current tree; the registry, configuration,
-event, Admin and limiter contracts below remain Proposed. Entry consumer evidence
-is a candidate gate, not a released-tag
+These decisions fix the implementation target. Entry construction, public
+metrics values, linked registries/manifests and configuration are implemented.
+Attribution/events, Admin contribution and limiter contracts remain Proposed.
+Consumer evidence is a candidate gate, not a released-tag
 or paired-private-repository Enterprise-ready declaration. Changes to the target
 must update this design and the active plan together.
 
@@ -291,7 +292,7 @@ must update this design and the active plan together.
 | `pkg/event` | Versioned public envelopes, sink lifecycle and bounded delivery options |
 | `pkg/admin/contribution` | Route declarations and narrow contribution dependencies |
 | `pkg/gateway/virtualkey/limiter` | Backend, factory, policy snapshot, admission and lifecycle contracts |
-| `pkg/extension/contracttest` | Reusable manifest, configuration, Admin, attribution and event suites |
+| `pkg/extension/contracttest` | Implemented registry/configuration suites; future Admin, attribution and event suites |
 | `pkg/gateway/virtualkey/limiter/contracttest` | Backend lifecycle and admission suite |
 
 Only symbols named in landed package documentation become protected. The table
@@ -325,9 +326,13 @@ read current environment defaults, and leave dotenv loading to execution.
 Both Community server mains pass `CommunityRuntime()` metadata, CLI passes
 `CommunityValidation()`, and module imports remain explicit in mains. The entries retain
 metadata snapshots in the Caddy adapter and daemon/CLI command annotations.
-Annotations and Community metadata helpers are not independently protected APIs;
-Validated registries, manifest projection and runtime query wiring remain
-Proposed.
+Annotations and Community metadata helpers are not independently protected APIs.
+`Assembly.Factories` holds executable registrations separately from descriptors;
+`Assembly.Registry`, `Assembly.Manifest` and `caddycmd.Command.Manifest` are
+additional designated entry methods. Registries own factory metadata copies,
+reject undeclared factory IDs, and support schema-only CLI registrations.
+`manifest` in each binary serializes canonical metadata; `agwctl manifest --remote`
+and protected `GET /admin/manifest` report frozen server metadata.
 The separate `tests/extensionconsumer` module builds all three entries and walks
 their required public type closure. `make test-extension-consumer` runs this
 candidate gate with a temporary replacement and `GOWORK=off`; no local
@@ -335,6 +340,11 @@ replacement or workspace file is committed. Release protection still requires
 the tag-level gates in section 9.
 
 ### 11.2 Identity, manifest and registration
+
+Capability status: **Implemented**, with candidate consumer contracts. The exact
+extension symbol list is in `pkg/extension/doc.go`; reusable suite functions are
+`contracttest.Registry` and `contracttest.Configuration`. Other package exports
+are not implicitly protected.
 
 Module and capability IDs use lower-case reverse-domain names, at most 128 ASCII
 bytes, with nonempty dot-separated segments containing letters, digits or
@@ -357,14 +367,30 @@ validation projection, not a claim to execute server modules.
 Registry assembly returns typed errors with stable codes `invalid_registration`,
 `duplicate_module`, `unknown_module`, `missing_dependency`, `dependency_cycle`,
 and `schema_mismatch`. Dependency resolution is deterministic and topological;
-ties sort by ID. Freeze the registry before serving. Factories are never invoked
+simultaneously ready modules sort by ID, including newly unblocked modules.
+Freeze the registry before serving. Factories are never invoked
 by a manifest query or request-time directory lookup.
 
 ### 11.3 Configuration ownership, mutation and secrets
 
+Capability status: **Implemented**, with candidate consumer contracts. Registries
+validate locally without resolving secrets, and Manager prepares resources under
+a separate generation lifetime. Prepare receives only declared dependencies.
+The current implementation re-prepares configured modules for each mutation;
+resource identity across unrelated mutations is not promised. Module owners
+that require preserved domain state must own/ref-count that state independently
+of preparation handles. The limiter contract below retains its explicit
+unchanged-policy semantics.
+
+The extension CRUD boundary has its own full-body and compression checks. The
+shared policy covering every Community and contributed Admin route remains
+Proposed in section 11.5. Public mutation events and contributed subroutes also
+remain Proposed; envelope CRUD is Community-owned.
+
 Add `extensions` to GatewayBundle as a list of envelopes containing `module_id`,
 `schema_version` and `config` (`json.RawMessage`). One envelope per module is
-allowed. Module-owned strict decoding validates its config; this envelope cannot
+allowed. The common decoder rejects duplicate JSON object keys before secret classification
+or environment expansion. Module-owned strict decoding validates its config; this envelope cannot
 override providers, routes or protocol fields. Limit the list to 64 entries,
 each config to 256 KiB of encoded JSON and nesting to 32 levels. Unknown configured
 modules fail local validation when unavailable locally, and always fail on the
@@ -388,7 +414,10 @@ covering all affected dependencies. Requests retain their admitted generation;
 retire resources after its in-flight users drain, with bounded shutdown.
 Preparation and health calls receive contexts with a five-second maximum budget,
 capped by the caller's deadline. Snapshot publication performs no I/O. Factories
-must support concurrent snapshot reads and honor lifecycle cancellation.
+must support concurrent snapshot reads and honor lifecycle cancellation. Module
+callback errors and panics are converted to bounded codes. A callback that ignores
+cancellation is nonconforming; the process can report failure at its deadline but
+cannot force arbitrary module code to terminate.
 DELETE rejects a module still required by another configured envelope with 409.
 
 Bundle apply first applies extensions in dependency order, then follows the

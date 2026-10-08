@@ -2,8 +2,9 @@
 
 This is a separate Go module, not a package in the Community module. Its three
 thin mains own their imports and construct public Caddy, daemon and CLI entries.
-It declares fixture edition metadata and an additional metadata descriptor;
-actual module registration and extension behavior are added in F2–F6.
+It declares fixture edition metadata and two independently owned modules with
+strict validation schemas, secret-reference fields, dependency declarations and
+prepared runtime resources. CLI factories contain only validation callbacks.
 
 From the repository root, run:
 
@@ -15,7 +16,10 @@ The gate disables workspace resolution (`GOWORK=off`) and creates a temporary
 modfile with a local replacement to the current Community checkout. It runs
 external signature/assembly tests with the race detector, builds all three
 binaries, checks Community dependencies for the known private module path, and
-runs help, invalid-flag, dotenv and SIGINT/SIGTERM process contracts. The temporary
+runs help, invalid-flag, dotenv and SIGINT/SIGTERM process contracts. It also
+starts both server modes, checks manifest parity, static read-only envelopes,
+dynamic PUT/apply/export/delete and token preservation without setting the
+secret environment variable in the CLI process. The temporary
 replacement and build outputs are removed on exit. Neither `go.work` nor a local
 replacement belongs in this module's checked-in files.
 
@@ -29,5 +33,7 @@ F7 verifies the consumer against the published tag without a replacement.
 `entry_test.go` walks the transitive public signature types, verifies defensive
 metadata snapshots and the CLI validation projection, rejects direct imports
 of Community `internal/` and `cmd/` packages, and verifies construction does not
-load dotenv files. Runtime manifest validation is an F2 contract, not inferred
-from F1 metadata snapshots.
+load dotenv files. `extension_test.go` runs the public registry/configuration
+contract suites, checks canonical manifest projections and factory ownership.
+The process suite uses actual consumer binaries. Admin contributions, public
+event delivery and the domain limiter proof are added by later work packages.

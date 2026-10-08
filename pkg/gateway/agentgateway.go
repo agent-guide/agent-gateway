@@ -3,6 +3,9 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"github.com/agent-guide/agent-gateway/internal/extensionstore"
+	"github.com/agent-guide/agent-gateway/pkg/distribution"
+	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"net/http"
 	"sync"
 
@@ -31,6 +34,9 @@ import (
 )
 
 type BootstrapOptions struct {
+	ExtensionRegistry   *extension.Registry
+	StaticExtensions    []extension.Envelope
+	Distribution        distribution.Assembly
 	StaticLLMRoutes     []routecore.AgentRouteConfig
 	StaticMCPRoutes     []routecore.AgentRouteConfig
 	StaticAgentRoutes   []routecore.AgentRouteConfig
@@ -57,6 +63,8 @@ type BootstrapOptions struct {
 type AgentGateway struct {
 	mu sync.RWMutex
 
+	extensions          *extension.Manager
+	distribution        distribution.Assembly
 	configured          bool
 	configStoreBackend  configstore.ConfigStoreBackend
 	routeConfigManager  *routecore.AgentRouteConfigManager
@@ -100,6 +108,27 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
+	var extensionManager *extension.Manager
+	if opts.ExtensionRegistry != nil {
+		var store extension.Persistence
+		if opts.ConfigStoreBackend != nil {
+			adapter, err := extensionstore.New(opts.ConfigStoreBackend)
+			if err != nil {
+				return err
+			}
+			store = adapter
+		}
+		manager, err := extension.NewManager(ctx, opts.ExtensionRegistry, store, opts.StaticExtensions)
+		if err != nil {
+			return err
+		}
+		extensionManager = manager
+		defer func() {
+			if extensionManager != nil {
+				_ = extensionManager.Close(context.Background())
+			}
+		}()
+	}
 	g.configureConfigStoreBackend(opts.ConfigStoreBackend)
 	staticRoutes := make([]routecore.AgentRouteConfig, 0, len(opts.StaticLLMRoutes)+len(opts.StaticMCPRoutes)+len(opts.StaticAgentRoutes))
 	staticRoutes = append(staticRoutes, opts.StaticLLMRoutes...)
@@ -190,6 +219,11 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 			g.credentialManager.AddListener(g.httpRuntimeManager)
 		}
 	}
+	if extensionManager != nil {
+		g.extensions = extensionManager
+		g.distribution = distribution.Assembly{Edition: opts.Distribution.Edition, Modules: opts.ExtensionRegistry.Manifest().Modules}
+		extensionManager = nil
+	}
 	g.configured = true
 	return nil
 }
@@ -212,6 +246,11 @@ func (g *AgentGateway) Reset() {
 		}
 	}
 
+	if g.extensions != nil {
+		_ = g.extensions.Close(context.Background())
+		g.extensions = nil
+	}
+	g.distribution = distribution.Assembly{}
 	g.configured = false
 	g.configStoreBackend = nil
 	g.routeConfigManager = nil
@@ -695,4 +734,15 @@ func (g *AgentGateway) configureModelCatalog(ctx context.Context, configStoreBac
 	}
 	g.modelCatalog = modelcatalog.NewService(modelStore, g.providerManager, logger)
 	return nil
+}
+
+func (g *AgentGateway) Extensions() *extension.Manager {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.extensions
+}
+func (g *AgentGateway) DistributionManifest() (distribution.Assembly, error) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.distribution.Clone(), nil
 }

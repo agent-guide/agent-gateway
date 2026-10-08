@@ -5,19 +5,20 @@ execution, while `cmd/agw`, `cmd/agwd`, and `cmd/agwctl` own edition-specific
 imports. Read `pkg/gateway/AGENTS.md` before changing command behavior involving
 routes, Bundle workflows or server adapters.
 
-The designated F1 reusable surfaces are:
+The designated reusable surfaces are:
 
-- `distribution.Edition`, `Assembly` and `Assembly.Clone`, `MetricsConfig`, `OTLPConfig`;
-- `caddycmd.Command`, `New`, `Command.Assembly`, `Command.Run`;
+- `distribution.Edition`, `Assembly` and `Assembly.Clone`, `Assembly.Registry`, `Assembly.Manifest`, `Assembly.Registry`, `Assembly.Manifest`, `MetricsConfig`, `OTLPConfig`;
+- `caddycmd.Command`, `New`, `Command.Assembly`, `Command.Manifest`, `Command.Run`;
 - `daemoncmd.Options`, `ServerOptions`, `NewCommand`, `Run`;
 - `ctlcmd.Options`, `NewCommand`, `Run`.
 
 Their release protection follows `docs/design/enterprise-extension-contract.md`.
 Candidate consumer evidence does not declare the repository or an unpublished
 tag Enterprise-ready. Community metadata helpers and command annotations are
-assembly implementation details pending F2's validated manifest contract.
-`extension.Descriptor` is the metadata value referenced by `Assembly`; registry
-and configuration behavior are not implemented by merely defining that type.
+assembly implementation details. `Assembly.Factories` binds declared module IDs
+to separately held callbacks; registries reject undeclared or nil factory entries.
+Read `pkg/extension/AGENTS.md` before changing registration or config behavior.
+Manifest queries never invoke factories or reconstruct a serving registry.
 
 Constructors create independent flags and own copies of mutable options. Do not
 load dotenv, install signals, or call `os.Exit` during import or construction.

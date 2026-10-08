@@ -1,5 +1,3 @@
-// Package extension defines linked-module metadata. Registration, validation,
-// and runtime manifest projection are delivered separately by F2.
 package extension
 
 // Descriptor describes a module explicitly linked by a distribution's main.

@@ -5,6 +5,7 @@ package daemoncmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -40,6 +41,8 @@ type ServerOptions struct {
 
 // NewCommand creates fresh flags without dotenv or signal side effects.
 func NewCommand(assembly Options) *cobra.Command {
+	assembly.Assembly = assembly.Assembly.Clone()
+	registry, assemblyErr := assembly.Assembly.Registry()
 	opts := assembly.Server
 	opts.ProviderTypes = slices.Clone(opts.ProviderTypes)
 	opts.CredentialRefreshArgs = slices.Clone(opts.CredentialRefreshArgs)
@@ -63,13 +66,14 @@ func NewCommand(assembly Options) *cobra.Command {
 		opts.Metrics.OTLP.Protocol = "grpc"
 	}
 	rootCmd := &cobra.Command{
-		Use:   "agwd",
-		Short: "Standalone Agent Gateway daemon",
+		Use:               "agwd",
+		Short:             "Standalone Agent Gateway daemon",
+		PersistentPreRunE: func(*cobra.Command, []string) error { return assemblyErr },
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			return server.Run(ctx, server.Options{
-				Addr: opts.Addr, AdminAddr: opts.AdminAddr, ConfigStorePath: opts.ConfigStorePath, StaticConfigPath: opts.StaticConfigPath, ProviderTypes: opts.ProviderTypes, CredentialRefreshCommand: opts.CredentialRefreshCommand, CredentialRefreshArgs: opts.CredentialRefreshArgs, AdminBasicAuthHash: opts.AdminBasicAuthHash, Metrics: opts.Metrics,
+				Registry: registry, Assembly: assembly.Assembly, Addr: opts.Addr, AdminAddr: opts.AdminAddr, ConfigStorePath: opts.ConfigStorePath, StaticConfigPath: opts.StaticConfigPath, ProviderTypes: opts.ProviderTypes, CredentialRefreshCommand: opts.CredentialRefreshCommand, CredentialRefreshArgs: opts.CredentialRefreshArgs, AdminBasicAuthHash: opts.AdminBasicAuthHash, Metrics: opts.Metrics,
 			})
 		},
 	}
@@ -90,6 +94,13 @@ func NewCommand(assembly Options) *cobra.Command {
 	rootCmd.Flags().StringVar(&opts.Metrics.OTLP.ServiceName, "metrics-otlp-service-name", opts.Metrics.OTLP.ServiceName, "OTel resource service.name for exported spans (default agent-gateway)")
 	rootCmd.Flags().BoolVar(&opts.Metrics.OTLP.Components, "metrics-otlp-components", opts.Metrics.OTLP.Components, "additionally export one span per eino chat-model component call, nested under the interaction span")
 
+	rootCmd.AddCommand(&cobra.Command{Use: "manifest", Short: "Show linked capabilities", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		m, err := assembly.Assembly.Manifest()
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(m)
+	}})
 	distribution.Annotate(rootCmd, assembly.Assembly)
 	return rootCmd
 }

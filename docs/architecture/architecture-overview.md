@@ -571,3 +571,19 @@ An ACP Agent owns its execution config under `Agent.runtime.acp`, and
 `agent_id` directly owns the ACP process pool, sessions, permissions, runtime
 diagnostics, and attribution. Native `/admin/acp/runtime` diagnostics remain
 Agent-keyed.
+
+## Linked module configuration
+
+Distribution entries freeze `Assembly.Modules` and separately linked
+`Assembly.Factories` into an immutable extension registry. All three binaries
+expose `manifest`; the CLI projects validation roles, and both servers expose
+`GET /admin/manifest` beneath the Admin mount. Caddy receives process-owned
+assembly from its executable entry; standalone passes it explicitly.
+
+`pkg/extension.Manager` combines static envelopes with the schema-bound
+`extensions` store on the existing backend. Mutations validate and prepare one
+complete dependency generation, persist the target envelope, and publish in
+memory. Leases retain old resources until drain or the five-second retirement
+budget. Config, manifests and Admin responses preserve secret-reference tokens.
+Only preparation receives resolved values. `pkg/admin` owns envelope CRUD;
+contributed Admin subroutes remain a later foundation phase.

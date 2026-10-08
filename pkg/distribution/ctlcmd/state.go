@@ -1,8 +1,10 @@
 package ctlcmd
 
 import "github.com/spf13/cobra"
+import "github.com/agent-guide/agent-gateway/pkg/extension"
 
 type commandState struct {
+	extensionRegistry                     *extension.Registry
 	caddyCmd                              *cobra.Command
 	rejectedCaddyAdminAddr                string
 	caddyServerCmd                        *cobra.Command

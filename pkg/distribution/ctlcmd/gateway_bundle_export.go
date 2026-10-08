@@ -14,6 +14,10 @@ import (
 func (s *commandState) runGatewayExport(ctx context.Context, path string) error {
 	client := s.newGatewayClient()
 
+	extensions, err := client.ListExtensions(ctx)
+	if err != nil {
+		return err
+	}
 	providers, err := client.ListProviders(ctx, adminclient.ProviderListOptions{})
 	if err != nil {
 		return err
@@ -48,6 +52,7 @@ func (s *commandState) runGatewayExport(ctx context.Context, path string) error 
 	}
 
 	bundle := &gatewaybundle.GatewayBundle{
+		Extensions: extensions,
 		APIVersion: gatewaybundle.APIVersionV1Alpha1,
 		Kind:       gatewaybundle.KindGatewayBundle,
 	}
@@ -107,6 +112,7 @@ func (s *commandState) runGatewayExport(ctx context.Context, path string) error 
 }
 
 func sortGatewayBundle(bundle *gatewaybundle.GatewayBundle) {
+	sort.Slice(bundle.Extensions, func(i, j int) bool { return bundle.Extensions[i].ModuleID < bundle.Extensions[j].ModuleID })
 	sort.Slice(bundle.Providers, func(i, j int) bool {
 		return bundle.Providers[i].Id < bundle.Providers[j].Id
 	})

@@ -5,6 +5,7 @@ package ctlcmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -18,8 +19,28 @@ type Options struct{ Assembly distribution.Assembly }
 // NewCommand creates fresh commands, flags and output state. It reads existing
 // environment defaults but does not load dotenv files or exit the process.
 func NewCommand(opts Options) *cobra.Command {
-	s := &commandState{}
+	a := opts.Assembly.Clone()
+	registry, assemblyErr := a.Registry()
+	s := &commandState{extensionRegistry: registry}
 	s.initRoot()
+	s.rootCmd.PersistentPreRunE = func(*cobra.Command, []string) error { return assemblyErr }
+	remote := false
+	manifestCmd := &cobra.Command{Use: "manifest", Short: "Show linked validation capabilities", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		if remote {
+			m, err := s.newGatewayClient().Manifest(cmd.Context())
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(m)
+		}
+		m, err := a.Manifest()
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(m)
+	}}
+	manifestCmd.Flags().BoolVar(&remote, "remote", false, "query the server runtime manifest")
+	s.rootCmd.AddCommand(manifestCmd)
 	s.initCaddy()
 	s.initGateway()
 	s.initACP()

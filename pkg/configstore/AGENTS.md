@@ -25,6 +25,7 @@ Current store names:
 - `agents`
 - `virtual_keys`
 - `managed_models`
+- `extensions` — reference-preserving module envelopes; static ownership is not persisted
 
 Current persisted backend:
 

@@ -3,6 +3,7 @@ package ctlcmd
 import (
 	"context"
 	"fmt"
+	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"reflect"
 	"sort"
 	"strings"
@@ -49,7 +50,7 @@ func (s *commandState) runGatewayApply(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	if err := bundle.ValidateForConfigStore(); err != nil {
+	if err := bundle.ValidateWithRegistry(ctx, s.extensionRegistry); err != nil {
 		return err
 	}
 
@@ -80,6 +81,16 @@ func (s *commandState) runGatewayApply(ctx context.Context, path string) error {
 		summary.Actions = append(summary.Actions, item)
 	}
 
+	if err := applyExtensions(ctx, client, bundle, record); err != nil {
+		if s.outputFormat == "json" {
+			if printErr := s.printJSON(summary); printErr != nil {
+				return printErr
+			}
+		} else {
+			s.printGatewayApplySummary(summary)
+		}
+		return err
+	}
 	if err := applyProviders(ctx, client, bundle, record); err != nil {
 		return err
 	}
@@ -649,4 +660,37 @@ func (s *commandState) printGatewayApplySummary(summary gatewayApplySummary) {
 		summary.Counts.Skip,
 		summary.Counts.Error,
 	)
+}
+
+func applyExtensions(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(string, string, string, error)) error {
+	if len(bundle.Extensions) == 0 {
+		return nil
+	}
+	current, err := client.ListExtensions(ctx)
+	if err != nil {
+		record("extension", "", "error", err)
+		return err
+	}
+	byID := map[string]extension.Envelope{}
+	for _, e := range current {
+		byID[e.ModuleID] = e
+	}
+	for _, e := range bundle.Extensions {
+		action := "create"
+		if old, ok := byID[e.ModuleID]; ok {
+			action = "update"
+			want, wantErr := extension.DecodeObject(e.Config)
+			have, haveErr := extension.DecodeObject(old.Config)
+			if wantErr == nil && haveErr == nil && e.SchemaVersion == old.SchemaVersion && reflect.DeepEqual(want, have) {
+				record("extension", e.ModuleID, "skip", nil)
+				continue
+			}
+		}
+		if _, err := client.PutExtension(ctx, e); err != nil {
+			record("extension", e.ModuleID, "error", err)
+			return fmt.Errorf("extension apply stopped after partial mutations: %w", err)
+		}
+		record("extension", e.ModuleID, action, nil)
+	}
+	return nil
 }

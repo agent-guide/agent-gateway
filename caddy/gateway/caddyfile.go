@@ -1,7 +1,11 @@
 package gateway
 
 import (
+	"encoding/json"
 	"github.com/agent-guide/agent-gateway/internal/distributionmetrics"
+	"github.com/agent-guide/agent-gateway/pkg/extension"
+	"io"
+	"os"
 	"strconv"
 	"strings"
 
@@ -33,6 +37,28 @@ func parseApp(d *caddyfile.Dispenser, existingVal any) (any, error) {
 
 	for d.NextBlock(0) {
 		switch d.Val() {
+		case "extension":
+			args := d.RemainingArgs()
+			if len(args) != 3 {
+				return nil, d.ArgErr()
+			}
+			version, err := strconv.Atoi(args[1])
+			if err != nil || version < 1 || !extension.ValidID(args[0]) {
+				return nil, d.Err("invalid extension identity or schema version")
+			}
+			file, err := os.Open(args[2])
+			if err != nil {
+				return nil, d.Err("cannot open extension config file")
+			}
+			raw, readErr := io.ReadAll(io.LimitReader(file, 256*1024+1))
+			_ = file.Close()
+			if readErr != nil {
+				return nil, d.Err("cannot read extension config file")
+			}
+			if _, err := extension.DecodeObject(raw); err != nil {
+				return nil, d.Err("invalid extension config file")
+			}
+			app.Extensions = append(app.Extensions, extension.Envelope{ModuleID: args[0], SchemaVersion: version, Config: json.RawMessage(raw)})
 		case "provider":
 			if err := parseProvider(d, app); err != nil {
 				return nil, err

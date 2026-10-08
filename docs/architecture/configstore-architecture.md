@@ -243,6 +243,7 @@ const (
 	StoreManagedModels = "managed_models"
 	StoreMCPServices   = "mcp_services"
 	StoreAgents        = "agents"
+ StoreExtensions    = "extensions"
 )
 ```
 
@@ -364,6 +365,22 @@ store.Delete(ctx, providerID, upstreamModel)
 - data column: `config`
 - timestamped: yes
 - decoded type: `*agent.Agent`
+
+### 6.8 Extensions
+
+- schema variable: `schema.ExtensionSchema`
+- store name and table: `extensions`
+- primary key: `module_id`
+- data column: `config`
+- timestamped: no
+- decoded type: `*extension.Envelope`
+
+Only dynamic envelopes are persisted. Static envelopes are startup-owned and
+merged by `extension.Manager`; duplicates fail startup. The codec bounds JSON
+shape and size; the linked registry performs schema/dependency/secret checks.
+Tokens remain in storage, and runtime preparation receives resolved values
+separately. A module mutation prepares before writing and publishes only after
+the store succeeds. No separate backend or configuration authority is introduced.
 
 ## 7. Backend Opening and Registration
 
@@ -596,6 +613,7 @@ During provisioning:
 - virtual keys: `schema.StoreVirtualKeys`
 - providers: `schema.StoreProviders`
 - managed models: `schema.StoreManagedModels`
+- extension envelopes: `schema.StoreExtensions` via the internal persistence adapter
 
 The gateway combines these dynamic stores with static Caddyfile-provided providers, routes, and models during bootstrap.
 

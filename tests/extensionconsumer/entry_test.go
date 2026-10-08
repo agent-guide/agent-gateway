@@ -16,6 +16,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/distribution/caddycmd"
 	"github.com/agent-guide/agent-gateway/pkg/distribution/ctlcmd"
 	"github.com/agent-guide/agent-gateway/pkg/distribution/daemoncmd"
+	"github.com/agent-guide/agent-gateway/pkg/extension"
 )
 
 func TestExternalAssemblyAndDefensiveCopies(t *testing.T) {
@@ -26,13 +27,17 @@ func TestExternalAssemblyAndDefensiveCopies(t *testing.T) {
 	if err := json.Unmarshal([]byte(daemon.Annotations["agent-gateway.assembly"]), &got); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(caddy.Assembly(), got) {
+	aSnapshot := caddy.Assembly()
+	aSnapshot.Factories = nil
+	if !reflect.DeepEqual(aSnapshot, got) {
 		t.Fatal("server entries differ")
 	}
 	a.Modules[0].Capabilities[0] = "changed"
 	snapshot := caddy.Assembly()
 	snapshot.Modules[0].Roles[0] = "changed"
-	if !reflect.DeepEqual(caddy.Assembly(), got) {
+	aSnapshot = caddy.Assembly()
+	aSnapshot.Factories = nil
+	if !reflect.DeepEqual(aSnapshot, got) {
 		t.Fatal("assembly retains caller slices")
 	}
 	cli := ctlcmd.NewCommand(ctlcmd.Options{Assembly: Validation()})
@@ -87,7 +92,7 @@ func TestRequiredPublicSignaturesExposeNoCommunityInternalTypes(t *testing.T) {
 			check(typ.Method(i).Type)
 		}
 	}
-	for _, v := range []any{caddycmd.New, (*caddycmd.Command).Assembly, (*caddycmd.Command).Run, daemoncmd.NewCommand, daemoncmd.Run, ctlcmd.NewCommand, ctlcmd.Run, distribution.CommunityRuntime, distribution.CommunityValidation, distribution.Assembly{}, daemoncmd.Options{}, ctlcmd.Options{}, distribution.MetricsConfig{}} {
+	for _, v := range []any{caddycmd.New, (*caddycmd.Command).Assembly, (*caddycmd.Command).Run, daemoncmd.NewCommand, daemoncmd.Run, ctlcmd.NewCommand, ctlcmd.Run, distribution.CommunityRuntime, distribution.CommunityValidation, distribution.Assembly{}, daemoncmd.Options{}, ctlcmd.Options{}, distribution.MetricsConfig{}, extension.NewRegistry, extension.NewManager, extension.Envelope{}, extension.Factory{}, extension.Snapshot{}, extension.Lease{}, extension.Error{}} {
 		check(reflect.TypeOf(v))
 	}
 }

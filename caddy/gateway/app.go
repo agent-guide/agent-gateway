@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/agent-guide/agent-gateway/internal/distributionmetrics"
+	"github.com/agent-guide/agent-gateway/internal/distributionruntime"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
+	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"strings"
 
 	"github.com/caddyserver/caddy/v2"
@@ -32,6 +34,7 @@ func init() {
 // App is the Caddy app module for the Agent Gateway.
 // It manages providers, MCP clients, memory stores, and configuration.
 type App struct {
+	Extensions []extension.Envelope `json:"extensions,omitempty"`
 	// Providers lists the configured LLM providers.
 	Providers map[string]provider.ProviderConfig `json:"providers,omitempty"`
 	// ConfigStore configures persistent admin/auth state storage.
@@ -69,7 +72,12 @@ func (App) CaddyModule() caddy.ModuleInfo {
 }
 
 // Provision sets up the app.
-func (a *App) Provision(ctx caddy.Context) error {
+func (a *App) Provision(ctx caddy.Context) (provisionErr error) {
+	defer func() {
+		if provisionErr != nil && a.agentGateway != nil {
+			a.agentGateway.Close()
+		}
+	}()
 	a.logger = ctx.Logger(a)
 	a.agentGateway = runtimegateway.NewAgentGateway()
 
@@ -113,7 +121,18 @@ func (a *App) Provision(ctx caddy.Context) error {
 	if err := a.credentialMgr.Load(ctx); err != nil {
 		return fmt.Errorf("load credentials: %w", err)
 	}
+	assembly := distributionruntime.Current()
+	registry, err := assembly.Registry()
+	if err != nil {
+		return err
+	}
+	expanded, err := registry.ExpandConfig(a.Extensions)
+	if err != nil {
+		return err
+	}
+	a.Extensions = expanded
 	if err := a.agentGateway.Bootstrap(ctx, runtimegateway.BootstrapOptions{
+		ExtensionRegistry: registry, StaticExtensions: a.Extensions, Distribution: assembly,
 		StaticLLMRoutes:     a.LLMRoutes,
 		StaticProviders:     a.providers,
 		ConfigStoreBackend:  a.configBackend,
@@ -303,3 +322,11 @@ var (
 	_ caddy.Provisioner = (*App)(nil)
 	_ caddy.Validator   = (*App)(nil)
 )
+
+// Cleanup also handles Caddy validation and failed provisioning.
+func (a *App) Cleanup() error {
+	if a.agentGateway != nil {
+		a.agentGateway.Close()
+	}
+	return nil
+}

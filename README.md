@@ -606,3 +606,24 @@ those capabilities remain part of the active v0.7 plan.
 
 Run `make test-extension-consumer` to build and test the separate-module consumer
 against this checkout; the same gate is included in `make verify-release`.
+
+### Linked extensions
+
+`agw manifest`, `agwd manifest`, and `agwctl manifest` show deterministic linked
+metadata. The CLI reports validation capabilities; `agwctl manifest --remote`
+queries the server runtime manifest through the authenticated Admin mount.
+
+Separately compiled distributions declare descriptors and configuration
+factories through `distribution.Assembly`. Gateway Bundle `extensions` use
+`module_id`, `schema_version`, and module-owned JSON `config`. Unknown modules
+fail validation/startup. Community binaries have no commercial factories.
+`GET /admin/extensions` and `GET|PUT|DELETE /admin/extensions/{module_id}` manage
+dynamic envelopes in the existing ConfigStore; static envelopes are read-only.
+Apply handles extensions in dependency order before other resources and reports
+partial results when an extension fails. Export retains ownership and references.
+
+Secret fields declared by a factory accept only `{"$secret_ref":"env:NAME"}`.
+Local validation never resolves these tokens. Server preparation resolves them;
+persisted/exported JSON retains the token. Preparation/persistence failure leaves
+the current generation active. See the
+[extension contract](docs/design/enterprise-extension-contract.md#113-configuration-ownership-mutation-and-secrets).

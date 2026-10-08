@@ -1217,6 +1217,8 @@ providers:
 func TestGatewayExportCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/admin/extensions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
 		case "/admin/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]string{
 				"token":    "test-token",
@@ -1330,6 +1332,8 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/admin/extensions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
 		case "/admin/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]string{
 				"token":    "test-token",
@@ -1425,6 +1429,8 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 func TestGatewayExportCommandIncludesMCPServicesAndRoutes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/admin/extensions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
 		case "/admin/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]string{"token": "test-token", "username": "admin"})
 		case "/admin/llm/provider_types":

@@ -1,8 +1,11 @@
 package gatewaybundle
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"os"
 	"regexp"
 	"sort"
@@ -29,6 +32,7 @@ const (
 var envVarPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 type GatewayBundle struct {
+	Extensions    []extension.Envelope          `json:"extensions,omitempty"`
 	APIVersion    string                        `json:"apiVersion"`
 	Kind          string                        `json:"kind"`
 	Providers     []provider.ProviderConfig     `json:"providers,omitempty"`
@@ -70,11 +74,20 @@ func DecodeYAML(data []byte) (*GatewayBundle, error) {
 		return nil, fmt.Errorf("decode gateway bundle yaml: %w", err)
 	}
 
-	expanded, err := expandEnvValue(normalizeYAMLValue(raw))
+	normalized := normalizeYAMLValue(raw)
+	var extensions any
+	if root, ok := normalized.(map[string]any); ok {
+		extensions = root["extensions"]
+		delete(root, "extensions")
+	}
+	expanded, err := expandEnvValue(normalized)
 	if err != nil {
 		return nil, err
 	}
 	if root, ok := expanded.(map[string]any); ok {
+		if extensions != nil {
+			root["extensions"] = extensions
+		}
 		if _, exists := root["providerTypes"]; exists {
 			return nil, fmt.Errorf("providerTypes is not supported in GatewayBundle; configure provider types at gateway startup")
 		}
@@ -129,11 +142,13 @@ func EncodeYAML(bundle *GatewayBundle) ([]byte, error) {
 		return nil, fmt.Errorf("encode gateway bundle json: %w", err)
 	}
 	var raw any
-	if err := json.Unmarshal(jsonBytes, &raw); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(jsonBytes))
+	decoder.UseNumber()
+	if err := decoder.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("decode gateway bundle json: %w", err)
 	}
 	removeManagedTimestamps(raw)
-	yamlBytes, err := yaml.Marshal(raw)
+	yamlBytes, err := yaml.Marshal(yamlNumbers(raw))
 	if err != nil {
 		return nil, fmt.Errorf("encode gateway bundle yaml: %w", err)
 	}
@@ -159,14 +174,26 @@ func removeManagedTimestamps(value any) {
 }
 
 func (b *GatewayBundle) Validate() error {
-	return b.validate(false)
+	return b.validateWithExtensions(false)
 }
 
 func (b *GatewayBundle) ValidateForConfigStore() error {
-	return b.validate(true)
+	return b.validateWithExtensions(true)
 }
 
 func (b *GatewayBundle) ValidateForStaticConfig() error {
+	if b != nil && len(b.Extensions) > 0 {
+		return fmt.Errorf("extensions require linked registry validation")
+	}
+	return b.validateStatic()
+}
+func (b *GatewayBundle) ValidateForStaticConfigWithRegistry(ctx context.Context, r *extension.Registry) error {
+	if err := b.ValidateExtensions(ctx, r); err != nil {
+		return err
+	}
+	return b.validateStatic()
+}
+func (b *GatewayBundle) validateStatic() error {
 	if err := b.validate(false); err != nil {
 		return err
 	}
@@ -188,6 +215,20 @@ func (b *GatewayBundle) ValidateForStaticConfig() error {
 	return nil
 }
 
+func (b *GatewayBundle) validateWithExtensions(configStore bool) error {
+	if b != nil && len(b.Extensions) > 0 {
+		return fmt.Errorf("extensions require linked registry validation")
+	}
+	return b.validate(configStore)
+}
+
+// ValidateWithRegistry validates resources and extension configuration with explicitly linked schemas.
+func (b *GatewayBundle) ValidateWithRegistry(ctx context.Context, r *extension.Registry) error {
+	if err := b.ValidateExtensions(ctx, r); err != nil {
+		return err
+	}
+	return b.validate(true)
+}
 func (b *GatewayBundle) validate(_ bool) error {
 	if b == nil {
 		return fmt.Errorf("gateway bundle is required")
@@ -663,4 +704,48 @@ func expandEnvString(s string) (string, error) {
 		}
 		return values[match[1]]
 	}), nil
+}
+
+// ValidateExtensions applies the linked local schema projection without resolving secrets.
+func (b *GatewayBundle) ValidateExtensions(ctx context.Context, r *extension.Registry) error {
+	if b == nil {
+		return fmt.Errorf("gateway bundle is required")
+	}
+	expanded, err := r.ExpandConfig(b.Extensions)
+	if err != nil {
+		return err
+	}
+	out, err := r.Validate(ctx, expanded)
+	if err != nil {
+		return err
+	}
+	b.Extensions = out
+	return nil
+}
+
+// yamlNumber emits the original JSON number as a numeric YAML scalar rather
+// than allowing a float64 conversion or quoting json.Number as a string.
+type yamlNumber string
+
+func (n yamlNumber) MarshalYAML() (any, error) {
+	tag := "!!int"
+	if strings.ContainsAny(string(n), ".eE") {
+		tag = "!!float"
+	}
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: tag, Value: string(n)}, nil
+}
+func yamlNumbers(v any) any {
+	switch x := v.(type) {
+	case json.Number:
+		return yamlNumber(x.String())
+	case map[string]any:
+		for key, child := range x {
+			x[key] = yamlNumbers(child)
+		}
+	case []any:
+		for i, child := range x {
+			x[i] = yamlNumbers(child)
+		}
+	}
+	return v
 }

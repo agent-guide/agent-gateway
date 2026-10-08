@@ -44,7 +44,7 @@ func (s *commandState) initGateway() {
 			if err != nil {
 				return err
 			}
-			if err := bundle.ValidateForConfigStore(); err != nil {
+			if err := bundle.ValidateWithRegistry(cmd.Context(), s.extensionRegistry); err != nil {
 				return err
 			}
 			if s.outputFormat == "json" {

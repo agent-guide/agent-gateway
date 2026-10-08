@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -305,5 +307,27 @@ func TestParseAppRejectsVirtualKeyDirective(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "virtualkey is no longer supported in the Caddyfile") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCaddyfileExtensionEnvelope(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "module.json")
+	if err := os.WriteFile(path, []byte(`{"token":{"$secret_ref":"env:CADDY_F2_SECRET"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	d := caddyfile.NewTestDispenser("agent_gateway {\n extension example.fixture.secret 1 " + path + "\n}")
+	parsed, err := parseApp(d, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var app App
+	if err := json.Unmarshal(parsed.(httpcaddyfile.App).Value, &app); err != nil {
+		t.Fatal(err)
+	}
+	if len(app.Extensions) != 1 || app.Extensions[0].ModuleID != "example.fixture.secret" {
+		t.Fatalf("unexpected: %+v", app.Extensions)
+	}
+	if !strings.Contains(string(app.Extensions[0].Config), "env:CADDY_F2_SECRET") {
+		t.Fatal("reference expanded")
 	}
 }

@@ -22,6 +22,7 @@ func RegisterDefaultStores(backend configstore.ConfigStoreBackend) error {
 		return fmt.Errorf("config store backend is nil")
 	}
 	schemas := []configstore.StoreSchema{
+		ExtensionSchema,
 		ProviderConfigSchema,
 		CredentialSchema,
 		RouteSchema,

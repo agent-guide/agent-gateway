@@ -52,6 +52,11 @@ type Route struct {
 // Routes returns all admin API routes.
 func (h *Handler) Routes() []Route {
 	return []Route{
+		{Method: http.MethodGet, Path: "/admin/manifest", Handler: h.handleManifest},
+		{Method: http.MethodGet, Path: "/admin/extensions", Handler: h.handleListExtensions},
+		{Method: http.MethodGet, Path: "/admin/extensions/{module_id}", Handler: h.handleGetExtension},
+		{Method: http.MethodPut, Path: "/admin/extensions/{module_id}", Handler: h.handlePutExtension},
+		{Method: http.MethodDelete, Path: "/admin/extensions/{module_id}", Handler: h.handleDeleteExtension},
 		// Health — public
 		{Method: http.MethodGet, Path: "/admin/health", Handler: h.handleHealth},
 
@@ -182,6 +187,12 @@ func (h *Handler) Routes() []Route {
 }
 
 func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if h.extensions != nil {
+		if err := h.extensions.Health(r.Context()); err != nil {
+			extensionError(w, err)
+			return
+		}
+	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
