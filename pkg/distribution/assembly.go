@@ -10,6 +10,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/attribution"
 	"github.com/agent-guide/agent-gateway/pkg/event"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey/limiter"
 	"github.com/spf13/cobra"
 	"slices"
 	"time"
@@ -75,7 +76,8 @@ func Annotate(cmd *cobra.Command, a Assembly) {
 // CommunityRuntime is the metadata shared by both Community server entries.
 func CommunityRuntime() Assembly {
 	const prefix = "online.agentguide.community."
-	a := Assembly{Edition: Edition{Name: "community"}}
+	a := Assembly{Edition: Edition{Name: "community"}, Factories: map[string]*extension.Factory{limiter.ModuleID: limiter.Factory(true)}}
+	a.Modules = append(a.Modules, extension.Descriptor{ID: limiter.ModuleID, Version: "0.7.0-dev", SchemaVersion: 1, Capabilities: []string{prefix + "limiter"}, Roles: []string{"runtime", "validation", "spi"}})
 	a.Modules = append(a.Modules, extension.Descriptor{ID: prefix + "gateway", Version: "0.7.0-dev", SchemaVersion: 1, Capabilities: []string{prefix + "llm", prefix + "mcp", prefix + "agent", prefix + "metrics", prefix + "admin"}, Roles: []string{"runtime", "validation", "admin"}})
 	for _, name := range []string{"anthropic", "anthropicbase", "claudecode", "codex", "deepseek", "gemini", "grok", "ollama", "openai", "openrouter", "qwen", "zhipu"} {
 		a.Modules = append(a.Modules, extension.Descriptor{ID: prefix + "provider." + name, Version: "0.7.0-dev", SchemaVersion: 1, Capabilities: []string{prefix + "provider." + name}, Roles: []string{"runtime", "validation"}})
@@ -89,6 +91,7 @@ func CommunityRuntime() Assembly {
 // CommunityValidation declares CLI factories; it does not claim server execution.
 func CommunityValidation() Assembly {
 	a := CommunityRuntime()
+	a.Factories[limiter.ModuleID] = limiter.Factory(false)
 	modules := a.Modules[:0]
 	for _, m := range a.Modules {
 		if slices.Contains(m.Roles, "validation") {

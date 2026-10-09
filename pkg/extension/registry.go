@@ -51,6 +51,14 @@ type Resource interface {
 	Close(context.Context) error
 }
 
+// StatefulResource reconciles candidate domain state before persistence. It may
+// copy an identity from previous into the unpublished receiver, but must never
+// change previous or any active state. true reports a reset on successful commit.
+// Removal of such a resource also reports a reset. Panics fail preparation.
+type StatefulResource interface {
+	StateResetComparedTo(context.Context, Resource) (bool, error)
+}
+
 // Registry is immutable after construction and owns all descriptor slices.
 type Registry struct {
 	entries map[string]Registration

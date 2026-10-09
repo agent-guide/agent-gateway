@@ -27,6 +27,15 @@
 			path ./data/configstore.db
 		}
 
+		# Optional limiter selection envelope (schema 1). With no envelope,
+		# Community memory uses a 100 ms budget and fail-closed behavior.
+		# limiter.json may contain {"timeout_ms":100,"failure_mode":"closed"}.
+		# For an external backend, set backend_module_id/backend_type and configure
+		# its linked dependency too. Community includes no production Redis backend.
+		# extension online.agentguide.community.limiter 1 ./limiter.json
+		# Exhaustion returns 429; failures return bounded 503. Explicit open mode
+		# is degraded; cancellation and retired policies never fail open. No retries.
+
 		# External command for request-time OAuth token refresh. Defaults to
 		# agw-auth; set an absolute path when it is not available on PATH.
 		credential_refresh_command agw-auth refresh

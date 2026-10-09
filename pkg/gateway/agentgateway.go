@@ -154,6 +154,7 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	if err := g.configureVirtualKeyManager(ctx, opts.ConfigStoreBackend); err != nil {
 		return err
 	}
+	g.virtualKeyManager.SetPublisher(opts.EventPublisher)
 	if err := g.configureProviderResolver(ctx, opts.ConfigStoreBackend, opts.StaticProviders); err != nil {
 		return err
 	}
@@ -231,6 +232,8 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	}
 	if extensionManager != nil {
 		g.extensions = extensionManager
+		g.virtualKeyManager.SetExtensions(extensionManager)
+
 		g.distribution = distribution.Assembly{Edition: opts.Distribution.Edition, Modules: opts.ExtensionRegistry.Manifest().Modules}
 		extensionManager = nil
 	}
@@ -239,6 +242,8 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 }
 
 func (g *AgentGateway) Reset() {
+	shutdown, cancelShutdown := context.WithTimeout(context.Background(), extension.LifecycleBudget)
+	defer cancelShutdown()
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -256,8 +261,11 @@ func (g *AgentGateway) Reset() {
 		}
 	}
 
+	if g.virtualKeyManager != nil {
+		_ = g.virtualKeyManager.Close(shutdown)
+	}
 	if g.extensions != nil {
-		_ = g.extensions.Close(context.Background())
+		_ = g.extensions.Close(shutdown)
 		g.extensions = nil
 	}
 	g.distribution = distribution.Assembly{}

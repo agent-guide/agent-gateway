@@ -3,7 +3,8 @@
 Capability status: **Implemented** for the repository ownership and protection
 policy. Reusable entries and their external-consumer suite are **Implemented**
 along with linked registries, manifests, configuration generations and public
-attribution/events. Contributed Admin routes and the limiter SPI remain **Proposed**.
+attribution/events. Contributed Admin routes and the limiter SPI are **Implemented**
+as candidate contracts.
 Protection requires a released tag containing the designated APIs and tests.
 
 Individual extension surfaces are protected only when explicitly designated
@@ -274,7 +275,7 @@ licensing, customers, or delivery dates.
 
 These decisions fix the implementation target. Entry construction, public
 metrics values, linked registries/manifests, configuration and attribution/events
-are implemented. Admin contribution and limiter contracts remain Proposed.
+and Admin contribution/limiter contracts are implemented as candidates.
 Consumer evidence is a candidate gate, not a released-tag
 or paired-private-repository Enterprise-ready declaration. Changes to the target
 must update this design and the active plan together.
@@ -290,9 +291,9 @@ must update this design and the active plan together.
 | `pkg/extension` | Linked module descriptors, registry, manifest, configuration envelope and prepared snapshot lifecycle |
 | `pkg/attribution` | Immutable request attribution values and context accessors |
 | `pkg/event` | Versioned public envelopes, sink lifecycle and bounded delivery options |
-| `pkg/admin/contribution` | Route declarations and narrow contribution dependencies |
+| `pkg/extension` (Admin types) | Route declarations and narrow contribution dependencies |
 | `pkg/gateway/virtualkey/limiter` | Backend, factory, policy snapshot, admission and lifecycle contracts |
-| `pkg/extension/contracttest` | Implemented registry/configuration, attribution and event suites; future Admin suite |
+| `pkg/extension/contracttest` | Registry/configuration, attribution, event and Admin body suites |
 | `pkg/gateway/virtualkey/limiter/contracttest` | Backend lifecycle and admission suite |
 
 Only symbols named in landed package documentation become protected. The table
@@ -605,12 +606,42 @@ applies to each serialized resource, not to the total local YAML file.
 
 ### 11.6 Limiter backend semantics
 
+**Implemented candidate.** The domain owns
+`pkg/gateway/virtualkey/limiter`; `doc.go` lists the exact candidate protected
+symbols: `Dimension` and its constants, `Policy`, `Clock`, `LimiterRequest`,
+`LimiterDecision`, `LimiterBackend`, `LimiterProvider`, `Config`, `ModuleID`,
+`MemoryBackendType`, `Factory`, `NewMemoryBackend`, reference backend lifecycle
+methods and the bounded unavailable/retired sentinels. Backend provider lookup
+runs during module preparation. The prepared selection retains only typed backend
+handles and immutable settings; the request path acquires the current generation
+and never resolves factories or reads ConfigStore.
+
+`LimiterBackend.Admit(ctx, request)` consumes atomically; `Retire(ctx, generation)`
+fences late operations; `Health(ctx)` and `Close(ctx)` use the normal prepared
+resource lifecycle. Request policy fields are values, with no bearer credential.
+Reference bucket initialization is lazy; policy/configuration publication is
+owned by the VirtualKey/extension managers. Each admission uses the current
+prepared connection handle while retaining an unchanged quota generation.
+Generation-scoped storage must survive connection-handle refresh. A production
+remote operation may consume before losing its reply; the gateway never retries.
+The SPI does not promise exactly-once remote delivery or token transfer and
+includes no production distributed implementation.
+
+`extension.StatefulResource.StateResetComparedTo(ctx, previous)` lets an unpublished
+candidate retain an unchanged domain identity before persistence. It cannot
+mutate the previous/live resource. Removal or changed identity marks the committed
+mutation's `state_reset`; failed preparation/persistence never reports a successful
+reset. `Snapshot.Sequence()` provides a manager-local monotonic generation fence
+with possible gaps from failed candidates. This preserves policy identity while
+all prepared handles still close once according to the normal generation lifecycle.
+
 The backend receives a context, immutable policy generation, VirtualKey ID and
 one of `llm`, `mcp`, `agent`. Admission is one atomic consume-or-deny operation
 per key/dimension, consuming exactly one request token on allow and none on deny.
 No multi-dimension transaction or global ordering is promised. Retry-after is a
 nonnegative duration, rounded up to at least one second when writing a denied
-HTTP response. Backends expose only bounded diagnostic codes.
+HTTP response. The gateway exposes only bounded diagnostic codes, regardless of backend callback
+diagnostics.
 
 Keep the existing process-local backend as the default. Configure an alternate
 backend through its registered extension and the Community-owned envelope
@@ -621,7 +652,9 @@ backend through its registered extension and the Community-owned envelope
 module and is prepared with that module in the same mutation generation;
 never fall back to a local bucket silently. Admission defaults to a 100 ms
 budget, configurable 1 ms–1 s and capped by the request deadline. Caller
-cancellation terminates admission without fail-open handling. On timeout or
+cancellation terminates admission without fail-open handling. A retired-generation
+admission must return `ErrLimiterRetired` (possibly wrapped); this fence is never
+treated as backend unavailability and never fails open. On timeout or
 backend failure, a configured hard limit defaults to fail-closed (HTTP 503 with
 a bounded `limiter_unavailable` error); explicit fail-open permits the request
 with a degraded event/counter. Exhaustion remains HTTP 429. No configured policy
@@ -644,6 +677,11 @@ retired generations so late operations cannot recreate active old buckets.
 Shutdown stops new admissions, drains/cancels in-flight calls and closes once
 within the common five-second module budget. Counters label only dimension,
 outcome and bounded backend type, never VirtualKey, route, tenant or subject IDs.
+Backend type uses a 32-character identifier, with at most 32 distinct type labels
+per gateway and `other` overflow. `limiter/contracttest.Limiter` and `LimiterRefill`
+run identically against Community memory and an independent fixture backend.
+Real Caddy/agwd consumers prove refresh preservation, switches, 429/503, ambiguous
+consumption, timeout, explicit degradation, reset events, bounded labels and shutdown.
 
 ### 11.7 Evidence and release sequence
 

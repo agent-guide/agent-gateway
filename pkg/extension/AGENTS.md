@@ -44,3 +44,11 @@ identity to the captured trusted request context, never a module-supplied Publis
 context; the owner binder is resolved only during HTTP assembly. Never inject gateway,
 raw store or resolved secrets. Read design section 11.5 and run Admin race and
 external consumer/process contracts when changing this seam.
+
+StatefulResource reconciles unpublished domain identity against the immutable
+previous handle before persistence. Never mutate previous/live state. This is not
+resource reuse: all handles still prepare/close once per generation. Removed or
+changed state reports state_reset only after successful commit. Snapshot.Sequence
+is a manager-local monotonic fence; failed candidates may leave gaps. Limiter
+selection keeps unchanged policy identity across refreshes, including timeout or
+failure-mode changes; backend authority/config changes reset identity.

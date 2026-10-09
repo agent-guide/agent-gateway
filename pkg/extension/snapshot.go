@@ -5,6 +5,7 @@ import "context"
 // Snapshot gives module preparation immutable access to already prepared
 // dependencies. Resource values are module-owned concurrency-safe handles.
 type Snapshot struct {
+	sequence  uint64
 	ctx       context.Context
 	configs   map[string]Envelope
 	resources map[string]Resource
@@ -23,3 +24,6 @@ func (s Snapshot) Context() context.Context {
 	}
 	return s.ctx
 }
+
+// Sequence is a manager-local monotonic generation fence, never a storage ID.
+func (s Snapshot) Sequence() uint64 { return s.sequence }

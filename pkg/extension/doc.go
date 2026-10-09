@@ -10,6 +10,8 @@
 // Snapshot.Config, Snapshot.Resource, Snapshot.Context; Lease.Release;
 // Manager.Acquire, Manager.List, Manager.Manifest, Manager.Put, Manager.Delete,
 // Manager.Health, Manager.Close and Manager.SetPublisher. Other exported helpers are not designated.
+// F5 designates StatefulResource and Snapshot.Sequence. Reconciliation only
+// changes unpublished candidate identity; reset metadata is emitted after commit.
 // F4 also designates AdminRoute, OwnedAdminRoute, AdminDependencies,
 // AdminContributor, WriteAdminError, Registry.AdminRoutes, Manager.AdminRoutes and Manager.AdminPublisher.
 // Factory.AdminRoutes is an immutable declaration set; only prepared resources

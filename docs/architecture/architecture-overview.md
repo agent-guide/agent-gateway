@@ -616,7 +616,8 @@ values fall back to core correlation rather than exposing their diagnostics.
 
 `pkg/event` contains only v1 `limiter.admission` and `extension.mutation` DTOs.
 Extension PUT/DELETE success follows persistence/publication; failure contains
-an enumerated reason. Configured in-process limiter admission emits allow/deny.
+an enumerated reason. Configured limiter admission emits allow/deny/degraded, with bounded unavailable
+reasons and actual backend owner IDs. Policy/backend resets emit `state_reset`.
 Prompts, arbitrary diagnostics, configs, credentials and secret-reference tokens
 have no DTO field. Validation includes the 16 KiB encoded JSON bound.
 
@@ -630,3 +631,31 @@ a stuck callback is unhealthy and cannot hold process teardown past the deadline
 No goroutine is created per production write. Metrics include rejection counts and
 sink health in registration order, along with combined drop/failure counters.
 Standalone and Caddy report sink shutdown failures through their execution lifecycle.
+
+
+### VirtualKey admission backends
+
+The dispatcher performs one context-bound admission after VirtualKey validation
+and interaction setup, before LLM/MCP/Agent protocol dispatch. The domain-owned
+`pkg/gateway/virtualkey/limiter` SPI receives value policies and opaque per-key,
+per-dimension generations, never bearer values. Memory is the Community default.
+The schema-1 `online.agentguide.community.limiter` envelope selects a linked,
+configured `LimiterProvider` dependency; preparation resolves its backend type
+and validates health before activation. Both Caddy and standalone use this wiring.
+
+Admission uses a current generation lease and prepared connection handle. Key
+metadata writes, unchanged dimensions and unrelated extension refreshes preserve
+quota identity; changed policies, key deletion/reset and backend authority/config
+changes retire it. StatefulResource reconciles only unpublished candidate identity,
+with monotonic Snapshot.Sequence fencing. New authorities start full buckets;
+quota storage survives connection-handle replacement. No request reads storage,
+discovers a module, resolves its factory or retries uncertain consumption.
+
+The default 100 ms budget accepts 1–1000 ms and is capped by the request deadline.
+Exhaustion is 429 with rounded-up Retry-After; failures/timeouts are bounded
+503 limiter_unavailable. Explicit open mode allows degraded traffic; caller and
+retirement cancellation, retired-policy errors or shutdown cannot bypass a hard limit. Unlimited
+classes skip backend calls. Admission counters use only dimension, outcome and
+bounded backend type; external event sinks receive sanitized admission/reset DTOs
+through the existing pipeline. Gateway shutdown stops/cancels admissions and
+shares its five-second deadline with extension resource retirement.

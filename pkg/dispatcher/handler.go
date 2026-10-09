@@ -2,6 +2,7 @@ package dispatcher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/agent-guide/agent-gateway/pkg/attribution"
 	"github.com/agent-guide/agent-gateway/pkg/event"
@@ -168,18 +169,25 @@ func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request, next NextHand
 		if err != nil {
 			return WriteDispatchError(h.logger, string(cfg.Protocol), cfg.ID, "", http.StatusServiceUnavailable, rec, r, "rate limit admission", "route kind is not configured", err)
 		}
-		admission, err := h.gateway.VirtualKeyManager().Admit(*virtualKey, dimension)
-		if err != nil {
-			return WriteDispatchError(h.logger, string(cfg.Protocol), cfg.ID, "", http.StatusInternalServerError, rec, r, "rate limit admission", "failed to apply virtual key rate limit", err)
-		}
+		admission, err := h.gateway.VirtualKeyManager().Admit(r.Context(), *virtualKey, dimension)
 		if admission.RequestsPerMinute > 0 {
-
 			v, _ := attribution.FromContext(r.Context())
 			outcome, reason := "allow", ""
-			if !admission.Allowed {
+			if err != nil {
+				outcome, reason = "deny", "limiter_unavailable"
+			} else if admission.Degraded {
+				outcome, reason = "degraded", "limiter_unavailable"
+			} else if !admission.Allowed {
 				outcome, reason = "deny", "rate_limited"
 			}
-			h.gateway.PublishEvent(r.Context(), event.Envelope{SchemaVersion: 1, ID: uuid.NewString(), Family: "limiter.admission", Timestamp: time.Now().UTC(), Attribution: v, Outcome: outcome, Reason: reason, Limiter: &event.LimiterAdmission{Dimension: string(dimension), RetryAfter: time.Duration(admission.RetryAfterSeconds) * time.Second, BackendID: "online.agentguide.community.limiter"}})
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				reason = "canceled"
+			}
+			h.gateway.PublishEvent(r.Context(), event.Envelope{SchemaVersion: 1, ID: uuid.NewString(), Family: "limiter.admission", Timestamp: time.Now().UTC(), Attribution: v, Outcome: outcome, Reason: reason, Limiter: &event.LimiterAdmission{Dimension: string(dimension), RetryAfter: time.Duration(admission.RetryAfterSeconds) * time.Second, BackendID: admission.BackendID}})
+		}
+		if err != nil {
+			span.AddAnnotation("error_type", "limiter_unavailable")
+			return httpjson.Error(rec, http.StatusServiceUnavailable, "limiter_unavailable")
 		}
 		if !admission.Allowed {
 			span.AddAnnotation("error_type", "rate_limited")

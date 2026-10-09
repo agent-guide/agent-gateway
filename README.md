@@ -156,8 +156,11 @@ virtualKeys:
 ```
 
 `rate_limits` is optional. It independently limits LLM, MCP, and agent ingress
-for a VirtualKey with in-memory token buckets; `agent` covers common Agent
-turns and native A2A POSTs. Exceeded requests return `429` with `Retry-After`.
+for a VirtualKey through the configured limiter backend (process-local memory
+by default); `agent` covers common Agent
+turns and native A2A POSTs. Exceeded requests return `429` with `Retry-After`. Backend failures/timeouts
+default to `503 limiter_unavailable`; explicit fail-open is reported as degraded.
+Admission is never retried automatically.
 
 Set the admin Basic Auth credentials for agwctl as an environment variable, then apply the bundle:
 
@@ -653,6 +656,45 @@ injected. Both server modes keep the outer Admin authentication, CORS, logging,
 panic recovery and full-body boundary. Module health appears in `/admin/health`;
 generation leases drain handlers before resource retirement, with bounded request
 cancellation and reverse dependency shutdown. Unconfigured modules return 503.
+
+### Limiter backend extension
+
+`pkg/gateway/virtualkey/limiter` is the candidate protected domain SPI.
+A separately linked module implements `LimiterProvider` on its prepared resource
+and returns a `LimiterBackend` for a declared type. The Community selection
+extension has schema 1 and defaults to local memory, 100 ms, and fail-closed:
+
+```yaml
+extensions:
+  - module_id: online.agentguide.community.limiter
+    schema_version: 1
+    config:
+      backend_module_id: example.organization.limiter
+      backend_type: redis
+      timeout_ms: 100
+      failure_mode: closed
+```
+
+This example requires the named backend module to be linked and configured in
+the same Bundle; Community does not ship a production Redis backend. Unknown,
+unconfigured or unavailable selections fail startup/apply. `timeout_ms` accepts
+1–1000 and is capped by the caller deadline. With no limit for a dimension,
+admission is unlimited and never calls the backend. Caller cancellation and
+shutdown and retired-policy errors never fail open. Set `failure_mode: open` only for intentional degraded
+admission on backend failure or timeout.
+
+Policies have opaque per-key/dimension generations. Unchanged policies preserve
+tokens across metadata writes and unrelated extension refreshes; changed dimensions,
+key deletion/reset and backend switches retire state. A switch resets full buckets
+without transferring tokens. Quota state must survive replacement of prepared
+connection handles; retired generations must stay fenced against late operations.
+Public mutation events report `state_reset`; admission events distinguish allow,
+deny and degraded. Prometheus exposes `agentgateway_limiter_admissions_total`
+with only dimension, outcome and bounded backend type labels.
+
+See the [limiter contract](docs/design/enterprise-extension-contract.md#116-limiter-backend-semantics)
+and reusable `limiter/contracttest.Limiter` and `LimiterRefill` suites. Released-tag
+protection and paired repository evidence remain release gates.
 
 ### Trusted attribution and public event sinks
 

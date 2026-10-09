@@ -143,10 +143,21 @@ VirtualKey notes:
 - `key` is the bearer credential value clients must send on requests
 - `created_at` and `updated_at` are server-managed fields
 - optional `rate_limits.llm`, `rate_limits.mcp`, and `rate_limits.agent` entries
-  enforce in-memory request token buckets; both values must be greater than zero
-- `agent` applies to independent ACP and builtin buckets; omitted entries are
+  enforce request token buckets through the selected backend (local memory by
+  default); both values must be greater than zero
+- `agent` applies to unified Agent ingress, including ACP, builtin and HTTP/A2A; omitted entries are
   unlimited
-- exceeded requests return `429 Too Many Requests` and `Retry-After`
+- exceeded requests return `429 Too Many Requests` and rounded-up `Retry-After`
+- backend failure/timeout returns bounded `503 {"error":"limiter_unavailable"}`;
+  explicit `failure_mode: open` permits degraded admission; cancellation never does
+- configure the linked backend with schema-1 extension
+  `online.agentguide.community.limiter`: `backend_module_id`, `backend_type`,
+  `timeout_ms` (1–1000; default 100), `failure_mode` (`closed` default or `open`);
+  `{}` selects Community memory. An external backend must also be configured
+- unchanged dimensions retain tokens; changed policies or backend switches reset
+  without transfer. Events report `state_reset`; admission is never retried
+- `GET /admin/metrics/prometheus` includes `agentgateway_limiter_admissions_total`
+  with `dimension`, `outcome` and bounded `backend_type` labels
 
 ## Upstream Credentials
 

@@ -74,7 +74,10 @@ func TestExtensionProcesses(t *testing.T) {
 				args = []string{"run", "--config", path}
 				config = map[string]any{"admin": map[string]any{"disabled": true}, "apps": map[string]any{
 					"agent_gateway": map[string]any{"config_store": map[string]any{"sqlite": map[string]string{"sqlite_path": db}}, "extensions": []extension.Envelope{static}},
-					"http":          map[string]any{"servers": map[string]any{"test": map[string]any{"listen": []string{addr}, "routes": []any{map[string]any{"handle": []any{map[string]any{"handler": "authentication", "providers": map[string]any{"http_basic": map[string]any{"accounts": []any{map[string]string{"username": "fixture", "password": string(hash)}}}}}, map[string]string{"handler": "agent_gateway_admin"}}}}}}},
+					"http": map[string]any{"servers": map[string]any{"test": map[string]any{"listen": []string{addr}, "routes": []any{
+						map[string]any{"match": []any{map[string]any{"path": []string{"/admin/*"}}}, "handle": []any{map[string]any{"handler": "authentication", "providers": map[string]any{"http_basic": map[string]any{"accounts": []any{map[string]string{"username": "fixture", "password": string(hash)}}}}}, map[string]string{"handler": "agent_gateway_admin"}}},
+						map[string]any{"handle": []any{map[string]any{"handler": "agent_route_dispatcher", "api_handlers": map[string]any{"cc": map[string]any{}}}}},
+					}}}},
 				}}
 			}
 			encoded, _ := json.Marshal(config)
@@ -270,6 +273,7 @@ extensions:
 				t.Fatal(err)
 			}
 			checkDynamicRoute(503, "extension_unavailable")
+			checkLimiterProcess(t, ctx, "http://"+addr, client, send)
 			if err = command.Process.Signal(syscall.SIGTERM); err != nil {
 				t.Fatal(err)
 			}
@@ -296,6 +300,8 @@ extensions:
 			decoder := json.NewDecoder(bytes.NewReader(raw))
 			seen := map[string]bool{}
 			count := 0
+			limiterSeen := map[string]bool{}
+			resetSeen := false
 			for {
 				var e event.Envelope
 				err := decoder.Decode(&e)
@@ -308,11 +314,22 @@ extensions:
 				if err := event.Validate(e, attribution.Policy{}); err != nil {
 					t.Fatal(err)
 				}
+				if e.Family == "limiter.admission" {
+					limiterSeen[e.Outcome+"/"+e.Reason] = true
+					if e.Attribution.Tenant != "" || e.Attribution.VirtualKeyID != "limiter-proof" || e.Attribution.RouteID != "limiter-proof" {
+						t.Fatalf("admission attribution %+v", e.Attribution)
+					}
+					continue
+				}
 				if e.Family != "extension.mutation" {
 					t.Fatal("unexpected public family")
 				}
+				resetSeen = resetSeen || e.Mutation.StateReset
 				seen[e.Outcome+"/"+e.Mutation.Operation] = true
 				count++
+			}
+			if !resetSeen || !limiterSeen["allow/"] || !limiterSeen["deny/rate_limited"] || !limiterSeen["deny/limiter_unavailable"] || !limiterSeen["degraded/limiter_unavailable"] {
+				t.Fatalf("limiter event evidence %v reset=%v", limiterSeen, resetSeen)
 			}
 			if count < 4 || !seen["success/put"] || !seen["failure/put"] || !seen["success/delete"] || !seen["failure/delete"] || !seen["success/reset"] {
 				t.Fatalf("event lifecycle evidence %d %v", count, seen)

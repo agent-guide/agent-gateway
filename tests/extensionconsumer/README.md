@@ -45,5 +45,11 @@ suite protects both modes with Basic Auth, rejects anonymous contribution calls,
 and runs the reusable AdminBody suite against Community and contributed writes:
 known-length/chunked oversize and compression fail before mutation, supported
 writes retain shared CORS, and Bundle apply/export still work. It proves the
-contributed reset publishes an owner-scoped public event. The alternate domain
-limiter proof remains later work.
+contributed reset publishes an owner-scoped public event. The independent limiter uses its own atomic quota store, not the Community
+implementation. `limiter_test.go` runs both implementations through identical
+public admission/lifecycle and deterministic refill suites, and checks connection
+refresh preserves quota state. Public signature checks include limiter/StatefulResource.
+Both real server processes apply the selected backend, admit local count_tokens
+traffic without upstream I/O, verify unchanged/changed policy state, reject unavailable
+selections, switch authority, exercise timeout/ambiguous consumption and explicit
+fail-open, inspect bounded Prometheus labels and flush admission/reset events.

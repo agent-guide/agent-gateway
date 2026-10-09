@@ -724,7 +724,7 @@ func (h *Handler) handlePrometheusMetrics(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(usage.RenderPrometheus(snap, h.usageStats)))
+	_, _ = w.Write([]byte(usage.RenderPrometheus(snap, h.usageStats) + h.limiterPrometheus()))
 }
 
 func (h *Handler) handleMetrics(w http.ResponseWriter, r *http.Request) {

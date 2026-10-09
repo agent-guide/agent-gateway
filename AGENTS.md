@@ -184,6 +184,8 @@ or a cross-cutting adapter for it (for example `caddy/admin`,
 - `pkg/agent/` — agent control plane (`pkg/agent/runtime` contracts, `Agent` model, route/service → agent index) → `pkg/agent/AGENTS.md`; builtin eino ADK host → `pkg/agent/builtin/AGENTS.md`
 - `internal/observability/` — usage events, event pipeline, OTLP export, `einotap` → `internal/observability/AGENTS.md`
 - `pkg/dispatcher/llmapi/` — LLM protocol handler runtimes; see "Protocol handler modules" above
+- `pkg/gateway/virtualkey/limiter/` — candidate protected backend SPI, generation
+  fences, strict selection and reusable suites → its nested `AGENTS.md`
 - `pkg/extension/` — linked registry, bounded envelopes and prepared generations → `pkg/extension/AGENTS.md`
 - `pkg/attribution/` and `pkg/event/` — trusted bounded context and sanitized public sink transport → their nested `AGENTS.md` files
 - `caddy/gateway/` — Caddy app wiring and global `agent_gateway` Caddyfile parsing; see "Caddy app" above
@@ -228,6 +230,15 @@ The main config lives in the global `agent_gateway` block.
 Important current directives:
 
 - `extension <module_id> <schema_version> <config-file>` loads startup-owned module JSON; unlinked modules fail startup
+- `online.agentguide.community.limiter` schema 1 selects a linked backend using
+  `backend_module_id`, `backend_type`, `timeout_ms` (1–1000, default 100) and
+  `failure_mode` (default `closed`). Defaults use memory; alternate providers must
+  be configured dependencies. Exhaustion is 429, failure is bounded 503, explicit
+  open mode is degraded; cancellation and retired-policy errors never fail open,
+  and consumes are not retried
+- limiter generations preserve unchanged dimensions and unrelated refresh state;
+  key policy/backend changes retire state. Quota storage survives connection-handle
+  refresh; request admission always uses the current prepared handle
 - `provider_types` is startup-only provider type availability; when omitted all registered provider types are enabled
 - providers use `provider_type <name>`
 - LLM routes use `protocol <openai|anthropic|cc>`, MCP routes use `protocol mcp`, and Agent ingress routes use `protocol agent` or `protocol a2a` (HTTP Agent native Path A; see `docs/design/http-agent-runtime.md`)

@@ -23,6 +23,7 @@ type Persistence interface {
 // Manager serializes mutations and publishes complete immutable generations.
 // It never resolves registries or reads storage during snapshot acquisition.
 type Manager struct {
+	sequence        uint64
 	publisher       event.Publisher
 	registry        *Registry
 	store           Persistence
@@ -37,6 +38,7 @@ type Manager struct {
 	shutdownContext context.Context
 }
 type generation struct {
+	stateReset   bool
 	snapshot     Snapshot
 	order        []Envelope
 	cancel       context.CancelFunc
@@ -142,8 +144,9 @@ func (m *Manager) prepare(ctx context.Context, envelopes []Envelope) (*generatio
 	if err != nil {
 		return nil, err
 	}
+	m.sequence++
 	life, cancel := context.WithCancel(context.Background())
-	g := &generation{snapshot: Snapshot{configs: map[string]Envelope{}, resources: map[string]Resource{}, ctx: life}, order: ordered, cancel: cancel, drained: make(chan struct{}), done: make(chan struct{})}
+	g := &generation{snapshot: Snapshot{sequence: m.sequence, configs: map[string]Envelope{}, resources: map[string]Resource{}, ctx: life}, order: ordered, cancel: cancel, drained: make(chan struct{}), done: make(chan struct{})}
 	fail := func(err error) (*generation, error) { g.cancel(); m.dispose(g); return nil, err }
 	for _, e := range ordered {
 		if ctx.Err() != nil {
@@ -187,6 +190,25 @@ func (m *Manager) prepare(ctx context.Context, envelopes []Envelope) (*generatio
 	}
 	if ctx.Err() != nil {
 		return fail(failure("prepare_failed", "", "deadline"))
+	}
+	m.mu.Lock()
+	previous := m.current
+	m.mu.Unlock()
+	if previous != nil {
+		for id, r := range g.snapshot.resources {
+			if state, ok := r.(StatefulResource); ok {
+				reset, err := callback(func() (bool, error) { return state.StateResetComparedTo(ctx, previous.snapshot.resources[id]) })
+				if err != nil {
+					return fail(failure("prepare_failed", id, "state"))
+				}
+				g.stateReset = g.stateReset || reset
+			}
+		}
+		for id, r := range previous.snapshot.resources {
+			if _, ok := r.(StatefulResource); ok && g.snapshot.resources[id] == nil {
+				g.stateReset = true
+			}
+		}
 	}
 	return g, nil
 }
@@ -294,7 +316,8 @@ func (m *Manager) Put(ctx context.Context, e Envelope) (result error) {
 	defer m.unlock()
 	// Publish before releasing the mutation gate and notifying shutdown waiters.
 	// The publisher enqueues without sink I/O; no manager mutex is held.
-	defer func() { m.emitMutation(ctx, e.ModuleID, "put", result) }()
+	stateReset := false
+	defer func() { m.emitMutation(ctx, e.ModuleID, "put", result, stateReset) }()
 	if !ValidID(e.ModuleID) {
 		return failure("invalid_config", "", "module_id")
 	}
@@ -329,6 +352,7 @@ func (m *Manager) Put(ctx context.Context, e Envelope) (result error) {
 		return failure("persistence_failed", e.ModuleID, "")
 	}
 	m.publish(g)
+	stateReset = g.stateReset
 	return nil
 }
 
@@ -343,7 +367,8 @@ func (m *Manager) Delete(ctx context.Context, id string) (result error) {
 	defer m.unlock()
 	// Publish before releasing the mutation gate and notifying shutdown waiters.
 	// The publisher enqueues without sink I/O; no manager mutex is held.
-	defer func() { m.emitMutation(ctx, id, "delete", result) }()
+	stateReset := false
+	defer func() { m.emitMutation(ctx, id, "delete", result, stateReset) }()
 	if !ValidID(id) {
 		return failure("invalid_config", "", "module_id")
 	}
@@ -376,6 +401,7 @@ func (m *Manager) Delete(ctx context.Context, id string) (result error) {
 		return failure("persistence_failed", id, "")
 	}
 	m.publish(g)
+	stateReset = g.stateReset
 	return nil
 }
 
@@ -465,7 +491,7 @@ func (m *Manager) Close(ctx context.Context) error {
 
 // SetPublisher binds the existing pipeline authority during bootstrap.
 func (m *Manager) SetPublisher(p event.Publisher) { m.mu.Lock(); m.publisher = p; m.mu.Unlock() }
-func (m *Manager) emitMutation(ctx context.Context, id, operation string, err error) {
+func (m *Manager) emitMutation(ctx context.Context, id, operation string, err error, reset ...bool) {
 	if !ValidID(id) {
 		return
 	}
@@ -492,5 +518,5 @@ func (m *Manager) emitMutation(ctx context.Context, id, operation string, err er
 		}
 	}
 	v, _ := attribution.FromContext(ctx)
-	p.Publish(ctx, event.Envelope{SchemaVersion: 1, ID: uuid.NewString(), Family: "extension.mutation", Timestamp: time.Now().UTC(), Attribution: v, Outcome: outcome, Reason: reason, Mutation: &event.ExtensionMutation{ModuleID: id, Operation: operation}})
+	p.Publish(ctx, event.Envelope{SchemaVersion: 1, ID: uuid.NewString(), Family: "extension.mutation", Timestamp: time.Now().UTC(), Attribution: v, Outcome: outcome, Reason: reason, Mutation: &event.ExtensionMutation{ModuleID: id, Operation: operation, StateReset: err == nil && len(reset) > 0 && reset[0]}})
 }
