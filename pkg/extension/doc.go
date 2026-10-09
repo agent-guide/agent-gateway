@@ -9,7 +9,7 @@
 // Registry.Manifest, Registry.Validate, Registry.ExpandConfig;
 // Snapshot.Config, Snapshot.Resource, Snapshot.Context; Lease.Release;
 // Manager.Acquire, Manager.List, Manager.Manifest, Manager.Put, Manager.Delete,
-// Manager.Health and Manager.Close. Other exported helpers are not designated.
+// Manager.Health, Manager.Close and Manager.SetPublisher. Other exported helpers are not designated.
 // Release protection requires a published tag with the consumer contract gates
 // described in docs/design/enterprise-extension-contract.md.
 //

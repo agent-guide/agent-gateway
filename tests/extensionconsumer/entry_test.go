@@ -12,10 +12,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agent-guide/agent-gateway/pkg/attribution"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"github.com/agent-guide/agent-gateway/pkg/distribution/caddycmd"
 	"github.com/agent-guide/agent-gateway/pkg/distribution/ctlcmd"
 	"github.com/agent-guide/agent-gateway/pkg/distribution/daemoncmd"
+	"github.com/agent-guide/agent-gateway/pkg/event"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
 )
 
@@ -29,6 +31,7 @@ func TestExternalAssemblyAndDefensiveCopies(t *testing.T) {
 	}
 	aSnapshot := caddy.Assembly()
 	aSnapshot.Factories = nil
+	aSnapshot.EventSinks = nil
 	if !reflect.DeepEqual(aSnapshot, got) {
 		t.Fatal("server entries differ")
 	}
@@ -37,6 +40,7 @@ func TestExternalAssemblyAndDefensiveCopies(t *testing.T) {
 	snapshot.Modules[0].Roles[0] = "changed"
 	aSnapshot = caddy.Assembly()
 	aSnapshot.Factories = nil
+	aSnapshot.EventSinks = nil
 	if !reflect.DeepEqual(aSnapshot, got) {
 		t.Fatal("assembly retains caller slices")
 	}
@@ -92,7 +96,7 @@ func TestRequiredPublicSignaturesExposeNoCommunityInternalTypes(t *testing.T) {
 			check(typ.Method(i).Type)
 		}
 	}
-	for _, v := range []any{caddycmd.New, (*caddycmd.Command).Assembly, (*caddycmd.Command).Run, daemoncmd.NewCommand, daemoncmd.Run, ctlcmd.NewCommand, ctlcmd.Run, distribution.CommunityRuntime, distribution.CommunityValidation, distribution.Assembly{}, daemoncmd.Options{}, ctlcmd.Options{}, distribution.MetricsConfig{}, extension.NewRegistry, extension.NewManager, extension.Envelope{}, extension.Factory{}, extension.Snapshot{}, extension.Lease{}, extension.Error{}} {
+	for _, v := range []any{caddycmd.New, (*caddycmd.Command).Assembly, (*caddycmd.Command).Run, daemoncmd.NewCommand, daemoncmd.Run, ctlcmd.NewCommand, ctlcmd.Run, distribution.CommunityRuntime, distribution.CommunityValidation, distribution.Assembly{}, daemoncmd.Options{}, ctlcmd.Options{}, distribution.MetricsConfig{}, extension.NewRegistry, extension.NewManager, extension.Envelope{}, extension.Factory{}, extension.Snapshot{}, extension.Lease{}, extension.Error{}, event.NewDelivery, event.Validate, event.Envelope{}, event.Registration{}, event.Options{}, event.Stats{}, attribution.NewPolicy, attribution.WithContext, attribution.FromContext, attribution.WithCorrelation, attribution.Producer(nil)} {
 		check(reflect.TypeOf(v))
 	}
 }

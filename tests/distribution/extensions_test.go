@@ -1,12 +1,16 @@
 package distribution_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
+	"github.com/agent-guide/agent-gateway/pkg/attribution"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
+	"github.com/agent-guide/agent-gateway/pkg/event"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -48,6 +52,7 @@ func TestExtensionProcesses(t *testing.T) {
 	for _, binary := range []string{"agw", "agwd"} {
 		t.Run(binary, func(t *testing.T) {
 			work := t.TempDir()
+			eventPath := filepath.Join(work, "events.jsonl")
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
 				t.Fatal(err)
@@ -81,11 +86,11 @@ func TestExtensionProcesses(t *testing.T) {
 			command := exec.CommandContext(ctx, filepath.Join(dir, binary), args...)
 			command.Dir = work
 			for _, entry := range os.Environ() {
-				if !strings.HasPrefix(entry, "AGW_FIXTURE_SECRET=") && !strings.HasPrefix(entry, "AGW_ADMIN_BASIC_AUTH_HASH=") {
+				if !strings.HasPrefix(entry, "AGW_FIXTURE_EVENT_FILE=") && !strings.HasPrefix(entry, "AGW_FIXTURE_SECRET=") && !strings.HasPrefix(entry, "AGW_ADMIN_BASIC_AUTH_HASH=") {
 					command.Env = append(command.Env, entry)
 				}
 			}
-			command.Env = append(command.Env, "AGW_FIXTURE_SECRET=process-secret-never-export", "AGW_ADMIN_BASIC_AUTH_HASH=")
+			command.Env = append(command.Env, "AGW_FIXTURE_SECRET=process-secret-never-export", "AGW_ADMIN_BASIC_AUTH_HASH=", "AGW_FIXTURE_EVENT_FILE="+eventPath)
 			command.Stdout = log
 			command.Stderr = log
 			if err = command.Start(); err != nil {
@@ -192,6 +197,40 @@ extensions:
 				}
 			case <-ctx.Done():
 				t.Fatal("shutdown timeout")
+			}
+
+			raw, err := os.ReadFile(eventPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, secret := range []string{"process-secret-never-export", "env:AGW_FIXTURE_SECRET", "$secret_ref", "\"message\"", "\"token\""} {
+				if bytes.Contains(raw, []byte(secret)) {
+					t.Fatal("private configuration escaped public DTO")
+				}
+			}
+			decoder := json.NewDecoder(bytes.NewReader(raw))
+			seen := map[string]bool{}
+			count := 0
+			for {
+				var e event.Envelope
+				err := decoder.Decode(&e)
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := event.Validate(e, attribution.Policy{}); err != nil {
+					t.Fatal(err)
+				}
+				if e.Family != "extension.mutation" {
+					t.Fatal("unexpected public family")
+				}
+				seen[e.Outcome+"/"+e.Mutation.Operation] = true
+				count++
+			}
+			if count < 4 || !seen["success/put"] || !seen["failure/put"] || !seen["success/delete"] || !seen["failure/delete"] {
+				t.Fatalf("event lifecycle evidence %d %v", count, seen)
 			}
 		})
 	}

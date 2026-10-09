@@ -70,7 +70,7 @@ func (o *Options) setDefaults() {
 	}
 }
 
-func Run(ctx context.Context, opts Options) error {
+func Run(ctx context.Context, opts Options) (result error) {
 	opts.setDefaults()
 	if err := configureProviderTypes(opts.ProviderTypes); err != nil {
 		return err
@@ -86,12 +86,16 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	defer agentGateway.Close()
 	if usageService != nil {
 		usageService.Start()
-		defer func() { _ = usageService.Close() }()
+		defer func() {
+			if err := usageService.Close(); err != nil {
+				result = errors.Join(result, fmt.Errorf("close event pipeline: %w", err))
+			}
+		}()
 	}
 
+	defer agentGateway.Close()
 	adminHandler, err := protectAdminHandler(admin.NewHandler(agentGateway, logger.Named("admin")), opts.AdminBasicAuthHash)
 	if err != nil {
 		return fmt.Errorf("configure admin auth: %w", err)
@@ -195,6 +199,19 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 		return nil, nil, err
 	}
 	usageService := newUsageService(configstoreBackend, logger, distributionmetrics.From(opts.Metrics))
+	bootstrapped := false
+	defer func() {
+		if !bootstrapped {
+			_ = usageService.Close()
+		}
+	}()
+	policy, err := opts.Assembly.AttributionPolicy()
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := usageService.ConfigurePublic(policy, opts.Assembly.EventSinks); err != nil {
+		return nil, nil, err
+	}
 
 	credentialStore, err := configstoreBackend.Get(schema.StoreCredentials)
 	if err != nil {
@@ -212,7 +229,7 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 	}
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(ctx, gateway.BootstrapOptions{
-		ExtensionRegistry: opts.Registry, StaticExtensions: staticConfig.Extensions, Distribution: opts.Assembly,
+		ExtensionRegistry: opts.Registry, StaticExtensions: staticConfig.Extensions, Distribution: opts.Assembly, EventPublisher: usageService,
 		StaticLLMRoutes:     staticConfig.LLMRoutes,
 		StaticProviders:     staticConfig.Providers,
 		ConfigStoreBackend:  configstoreBackend,
@@ -233,6 +250,7 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 			attribution.Set(manager)
 		}
 	}
+	bootstrapped = true
 	return agentGateway, usageService, nil
 }
 
@@ -240,14 +258,14 @@ func newUsageService(backend configstore.ConfigStoreBackend, logger *zap.Logger,
 	einotap.Register()
 	dbProvider, ok := backend.(usage.SQLDBProvider)
 	if !ok {
-		return usage.NewUsageService(nil, nil)
+		return usage.NewUsageService(pipeline.NewEventPipeline(4096), nil)
 	}
 	sink, query, err := pipeline.NewSQLiteSink(dbProvider, cfg)
 	if err != nil {
 		if logger != nil {
 			logger.Warn("usage metrics sqlite sink unavailable", zap.Error(err))
 		}
-		return usage.NewUsageService(nil, nil)
+		return usage.NewUsageService(pipeline.NewEventPipeline(4096), nil)
 	}
 	promSink := pipeline.NewPrometheusSink()
 	sinks := []pipeline.Sink{sink, promSink}

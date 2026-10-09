@@ -3,9 +3,13 @@ package dispatcher
 import (
 	"context"
 	"fmt"
+	"github.com/agent-guide/agent-gateway/pkg/attribution"
+	"github.com/agent-guide/agent-gateway/pkg/event"
+	"github.com/google/uuid"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/httpcapture"
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
@@ -141,6 +145,7 @@ func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request, next NextHand
 		virtualKeyID = virtualKey.ID
 	}
 	dims := h.routeInteractionDimensions(cfg, traceCtx, virtualKeyID)
+	r = r.WithContext(h.gateway.AttributionContext(r.Context(), dims))
 	span, spanCtx := h.gateway.UsageObserver().Begin(r.Context(), dims)
 	// Outbound trace/depth propagation must not depend on whether the configured
 	// observer stores dimensions in its returned context (the noop observer does
@@ -166,6 +171,15 @@ func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request, next NextHand
 		admission, err := h.gateway.VirtualKeyManager().Admit(*virtualKey, dimension)
 		if err != nil {
 			return WriteDispatchError(h.logger, string(cfg.Protocol), cfg.ID, "", http.StatusInternalServerError, rec, r, "rate limit admission", "failed to apply virtual key rate limit", err)
+		}
+		if admission.RequestsPerMinute > 0 {
+
+			v, _ := attribution.FromContext(r.Context())
+			outcome, reason := "allow", ""
+			if !admission.Allowed {
+				outcome, reason = "deny", "rate_limited"
+			}
+			h.gateway.PublishEvent(r.Context(), event.Envelope{SchemaVersion: 1, ID: uuid.NewString(), Family: "limiter.admission", Timestamp: time.Now().UTC(), Attribution: v, Outcome: outcome, Reason: reason, Limiter: &event.LimiterAdmission{Dimension: string(dimension), RetryAfter: time.Duration(admission.RetryAfterSeconds) * time.Second, BackendID: "online.agentguide.community.limiter"}})
 		}
 		if !admission.Allowed {
 			span.AddAnnotation("error_type", "rate_limited")

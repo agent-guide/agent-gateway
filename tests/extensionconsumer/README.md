@@ -35,5 +35,8 @@ metadata snapshots and the CLI validation projection, rejects direct imports
 of Community `internal/` and `cmd/` packages, and verifies construction does not
 load dotenv files. `extension_test.go` runs the public registry/configuration
 contract suites, checks canonical manifest projections and factory ownership.
-The process suite uses actual consumer binaries. Admin contributions, public
-event delivery and the domain limiter proof are added by later work packages.
+`events_test.go` runs public attribution and independent sink conformance suites,
+including a stalled implementation that must fail. The process suite uses actual
+consumer binaries and an independently implemented JSONL sink to prove mutation
+success/failure, secret/config redaction and shutdown drain in both server modes.
+Admin contributions and the alternate domain limiter proof remain later work.

@@ -91,7 +91,7 @@ Notes:
 
 - `make build` builds `agw` from `cmd/agw/main.go`, `agwd` from `cmd/agwd/main.go`, and `agwctl` from `cmd/agwctl/main.go`.
 - The three mains own explicit linked-module imports and delegate to `pkg/distribution/caddycmd`, `daemoncmd`, and `ctlcmd`. Command construction must keep flag state local; dotenv, signals, and process exit belong to execution.
-- Both server mains pass `distribution.CommunityRuntime()`; CLI passes `CommunityValidation()`. These are assembly metadata inputs; F2 owns validated manifests and runtime queries. Keep declarations aligned with main imports.
+- Both server mains pass `distribution.CommunityRuntime()`; CLI passes `CommunityValidation()`. These supply validated manifest metadata, with explicitly injected attribution producers/allowlists and per-lifecycle public sink factories excluded from serialization. Keep declarations aligned with main imports.
 - The resulting binary is a standard Caddy binary with custom modules compiled in, so normal Caddy subcommands such as `run`, `reload`, `validate`, and `hash-password` work.
 
 ## Core Modules
@@ -185,6 +185,7 @@ or a cross-cutting adapter for it (for example `caddy/admin`,
 - `internal/observability/` — usage events, event pipeline, OTLP export, `einotap` → `internal/observability/AGENTS.md`
 - `pkg/dispatcher/llmapi/` — LLM protocol handler runtimes; see "Protocol handler modules" above
 - `pkg/extension/` — linked registry, bounded envelopes and prepared generations → `pkg/extension/AGENTS.md`
+- `pkg/attribution/` and `pkg/event/` — trusted bounded context and sanitized public sink transport → their nested `AGENTS.md` files
 - `caddy/gateway/` — Caddy app wiring and global `agent_gateway` Caddyfile parsing; see "Caddy app" above
 
 Cross-cutting invariants:
@@ -244,7 +245,7 @@ Implemented families:
 - ACP: `/admin/acp/runtime/...` (native diagnostics keyed by `agent_id`)
 - builtin: `/admin/builtin/runtime/...`
 - agents: `/admin/agents/...` plus unified route CRUD under `/admin/agents/routes`
-- metrics: summaries (with pipeline health counters), per-protocol LLM/MCP/ACP timeseries and breakdowns, recent interaction events, and the Prometheus exposition endpoint `GET /admin/metrics/prometheus`
+- metrics: summaries (with combined drop/failure, rejected-event and public sink health counters), per-protocol LLM/MCP/ACP timeseries and breakdowns, recent interaction events, and the Prometheus exposition endpoint `GET /admin/metrics/prometheus`
 
 Stubbed families currently return `501 Not Implemented`:
 

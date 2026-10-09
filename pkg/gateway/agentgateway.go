@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/agent-guide/agent-gateway/internal/extensionstore"
+	"github.com/agent-guide/agent-gateway/pkg/attribution"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
+	"github.com/agent-guide/agent-gateway/pkg/event"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"net/http"
 	"sync"
@@ -34,6 +36,7 @@ import (
 )
 
 type BootstrapOptions struct {
+	EventPublisher      event.Publisher
 	ExtensionRegistry   *extension.Registry
 	StaticExtensions    []extension.Envelope
 	Distribution        distribution.Assembly
@@ -85,6 +88,9 @@ type AgentGateway struct {
 	runtimeRegistry     *agentruntime.Registry
 	runRegistry         *agentruntime.RunRegistry
 	permissionBroker    *agentruntime.PermissionBroker
+	attributionProducer attribution.Producer
+	attributionPolicy   attribution.Policy
+	eventPublisher      event.Publisher
 	usageObserver       usage.InteractionObserver
 	usageQuery          usage.QueryService
 	usageStats          usage.RuntimeStats
@@ -122,6 +128,7 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 		if err != nil {
 			return err
 		}
+		manager.SetPublisher(opts.EventPublisher)
 		extensionManager = manager
 		defer func() {
 			if extensionManager != nil {
@@ -157,6 +164,9 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	} else {
 		g.usageObserver = usage.NoopObserver{}
 	}
+	g.attributionPolicy, _ = opts.Distribution.AttributionPolicy()
+	g.attributionProducer = opts.Distribution.AttributionProducer
+	g.eventPublisher = opts.EventPublisher
 	g.usageQuery = opts.UsageQuery
 	g.usageStats = opts.UsageStats
 	g.usagePrometheus = opts.UsagePrometheus
@@ -745,4 +755,50 @@ func (g *AgentGateway) DistributionManifest() (distribution.Assembly, error) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.distribution.Clone(), nil
+}
+
+// AttributionContext combines explicitly injected trusted identity with runtime
+// correlation. Optional producer errors/panics never replace valid core fields.
+func (g *AgentGateway) AttributionContext(ctx context.Context, d usage.InteractionDimensions) context.Context {
+	g.mu.RLock()
+	producer, policy := g.attributionProducer, g.attributionPolicy
+	g.mu.RUnlock()
+	v := usage.CorrelationFromDimensions(d)
+	if producer != nil {
+		trusted, err := produceAttribution(ctx, producer)
+		trusted.RouteID = ""
+		trusted.AgentID = ""
+		trusted.RunID = ""
+		trusted.VirtualKeyID = ""
+		trusted.TraceID = ""
+		trusted.SpanID = ""
+		trusted.ParentSpanID = ""
+		if err == nil && policy.Validate(trusted) == nil {
+			v.Subject = trusted.Subject
+			v.Tenant = trusted.Tenant
+			v.Attributes = trusted.Attributes
+		}
+	}
+	if v.Subject == "" && v.VirtualKeyID != "" && len("virtualkey:"+v.VirtualKeyID) <= 256 {
+		v.Subject = "virtualkey:" + v.VirtualKeyID
+	}
+	next, err := attribution.WithContext(ctx, v, policy)
+	if err != nil {
+		return ctx
+	}
+	return next
+}
+func produceAttribution(ctx context.Context, p attribution.Producer) (v attribution.Value, err error) {
+	defer func() {
+		if recover() != nil {
+			err = &attribution.Error{Field: "producer"}
+		}
+	}()
+	return p(ctx)
+}
+func (g *AgentGateway) PublishEvent(ctx context.Context, e event.Envelope) bool {
+	g.mu.RLock()
+	p := g.eventPublisher
+	g.mu.RUnlock()
+	return p != nil && p.Publish(ctx, e)
 }

@@ -74,8 +74,13 @@ func (App) CaddyModule() caddy.ModuleInfo {
 // Provision sets up the app.
 func (a *App) Provision(ctx caddy.Context) (provisionErr error) {
 	defer func() {
-		if provisionErr != nil && a.agentGateway != nil {
-			a.agentGateway.Close()
+		if provisionErr != nil {
+			if a.agentGateway != nil {
+				a.agentGateway.Close()
+			}
+			if a.usageService != nil {
+				_ = a.usageService.Close()
+			}
 		}
 	}()
 	a.logger = ctx.Logger(a)
@@ -85,6 +90,14 @@ func (a *App) Provision(ctx caddy.Context) (provisionErr error) {
 		return fmt.Errorf("init config store: %w", err)
 	}
 	a.provisionUsageService()
+	assembly := distributionruntime.Current()
+	policy, err := assembly.AttributionPolicy()
+	if err != nil {
+		return err
+	}
+	if err := a.usageService.ConfigurePublic(policy, assembly.EventSinks); err != nil {
+		return err
+	}
 	// Provider type availability is startup-only. Always reconfigure so a
 	// reload that omits provider_types resets to "all enabled" instead of
 	// inheriting the previous process state.
@@ -121,7 +134,6 @@ func (a *App) Provision(ctx caddy.Context) (provisionErr error) {
 	if err := a.credentialMgr.Load(ctx); err != nil {
 		return fmt.Errorf("load credentials: %w", err)
 	}
-	assembly := distributionruntime.Current()
 	registry, err := assembly.Registry()
 	if err != nil {
 		return err
@@ -132,7 +144,7 @@ func (a *App) Provision(ctx caddy.Context) (provisionErr error) {
 	}
 	a.Extensions = expanded
 	if err := a.agentGateway.Bootstrap(ctx, runtimegateway.BootstrapOptions{
-		ExtensionRegistry: registry, StaticExtensions: a.Extensions, Distribution: assembly,
+		ExtensionRegistry: registry, StaticExtensions: a.Extensions, Distribution: assembly, EventPublisher: a.usageService,
 		StaticLLMRoutes:     a.LLMRoutes,
 		StaticProviders:     a.providers,
 		ConfigStoreBackend:  a.configBackend,
@@ -217,13 +229,13 @@ func (a *App) provisionUsageService() {
 	einotap.Register()
 	dbProvider, ok := a.configBackend.(usage.SQLDBProvider)
 	if !ok {
-		a.usageService = usage.NewUsageService(nil, nil)
+		a.usageService = usage.NewUsageService(pipeline.NewEventPipeline(4096), nil)
 		return
 	}
 	sink, query, err := pipeline.NewSQLiteSink(dbProvider, distributionmetrics.From(a.Metrics))
 	if err != nil {
 		a.logger.Warn("usage metrics sqlite sink unavailable", zap.Error(err))
-		a.usageService = usage.NewUsageService(nil, nil)
+		a.usageService = usage.NewUsageService(pipeline.NewEventPipeline(4096), nil)
 		return
 	}
 	promSink := pipeline.NewPrometheusSink()
@@ -318,15 +330,13 @@ func (a *App) provisionProviders(_ caddy.Context) error {
 
 // Interface guards
 var (
-	_ caddy.App         = (*App)(nil)
-	_ caddy.Provisioner = (*App)(nil)
-	_ caddy.Validator   = (*App)(nil)
+	_ caddy.App          = (*App)(nil)
+	_ caddy.Provisioner  = (*App)(nil)
+	_ caddy.Validator    = (*App)(nil)
+	_ caddy.CleanerUpper = (*App)(nil)
 )
 
 // Cleanup also handles Caddy validation and failed provisioning.
 func (a *App) Cleanup() error {
-	if a.agentGateway != nil {
-		a.agentGateway.Close()
-	}
-	return nil
+	return a.Stop()
 }

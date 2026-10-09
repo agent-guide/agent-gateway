@@ -2,6 +2,7 @@ package usage
 
 import (
 	"context"
+	"github.com/agent-guide/agent-gateway/pkg/attribution"
 	"sync"
 	"time"
 
@@ -54,6 +55,9 @@ func DimensionsFromContext(ctx context.Context) (InteractionDimensions, bool) {
 func ContextWithDimensions(ctx context.Context, dims InteractionDimensions) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if next, err := attribution.WithCorrelation(ctx, CorrelationFromDimensions(dims)); err == nil {
+		ctx = next
 	}
 	return context.WithValue(ctx, dimsContextKey{}, dims)
 }
@@ -117,7 +121,7 @@ func (o Observer) Begin(ctx context.Context, dims InteractionDimensions) (Intera
 			RunID:         dims.RunID,
 		},
 	}
-	ctx = context.WithValue(ctx, dimsContextKey{}, dims)
+	ctx = ContextWithDimensions(ctx, dims)
 	return span, ContextWithSpan(ctx, span)
 }
 

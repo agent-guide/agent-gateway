@@ -587,3 +587,37 @@ memory. Leases retain old resources until drain or the five-second retirement
 budget. Config, manifests and Admin responses preserve secret-reference tokens.
 Only preparation receives resolved values. `pkg/admin` owns envelope CRUD;
 contributed Admin subroutes remain a later foundation phase.
+
+
+## Trusted attribution and public events
+
+Both runtime assemblies inject exact `AttributeKeys`, an optional trusted
+`AttributionProducer`, and linked-module `EventSinks` through `distribution.Assembly`.
+They are code-owned callbacks and values, excluded from manifests/configuration.
+A fresh sink factory runs for each server lifecycle. Unknown or duplicate sink
+owners fail assembly; failed initialization disposes previously created sinks.
+
+`pkg/attribution` copies bounded subject, tenant and correlation values into and
+out of request context. A validated VirtualKey establishes `virtualkey:<id>` as
+the default subject and supplies no tenant. The dispatcher stamps selected
+route/Agent and normalized trace/span/parent identities; runtime dimension changes
+update run and child correlation while retaining trusted identity. Raw client
+identity/tenant headers have no effect. Producer errors, panics and invalid optional
+values fall back to core correlation rather than exposing their diagnostics.
+
+`pkg/event` contains only v1 `limiter.admission` and `extension.mutation` DTOs.
+Extension PUT/DELETE success follows persistence/publication; failure contains
+an enumerated reason. Configured in-process limiter admission emits allow/deny.
+Prompts, arbitrary diagnostics, configs, credentials and secret-reference tokens
+have no DTO field. Validation includes the 16 KiB encoded JSON bound.
+
+The existing observability pipeline publishes those DTOs through one bounded
+transport worker per external sink; internal SQLite/Prometheus/OTLP usage stays
+on the existing accounting path. Slow/failing external sinks are isolated. Queue
+full drops the newest event; accepted events are FIFO, without retries or replay.
+Flush inserts a barrier; Close rejects new events, drains and flushes/closes once
+with a shared five-second maximum budget. That deadline cancels active callbacks;
+a stuck callback is unhealthy and cannot hold process teardown past the deadline.
+No goroutine is created per production write. Metrics include rejection counts and
+sink health in registration order, along with combined drop/failure counters.
+Standalone and Caddy report sink shutdown failures through their execution lifecycle.

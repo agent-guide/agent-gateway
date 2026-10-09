@@ -3,6 +3,7 @@ package admin
 import (
 	"errors"
 	"fmt"
+	"github.com/agent-guide/agent-gateway/pkg/event"
 	"net/http"
 	"strconv"
 	"strings"
@@ -692,18 +693,28 @@ type metricsResponse struct {
 }
 
 type pipelineStats struct {
-	DroppedEvents uint64 `json:"dropped_events"`
-	WriteFailures uint64 `json:"write_failures"`
+	RejectedEvents uint64        `json:"rejected_events"`
+	PublicSinks    []event.Stats `json:"public_sinks,omitempty"`
+	DroppedEvents  uint64        `json:"dropped_events"`
+	WriteFailures  uint64        `json:"write_failures"`
 }
 
 func (h *Handler) pipelineStats() pipelineStats {
 	if h.usageStats == nil {
 		return pipelineStats{}
 	}
-	return pipelineStats{
+	stats := pipelineStats{
 		DroppedEvents: h.usageStats.DroppedEvents(),
 		WriteFailures: h.usageStats.WriteFailures(),
 	}
+	if source, ok := h.usageStats.(interface {
+		RejectedEvents() uint64
+		PublicStats() []event.Stats
+	}); ok {
+		stats.RejectedEvents = source.RejectedEvents()
+		stats.PublicSinks = source.PublicStats()
+	}
+	return stats
 }
 
 func (h *Handler) handlePrometheusMetrics(w http.ResponseWriter, r *http.Request) {

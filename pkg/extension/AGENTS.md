@@ -24,3 +24,10 @@ policy/bucket preservation belongs to its domain owner, especially the F5 limite
 Candidate surfaces are documented in doc.go and guarded by consumer contract
 suites. Released-tag protection follows enterprise-extension-contract.md.
 Run extension race tests, Bundle/SQLite tests and make test-extension-consumer.
+
+PUT/DELETE emits sanitized public mutation events through the injected existing
+pipeline publisher after commit, or a bounded reason on failure. Events contain
+no module config, secret references/values or arbitrary callback diagnostics.
+Committed mutation publication completes before releasing the mutation gate or
+notifying shutdown waiters. The publisher only enqueues; no manager mutex is
+held and no sink callback runs on this path.

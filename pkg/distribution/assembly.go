@@ -2,13 +2,17 @@
 // Edition, Assembly, Assembly.Clone, MetricsConfig and OTLPConfig are designated
 // reusable entry values; release protection follows the enterprise extension contract.
 // Assembly.Registry and Assembly.Manifest freeze linked registrations and metadata.
+// Assembly.AttributionPolicy validates the assembly-owned attribute allowlist.
 package distribution
 
 import (
 	"encoding/json"
+	"github.com/agent-guide/agent-gateway/pkg/attribution"
+	"github.com/agent-guide/agent-gateway/pkg/event"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"github.com/spf13/cobra"
 	"slices"
+	"time"
 )
 
 // Edition is distribution-owned identification, never an entitlement decision.
@@ -21,13 +25,18 @@ type Edition struct {
 // main must import the implementations it declares. Factories are explicit
 // executable registrations and never appear in serialized metadata.
 type Assembly struct {
-	Edition   Edition                       `json:"edition"`
-	Modules   []extension.Descriptor        `json:"modules,omitempty"`
-	Factories map[string]*extension.Factory `json:"-"`
+	Edition             Edition                       `json:"edition"`
+	Modules             []extension.Descriptor        `json:"modules,omitempty"`
+	Factories           map[string]*extension.Factory `json:"-"`
+	AttributeKeys       []string                      `json:"-"`
+	AttributionProducer attribution.Producer          `json:"-"`
+	EventSinks          []event.Registration          `json:"-"`
 }
 
 // Clone takes ownership of a metadata snapshot without retaining caller slices.
 func (a Assembly) Clone() Assembly {
+	a.AttributeKeys = slices.Clone(a.AttributeKeys)
+	a.EventSinks = slices.Clone(a.EventSinks)
 	var factories map[string]*extension.Factory
 	if a.Factories != nil {
 		factories = make(map[string]*extension.Factory, len(a.Factories))
@@ -96,6 +105,20 @@ func CommunityValidation() Assembly {
 // Registry freezes the explicitly linked metadata and configuration factories.
 // Factory IDs must be declared in Modules; no implicit registration is allowed.
 func (a Assembly) Registry() (*extension.Registry, error) {
+	if _, err := a.AttributionPolicy(); err != nil {
+		return nil, err
+	}
+	sinkIDs := map[string]bool{}
+	linked := map[string]bool{}
+	for _, m := range a.Modules {
+		linked[m.ID] = true
+	}
+	for _, r := range a.EventSinks {
+		if !linked[r.ModuleID] || r.New == nil || sinkIDs[r.ModuleID] || r.QueueSize < 0 || r.QueueSize > 4096 || r.WriteBudget < 0 || r.WriteBudget > time.Second {
+			return nil, &event.Error{Code: "invalid_sink_registration"}
+		}
+		sinkIDs[r.ModuleID] = true
+	}
 	registrations := make([]extension.Registration, 0, len(a.Modules))
 	seen := map[string]bool{}
 	for _, d := range a.Modules {
@@ -117,4 +140,13 @@ func (a Assembly) Manifest() (Assembly, error) {
 		return Assembly{}, err
 	}
 	return Assembly{Edition: a.Edition, Modules: r.Manifest().Modules}, nil
+}
+
+// AttributionPolicy validates the exact assembly-owned attribute allowlist.
+func (a Assembly) AttributionPolicy() (attribution.Policy, error) {
+	modules := make([]string, len(a.Modules))
+	for i, m := range a.Modules {
+		modules[i] = m.ID
+	}
+	return attribution.NewPolicy(modules, a.AttributeKeys)
 }

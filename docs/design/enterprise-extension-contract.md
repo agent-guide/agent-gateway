@@ -2,8 +2,8 @@
 
 Capability status: **Implemented** for the repository ownership and protection
 policy. Reusable entries and their external-consumer suite are **Implemented**
-along with linked registries, manifests and configuration generations. Public
-attribution/events, contributed Admin routes and the limiter SPI remain **Proposed**.
+along with linked registries, manifests, configuration generations and public
+attribution/events. Contributed Admin routes and the limiter SPI remain **Proposed**.
 Protection requires a released tag containing the designated APIs and tests.
 
 Individual extension surfaces are protected only when explicitly designated
@@ -273,8 +273,8 @@ licensing, customers, or delivery dates.
 ## 11. v0.7 foundation contract decisions
 
 These decisions fix the implementation target. Entry construction, public
-metrics values, linked registries/manifests and configuration are implemented.
-Attribution/events, Admin contribution and limiter contracts remain Proposed.
+metrics values, linked registries/manifests, configuration and attribution/events
+are implemented. Admin contribution and limiter contracts remain Proposed.
 Consumer evidence is a candidate gate, not a released-tag
 or paired-private-repository Enterprise-ready declaration. Changes to the target
 must update this design and the active plan together.
@@ -292,7 +292,7 @@ must update this design and the active plan together.
 | `pkg/event` | Versioned public envelopes, sink lifecycle and bounded delivery options |
 | `pkg/admin/contribution` | Route declarations and narrow contribution dependencies |
 | `pkg/gateway/virtualkey/limiter` | Backend, factory, policy snapshot, admission and lifecycle contracts |
-| `pkg/extension/contracttest` | Implemented registry/configuration suites; future Admin, attribution and event suites |
+| `pkg/extension/contracttest` | Implemented registry/configuration, attribution and event suites; future Admin suite |
 | `pkg/gateway/virtualkey/limiter/contracttest` | Backend lifecycle and admission suite |
 
 Only symbols named in landed package documentation become protected. The table
@@ -329,7 +329,13 @@ metadata snapshots in the Caddy adapter and daemon/CLI command annotations.
 Annotations and Community metadata helpers are not independently protected APIs.
 `Assembly.Factories` holds executable registrations separately from descriptors;
 `Assembly.Registry`, `Assembly.Manifest` and `caddycmd.Command.Manifest` are
-additional designated entry methods. Registries own factory metadata copies,
+additional designated entry methods. `Assembly.AttributionPolicy` validates the
+exact attribute allowlist; `AttributeKeys`, `AttributionProducer` and `EventSinks`
+are explicitly injected assembly values, excluded from serialized manifests.
+Each sink registration names a linked module and constructs a fresh sink for
+each server lifecycle, including Caddy reloads. Duplicate/unlinked/nil sink
+registrations and invalid transport options fail assembly. Assembly clone owns
+the key and registration slices; factories remain module-owned callbacks. Registries own factory metadata copies,
 reject undeclared factory IDs, and support schema-only CLI registrations.
 `manifest` in each binary serializes canonical metadata; `agwctl manifest --remote`
 and protected `GET /admin/manifest` report frozen server metadata.
@@ -384,8 +390,8 @@ unchanged-policy semantics.
 
 The extension CRUD boundary has its own full-body and compression checks. The
 shared policy covering every Community and contributed Admin route remains
-Proposed in section 11.5. Public mutation events and contributed subroutes also
-remain Proposed; envelope CRUD is Community-owned.
+Proposed in section 11.5. Public envelope mutation events are implemented;
+contributed subroutes remain Proposed. Envelope CRUD is Community-owned.
 
 Add `extensions` to GatewayBundle as a list of envelopes containing `module_id`,
 `schema_version` and `config` (`json.RawMessage`). One envelope per module is
@@ -443,6 +449,14 @@ Environment rotation requires explicit reapply/reload and creates a generation.
 
 ### 11.4 Attribution and public events
 
+Capability status: **Implemented**, with candidate external-consumer contracts.
+Exact candidate symbol lists live in `pkg/attribution` and `pkg/event` package
+comments. Public suites are `contracttest.Attribution`, `contracttest.EventSink`
+and `contracttest.CheckSinkCancellation`. Released-tag and paired-repository
+protection still require section 9's gates. Admin contribution hooks and alternate
+limiter backends are owned by their later contracts.
+
+
 The existing validated VirtualKey boundary establishes subject as
 `virtualkey:<id>` and sets VirtualKey ID. It supplies no tenant. An explicitly
 injected trusted attribution producer may provide subject/tenant; it is not
@@ -472,8 +486,10 @@ maps, error strings, prompts, tool arguments, bearer keys, secret references or
 resolved values. IDs remain event fields, never metric labels. Encoded envelopes
 are at most 16 KiB; reject invalid events before enqueue and count rejection.
 
-Adapt the existing pipeline as the single event authority. Its public sink
-adapter projects internal events into allowlisted DTOs. Each external sink has
+The existing pipeline remains the single event authority. Domain adapters
+construct allowlisted DTOs and its public publishing boundary validates them
+before per-sink enqueue; it never forwards internal usage objects. No new
+usage-accounting store or replay path is created. Each external sink has
 a bounded queue (default 256 events, configurable 1–4096), one worker and FIFO
 delivery for accepted events. Ingress never waits on a sink. Queue overflow drops
 the newest event for that sink and increments its drop counter. Delivery is
@@ -489,7 +505,35 @@ budget, counts undelivered queued events, and closes exactly once. Concurrent
 flush/close and repeated close are defined and tested. Process teardown returns
 at its deadline even if an invalid sink remains stuck; that violation is reported
 as unhealthy and must fail its contract suite. No parallel usage-accounting
-pipeline is created.
+pipeline is created. Only a delivery worker, plus fixed shutdown coordination,
+is created per sink. Flush control barriers have separately bounded capacity
+and cannot consume event capacity. A shorter concurrent Close caller does not
+shorten the first caller's shared drain budget. Shutdown cancellation reaches
+an already-running Write or Flush. A callback failure or panic becomes a bounded
+`sink_failure` or `sink_panic` code, with no callback diagnostic content.
+
+The existing metrics summary exposes combined drop/failure counters plus
+`pipeline.rejected_events` and `pipeline.public_sinks` health/counters in assembly
+registration order. Successful extension PUT/DELETE events follow persistence
+and snapshot publication; failed mutations expose only allowlisted reason codes.
+Committed mutation events are enqueued before releasing the mutation gate and
+notifying shutdown waiters, preserving commit order through pipeline admission.
+Publication holds no manager mutex and performs no sink I/O.
+Current Community in-process limiting emits allow/deny events for configured
+policies. Unlimited admission emits no limiter event. Trusted subject/tenant and attributes
+survive nested runtime correlation updates; selected route/Agent/run and validated
+trace identities replace producer-supplied core fields. Invalid optional producer
+values or panics are ignored in favor of bounded runtime correlation and the
+validated VirtualKey subject fallback. The boundary omits existing identifiers
+that exceed public bounds. Mount auth alone still adds no subject or tenant.
+
+The public `event.Delivery` implements sink transport and its contract fixtures;
+server adapters construct it only through their existing pipeline. It is not an
+independent event producer or an alternate usage-accounting authority. Legacy
+internal usage sinks retain their serial processing semantics; the pipeline closes
+those sinks once and bounds the wait without introducing a goroutine per write.
+Standalone reports a sink shutdown failure as an execution error; Caddy returns it
+from app Stop.
 
 ### 11.5 Admin ownership and body policy
 

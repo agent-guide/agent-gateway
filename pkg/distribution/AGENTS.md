@@ -7,7 +7,7 @@ routes, Bundle workflows or server adapters.
 
 The designated reusable surfaces are:
 
-- `distribution.Edition`, `Assembly` and `Assembly.Clone`, `Assembly.Registry`, `Assembly.Manifest`, `Assembly.Registry`, `Assembly.Manifest`, `MetricsConfig`, `OTLPConfig`;
+- `distribution.Edition`, `Assembly` and `Assembly.Clone`, `Assembly.Registry`, `Assembly.Manifest`, `Assembly.AttributionPolicy`, `MetricsConfig`, `OTLPConfig`;
 - `caddycmd.Command`, `New`, `Command.Assembly`, `Command.Manifest`, `Command.Run`;
 - `daemoncmd.Options`, `ServerOptions`, `NewCommand`, `Run`;
 - `ctlcmd.Options`, `NewCommand`, `Run`.
@@ -30,3 +30,9 @@ Public signatures and their required transitive types must not expose Community
 `internal/` types. Public metrics values translate through the internal adapter.
 Run `make test-extension-consumer` when changing this boundary; root `go test
 ./...` alone cannot discover the separately rooted consumer module.
+
+`AttributeKeys`, `AttributionProducer` and `EventSinks` are explicit code-owned
+runtime inputs, excluded from manifests. Clone owns mutable slices; callbacks
+remain distribution-owned. Sink factories create fresh instances for each server
+lifecycle, never share closed sinks across Caddy reloads. Sink owners must be
+linked and unique, and transport options must pass assembly validation.

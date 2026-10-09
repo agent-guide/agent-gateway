@@ -627,3 +627,21 @@ Local validation never resolves these tokens. Server preparation resolves them;
 persisted/exported JSON retains the token. Preparation/persistence failure leaves
 the current generation active. See the
 [extension contract](docs/design/enterprise-extension-contract.md#113-configuration-ownership-mutation-and-secrets).
+
+
+### Trusted attribution and public event sinks
+
+Custom distributions can inject `Assembly.AttributionProducer`, exact namespaced
+`AttributeKeys`, and linked-module `EventSinks`. A validated VirtualKey supplies
+the default subject; a trusted producer can supply subject/tenant. Client tenant
+headers are ignored. `pkg/attribution` exposes bounded context values with defensive
+copies, while runtime route/Agent/run/trace correlation comes from the gateway.
+
+Public sinks receive only typed `limiter.admission` and `extension.mutation`
+envelopes from the existing pipeline. Config, secret references, resolved values,
+prompts and arbitrary error messages are excluded. Delivery uses isolated bounded
+queues, FIFO flush and deadline-aware shutdown. Overflow drops the newest event;
+delivery is best-effort without retry or replay. `GET /admin/metrics` includes
+`pipeline.rejected_events` and per-sink `pipeline.public_sinks` health/counters.
+See the [attribution/event contract](docs/design/enterprise-extension-contract.md#114-attribution-and-public-events)
+for bounds, lifecycle semantics and candidate protected symbols.

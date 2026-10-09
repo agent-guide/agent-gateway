@@ -2,6 +2,10 @@ package extension
 
 import (
 	"context"
+	"errors"
+	"github.com/agent-guide/agent-gateway/pkg/attribution"
+	"github.com/agent-guide/agent-gateway/pkg/event"
+	"github.com/google/uuid"
 	"sync"
 	"time"
 )
@@ -19,6 +23,7 @@ type Persistence interface {
 // Manager serializes mutations and publishes complete immutable generations.
 // It never resolves registries or reads storage during snapshot acquisition.
 type Manager struct {
+	publisher       event.Publisher
 	registry        *Registry
 	store           Persistence
 	gate            chan struct{}
@@ -274,13 +279,17 @@ func (m *Manager) Manifest() Manifest { return m.registry.Manifest() }
 
 // Put prepares a complete dependency generation, persists only the changed
 // envelope, then performs an infallible in-memory publication.
-func (m *Manager) Put(ctx context.Context, e Envelope) error {
+func (m *Manager) Put(ctx context.Context, e Envelope) (result error) {
 	active, err := m.lock(ctx)
 	if err != nil {
+		m.emitMutation(ctx, e.ModuleID, "put", err)
 		return err
 	}
 	ctx = active
 	defer m.unlock()
+	// Publish before releasing the mutation gate and notifying shutdown waiters.
+	// The publisher enqueues without sink I/O; no manager mutex is held.
+	defer func() { m.emitMutation(ctx, e.ModuleID, "put", result) }()
 	if !ValidID(e.ModuleID) {
 		return failure("invalid_config", "", "module_id")
 	}
@@ -319,13 +328,17 @@ func (m *Manager) Put(ctx context.Context, e Envelope) error {
 }
 
 // Delete fails when any configured module still depends on the removed one.
-func (m *Manager) Delete(ctx context.Context, id string) error {
+func (m *Manager) Delete(ctx context.Context, id string) (result error) {
 	active, err := m.lock(ctx)
 	if err != nil {
+		m.emitMutation(ctx, id, "delete", err)
 		return err
 	}
 	ctx = active
 	defer m.unlock()
+	// Publish before releasing the mutation gate and notifying shutdown waiters.
+	// The publisher enqueues without sink I/O; no manager mutex is held.
+	defer func() { m.emitMutation(ctx, id, "delete", result) }()
 	if !ValidID(id) {
 		return failure("invalid_config", "", "module_id")
 	}
@@ -443,4 +456,36 @@ func (m *Manager) Close(ctx context.Context) error {
 		return failure("unhealthy", "", "lifecycle")
 	}
 	return nil
+}
+
+// SetPublisher binds the existing pipeline authority during bootstrap.
+func (m *Manager) SetPublisher(p event.Publisher) { m.mu.Lock(); m.publisher = p; m.mu.Unlock() }
+func (m *Manager) emitMutation(ctx context.Context, id, operation string, err error) {
+	if !ValidID(id) {
+		return
+	}
+	m.mu.Lock()
+	p := m.publisher
+	m.mu.Unlock()
+	if p == nil {
+		return
+	}
+	outcome, reason := "success", ""
+	if err != nil {
+		outcome, reason = "failure", "mutation_failed"
+		var e *Error
+		if errors.As(err, &e) {
+			switch e.Code {
+			case "static_config":
+				reason = "static_conflict"
+			case "invalid_config", "unknown_module", "schema_mismatch", "missing_dependency", "dependency_cycle", "prepare_failed", "persistence_failed", "closed", "unhealthy":
+				reason = e.Code
+			}
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			reason = "canceled"
+		}
+	}
+	v, _ := attribution.FromContext(ctx)
+	p.Publish(ctx, event.Envelope{SchemaVersion: 1, ID: uuid.NewString(), Family: "extension.mutation", Timestamp: time.Now().UTC(), Attribution: v, Outcome: outcome, Reason: reason, Mutation: &event.ExtensionMutation{ModuleID: id, Operation: operation}})
 }

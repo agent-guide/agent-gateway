@@ -45,3 +45,17 @@ operational descriptions in the architecture documentation rather than here.
   `standalone/server/server.go`.
 - `metrics.max_agent_depth` rejects ingress when `X-Agent-Depth` reaches the
   configured limit; zero disables the gate.
+
+## Public event boundary
+
+The existing pipeline is the single authority for public DTO publishing and
+usage accounting. Public sinks receive only `pkg/event` envelopes, never `any`
+usage rows. Each sink has one bounded worker; production writes never allocate
+one goroutine per callback. Slow/erroring sinks are isolated from each other and
+usage accounting. Counts and health remain observable in metrics summaries.
+Write/Flush/Close honor contexts; in-flight flush inherits the shutdown deadline.
+Close stops publication, drains and closes once; concurrent shorter waiters do not
+change the first caller's common budget. Contract probes reject stalled sinks.
+Runtime dimension updates carry bounded attribution without replacing trusted
+subject/tenant and allowlisted attributes. Keep arbitrary client identity headers
+out of trusted context and all secret/config/content fields out of public DTOs.
