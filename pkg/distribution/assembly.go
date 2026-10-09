@@ -44,6 +44,7 @@ func (a Assembly) Clone() Assembly {
 	for id, f := range a.Factories {
 		if f != nil {
 			owned := *f
+			owned.AdminRoutes = slices.Clone(f.AdminRoutes)
 			owned.SecretFields = slices.Clone(f.SecretFields)
 			factories[id] = &owned
 		} else {

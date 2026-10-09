@@ -96,7 +96,7 @@ func TestRequiredPublicSignaturesExposeNoCommunityInternalTypes(t *testing.T) {
 			check(typ.Method(i).Type)
 		}
 	}
-	for _, v := range []any{caddycmd.New, (*caddycmd.Command).Assembly, (*caddycmd.Command).Run, daemoncmd.NewCommand, daemoncmd.Run, ctlcmd.NewCommand, ctlcmd.Run, distribution.CommunityRuntime, distribution.CommunityValidation, distribution.Assembly{}, daemoncmd.Options{}, ctlcmd.Options{}, distribution.MetricsConfig{}, extension.NewRegistry, extension.NewManager, extension.Envelope{}, extension.Factory{}, extension.Snapshot{}, extension.Lease{}, extension.Error{}, event.NewDelivery, event.Validate, event.Envelope{}, event.Registration{}, event.Options{}, event.Stats{}, attribution.NewPolicy, attribution.WithContext, attribution.FromContext, attribution.WithCorrelation, attribution.Producer(nil)} {
+	for _, v := range []any{caddycmd.New, (*caddycmd.Command).Assembly, (*caddycmd.Command).Run, daemoncmd.NewCommand, daemoncmd.Run, ctlcmd.NewCommand, ctlcmd.Run, distribution.CommunityRuntime, distribution.CommunityValidation, distribution.Assembly{}, daemoncmd.Options{}, ctlcmd.Options{}, distribution.MetricsConfig{}, extension.NewRegistry, extension.NewManager, extension.Envelope{}, extension.Factory{}, extension.Snapshot{}, extension.Lease{}, extension.Error{}, extension.AdminDependencies{}, extension.AdminRoute{}, extension.OwnedAdminRoute{}, extension.WriteAdminError, (*extension.AdminContributor)(nil), event.NewDelivery, event.Validate, event.Envelope{}, event.Registration{}, event.Options{}, event.Stats{}, attribution.NewPolicy, attribution.WithContext, attribution.FromContext, attribution.WithCorrelation, attribution.Producer(nil)} {
 		check(reflect.TypeOf(v))
 	}
 }

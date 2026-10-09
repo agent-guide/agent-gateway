@@ -1,8 +1,10 @@
 package admin
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
+	"io"
 	"net/http"
 	"strings"
 
@@ -26,6 +28,9 @@ import (
 	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 	"go.uber.org/zap"
 )
+
+// MaxRequestBodyBytes is the shared received-byte limit for every Admin route.
+const MaxRequestBodyBytes = 4 * 1024 * 1024
 
 // Handler handles Admin API requests under /admin/.
 type Handler struct {
@@ -152,6 +157,11 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 			h.mux.HandleFunc(route.Method+" "+route.Path, route.Handler)
 		}
 	}
+	if h.extensions != nil {
+		for _, route := range h.extensions.AdminRoutes() {
+			h.mux.HandleFunc(route.Method+" "+route.Path, h.contributedHandler(route))
+		}
+	}
 	return h
 }
 
@@ -161,20 +171,45 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			httplog.Error(h.logger, "admin request panicked", r, http.StatusInternalServerError, nil, zap.Any("panic", recovered))
-			http.Error(rr, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			extensionJSON(rr, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		}
 		httplog.ResponseError(h.logger, "admin request failed", r, rr)
 	}()
 
 	if origin := r.Header.Get("Origin"); origin != "" {
 		rr.Header().Set("Access-Control-Allow-Origin", origin)
-		rr.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		rr.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
 		rr.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 		rr.Header().Set("Access-Control-Max-Age", "86400")
+	}
+
+	// Read the entire bounded body before dispatch. A decoder may otherwise
+	// commit a valid leading object before noticing oversized trailing bytes.
+	encoding := strings.TrimSpace(strings.Join(r.Header.Values("Content-Encoding"), ","))
+	if encoding != "" && !strings.EqualFold(encoding, "identity") {
+		extensionJSON(rr, http.StatusUnsupportedMediaType, map[string]string{"error": "compressed request bodies are unsupported"})
+		return
+	}
+	if r.Body != nil {
+		body := r.Body
+		defer body.Close()
+		raw, err := io.ReadAll(io.LimitReader(body, MaxRequestBodyBytes+1))
+		if len(raw) > MaxRequestBodyBytes {
+			extensionJSON(rr, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body exceeds 4194304 bytes"})
+			return
+		}
+		if err != nil {
+			extensionJSON(rr, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(raw))
 	}
 	if r.Method == "OPTIONS" {
 		rr.WriteHeader(http.StatusNoContent)
 		return
+	}
+	if h.gateway != nil {
+		r = r.WithContext(h.gateway.AttributionContext(r.Context(), usage.InteractionDimensions{}))
 	}
 	if r.URL.Path == "/admin/agents/routes" || strings.HasPrefix(r.URL.Path, "/admin/agents/routes/") {
 		h.agentRoutesMux.ServeHTTP(rr, r)

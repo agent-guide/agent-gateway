@@ -585,8 +585,17 @@ assembly from its executable entry; standalone passes it explicitly.
 complete dependency generation, persist the target envelope, and publish in
 memory. Leases retain old resources until drain or the five-second retirement
 budget. Config, manifests and Admin responses preserve secret-reference tokens.
-Only preparation receives resolved values. `pkg/admin` owns envelope CRUD;
-contributed Admin subroutes remain a later foundation phase.
+Only preparation receives resolved values. `pkg/admin` owns envelope CRUD and
+assembles immutable `Factory.AdminRoutes` under each literal module namespace.
+Prepared resources implement `AdminContributor` and receive only cloned config,
+logger, attribution access and owner-scoped event publication bound to the
+original trusted request identity. The handler holds
+a generation lease, linking request cancellation to resource retirement. All
+Admin routes share full-body 4 MiB checks (413), reject compression (415), and
+use generic JSON panic responses. Outer deployment authentication, CORS and
+logging apply equally to contributed routes in Caddy and standalone mode.
+Module health uses the same extension manager; shutdown drains/cancels handlers
+before resource closure in reverse dependency order.
 
 
 ## Trusted attribution and public events

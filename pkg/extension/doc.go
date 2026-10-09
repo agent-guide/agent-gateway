@@ -10,6 +10,10 @@
 // Snapshot.Config, Snapshot.Resource, Snapshot.Context; Lease.Release;
 // Manager.Acquire, Manager.List, Manager.Manifest, Manager.Put, Manager.Delete,
 // Manager.Health, Manager.Close and Manager.SetPublisher. Other exported helpers are not designated.
+// F4 also designates AdminRoute, OwnedAdminRoute, AdminDependencies,
+// AdminContributor, WriteAdminError, Registry.AdminRoutes, Manager.AdminRoutes and Manager.AdminPublisher.
+// Factory.AdminRoutes is an immutable declaration set; only prepared resources
+// handle requests, with leases and the same generation lifecycle.
 // Release protection requires a published tag with the consumer contract gates
 // described in docs/design/enterprise-extension-contract.md.
 //

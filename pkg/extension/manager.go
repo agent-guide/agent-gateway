@@ -175,6 +175,11 @@ func (m *Manager) prepare(ctx context.Context, envelopes []Envelope) (*generatio
 		if err != nil || nilResource(resource) || ctx.Err() != nil {
 			return fail(failure("prepare_failed", e.ModuleID, ""))
 		}
+		if len(f.AdminRoutes) > 0 {
+			if _, ok := resource.(AdminContributor); !ok {
+				return fail(failure("prepare_failed", e.ModuleID, "admin_routes"))
+			}
+		}
 		if err := healthResource(ctx, resource); err != nil || ctx.Err() != nil {
 			return fail(failure("unhealthy", e.ModuleID, ""))
 		}

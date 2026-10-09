@@ -3,6 +3,7 @@ package extensionconsumer
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"github.com/agent-guide/agent-gateway/pkg/distribution/caddycmd"
 	"github.com/agent-guide/agent-gateway/pkg/distribution/ctlcmd"
@@ -61,6 +62,32 @@ func TestManifestProjectionAndOwnedFactories(t *testing.T) {
 	for _, d := range got.Modules {
 		if !reflect.DeepEqual(d.Roles, []string{"validation"}) {
 			t.Fatal("CLI claims server execution")
+		}
+	}
+}
+
+func TestAdminDeclarationsOwnedAndConflicts(t *testing.T) {
+	a := Runtime()
+	r, err := a.Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.AdminRoutes()) != 4 {
+		t.Fatalf("routes: %+v", r.AdminRoutes())
+	}
+	cloned := a.Clone()
+	cloned.Factories["example.fixture.entries"].AdminRoutes[0].Path = "/admin/memory/config"
+	if a.Factories["example.fixture.entries"].AdminRoutes[0].Path == "/admin/memory/config" {
+		t.Fatal("declarations alias assembly")
+	}
+	for _, path := range []string{"/admin/agents/routes", "/admin/agents/{id}/workspace", "/admin/extensions/example.fixture.mutable/status", "/admin/extensions/example.fixture.entries", "/admin/extensions/example.fixture.entries/{name}"} {
+		copy := a.Clone()
+		f := copy.Factories["example.fixture.entries"]
+		f.AdminRoutes = append(f.AdminRoutes, extension.AdminRoute{Method: "GET", Path: path})
+		_, err = copy.Registry()
+		var e *extension.Error
+		if !errors.As(err, &e) || e.Code != "route_conflict" {
+			t.Fatalf("conflict %s: %v", path, err)
 		}
 	}
 }

@@ -37,6 +37,7 @@ type Registration struct {
 // Callbacks must honor cancellation and must never mutate a live snapshot.
 // Validate may apply defaults, but must retain every declared secret reference.
 type Factory struct {
+	AdminRoutes  []AdminRoute
 	SecretFields []string
 	Validate     func(context.Context, json.RawMessage) (json.RawMessage, error)
 	Dependencies func(context.Context, json.RawMessage) ([]string, error)
@@ -131,6 +132,13 @@ func NewRegistry(registrations ...Registration) (*Registry, error) {
 		reg.Descriptor = d
 		if reg.Factory != nil {
 			f := *reg.Factory
+			f.AdminRoutes = slices.Clone(f.AdminRoutes)
+			if err := validateAdminRoutes(d.ID, f.AdminRoutes); err != nil {
+				return nil, err
+			}
+			if len(f.AdminRoutes) > 0 && (!slices.Contains(d.Roles, "admin") || f.Prepare == nil) {
+				return bad("admin_routes")
+			}
 			f.SecretFields = slices.Clone(f.SecretFields)
 			if f.Validate == nil || (f.Prepare == nil && !slices.Equal(d.Roles, []string{"validation"})) || len(f.SecretFields) > 64 {
 				return bad("factory")

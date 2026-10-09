@@ -240,6 +240,13 @@ Implemented families:
 
 - LLM: `/admin/llm/providers/...`, `/admin/llm/provider_types` (read-only listing), `/admin/llm/api_handler_types`, `/admin/llm/routes/...`, `/admin/llm/models/providers/{provider_id}/discovered`, `/admin/llm/models/providers/{provider_id}/refresh`, `/admin/llm/models/managed/...`
 - `/admin/virtual_keys/...`, `/admin/credentials/...`
+- Contributed Admin subroutes are declared by `Factory.AdminRoutes` and handled
+  by prepared `AdminContributor` resources only under `/admin/extensions/<module_id>/...`;
+  module roots and all other Community families are reserved. All Admin requests
+  share a full-body 4 MiB boundary (413), reject compression (415), and inherit
+  mount authentication, CORS, logging and generic JSON panic recovery. Module
+  event publishers capture trusted request identity; Publish contexts cannot
+  replace the event actor or correlation.
 - `GET /admin/manifest` and `GET /admin/extensions`, `GET|PUT|DELETE /admin/extensions/{module_id}` (reference-preserving module configuration)
 - MCP: `/admin/mcp/services/...`, `/admin/mcp/routes/...`, `/admin/mcp/runtime/...` (discovery, execution, dispatcher runtime inspection)
 - ACP: `/admin/acp/runtime/...` (native diagnostics keyed by `agent_id`)

@@ -39,4 +39,11 @@ contract suites, checks canonical manifest projections and factory ownership.
 including a stalled implementation that must fail. The process suite uses actual
 consumer binaries and an independently implemented JSONL sink to prove mutation
 success/failure, secret/config redaction and shutdown drain in both server modes.
-Admin contributions and the alternate domain limiter proof remain later work.
+Runtime factories also declare namespaced status/reset Admin routes, handled by
+independently prepared resources through public AdminDependencies. The process
+suite protects both modes with Basic Auth, rejects anonymous contribution calls,
+and runs the reusable AdminBody suite against Community and contributed writes:
+known-length/chunked oversize and compression fail before mutation, supported
+writes retain shared CORS, and Bundle apply/export still work. It proves the
+contributed reset publishes an owner-scoped public event. The alternate domain
+limiter proof remains later work.

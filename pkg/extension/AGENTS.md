@@ -31,3 +31,16 @@ no module config, secret references/values or arbitrary callback diagnostics.
 Committed mutation publication completes before releasing the mutation gate or
 notifying shutdown waiters. The publisher only enqueues; no manager mutex is
 held and no sink callback runs on this path.
+
+Admin factories declare immutable method/path pairs with the `admin` role.
+Only literal owner namespaces `/admin/extensions/<module_id>/...` are allowed;
+module root CRUD and all Community prefixes (including the AgentRoute mux) are
+reserved. Single-segment wildcards are supported; overlaps (including GET/HEAD)
+fail registry assembly with `route_conflict`. Prepared resources must implement
+AdminContributor. Handlers retain a generation lease, honor request/retirement
+cancellation and use WriteAdminError. Dependencies contain owned reference config,
+logger, attribution access and owner-scoped typed mutation events. Bind event
+identity to the captured trusted request context, never a module-supplied Publish
+context; the owner binder is resolved only during HTTP assembly. Never inject gateway,
+raw store or resolved secrets. Read design section 11.5 and run Admin race and
+external consumer/process contracts when changing this seam.

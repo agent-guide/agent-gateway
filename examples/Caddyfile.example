@@ -174,6 +174,10 @@
 
 http://localhost:8019 {
 	# Admin routes
+ # All Admin bodies are fully checked before dispatch: 4 MiB maximum (413),
+ # compressed bodies unsupported (415). Linked module Admin subroutes under
+ # /admin/extensions/<module_id>/... inherit this mount's authentication.
+ # Module mutation events capture trusted request identity at Admin dispatch.
 	route /admin/* {
 		# Exempt the public health probe and credential-free CORS preflight.
 		@needauth {

@@ -10,6 +10,8 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"github.com/agent-guide/agent-gateway/pkg/event"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
+	"github.com/agent-guide/agent-gateway/pkg/extension/contracttest"
+	"golang.org/x/crypto/bcrypt"
 	"io"
 	"net"
 	"net/http"
@@ -62,13 +64,17 @@ func TestExtensionProcesses(t *testing.T) {
 			static := extension.Envelope{ModuleID: "example.fixture.entries", SchemaVersion: 1, Config: json.RawMessage(`{"message":"static","token":{"$secret_ref":"env:AGW_FIXTURE_SECRET"}}`)}
 			db := filepath.Join(work, "config.db")
 			path := filepath.Join(work, "config.json")
-			args := []string{"--addr", addr, "--admin-addr", addr, "--admin-basic-auth-hash", "", "--config-store", db, "--static-config", path}
+			hash, err := bcrypt.GenerateFromPassword([]byte("fixture-pass"), bcrypt.MinCost)
+			if err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"--addr", addr, "--admin-addr", addr, "--admin-basic-auth-hash", "fixture:" + string(hash), "--config-store", db, "--static-config", path}
 			var config any = map[string]any{"apiVersion": "gateway.agw/v1alpha1", "kind": "GatewayBundle", "extensions": []extension.Envelope{static}}
 			if binary == "agw" {
 				args = []string{"run", "--config", path}
 				config = map[string]any{"admin": map[string]any{"disabled": true}, "apps": map[string]any{
 					"agent_gateway": map[string]any{"config_store": map[string]any{"sqlite": map[string]string{"sqlite_path": db}}, "extensions": []extension.Envelope{static}},
-					"http":          map[string]any{"servers": map[string]any{"test": map[string]any{"listen": []string{addr}, "routes": []any{map[string]any{"handle": []any{map[string]string{"handler": "agent_gateway_admin"}}}}}}},
+					"http":          map[string]any{"servers": map[string]any{"test": map[string]any{"listen": []string{addr}, "routes": []any{map[string]any{"handle": []any{map[string]any{"handler": "authentication", "providers": map[string]any{"http_basic": map[string]any{"accounts": []any{map[string]string{"username": "fixture", "password": string(hash)}}}}}, map[string]string{"handler": "agent_gateway_admin"}}}}}}},
 				}}
 			}
 			encoded, _ := json.Marshal(config)
@@ -105,7 +111,7 @@ func TestExtensionProcesses(t *testing.T) {
 					<-done
 				}
 			}()
-			client := adminclient.New(adminclient.Config{BaseURL: "http://" + addr, HTTPClient: &http.Client{Timeout: time.Second}})
+			client := adminclient.New(adminclient.Config{BaseURL: "http://" + addr, BasicAuth: "fixture:fixture-pass", HTTPClient: &http.Client{Timeout: time.Second}})
 			deadline := time.After(10 * time.Second)
 			var manifest *distribution.Assembly
 			for {
@@ -126,6 +132,66 @@ func TestExtensionProcesses(t *testing.T) {
 			if !reflect.DeepEqual(linked, *manifest) {
 				t.Fatal("Caddy/standalone manifest mismatch")
 			}
+
+			httpClient := &http.Client{Timeout: 3 * time.Second}
+			send := func(req *http.Request) (*http.Response, error) {
+				req.SetBasicAuth("fixture", "fixture-pass")
+				return httpClient.Do(req)
+			}
+			moduleURL := "http://" + addr + "/admin/extensions/" + static.ModuleID
+			unauth, err := httpClient.Get(moduleURL + "/status")
+			if err != nil {
+				t.Fatal(err)
+			}
+			unauth.Body.Close()
+			if unauth.StatusCode != 401 {
+				t.Fatalf("contributor bypassed mount authentication: %d", unauth.StatusCode)
+			}
+			status := func() struct {
+				Message string `json:"message"`
+				Resets  int64  `json:"resets"`
+			} {
+				req, _ := http.NewRequest("GET", moduleURL+"/status", nil)
+				resp, err := send(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer resp.Body.Close()
+				var value struct {
+					Message string `json:"message"`
+					Resets  int64  `json:"resets"`
+				}
+				if resp.StatusCode != 200 {
+					t.Fatalf("contributor status: %d", resp.StatusCode)
+				}
+				if err = json.NewDecoder(resp.Body).Decode(&value); err != nil {
+					t.Fatal(err)
+				}
+				if value.Message != "static" {
+					t.Fatalf("prepared config missing: %+v", value)
+				}
+				return value
+			}
+			before := status()
+			contracttest.AdminBody(t, contracttest.AdminBodyFixture{URL: moduleURL + "/reset", Method: "POST", Body: []byte(`{}`), SuccessStatus: 200, Send: send, CheckUnchanged: func(t *testing.T) {
+				if status().Resets != before.Resets {
+					t.Fatal("oversized contributed write committed")
+				}
+			}})
+			if status().Resets != before.Resets+1 {
+				t.Fatal("supported contributed mutation missing")
+			}
+			contracttest.AdminBody(t, contracttest.AdminBodyFixture{URL: "http://" + addr + "/admin/llm/providers", Method: "POST", Body: []byte(`{"id":"body-proof","provider_type":"openai","base_url":"https://example.com"}`), SuccessStatus: 201, Send: send, CheckUnchanged: func(t *testing.T) {
+				req, _ := http.NewRequest("GET", "http://"+addr+"/admin/llm/providers/body-proof", nil)
+				resp, err := send(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer resp.Body.Close()
+				if resp.StatusCode != 404 {
+					t.Fatalf("oversized Community write committed: %d", resp.StatusCode)
+				}
+			}})
 			current, err := client.GetExtension(ctx, static.ModuleID)
 			if err != nil || current.Source != "static" {
 				t.Fatalf("static: %v %+v", err, current)
@@ -141,6 +207,23 @@ func TestExtensionProcesses(t *testing.T) {
 			if _, err = client.PutExtension(ctx, dynamic); err != nil {
 				t.Fatal(err)
 			}
+			checkDynamicRoute := func(wantStatus int, wantMessage string) {
+				t.Helper()
+				req, _ := http.NewRequest("GET", "http://"+addr+"/admin/extensions/"+dynamic.ModuleID+"/status", nil)
+				resp, err := send(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer resp.Body.Close()
+				body, err := io.ReadAll(resp.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if resp.StatusCode != wantStatus || (wantMessage != "" && !bytes.Contains(body, []byte(wantMessage))) {
+					t.Fatalf("dynamic route generation: %d %s", resp.StatusCode, body)
+				}
+			}
+			checkDynamicRoute(200, "dynamic")
 			applyPath := filepath.Join(work, "apply.yaml")
 			apply := `apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
@@ -161,7 +244,7 @@ extensions:
 			}
 			runCLI := func(args ...string) []byte {
 				t.Helper()
-				cmd := exec.CommandContext(ctx, filepath.Join(dir, "agwctl"), append([]string{"--admin-addr", "http://" + addr}, args...)...)
+				cmd := exec.CommandContext(ctx, filepath.Join(dir, "agwctl"), append([]string{"--admin-addr", "http://" + addr, "--admin-basic-auth", "fixture:fixture-pass"}, args...)...)
 				cmd.Dir = work
 				result, err := cmd.CombinedOutput()
 				if err != nil {
@@ -179,12 +262,14 @@ extensions:
 			if err != nil || !strings.Contains(string(current.Config), "applied") {
 				t.Fatalf("apply missing: %v", err)
 			}
+			checkDynamicRoute(200, "applied")
 			if err = client.DeleteExtension(ctx, static.ModuleID); !errors.As(err, &apiError) || apiError.StatusCode != http.StatusConflict {
 				t.Fatalf("static delete: %v", err)
 			}
 			if err = client.DeleteExtension(ctx, dynamic.ModuleID); err != nil {
 				t.Fatal(err)
 			}
+			checkDynamicRoute(503, "extension_unavailable")
 			if err = command.Process.Signal(syscall.SIGTERM); err != nil {
 				t.Fatal(err)
 			}
@@ -229,7 +314,7 @@ extensions:
 				seen[e.Outcome+"/"+e.Mutation.Operation] = true
 				count++
 			}
-			if count < 4 || !seen["success/put"] || !seen["failure/put"] || !seen["success/delete"] || !seen["failure/delete"] {
+			if count < 4 || !seen["success/put"] || !seen["failure/put"] || !seen["success/delete"] || !seen["failure/delete"] || !seen["success/reset"] {
 				t.Fatalf("event lifecycle evidence %d %v", count, seen)
 			}
 		})

@@ -601,11 +601,17 @@ metadata. `daemoncmd.NewCommand` and `ctlcmd.NewCommand` create independent Cobr
 commands; their `Run` helpers load dotenv and return an exit code for main.
 `caddycmd.New(...).Run()` delegates process behavior to upstream Caddy.
 Public metrics options use `distribution.MetricsConfig` and `OTLPConfig`.
-Assembly metadata does not dynamically load modules or validate registrations;
-those capabilities remain part of the active v0.7 plan.
+`Assembly.Registry()` validates explicitly linked declarations; metadata never
+dynamically loads module code.
 
 Run `make test-extension-consumer` to build and test the separate-module consumer
 against this checkout; the same gate is included in `make verify-release`.
+
+All Admin routes share a 4 MiB received-body limit. The gateway checks the full
+body before dispatching a write, including chunked requests. Larger bodies return
+JSON HTTP 413; compressed bodies return HTTP 415. Bundle apply uses this limit
+per serialized resource, not per local Bundle file. Panic responses use generic
+JSON HTTP 500 diagnostics.
 
 ### Linked extensions
 
@@ -628,6 +634,25 @@ persisted/exported JSON retains the token. Preparation/persistence failure leave
 the current generation active. See the
 [extension contract](docs/design/enterprise-extension-contract.md#113-configuration-ownership-mutation-and-secrets).
 
+
+### Contributed Admin routes
+
+Runtime factories may declare `extension.Factory.AdminRoutes`. Their prepared
+resources implement `extension.AdminContributor`; modules need the `admin` role.
+Routes belong exclusively to `/admin/extensions/<module_id>/...`; the module root
+remains Community envelope CRUD. Patterns accept literals and single-segment
+`{name}` wildcards. Duplicate or overlapping method/path declarations fail
+assembly with `route_conflict`; GET also owns HEAD. OPTIONS is shared preflight.
+
+Handlers receive an owned reference-preserving config, logger, attribution accessor
+and owner-scoped public mutation publisher through `AdminDependencies`. The
+publisher captures trusted request identity; a module-supplied context cannot
+replace event attribution. Handlers use
+`WriteAdminError` for bounded JSON errors. No gateway, store or credentials are
+injected. Both server modes keep the outer Admin authentication, CORS, logging,
+panic recovery and full-body boundary. Module health appears in `/admin/health`;
+generation leases drain handlers before resource retirement, with bounded request
+cancellation and reverse dependency shutdown. Unconfigured modules return 503.
 
 ### Trusted attribution and public event sinks
 

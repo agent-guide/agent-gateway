@@ -7,6 +7,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"io"
 	"net/http"
+	"regexp"
 )
 
 func extensionJSON(w http.ResponseWriter, status int, value any) {
@@ -14,6 +15,9 @@ func extensionJSON(w http.ResponseWriter, status int, value any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }
+
+var extensionDiagnostic = regexp.MustCompile(`^[A-Za-z0-9_./~-]{0,128}$`)
+
 func extensionError(w http.ResponseWriter, err error) {
 	var e *extension.Error
 	status := http.StatusBadRequest
@@ -21,6 +25,15 @@ func extensionError(w http.ResponseWriter, err error) {
 		e = &extension.Error{Code: "extension_unavailable"}
 		status = http.StatusServiceUnavailable
 	}
+	owned := *e
+	owned.ModuleID = safeExtensionID(owned.ModuleID)
+	if !extensionDiagnostic.MatchString(owned.Field) {
+		owned.Field = "config"
+	}
+	if !extensionDiagnostic.MatchString(owned.Code) {
+		owned.Code = "extension_unavailable"
+	}
+	e = &owned
 	switch e.Code {
 	case "not_found":
 		status = http.StatusNotFound
@@ -75,18 +88,9 @@ func (h *Handler) handlePutExtension(w http.ResponseWriter, r *http.Request) {
 		extensionError(w, errors.New("unavailable"))
 		return
 	}
-	// F2 bounds its own envelope. F4 installs the shared full-body Admin boundary.
-	if r.Header.Get("Content-Encoding") != "" && r.Header.Get("Content-Encoding") != "identity" {
-		extensionJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "compressed request bodies are unsupported"})
-		return
-	}
-	raw, err := io.ReadAll(io.LimitReader(r.Body, 4*1024*1024+1))
+	raw, err := io.ReadAll(r.Body)
 	if err != nil {
 		extensionError(w, &extension.Error{Code: "invalid_config"})
-		return
-	}
-	if len(raw) > 4*1024*1024 {
-		extensionJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body exceeds 4194304 bytes"})
 		return
 	}
 	var e extension.Envelope

@@ -537,6 +537,44 @@ from app Stop.
 
 ### 11.5 Admin ownership and body policy
 
+Capability status: **Implemented**, with candidate contracts. Released-tag
+protection still requires the published-tag and paired-repository gates.
+`Factory.AdminRoutes` declares immutable `AdminRoute` method/path pairs; the
+registration descriptor supplies their owner and must include the `admin` role.
+`Registry.AdminRoutes` and `Manager.AdminRoutes` project `OwnedAdminRoute` values.
+Prepared resources implement `AdminContributor.ServeAdminHTTP`; missing handlers
+fail preparation before publication. `AdminDependencies` carries a cloned envelope,
+logger, attribution accessor and owner-scoped event publisher. `WriteAdminError`
+encodes stable, bounded codes. Exact symbols are designated in `pkg/extension/doc.go`.
+
+Supported patterns consist of literal segments and single-segment `{name}`
+wildcards; host patterns, subtree patterns, multi-segment wildcards, trailing
+slashes and module roots are rejected. Supported methods are GET, HEAD, POST,
+PUT, PATCH and DELETE. GET also owns HEAD. OPTIONS belongs to shared CORS
+preflight. Even containment overlaps are conflicts when methods intersect.
+The literal owner namespace separates contributions from every Community family
+and the AgentRoute mux; no module wildcard can cross that boundary. The whole
+immutable declaration set is checked at registry construction before handlers
+are registered, without using a ServeMux panic as validation.
+
+Admin dispatch retains the active generation lease for the entire call. The
+handler context combines request cancellation with the generation lifetime;
+retirement first drains leases, then cancels at its five-second deadline and
+closes resources in reverse dependency order. Resource preparation and health
+hooks reuse F2; there is no parallel contributor lifecycle. Unconfigured owners
+respond with `extension_unavailable`/503. Trusted attribution is installed by the
+same explicit producer used on data-plane ingress, without treating headers or
+mount authentication alone as identity. The publisher accepts only the owning
+module's typed `extension.mutation` events, stamps trusted request attribution,
+and delegates validation/delivery to the existing pipeline. `Manager.AdminPublisher`
+binds the validated owner during HTTP assembly and returns a request binder.
+The HTTP adapter invokes that binder with the trusted request context without
+registry/config reads. Each resulting publisher captures that request's identity;
+module-supplied publication contexts affect cancellation/delivery only, never
+actor identity or correlation. Publication snapshots the injected pipeline under
+only the manager mutex and never takes the Gateway lock, so a draining callback
+cannot deadlock Gateway shutdown.
+
 Contributions own only `/admin/extensions/<module_id>/...`; Community envelope
 CRUD owns the module root. Reserve all other Community prefixes, including
 `/admin/memory`. Route declarations specify method, pattern and owner. Reject

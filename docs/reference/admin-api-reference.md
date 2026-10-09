@@ -2,6 +2,18 @@
 
 All endpoints below are under the path where `agent_gateway_admin` is mounted. The Admin API does not implement login or sessions; protect this mount with Caddy `basic_auth`, mTLS, a reverse proxy authenticator, or the standalone daemon's `--admin-basic-auth-hash` wrapper.
 
+All routes read and check the complete body before dispatch, up to 4,194,304
+received bytes. Oversize requests (including chunked bodies and trailing bytes)
+return HTTP 413 with `{"error":"request body exceeds 4194304 bytes"}`. Compressed
+bodies return HTTP 415. Bundle apply sends one resource per request, so this limit
+applies to each resource. Panic responses use generic JSON HTTP 500 errors.
+
+Linked modules may contribute routes only under
+`/admin/extensions/<module_id>/...`. Module roots remain envelope CRUD, and all
+other Community prefixes are reserved. Contributions share the authentication
+mount, CORS and body policy. Unconfigured module resources return HTTP 503 with
+`extension_unavailable`. Module readiness is included in `/admin/health`.
+
 ## Health
 
 - `GET /admin/health`
