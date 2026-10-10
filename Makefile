@@ -1,6 +1,6 @@
 # Makefile for Caddy LLM Router
 
-.PHONY: all build build-agw build-agwd build-agwctl build-xcaddy clean deps fmt verify-release smoke-release test-extension-consumer
+.PHONY: all build build-agw build-agwd build-agwctl build-xcaddy clean deps fmt verify-release smoke-release test-extension-consumer test-extension-consumer-candidate test-extension-consumer-release
 
 # Binary names
 BINARY_NAME=agw
@@ -70,3 +70,12 @@ smoke-release: build
 # replacement only; no go.work or replace directive is checked in.
 test-extension-consumer:
 	./scripts/test-extension-consumer
+
+# Immutable candidate proof; commits must be recorded before invoking this gate.
+test-extension-consumer-candidate:
+	@test -n "$(COMMUNITY_COMMIT)" || (echo 'set COMMUNITY_COMMIT to an exact commit' >&2; exit 2)
+	./scripts/test-extension-consumer candidate "$(COMMUNITY_COMMIT)"
+
+# Fresh caches, published dependency, no checkout replacement or workspace.
+test-extension-consumer-release:
+	./scripts/test-extension-consumer release

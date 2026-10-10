@@ -72,7 +72,7 @@ func TestAdminDeclarationsOwnedAndConflicts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.AdminRoutes()) != 4 {
+	if len(r.AdminRoutes()) != 6 {
 		t.Fatalf("routes: %+v", r.AdminRoutes())
 	}
 	cloned := a.Clone()
@@ -90,4 +90,13 @@ func TestAdminDeclarationsOwnedAndConflicts(t *testing.T) {
 			t.Fatalf("conflict %s: %v", path, err)
 		}
 	}
+}
+
+func TestSecretReferenceContract(t *testing.T) {
+	a := Runtime()
+	var regs []extension.Registration
+	for _, d := range a.Modules {
+		regs = append(regs, extension.Registration{Descriptor: d, Factory: a.Factories[d.ID]})
+	}
+	contracttest.SecretReferences(t, regs, []extension.Envelope{{ModuleID: "example.fixture.entries", SchemaVersion: 1, Config: json.RawMessage(`{"message":"reference-proof","token":{"$secret_ref":"env:AGW_CONTRACT_SECRET"}}`)}}, "AGW_CONTRACT_SECRET", "resolved-secret-never-serialized")
 }

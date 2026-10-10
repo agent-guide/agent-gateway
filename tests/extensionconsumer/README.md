@@ -28,7 +28,10 @@ Until that tag is published, run the development gate above, which tests the
 current checkout through a temporary replacement. The fixture cannot pin the
 hash of the same commit that contains its go.mod. This is checkout-based
 development evidence, not a released-tag or paired-private-repository gate.
-F7 verifies the consumer against the published tag without a replacement.
+Run `make test-extension-consumer-release` after publishing the dependency tag;
+this uses fresh caches without a replacement. Before release,
+`make test-extension-consumer-candidate COMMUNITY_COMMIT=<exact-commit>` archives
+the committed candidate rather than consuming uncommitted worktree changes.
 
 `entry_test.go` walks the transitive public signature types, verifies defensive
 metadata snapshots and the CLI validation projection, rejects direct imports
@@ -53,3 +56,15 @@ Both real server processes apply the selected backend, admit local count_tokens
 traffic without upstream I/O, verify unchanged/changed policy state, reject unavailable
 selections, switch authority, exercise timeout/ambiguous consumption and explicit
 fail-open, inspect bounded Prometheus labels and flush admission/reset events.
+
+The F6 integrated process contract lives in the public test package
+`pkg/distribution/contracttest`, so separately maintained repositories can run
+it against their own entries without copying a Community harness. It checks
+three command manifests, both server modes, CLI validate/apply/export with
+configuration preservation, authenticated read-only probes and Community/body
+contracts, OpenAI/Anthropic/cc batch and SSE responses, upstream cancellation,
+MCP tool execution and persisted LLM/MCP usage, selected-backend events, rejection before
+upstream I/O, and shutdown drain. `contracttest.SecretReferences` separately
+checks syntax-only validation and manager/store reference preservation with the
+environment absent and present. These helpers are test infrastructure; they do
+not add protected production APIs.

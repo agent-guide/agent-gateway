@@ -36,3 +36,10 @@ runtime inputs, excluded from manifests. Clone owns mutable slices; callbacks
 remain distribution-owned. Sink factories create fresh instances for each server
 lifecycle, never share closed sinks across Caddy reloads. Sink owners must be
 linked and unique, and transport options must pass assembly validation.
+
+`contracttest` is reusable test infrastructure, not another production SPI.
+Its Distribution suite runs independently built entries in both server modes,
+CLI apply/export, shared Admin protection, selected-backend admission, all three
+LLM ingress profiles, SSE cancellation and persisted usage. Keep its provider
+stub on loopback and its event checks content-free. External distributions own
+fixture configuration, probe routes, sinks and backends.

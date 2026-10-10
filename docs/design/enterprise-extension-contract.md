@@ -705,3 +705,25 @@ release gates consume that tag with `GOWORK=off` and no local replacement.
 Private-repository evidence is a separate required deliverable and cannot be
 claimed from Community fixture results. Publish the exact protected symbol list
 only after these gates pass.
+
+
+### External compatibility verification
+
+Public `pkg/distribution/contracttest.Distribution` executes external Caddy,
+standalone and CLI binaries using distribution-owned fixture inputs. It checks
+canonical manifests, CLI apply/export reference configuration, shared Admin
+mount/body behavior, selected-backend admission, OpenAI/Anthropic/cc batch and
+SSE responses, upstream cancellation, MCP tool execution, persisted LLM/MCP
+usage, sanitized event delivery and clean shutdown. The separate-module consumer
+and paired repository instantiate the same helper with independently owned
+fixtures. `pkg/extension/contracttest.SecretReferences` verifies local validation
+with environment values absent/present and manager/store token preservation.
+These are reusable test helpers, not new protected production interfaces.
+
+Checkout verification uses a temporary modfile replacement with `GOWORK=off`.
+Exact-candidate verification uses a Git archive of the recorded commit; mutable
+local edits cannot influence that evidence. Released verification uses the
+checked-in published tag with fresh module/build caches and no replacement or
+workspace. A candidate compatibility success never substitutes for tag-level
+protection. The paired repository owns its precise candidate/tag compatibility
+manifest and CI evidence; Community records only its public integration seam.

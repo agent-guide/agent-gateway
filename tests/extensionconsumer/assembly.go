@@ -16,7 +16,7 @@ func Runtime() distribution.Assembly {
 	a.Factories["example.fixture.mutable"] = fixtureFactory(true)
 	for _, id := range []string{"example.fixture.entries", "example.fixture.mutable"} {
 		f := a.Factories[id]
-		f.AdminRoutes = []extension.AdminRoute{{Method: "GET", Path: "/admin/extensions/" + id + "/status"}, {Method: "POST", Path: "/admin/extensions/" + id + "/reset"}}
+		f.AdminRoutes = []extension.AdminRoute{{Method: "GET", Path: "/admin/extensions/" + id + "/status"}, {Method: "POST", Path: "/admin/extensions/" + id + "/reset"}, {Method: "POST", Path: "/admin/extensions/" + id + "/probe"}}
 	}
 	a.Modules = append(a.Modules, extension.Descriptor{ID: fixtureLimiterID, Version: "1.0.0", SchemaVersion: 1, Roles: []string{"runtime", "validation", "spi"}})
 	a.Factories[fixtureLimiterID] = fixtureLimiterFactory(true)

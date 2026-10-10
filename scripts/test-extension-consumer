@@ -7,13 +7,45 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/agw-extension-consumer.XXXXXX")
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 cp "$repo/tests/extensionconsumer/go.mod" "$work/go.mod"
 cp "$repo/tests/extensionconsumer/go.sum" "$work/go.sum"
-cd "$repo/tests/extensionconsumer"
 export GOWORK=off
-go mod edit -modfile="$work/go.mod" -replace="github.com/agent-guide/agent-gateway=$repo"
+case "${1:-checkout}" in
+ checkout)
+  if [ "$#" -ne 0 ]; then echo "usage: $0 [candidate COMMIT | release]" >&2; exit 2; fi
+  go mod edit -modfile="$work/go.mod" -replace="github.com/agent-guide/agent-gateway=$repo"
+  ;;
+ candidate)
+  if [ "$#" -ne 2 ]; then echo "usage: $0 candidate COMMIT" >&2; exit 2; fi
+  commit=$(git -C "$repo" rev-parse --verify "$2^{commit}")
+  mkdir "$work/community"
+  git -C "$repo" archive --format=tar -o "$work/community.tar" "$commit"
+  tar -xf "$work/community.tar" -C "$work/community"
+  echo "Candidate Community commit: $commit (immutable archive, non-release proof)"
+  "$work/community/scripts/test-extension-consumer"
+  exit 0
+  ;;
+ release)
+  if [ "$#" -ne 1 ]; then echo "usage: $0 release" >&2; exit 2; fi
+  cd "$repo/tests/extensionconsumer"
+  python3 - <<'PYTAG'
+import json, pathlib, re, subprocess
+m = json.loads(subprocess.check_output(['go', 'mod', 'edit', '-json']))
+versions = [r['Version'] for r in m['Require'] if r['Path'] == 'github.com/agent-guide/agent-gateway']
+if m.get('Replace') or pathlib.Path('go.work').exists() or len(versions) != 1 or not re.fullmatch(r'v\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?', versions[0]):
+    raise SystemExit('release requires one published Community tag, no replacements or workspace')
+PYTAG
+  export GOMODCACHE="$work/modules"
+  export GOCACHE="$work/build-cache"
+  go mod download -modfile="$work/go.mod"
+  echo "Released Community dependency: $(go list -modfile="$work/go.mod" -mod=readonly -m github.com/agent-guide/agent-gateway)"
+  ;;
+ *) echo "usage: $0 [candidate COMMIT | release]" >&2; exit 2 ;;
+esac
+cd "$repo/tests/extensionconsumer"
 go test -modfile="$work/go.mod" -mod=readonly -race ./...
 for command in agw agwd agwctl; do
  go build -modfile="$work/go.mod" -mod=readonly -o "$work/bin/$command" "./cmd/$command"
 done
+AGW_DISTRIBUTION_BIN_DIR="$work/bin" go test -modfile="$work/go.mod" -mod=readonly -race -run TestDistributionProcessContract -count=1 -v .
 cd "$repo"
 go list -deps -f '{{.ImportPath}}' ./cmd/... > "$work/community-deps"
 if grep -E '^github.com/agent-guide/agent-gateway-enterprise(/|$)' "$work/community-deps"; then

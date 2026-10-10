@@ -33,9 +33,17 @@ func TestReleaseProcesses(t *testing.T) {
 		t.Skip("set AGW_RELEASE_SMOKE=1 or run make smoke-release")
 	}
 	repo := repositoryRoot(t)
+	binDir := os.Getenv("AGW_RELEASE_BIN_DIR")
+	if binDir == "" {
+		binDir = repo
+	}
+	binDir, err := filepath.Abs(binDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	temp := t.TempDir()
 	for _, binary := range []string{"agw", "agwd", "agwctl"} {
-		if _, err := os.Stat(filepath.Join(repo, binary)); err != nil {
+		if _, err := os.Stat(filepath.Join(binDir, binary)); err != nil {
 			t.Fatalf("%s is not built; run make smoke-release: %v", binary, err)
 		}
 	}
@@ -97,7 +105,7 @@ http://127.0.0.1:%d {
 	// immediately before the child starts. This guarantees distinct ports and
 	// minimizes the unavoidable handoff window for a process-level smoke test.
 	gatewayPorts.release(t)
-	agw := startChild(t, repo, filepath.Join(temp, "agw.log"), filepath.Join(repo, "agw"),
+	agw := startChild(t, repo, filepath.Join(temp, "agw.log"), filepath.Join(binDir, "agw"),
 		"run", "--config", caddyfile, "--adapter", "caddyfile")
 	agw.name = "agw"
 	children = append(children, agw)
@@ -141,7 +149,7 @@ virtualKeys:
   - id: smoke-key
     allowed_route_ids: [smoke-turn, smoke-a2a]
 `, exampleURL))
-	agwctl := filepath.Join(repo, "agwctl")
+	agwctl := filepath.Join(binDir, "agwctl")
 	runCommand(t, repo, agwctl, "--admin-addr", adminURL, "validate", "-f", bundlePath)
 	runCommand(t, repo, agwctl, "--admin-addr", adminURL, "apply", "-f", bundlePath)
 	keyOutput := runCommand(t, repo, agwctl, "--output", "json", "--admin-addr", adminURL, "virtualkey", "get", "smoke-key")
@@ -183,7 +191,7 @@ virtualKeys:
 	staticPath := filepath.Join(temp, "standalone.yaml")
 	writeFile(t, staticPath, "apiVersion: gateway.agw/v1alpha1\nkind: GatewayBundle\n")
 	standalonePorts.release(t)
-	agwd := startChild(t, repo, filepath.Join(temp, "agwd.log"), filepath.Join(repo, "agwd"),
+	agwd := startChild(t, repo, filepath.Join(temp, "agwd.log"), filepath.Join(binDir, "agwd"),
 		"--addr", fmt.Sprintf("127.0.0.1:%d", standalonePort),
 		"--admin-addr", fmt.Sprintf("127.0.0.1:%d", standaloneAdminPort),
 		"--config-store", filepath.Join(temp, "standalone.db"),

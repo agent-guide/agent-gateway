@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"io"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -82,6 +83,11 @@ func (r *moduleResource) ServeAdminHTTP(w http.ResponseWriter, req *http.Request
 		var body struct{}
 		if json.NewDecoder(req.Body).Decode(&body) != nil {
 			extension.WriteAdminError(w, 400, "invalid_config")
+			return
+		}
+		if strings.HasSuffix(req.URL.Path, "/probe") {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"message": r.Message})
 			return
 		}
 		r.resets.Add(1)
