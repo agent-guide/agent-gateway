@@ -659,3 +659,11 @@ classes skip backend calls. Admission counters use only dimension, outcome and
 bounded backend type; external event sinks receive sanitized admission/reset DTOs
 through the existing pipeline. Gateway shutdown stops/cancels admissions and
 shares its five-second deadline with extension resource retirement.
+
+
+The external assembly workflow is documented in the
+[custom distribution guide](../guides/custom-distribution.md). The
+[v0.7 release notes](../releases/v0.7.0.md) enumerate the designated compatibility
+symbols. Linked configuration and Admin lifecycle alone do not add data-plane
+interception; additional domain seams and their ownership are
+[Proposed](../design/enterprise-extension-contract.md#12-domain-extension-coverage-and-ownership).

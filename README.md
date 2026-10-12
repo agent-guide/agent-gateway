@@ -607,6 +607,11 @@ Public metrics options use `distribution.MetricsConfig` and `OTLPConfig`.
 `Assembly.Registry()` validates explicitly linked declarations; metadata never
 dynamically loads module code.
 
+See the [custom distribution guide](docs/guides/custom-distribution.md) for assembly,
+configuration, Admin, attribution and backend integration. The
+[v0.7 release notes](docs/releases/v0.7.0.md) enumerate designated compatibility
+surfaces and the remaining published-tag gates.
+
 Run `make test-extension-consumer` to build and test the separate-module consumer
 against this checkout; the same gate is included in `make verify-release`.
 

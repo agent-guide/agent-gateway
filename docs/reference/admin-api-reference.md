@@ -14,6 +14,23 @@ other Community prefixes are reserved. Contributions share the authentication
 mount, CORS and body policy. Unconfigured module resources return HTTP 503 with
 `extension_unavailable`. Module readiness is included in `/admin/health`.
 
+## Manifest and extension configuration
+
+- `GET /admin/manifest`: deterministic linked runtime manifest.
+- `GET /admin/extensions`: effective envelope list in `items`.
+- `GET /admin/extensions/{module_id}`: one reference-preserving envelope.
+- `PUT /admin/extensions/{module_id}`: strict envelope body with matching
+  `module_id`, `schema_version` and module-owned `config`; returns the committed
+  envelope.
+- `DELETE /admin/extensions/{module_id}`: deletes dynamic configuration and
+  returns `status: deleted` and `id`.
+
+Static configuration is read-only (409); missing envelopes return 404. Unknown
+module/schema or invalid config errors return bounded 400 diagnostics. Missing
+or cyclic dependencies return 409; preparation, secret resolution, persistence
+or lifecycle unavailability returns 503. Rejected writes retain the active
+generation. Secret values never appear in these envelope responses.
+
 ## Health
 
 - `GET /admin/health`

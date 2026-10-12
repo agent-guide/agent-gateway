@@ -128,3 +128,22 @@ diagnostic commands do not provide a second session-keyed cancellation path.
 - [admin-api-reference.md](admin-api-reference.md)
 - [acp-api.md](acp-api.md)
 - [../design/gateway-bundle-yaml.md](../design/gateway-bundle-yaml.md)
+
+## Linked manifests and extension envelopes
+
+```sh
+./agwctl manifest
+./agwctl --admin-addr http://localhost:8019 --admin-basic-auth admin:your-password manifest --remote
+```
+
+Local output describes linked validation metadata; remote output is the server
+runtime manifest. `agw manifest` and `agwd manifest` describe their linked runtime
+metadata without starting a server. Metadata is deterministic and contains no
+factory callbacks, resolved secrets or entitlement state.
+
+Bundle `extensions` use `module_id`, `schema_version` and module-owned `config`.
+Validate uses local linked schemas; apply performs dependency-ordered extension
+writes before other objects, reports partial results and stops on extension
+failure. Export includes effective extension envelopes and retains secret reference
+tokens in reference-preserving configuration. The server is the final validator.
+See the [Bundle guide](../guides/bundle-yaml.md#linked-extension-configuration).

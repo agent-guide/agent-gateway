@@ -380,6 +380,10 @@ by a manifest query or request-time directory lookup.
 
 ### 11.3 Configuration ownership, mutation and secrets
 
+The paragraphs below describe the checked-in implementation. Section 11.3.1
+records the target configuration principle pending review and implementation;
+its removal of static extension configuration has not landed.
+
 Capability status: **Implemented**, with candidate consumer contracts. Registries
 validate locally without resolving secrets, and Manager prepares resources under
 a separate generation lifetime. Prepare receives only declared dependencies.
@@ -390,9 +394,11 @@ of preparation handles. The limiter contract below retains its explicit
 unchanged-policy semantics.
 
 The extension CRUD boundary has its own full-body and compression checks. The
-shared policy covering every Community and contributed Admin route remains
-Proposed in section 11.5. Public envelope mutation events are implemented;
-contributed subroutes remain Proposed. Envelope CRUD is Community-owned.
+shared policy covering every Community and contributed Admin route, public
+envelope mutation events and contributed subroutes are implemented as candidate
+contracts. Section 11.5 defines Admin ownership and body policy; released-tag
+protection still requires the published-tag and paired-repository gates.
+Envelope CRUD is Community-owned.
 
 Add `extensions` to GatewayBundle as a list of envelopes containing `module_id`,
 `schema_version` and `config` (`json.RawMessage`). One envelope per module is
@@ -447,6 +453,46 @@ the value. Persisted/exported config retains the reference object, including
 when the environment variable is set. Resolved values exist only in owned
 runtime resources; they never enter DTOs, events, diagnostics or manifests.
 Environment rotation requires explicit reapply/reload and creates a generation.
+
+#### 11.3.1 Target principle: host-independent extension configuration
+
+Decision status: **Proposed for review; not implemented**.
+
+Caddyfile owns Caddy host configuration: listeners, TLS, HTTP middleware,
+Caddy module wiring, Admin mounting and gateway bootstrap connections. The
+project's internal extension registry, configuration and lifecycle are independent
+of Caddyfile and use the same runtime in Caddy and standalone distributions.
+Compile-linked Caddy modules and internal extension envelopes are separate
+contracts; a Caddy module may adapt the host to the shared runtime.
+
+Internal extension configuration has one serving source of truth: the existing
+ConfigStore. Admin API creates, updates and deletes envelopes. Gateway Bundle
+is a declarative apply/export format: CLI apply sends extension mutations through
+the same Admin API, and export reads persisted reference-preserving envelopes.
+Local Bundle validation does not activate resources. A Bundle file is not a
+second, startup-owned extension configuration source.
+
+At startup, the extension Manager reads persisted envelopes and prepares the
+serving generation. Subsequent API mutations retain dependency validation,
+prepare-before-persist, atomic generation publication and bounded retirement.
+There are no per-request ConfigStore reads. Secret references remain persisted
+as references; environment rotation requires explicit reapply. Caddyfile reload
+does not define or overwrite extension envelopes, and Caddy adaptation does
+not import extension configuration into the store.
+
+Under this principle, neither Caddyfile/Caddy JSON nor standalone static Bundles
+or public distribution bootstrap options supply static extension envelopes.
+Configuration attempting those paths must fail explicitly rather than be ignored
+or automatically persisted. Compiled registrations, manifests, schema validation,
+Admin contributions and domain SPIs continue to exist. The ConfigStore backend
+and its connection remain bootstrap concerns; the principle does not require
+SQLite specifically or introduce a new store.
+
+The decision is limited to internal `extensions` configuration. It does not
+remove Caddy modules or change current provider, route or other resource
+configuration ownership. The existing static extension paths described above
+remain operational until the separately reviewed implementation change lands.
+The active foundation plan records the implementation and acceptance work.
 
 ### 11.4 Attribution and public events
 
@@ -727,3 +773,72 @@ checked-in published tag with fresh module/build caches and no replacement or
 workspace. A candidate compatibility success never substitutes for tag-level
 protection. The paired repository owns its precise candidate/tag compatibility
 manifest and CI evidence; Community records only its public integration seam.
+
+
+## 12. Domain extension coverage and ownership
+
+Capability status: **Proposed** for the additional domain seams in this section.
+The foundation above is implemented; registration, configuration, Admin routes
+and lifecycle do not grant a module arbitrary access to the request pipeline.
+Only the designated limiter contract is the domain proof for v0.7. Exported
+provider, protocol, route-policy, credential and ConfigStore APIs are not
+implicitly protected by the foundation.
+
+| Domain | Existing foundation or runtime | Additional domain contract requiring its own vertical slice |
+| --- | --- | --- |
+| Providers and protocols | Explicit linked factories, Caddy adapters and shared protocol cores | Reviewed factory/capability contracts with protocol conformance; no forced migration of all Caddy modules |
+| Model availability and routing | Logical candidates, priority/weighted/auto selection, bounded fallback, credential feedback | Candidate health, circuit breaking, selection and complete attempt feedback |
+| Identity and tenancy | Trusted bounded attribution producer and context | Authentication resolver, tenant isolation and ownership of storage/query/cache boundaries |
+| Authorization and policy | VirtualKey admission and route restrictions | Subject/resource/action decisions, ordering and explicit enforcement/failure semantics |
+| Guardrails and DLP | Proposed Guardrails design | Content inspection hooks, streaming handling, redaction and fail-closed contracts |
+| Quotas, budgets and billing | Atomic request-rate limiter | Concurrency, token/cost reservation, final settlement, cancellation and ambiguous charge handling |
+| Audit and usage export | Two sanitized best-effort operational event families; internal usage pipeline | Reviewed usage/decision DTOs, durable delivery, retention and replay when required |
+| Secrets and credentials | Reference-preserving env secret fields; credential manager and external refresher | Secret resolver/refresh provider, rotation and cache/expiry/failure contracts |
+| Storage and cluster configuration | Existing ConfigStore and immutable manager snapshots | Backend/migration contracts, versioned distribution and replica consistency |
+| Memory, retrieval and response cache | Separate proposed memory/pipeline designs | Tenant-scoped retrieval/cache operations, invalidation, lifecycle and content policy |
+| MCP and Agent runtimes | Existing MCP service and registered Agent backends | Domain-specific backend/tool policy contracts and protocol/security conformance |
+
+A domain slice must define a Community reference implementation, the exact
+protected symbols, configuration and dependency ownership, injection points in
+both server modes, error/timeout/cancellation semantics, observability and an
+independent consumer contract. A generic middleware hook or gateway service
+locator does not substitute for this work. Entitlement remains distribution-owned;
+durable business workflow execution remains outside the gateway.
+
+### 12.1 Model high availability boundary
+
+Model availability is a gateway responsibility. Basic local fallback, deadlines,
+cancellation and local health/circuit behavior belong in Community. Separately
+compiled modules may supply shared health or tenant SLA, region and cost selection
+policy once the domain seam exists. These are proposed capabilities, not v0.7
+protected symbols or implemented enterprise features.
+
+Current logical-model routing filters managed-model/provider availability,
+generic capabilities and atomic protocol requirements before built-in selection.
+`RoutedProvider` tracks tried candidates and credentials, limits model reselection,
+and reports managed-credential outcomes. Its stream fallback covers opening the
+upstream stream; returning a reader does not establish successful stream
+completion. Some providers also retry non-stream calls independently. These
+mechanisms do not constitute a shared attempt budget or a candidate circuit
+breaker. Direct-provider routes do not perform cross-model fallback.
+
+A future selection seam may choose only among core-approved candidates; it must
+not bypass model enablement, protocol compatibility, authentication, admission
+or credential boundaries. The core owns execution and the common deadline and
+attempt budget across provider retries, credential changes and candidate changes.
+It also owns cancellation, stream response commitment and usage accounting.
+
+A complete availability contract must distinguish credential failures from
+provider/model failures, report stream completion/read failures, fence stale
+health observations and define state preservation across configuration changes.
+Retry decisions must account for unknown upstream execution and duplicate cost.
+After output is committed to the client, failures end that stream; transparent
+splicing of a different model response is not permitted. First-byte/first-chunk
+and client-commit boundaries must be specified before pre-output fallback is
+expanded. Concurrent hedging requires its own cost, cancellation and accounting
+contract and is not part of the initial availability seam.
+
+Attempt telemetry must separate one client interaction from its upstream
+attempts, use bounded outcomes and low-cardinality metrics, and avoid prompts,
+secrets and arbitrary upstream errors. The current public event families cannot
+carry new attempt or usage DTOs without a separately reviewed schema addition.

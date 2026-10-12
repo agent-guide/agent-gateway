@@ -13,6 +13,7 @@ Bundle YAML is the declarative configuration format for gateway objects such as:
 - VirtualKeys
 - MCP services
 - MCP routes
+- registered extension envelopes
 
 It is intentionally for configuration objects, not every runtime operation.
 
@@ -152,8 +153,7 @@ virtualKeys:
 ```
 
 Each configured rate and burst must be greater than zero. Omitted dimensions
-are unlimited. `agent` supplies the policy for two independent runtime buckets,
-ACP and builtin.
+are unlimited. `agent` supplies the unified Agent ingress bucket.
 
 ## Schema Notes
 
@@ -172,6 +172,7 @@ Common top-level sections:
 - `mcpRoutes`
 - `agents`
 - `agentRoutes`
+- `extensions`
 
 Managed credentials are not included in bundle apply/export. Treat an exported
 bundle as gateway configuration, not as a complete backup: back up and restore
@@ -186,3 +187,28 @@ Some older example files in the repository still use older field names in parts 
 - [../reference/agwctl-reference.md](../reference/agwctl-reference.md)
 - [../design/gateway-bundle-yaml.md](../design/gateway-bundle-yaml.md)
 - [logical-model-routing.md](logical-model-routing.md)
+
+## Linked extension configuration
+
+```yaml
+extensions:
+  - module_id: online.agentguide.community.limiter
+    schema_version: 1
+    config:
+      timeout_ms: 100
+      failure_mode: closed
+```
+
+Each envelope belongs to a linked module and its schema. Unknown modules fail
+local and server validation. Static envelopes are startup-owned and read-only;
+dynamic ones use the existing ConfigStore and `/admin/extensions/{module_id}`.
+Apply orders extensions by declared dependencies before other resources, stops
+on extension failure and reports partial results. It has no whole-Bundle rollback.
+Each serialized resource shares the Admin 4 MiB received-body boundary.
+
+Factory-declared secret fields use `{"$secret_ref":"env:NAME"}`. They are
+classified before ordinary `${NAME}` expansion. Local validation checks syntax
+without resolving the reference; server preparation receives resolved secrets
+separately. Storage and export preserve the reference token. Preparation or
+persistence failure leaves the serving generation active. See the
+[custom distribution guide](custom-distribution.md) for module assembly.

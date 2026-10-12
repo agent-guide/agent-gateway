@@ -25,5 +25,5 @@ Current plans:
   verification, a self-contained A2A example, process smoke coverage, and
   SQLite upgrade tests
 - [v0.7.0-enterprise-extension-foundation.md](v0.7.0-enterprise-extension-foundation.md):
-  reusable distribution, module/config/Admin/event contracts, and a protected
-  limiter SPI proving external composition
+  review of ConfigStore-only extension configuration, its follow-up implementation,
+  published-tag acceptance and paired release closure

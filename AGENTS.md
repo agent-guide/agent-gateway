@@ -275,6 +275,8 @@ Stubbed families currently return `501 Not Implemented`:
 - `docs/architecture/architecture-overview.md`: current broader architecture
 - `docs/design/enterprise-extension-contract.md`: protected external SPI,
   distribution assembly, and cross-repository compatibility rules
+- `docs/guides/custom-distribution.md`: external assembly and validation workflow
+- `docs/releases/v0.7.0.md`: exact designated surfaces and release gates
 - `docs/plans/v0.7.0-enterprise-extension-foundation.md`: active paired plan
   for reusable distribution entry points and the first protected proof SPI
 - `examples/Caddyfile.example`: working reference config

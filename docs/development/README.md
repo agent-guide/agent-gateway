@@ -67,3 +67,14 @@ not an additional production compatibility promise.
 
 `AGW_RELEASE_BIN_DIR` lets the existing Agent/A2A release smoke exercise built
 external entries named `agw`, `agwd` and `agwctl`, retaining the same harness.
+
+## Extension foundation release closure
+
+The [v0.7 release notes](../releases/v0.7.0.md) enumerate the exact designated
+production surfaces. Verify both Community gates on the clean candidate, then
+run the separate consumer's immutable candidate gate and the paired repository
+candidate gate against that full commit. Publish Community before resolving the
+released dependency in either consumer. Record the fresh-cache release results
+and checksums; only then retire the paired execution plans and their indexes.
+Local tags, temporary replacements and successful candidate builds do not prove
+that the released dependency is downloadable.

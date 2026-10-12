@@ -13,3 +13,5 @@ Current pages:
 - [http-agents.md](http-agents.md)
 - [providers.md](providers.md)
 - [routes.md](routes.md)
+
+- [custom-distribution.md](custom-distribution.md)

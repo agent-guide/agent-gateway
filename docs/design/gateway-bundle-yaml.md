@@ -102,6 +102,7 @@ Configuration-type objects are:
 - `mcpRoutes`
 - `agents`
 - `agentRoutes`
+- `extensions`
 
 These objects are expected to converge on one declarative workflow centered on gateway bundle YAML.
 
@@ -250,6 +251,7 @@ The current implemented bundle path covers:
 - `mcpRoutes`
 - `agents`
 - `agentRoutes`
+- `extensions`
 
 The current implemented bundle path does not yet cover:
 
@@ -268,14 +270,28 @@ Current responsibilities of that package:
 - define the `GatewayBundle` data model
 - load bundle YAML from file
 - decode YAML through a normalized intermediate form
-- expand environment variables in scalar strings
+- expand environment variables in non-extension scalar strings during decoding
+- preserve extension envelopes for linked-registry expansion and validation
 - serialize bundle data back to YAML
 
 Implementation detail:
 
-- the loader follows `YAML -> generic object -> env expansion -> JSON -> typed runtime structs`
+`LoadFile` delegates to `DecodeYAML`. Decoding follows
+`YAML -> normalized generic object -> env expansion outside extensions -> JSON -> typed GatewayBundle`.
+The decoder temporarily separates the complete `extensions` section from ordinary
+`${NAME}` expansion, then restores it unchanged before typed decoding. It does
+not invoke module factories or classify their secret fields.
 
-This avoids introducing a second field-tagging strategy across the existing runtime object model and lets the bundle reuse current `json` field names.
+Linked extension handling happens later in `GatewayBundle.ValidateExtensions`:
+`Registry.ExpandConfig` classifies factory-declared secret references before
+expanding ordinary `${NAME}` strings inside module configuration, preserving
+reference objects. `Registry.Validate` then checks linked schemas and dependencies.
+Missing ordinary extension environment variables and invalid secret fields fail
+this validation stage, rather than `LoadFile`. Resolving the referenced secret
+value remains a separate server preparation step.
+
+Typed decoding reuses current `json` field names rather than introducing another
+field-tagging strategy.
 
 ## 10. Validation Model
 
@@ -298,9 +314,20 @@ Current validation includes:
 - AgentRoute references to Agents inside the bundle
 - route normalization and route definition validation through existing route helpers
 
-Validation is implemented in `pkg/gatewaybundle.Validate()`.
+`GatewayBundle.ValidateWithRegistry(ctx, registry)` in `pkg/gatewaybundle` is
+the dynamic validation entry used by `agwctl validate` and `apply`. It first runs
+`ValidateExtensions`, including secret classification, ordinary extension
+environment expansion, linked module/schema checks and dependency validation,
+then validates the other resources. Static startup uses
+`ValidateForStaticConfigWithRegistry` and additionally enforces static restrictions.
 
-Validation errors are aggregated so users can see multiple file problems in one run.
+The registry-free `Validate`, `ValidateForConfigStore` and
+`ValidateForStaticConfig` methods reject non-empty `extensions` with
+`extensions require linked registry validation`; they cannot validate an external
+module's envelope. Callers must provide the distribution's linked registry.
+
+Resource validation errors are aggregated so users can see multiple file problems
+in one run. Extension validation returns its error before those resource checks.
 
 ## 11. Apply Semantics
 
@@ -315,14 +342,15 @@ Current behavior:
 
 Current object application order:
 
-1. `providers`
-2. `managedModels`
-3. `llmRoutes`
-4. `mcpServices`
-5. `mcpRoutes`
-6. `agents`
-7. `agentRoutes`
-8. `virtualKeys`
+1. `extensions` in declared dependency order
+2. `providers`
+3. `managedModels`
+4. `llmRoutes`
+5. `mcpServices`
+6. `mcpRoutes`
+7. `agents`
+8. `agentRoutes`
+9. `virtualKeys`
 
 Current non-behavior:
 
@@ -344,7 +372,7 @@ Current non-behavior:
 Current behavior:
 
 - export providers, managed models, LLM routes, virtual keys, MCP
-  services/routes, and Agents/AgentRoutes
+  services/routes, Agents/AgentRoutes and reference-preserving extension envelopes
 - omit Admin API read-only/source wrapper fields from the re-apply file
 - emit a re-usable bundle shape intended for later `validate` and `apply`
 
@@ -364,7 +392,8 @@ Current standalone integration does the following:
 - validate the bundle locally
 - instantiate static providers from bundle provider configs
 - register static provider API-key credentials into the shared credential manager
-- pass static providers, managed models, and routes into `gateway.BootstrapOptions`
+- pass static providers, direct-provider routes and extension envelopes into runtime bootstrap
+- reject static managed models, VirtualKeys and logical-model routes
 
 The shared schema contains more dynamic object families than standalone static
 loading supports. Standalone validates its own narrower startup boundary; the
@@ -375,7 +404,7 @@ The resulting runtime behavior matches the existing static-object model:
 
 - static providers are read-only
 - static routes are read-only
-- static managed models participate in model catalog reads
+- static extension envelopes are read-only and use the same prepared-generation manager
 
 ## 14. Secrets Handling
 
@@ -394,7 +423,13 @@ Current behavior:
 
 - if a referenced environment variable is missing, bundle loading fails
 
-The design intentionally keeps secret indirection minimal in the current implementation.
+Extension factory-declared secret fields are classified before ordinary string
+expansion and accept only `{"$secret_ref":"env:NAME"}`. Local validation is
+syntax-only; runtime preparation resolves separately. Stored/exported envelopes
+retain tokens rather than resolved values. Literal secrets and undeclared
+reference objects fail. Extension preparation/persistence is failure-isolated,
+but Bundle apply is not a whole-Bundle transaction. See the
+[extension contract](enterprise-extension-contract.md#113-configuration-ownership-mutation-and-secrets).
 
 ## 15. Error Model
 
