@@ -4,7 +4,23 @@
 set -eu
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 work=$(mktemp -d "${TMPDIR:-/tmp}/agw-extension-consumer.XXXXXX")
-trap 'rm -rf "$work"' EXIT HUP INT TERM
+cleanup() {
+ cleanup_status=$?
+ trap - EXIT HUP INT TERM
+ # Go module directories are read-only. Only make our private temporary tree
+ # writable; never chmod or remove the caller's module/build caches.
+ cleanup_failed=0
+ chmod -R u+w "$work" || cleanup_failed=1
+ rm -rf "$work" || cleanup_failed=1
+ if [ "$cleanup_status" -eq 0 ] && [ "$cleanup_failed" -ne 0 ]; then
+  cleanup_status=1
+ fi
+ exit "$cleanup_status"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 cp "$repo/tests/extensionconsumer/go.mod" "$work/go.mod"
 cp "$repo/tests/extensionconsumer/go.sum" "$work/go.sum"
 export GOWORK=off
