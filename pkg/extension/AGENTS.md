@@ -25,7 +25,7 @@ order. New generations currently prepare every configured module, so callbacks
 must not assume unrelated updates preserve resource identity. Shared request
 policy/bucket preservation belongs to its domain owner, especially the F5 limiter.
 
-Candidate surfaces are documented in doc.go and guarded by consumer contract
+Designated surfaces are documented in doc.go and guarded by consumer contract
 suites. Released-tag protection follows enterprise-extension-contract.md.
 Run extension race tests, Bundle/SQLite tests and make test-extension-consumer.
 

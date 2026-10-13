@@ -21,4 +21,4 @@ Current release notes:
 - [v0.6.1.md](v0.6.1.md)
 - [v0.6.0.md](v0.6.0.md)
 
-- [v0.7.0.md](v0.7.0.md) — unreleased extension foundation candidate
+- [v0.7.0.md](v0.7.0.md) — extension foundation, protected surfaces and published acceptance

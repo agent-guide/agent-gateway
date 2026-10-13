@@ -1,9 +1,9 @@
 // Package event defines sanitized v1 DTOs and bounded sink transport. It is not
 // a usage store or a second event authority. Envelope, LimiterAdmission,
-// ExtensionMutation, Sink, Publisher, Validate and Error are candidate protected
+// ExtensionMutation, Sink, Publisher, Validate and Error are designated protected
 // surfaces. Registration, Options, Stats, Delivery, NewDelivery and
 // Delivery.Publish/Flush/Close/Stats plus SchemaVersion and MaxEnvelopeBytes
-// are also designated candidate transport surfaces. Released protection requires
+// are also designated transport surfaces. Released protection requires
 // the enterprise extension contract's published-tag and consumer gates.
 package event
 

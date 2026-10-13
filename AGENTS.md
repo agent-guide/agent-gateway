@@ -52,7 +52,7 @@ must be labeled as roadmap on the pages.
 - by default, changes in this repository do not preserve backward compatibility
 - do not keep legacy aliases, deprecated field names, old route shapes, old module IDs, old CLI flags, or old API-visible IDs unless the change request explicitly requires compatibility
 - when renaming or reshaping behavior, update the code, tests, `README.md`, `docs/architecture/architecture-overview.md`, `examples/Caddyfile.example`, this file, and the nearest nested `AGENTS.md` to describe only the current behavior unless compatibility is explicitly required
-- Reusable command implementation rules and the exact F1 surface list live in
+- Reusable command implementation rules and the exact designated surface list live in
   `pkg/distribution/AGENTS.md`.
 - protected Enterprise SPI and reusable distribution entry points follow the
   compatibility policy in
@@ -184,7 +184,7 @@ or a cross-cutting adapter for it (for example `caddy/admin`,
 - `pkg/agent/` — agent control plane (`pkg/agent/runtime` contracts, `Agent` model, route/service → agent index) → `pkg/agent/AGENTS.md`; builtin eino ADK host → `pkg/agent/builtin/AGENTS.md`
 - `internal/observability/` — usage events, event pipeline, OTLP export, `einotap` → `internal/observability/AGENTS.md`
 - `pkg/dispatcher/llmapi/` — LLM protocol handler runtimes; see "Protocol handler modules" above
-- `pkg/gateway/virtualkey/limiter/` — candidate protected backend SPI, generation
+- `pkg/gateway/virtualkey/limiter/` — protected backend SPI (v0.7.0), generation
   fences, strict selection and reusable suites → its nested `AGENTS.md`
 - `pkg/extension/` — linked registry, bounded envelopes and prepared generations → `pkg/extension/AGENTS.md`
 - `pkg/attribution/` and `pkg/event/` — trusted bounded context and sanitized public sink transport → their nested `AGENTS.md` files
@@ -277,8 +277,8 @@ Stubbed families currently return `501 Not Implemented`:
   distribution assembly, and cross-repository compatibility rules
 - `docs/guides/custom-distribution.md`: external assembly and validation workflow
 - `docs/releases/v0.7.0.md`: exact designated surfaces and release gates
-- `docs/plans/v0.7.0-enterprise-extension-foundation.md`: active paired plan
-  for reusable distribution entry points and the first protected proof SPI
+- `docs/releases/v0.7.0.md`: designated protected symbols and published
+  dependency acceptance for the extension foundation
 - `examples/Caddyfile.example`: working reference config
 - `cmd/agw/main.go`: the definitive list of linked modules
 

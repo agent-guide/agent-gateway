@@ -4,8 +4,9 @@ Capability status: **Implemented** for the repository ownership and protection
 policy. Reusable entries and their external-consumer suite are **Implemented**
 along with linked registries, manifests, configuration generations and public
 attribution/events. Contributed Admin routes and the limiter SPI are **Implemented**
-as candidate contracts.
-Protection requires a released tag containing the designated APIs and tests.
+with designated contracts protected beginning with `v0.7.0`. The published-tag
+and independent-consumer acceptance is recorded in
+[v0.7 release notes](../releases/v0.7.0.md#published-acceptance).
 
 Individual extension surfaces are protected only when explicitly designated
 by released code and contract tests.
@@ -25,7 +26,7 @@ only when its package documentation explicitly designates it as an Enterprise
 SPI or reusable distribution entry point and a released Community tag contains
 the corresponding contract tests.
 
-The active v0.7 plan applies this contract to a common extension foundation:
+The v0.7 release applies this contract to a common extension foundation:
 reusable distribution entry points, a linked capability manifest, bounded
 registered configuration, Admin route composition, public attribution/event
 contracts, and the first domain-owned proof SPI (`LimiterBackend`). Guardrails
@@ -275,10 +276,11 @@ licensing, customers, or delivery dates.
 
 These decisions fix the implementation target. Entry construction, public
 metrics values, linked registries/manifests, configuration and attribution/events
-and Admin contribution/limiter contracts are implemented as candidates.
-Consumer evidence is a candidate gate, not a released-tag
-or paired-private-repository Enterprise-ready declaration. Changes to the target
-must update this design and the active plan together.
+and Admin contribution/limiter contracts are implemented. The designated
+surfaces have passed published-tag consumer acceptance beginning with `v0.7.0`.
+Future candidate evidence does not replace released-tag acceptance or declare
+the repository Enterprise-ready. Changes to these contracts must update this
+design and the relevant release documentation together.
 
 ### 11.1 Package ownership and public boundary
 
@@ -348,8 +350,8 @@ the tag-level gates in section 9.
 
 ### 11.2 Identity, manifest and registration
 
-Capability status: **Implemented**, with candidate consumer contracts. The exact
-extension symbol list is in `pkg/extension/doc.go`; reusable suite functions are
+Capability status: **Implemented**, with published-tag consumer contracts
+beginning with `v0.7.0`. The exact extension symbol list is in `pkg/extension/doc.go`; reusable suite functions are
 `contracttest.Registry` and `contracttest.Configuration`. Other package exports
 are not implicitly protected.
 
@@ -383,8 +385,8 @@ by a manifest query or request-time directory lookup.
 The configuration principle in section 11.3.1 is implemented. Internal extension
 configuration is independent of Caddyfile and owned solely by ConfigStore.
 
-Capability status: **Implemented**, with candidate consumer contracts. Registries
-validate locally without resolving secrets, and Manager prepares resources under
+Capability status: **Implemented**, with published-tag consumer contracts
+beginning with `v0.7.0`. Registries validate locally without resolving secrets, and Manager prepares resources under
 a separate generation lifetime. Prepare receives only declared dependencies.
 The current implementation re-prepares configured modules for each mutation;
 resource identity across unrelated mutations is not promised. Module owners
@@ -394,9 +396,8 @@ unchanged-policy semantics.
 
 The extension CRUD boundary has its own full-body and compression checks. The
 shared policy covering every Community and contributed Admin route, public
-envelope mutation events and contributed subroutes are implemented as candidate
-contracts. Section 11.5 defines Admin ownership and body policy; released-tag
-protection still requires the published-tag and paired-repository gates.
+envelope mutation events and contributed subroutes are implemented and protected
+beginning with `v0.7.0`. Section 11.5 defines Admin ownership and body policy.
 Envelope CRUD is Community-owned.
 
 Add `extensions` to GatewayBundle as a list of envelopes containing `module_id`,
@@ -454,8 +455,7 @@ Environment rotation requires explicit reapply and creates a generation.
 
 #### 11.3.1 Principle: host-independent extension configuration
 
-Capability status: **Implemented**, with candidate contracts. Published-tag
-protection remains pending the release and paired-consumer gates.
+Capability status: **Implemented**, with published-tag acceptance for `v0.7.0`.
 
 Caddyfile owns Caddy host configuration: listeners, TLS, HTTP middleware,
 Caddy module wiring, Admin mounting and gateway bootstrap connections. The
@@ -490,16 +490,16 @@ SQLite specifically or introduce a new store.
 The decision is limited to internal `extensions` configuration. It does not
 remove Caddy modules or change current provider, route or other resource
 configuration ownership. Static extension inputs and their ownership handling have been removed.
-The active foundation plan records candidate evidence and remaining release work.
+The v0.7 release notes record published-dependency acceptance.
 
 ### 11.4 Attribution and public events
 
-Capability status: **Implemented**, with candidate external-consumer contracts.
-Exact candidate symbol lists live in `pkg/attribution` and `pkg/event` package
+Capability status: **Implemented**, with published-tag consumer acceptance.
+Exact designated symbol lists live in `pkg/attribution` and `pkg/event` package
 comments. Public suites are `contracttest.Attribution`, `contracttest.EventSink`
-and `contracttest.CheckSinkCancellation`. Released-tag and paired-repository
-protection still require section 9's gates. Admin contribution hooks and alternate
-limiter backends are owned by their later contracts.
+and `contracttest.CheckSinkCancellation`. The designated v0.7 surfaces passed
+section 9's gates. Admin contribution hooks and alternate limiter backends follow
+the domain contracts below.
 
 
 The existing validated VirtualKey boundary establishes subject as
@@ -582,8 +582,7 @@ from app Stop.
 
 ### 11.5 Admin ownership and body policy
 
-Capability status: **Implemented**, with candidate contracts. Released-tag
-protection still requires the published-tag and paired-repository gates.
+Capability status: **Implemented**, with published-tag acceptance for `v0.7.0`.
 `Factory.AdminRoutes` declares immutable `AdminRoute` method/path pairs; the
 registration descriptor supplies their owner and must include the `admin` role.
 `Registry.AdminRoutes` and `Manager.AdminRoutes` project `OwnedAdminRoute` values.
@@ -650,8 +649,8 @@ applies to each serialized resource, not to the total local YAML file.
 
 ### 11.6 Limiter backend semantics
 
-**Implemented candidate.** The domain owns
-`pkg/gateway/virtualkey/limiter`; `doc.go` lists the exact candidate protected
+**Implemented and designated for protection beginning with v0.7.0.** The domain owns
+`pkg/gateway/virtualkey/limiter`; `doc.go` lists the exact designated protected
 symbols: `Dimension` and its constants, `Policy`, `Clock`, `LimiterRequest`,
 `LimiterDecision`, `LimiterBackend`, `LimiterProvider`, `Config`, `ModuleID`,
 `MemoryBackendType`, `Factory`, `NewMemoryBackend`, reference backend lifecycle

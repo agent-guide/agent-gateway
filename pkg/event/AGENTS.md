@@ -11,7 +11,7 @@ runs once within the first caller's common deadline. Shorter concurrent waiters
 cannot abort shared drain. Never hide a stuck sink with a goroutine per write.
 Run event/pipeline race tests and public external sink conformance suites.
 
-Designated candidate symbols: Envelope, LimiterAdmission, ExtensionMutation,
+Designated protected symbols: Envelope, LimiterAdmission, ExtensionMutation,
 Sink, Publisher, Validate, Error, Registration, Options, Stats, Delivery,
 NewDelivery, Delivery.Publish/Flush/Close/Stats, SchemaVersion and
 MaxEnvelopeBytes. Published-tag protection follows the enterprise extension

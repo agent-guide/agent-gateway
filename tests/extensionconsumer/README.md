@@ -23,15 +23,16 @@ secret environment variable in the CLI process. The temporary
 replacement and build outputs are removed on exit. Neither `go.work` nor a local
 replacement belongs in this module's checked-in files.
 
-The checked-in dependency declares the target Community release `v0.7.0`.
-Until that tag is published, run the development gate above, which tests the
-current checkout through a temporary replacement. The fixture cannot pin the
-hash of the same commit that contains its go.mod. This is checkout-based
-development evidence, not a released-tag or paired-private-repository gate.
-Run `make test-extension-consumer-release` after publishing the dependency tag;
-this uses fresh caches without a replacement. Before release,
-`make test-extension-consumer-candidate COMMUNITY_COMMIT=<exact-commit>` archives
-the committed candidate rather than consuming uncommitted worktree changes.
+The checked-in dependency pins published Community `v0.7.0` with module and
+go.mod checksums. `make test-extension-consumer-release` verifies that dependency
+using fresh caches, `GOWORK=off` and no replacement. Both this gate and the
+independent paired consumer's release gate passed; the paired Linux release CI
+also passed. The designated production surfaces follow the package/symbol/tag
+protection recorded in [release notes](../../docs/releases/v0.7.0.md).
+
+For development, `make test-extension-consumer-candidate COMMUNITY_COMMIT=<exact-commit>`
+archives the committed candidate rather than consuming uncommitted worktree
+changes. Checkout/candidate success does not replace a published-dependency gate.
 
 `entry_test.go` walks the transitive public signature types, verifies defensive
 metadata snapshots and the CLI validation projection, rejects direct imports
@@ -57,7 +58,7 @@ traffic without upstream I/O, verify unchanged/changed policy state, reject unav
 selections, switch authority, exercise timeout/ambiguous consumption and explicit
 fail-open, inspect bounded Prometheus labels and flush admission/reset events.
 
-The F6 integrated process contract lives in the public test package
+The integrated process contract lives in the public test package
 `pkg/distribution/contracttest`, so separately maintained repositories can run
 it against their own entries without copying a Community harness. It checks
 three command manifests, both server modes, CLI validate/apply/export with

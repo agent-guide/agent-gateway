@@ -1,6 +1,6 @@
 // Package attribution transports bounded trusted identity and runtime correlation.
 // Value, Policy, NewPolicy, Policy.Validate, WithContext, FromContext, WithCorrelation, Producer
-// and Error are candidate protected surfaces. This package performs no authentication.
+// and Error are designated protected surfaces. This package performs no authentication.
 package attribution
 
 import (
