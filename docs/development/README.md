@@ -15,7 +15,8 @@ make verify-release
 ```
 
 This checks tracked Go files outside `third_party/` with `gofmt -l`, verifies
-modules, runs the normal and race test suites, runs `go vet`, and builds
+modules, runs the normal and race test suites, runs the independent extension
+consumer race/build/process contracts, runs `go vet`, and builds
 `agw`, `agwd`, and `agwctl`. The race suite temporarily excludes only
 `pkg/llm/provider/anthropic` because the pinned `eino-ext/claude` dependency
 has a known race in `ChatModel.Stream`.

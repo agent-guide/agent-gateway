@@ -76,14 +76,15 @@ func Annotate(cmd *cobra.Command, a Assembly) {
 // CommunityRuntime is the metadata shared by both Community server entries.
 func CommunityRuntime() Assembly {
 	const prefix = "online.agentguide.community."
-	a := Assembly{Edition: Edition{Name: "community"}, Factories: map[string]*extension.Factory{limiter.ModuleID: limiter.Factory(true)}}
-	a.Modules = append(a.Modules, extension.Descriptor{ID: limiter.ModuleID, Version: "0.7.0-dev", SchemaVersion: 1, Capabilities: []string{prefix + "limiter"}, Roles: []string{"runtime", "validation", "spi"}})
-	a.Modules = append(a.Modules, extension.Descriptor{ID: prefix + "gateway", Version: "0.7.0-dev", SchemaVersion: 1, Capabilities: []string{prefix + "llm", prefix + "mcp", prefix + "agent", prefix + "metrics", prefix + "admin"}, Roles: []string{"runtime", "validation", "admin"}})
+	const version = "0.7.0"
+	a := Assembly{Edition: Edition{Name: "community", Version: version}, Factories: map[string]*extension.Factory{limiter.ModuleID: limiter.Factory(true)}}
+	a.Modules = append(a.Modules, extension.Descriptor{ID: limiter.ModuleID, Version: version, SchemaVersion: 1, Capabilities: []string{prefix + "limiter"}, Roles: []string{"runtime", "validation", "spi"}})
+	a.Modules = append(a.Modules, extension.Descriptor{ID: prefix + "gateway", Version: version, SchemaVersion: 1, Capabilities: []string{prefix + "llm", prefix + "mcp", prefix + "agent", prefix + "metrics", prefix + "admin"}, Roles: []string{"runtime", "validation", "admin"}})
 	for _, name := range []string{"anthropic", "anthropicbase", "claudecode", "codex", "deepseek", "gemini", "grok", "ollama", "openai", "openrouter", "qwen", "zhipu"} {
-		a.Modules = append(a.Modules, extension.Descriptor{ID: prefix + "provider." + name, Version: "0.7.0-dev", SchemaVersion: 1, Capabilities: []string{prefix + "provider." + name}, Roles: []string{"runtime", "validation"}})
+		a.Modules = append(a.Modules, extension.Descriptor{ID: prefix + "provider." + name, Version: version, SchemaVersion: 1, Capabilities: []string{prefix + "provider." + name}, Roles: []string{"runtime", "validation"}})
 	}
 	for _, name := range []string{"codex", "opencode"} {
-		a.Modules = append(a.Modules, extension.Descriptor{ID: prefix + "acp." + name, Version: "0.7.0-dev", SchemaVersion: 1, Capabilities: []string{prefix + "acp." + name}, Roles: []string{"runtime"}})
+		a.Modules = append(a.Modules, extension.Descriptor{ID: prefix + "acp." + name, Version: version, SchemaVersion: 1, Capabilities: []string{prefix + "acp." + name}, Roles: []string{"runtime"}})
 	}
 	return a
 }
