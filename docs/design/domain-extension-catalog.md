@@ -1,10 +1,10 @@
 # Community Domain Extension Catalog
 
-Capability status: **Proposed** for future domain integration. The v0.7
-foundation and limiter proof are implemented as candidate contracts. Other
-integration proposals in this catalog are not implemented or protected SPIs
-merely because the foundation exists. Released protection still requires a
-published tag and independent consumer acceptance.
+Capability status: **Proposed** for future domain integration. The foundation
+and limiter proof are released in `v0.7.0` with independent consumer acceptance.
+Only the designated v0.7 surfaces are protected. Other integration proposals in
+this catalog still require their own implementation, published tag and consumer
+acceptance before they become protected SPIs.
 
 ## 1. Purpose and scope
 
