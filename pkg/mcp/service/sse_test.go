@@ -21,7 +21,6 @@ type sseTestServer struct {
 	mu      sync.Mutex
 	clients []chan string
 	done    chan struct{}
-	wg      sync.WaitGroup
 }
 
 func (s *sseTestServer) broadcast(line string) {
@@ -43,16 +42,15 @@ func (s *sseTestServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
-
 	ch := make(chan string, 32)
 	s.mu.Lock()
 	s.clients = append(s.clients, ch)
 	s.mu.Unlock()
 
-	s.wg.Add(1)
-	defer s.wg.Done()
+	// Register the response channel before headers announce readiness. The client
+	// may POST initialize as soon as GET returns, including after a reconnect.
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
 
 	for {
 		select {
@@ -130,7 +128,7 @@ func (s *sseTestServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 
 // newFakeSSEConfig starts a fake SSE MCP server and returns its service config.
 // The server is shut down via t.Cleanup: the done channel is closed so that
-// SSE handler goroutines exit cleanly before httptest.Server.Close() is called.
+// httptest.Server.Close waits for all handlers, including ones still starting.
 func newFakeSSEConfig(t *testing.T, id string) service.MCPServiceConfig {
 	t.Helper()
 	srv := &sseTestServer{done: make(chan struct{})}
@@ -140,7 +138,6 @@ func newFakeSSEConfig(t *testing.T, id string) service.MCPServiceConfig {
 	ts := httptest.NewServer(mux)
 	t.Cleanup(func() {
 		close(srv.done) // signal SSE handler goroutines to exit
-		srv.wg.Wait()   // wait until they do
 		ts.Close()
 	})
 	return service.MCPServiceConfig{
@@ -236,7 +233,6 @@ func TestManagerSSECallToolRelaysProgress(t *testing.T) {
 		}
 	}
 	done := make(chan struct{})
-	var wg sync.WaitGroup
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/sse", func(w http.ResponseWriter, r *http.Request) {
@@ -247,14 +243,12 @@ func TestManagerSSECallToolRelaysProgress(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
-		w.WriteHeader(http.StatusOK)
-		flusher.Flush()
 		ch := make(chan string, 32)
 		clientsMu.Lock()
 		clients = append(clients, ch)
 		clientsMu.Unlock()
-		wg.Add(1)
-		defer wg.Done()
+		w.WriteHeader(http.StatusOK)
+		flusher.Flush()
 		for {
 			select {
 			case line := <-ch:
@@ -302,7 +296,6 @@ func TestManagerSSECallToolRelaysProgress(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	t.Cleanup(func() {
 		close(done)
-		wg.Wait()
 		ts.Close()
 	})
 
