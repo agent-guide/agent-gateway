@@ -774,6 +774,9 @@ manifest and CI evidence; Community records only its public integration seam.
 
 ## 12. Domain extension coverage and ownership
 
+The detailed existing/proposed domain inventory and Caddy adapter boundaries live
+in the [domain extension catalog](domain-extension-catalog.md).
+
 Capability status: **Proposed** for the additional domain seams in this section.
 The foundation above is implemented; registration, configuration, Admin routes
 and lifecycle do not grant a module arbitrary access to the request pipeline.

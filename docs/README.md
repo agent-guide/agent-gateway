@@ -40,6 +40,8 @@ Category index:
 
 Primary detailed documents:
 
+- [design/domain-extension-catalog.md](design/domain-extension-catalog.md): existing and proposed domain extension candidates, ownership and acceptance boundaries
+
 - [guides/custom-distribution.md](guides/custom-distribution.md): assemble and verify independent distributions
 - [releases/v0.7.0.md](releases/v0.7.0.md): released extension foundation, designated symbols and acceptance
 

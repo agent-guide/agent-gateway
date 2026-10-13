@@ -19,6 +19,7 @@ Current design pages:
 - [http-agent-runtime.md](http-agent-runtime.md) — `runtime.type = "http"` design: A2A Protocol 1.0 JSON-RPC, shared `pkg/a2a`, Path B translating backend then Path A governed proxy
 - [guardrails.md](guardrails.md) — Community Guardrails Core: policy/check SPI, typed inspection, safe rewriting, enforcement, and decision events
 - [enterprise-extension-contract.md](enterprise-extension-contract.md) — Community-side SPI, compatibility, assembly, and cross-repository rules for separately maintained distributions
+- [domain-extension-catalog.md](domain-extension-catalog.md) — existing and proposed Gateway domains, extension ownership, host boundaries and consumer acceptance
 - [model-first-routing.md](model-first-routing.md)
 - [route-target-policy.md](route-target-policy.md)
 - [provider-type-startup-policy.md](provider-type-startup-policy.md)
