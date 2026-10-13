@@ -21,6 +21,4 @@ Lifecycle convention:
 
 Current plans:
 
-- [v0.7.0-enterprise-extension-foundation.md](v0.7.0-enterprise-extension-foundation.md):
-  published-tag acceptance and paired release closure for the implemented
-  ConfigStore-only extension foundation
+There are no active release plans.

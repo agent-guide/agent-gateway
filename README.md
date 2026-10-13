@@ -665,7 +665,7 @@ cancellation and reverse dependency shutdown. Unconfigured modules return 503.
 
 ### Limiter backend extension
 
-`pkg/gateway/virtualkey/limiter` is the candidate protected domain SPI.
+`pkg/gateway/virtualkey/limiter` is the protected domain SPI beginning with v0.7.0.
 A separately linked module implements `LimiterProvider` on its prepared resource
 and returns a `LimiterBackend` for a declared type. The Community selection
 extension has schema 1 and defaults to local memory, 100 ms, and fail-closed:
@@ -717,4 +717,4 @@ queues, FIFO flush and deadline-aware shutdown. Overflow drops the newest event;
 delivery is best-effort without retry or replay. `GET /admin/metrics` includes
 `pipeline.rejected_events` and per-sink `pipeline.public_sinks` health/counters.
 See the [attribution/event contract](docs/design/enterprise-extension-contract.md#114-attribution-and-public-events)
-for bounds, lifecycle semantics and candidate protected symbols.
+for bounds, lifecycle semantics and designated protected symbols.

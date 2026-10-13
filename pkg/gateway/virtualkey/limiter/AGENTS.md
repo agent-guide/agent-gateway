@@ -17,4 +17,4 @@ Community default, distributed production storage is out of scope.
 
 Run the same public contracttest.Limiter suite for memory and the independent
 consumer backend, plus parent/extension/dispatcher race tests and both real server
-process tests. The exact candidate protected symbol list lives in doc.go.
+process tests. The exact designated protected symbol list lives in doc.go.

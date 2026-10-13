@@ -1,10 +1,10 @@
-// Package limiter owns the candidate protected VirtualKey admission SPI.
+// Package limiter owns the designated protected VirtualKey admission SPI.
 // The designated surfaces are Dimension and its LLM/MCP/Agent constants,
 // Policy, Clock, LimiterRequest, LimiterDecision, LimiterBackend, LimiterProvider,
 // Config, ModuleID, MemoryBackendType, Factory, NewMemoryBackend and the
 // MemoryBackend Admit/Retire/Health/Close methods, ErrLimiterUnavailable and
 // ErrLimiterRetired. Their exported fields and method signatures are protected
-// candidates; released protection requires the published-tag consumer gates.
+// beginning with v0.7.0 after published-tag consumer acceptance.
 // Selection and its accessors are Community assembly implementation surfaces.
 //
 // Policies and globally unique generations are committed before admission.

@@ -1,7 +1,7 @@
 // Package extension implements an explicit, immutable linked registry and
 // reference-preserving module configuration. It never loads runtime code.
 //
-// The candidate protected value contracts are Descriptor, Error (Code, ModuleID,
+// The designated protected value contracts are Descriptor, Error (Code, ModuleID,
 // Field and Error), Manifest, Registration, Factory, Resource, Envelope,
 // PreparedConfig, Snapshot, Lease, Persistence, Registry and Manager. Their
 // exported fields and callback signatures form part of their contracts.
@@ -10,9 +10,9 @@
 // Snapshot.Config, Snapshot.Resource, Snapshot.Context; Lease.Release;
 // Manager.Acquire, Manager.List, Manager.Manifest, Manager.Put, Manager.Delete,
 // Manager.Health, Manager.Close and Manager.SetPublisher. Other exported helpers are not designated.
-// F5 designates StatefulResource and Snapshot.Sequence. Reconciliation only
+// StatefulResource and Snapshot.Sequence are also designated. Reconciliation only
 // changes unpublished candidate identity; reset metadata is emitted after commit.
-// F4 also designates AdminRoute, OwnedAdminRoute, AdminDependencies,
+// Also designated: AdminRoute, OwnedAdminRoute, AdminDependencies,
 // AdminContributor, WriteAdminError, Registry.AdminRoutes, Manager.AdminRoutes and Manager.AdminPublisher.
 // Factory.AdminRoutes is an immutable declaration set; only prepared resources
 // handle requests, with leases and the same generation lifecycle.
