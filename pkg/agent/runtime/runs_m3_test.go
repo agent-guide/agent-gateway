@@ -170,20 +170,20 @@ func TestPermissionBrokerLookupRetainsClaimedCorrelation(t *testing.T) {
 
 func TestPermissionBrokerExpiryClaimsFailClosed(t *testing.T) {
 	now := time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)
-	var nowNanos atomic.Int64
-	nowNanos.Store(now.UnixNano())
-	b := NewPermissionBroker()
+	// Isolate read and claim semantics from the background expiry scheduler.
+	// Automatic cleanup is covered by TestPermissionBrokerOwnsAutomaticExpiryCleanup.
+	b := &PermissionBroker{
+		pending: map[string]*permissionEntry{}, claimed: map[string]claimedPermission{}, expired: map[string]expiredPermission{},
+		resolvers: map[string]ContinuationResolver{}, now: func() time.Time { return now },
+		wake: make(chan struct{}, 1), done: make(chan struct{}),
+	}
 	t.Cleanup(func() { b.Close(WithPermissionSource(context.Background(), "test_cleanup")) })
-	b.mu.Lock()
-	b.now = func() time.Time { return time.Unix(0, nowNanos.Load()).UTC() }
-	b.mu.Unlock()
 	binding := &testContinuation{}
 	_, err := b.Register(PendingPermission{RequestID: "perm-exp", AgentID: "a", RuntimeType: "builtin", RunID: "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ExpiresAt: now.Add(time.Minute)}, "cont-exp", binding)
 	if err != nil {
 		t.Fatal(err)
 	}
 	now = now.Add(2 * time.Minute)
-	nowNanos.Store(now.UnixNano())
 	if got := b.List("a"); len(got) != 0 {
 		t.Fatalf("expired list=%+v", got)
 	}
