@@ -21,8 +21,6 @@ Lifecycle convention:
 
 Current plans:
 
-- [v0.6.1-stabilization.md](v0.6.1-stabilization.md): patch-release
-  verification, a self-contained A2A example, process smoke coverage, and
-  SQLite upgrade tests
-- [v0.7.0-community-guardrails.md](v0.7.0-community-guardrails.md): first
-  Community Guardrails implementation slice for provider-facing chat requests
+- [v0.7.0-enterprise-extension-foundation.md](v0.7.0-enterprise-extension-foundation.md):
+  published-tag acceptance and paired release closure for the implemented
+  ConfigStore-only extension foundation

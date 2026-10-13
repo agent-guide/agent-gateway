@@ -5,6 +5,9 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"github.com/agent-guide/agent-gateway/internal/distributionmetrics"
+	"github.com/agent-guide/agent-gateway/pkg/distribution"
+	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"net"
 	"net/http"
 	"strings"
@@ -36,6 +39,8 @@ import (
 const shutdownTimeout = 10 * time.Second
 
 type Options struct {
+	Registry                 *extension.Registry
+	Assembly                 distribution.Assembly
 	Addr                     string
 	AdminAddr                string
 	ConfigStorePath          string
@@ -44,7 +49,7 @@ type Options struct {
 	CredentialRefreshCommand string
 	CredentialRefreshArgs    []string
 	AdminBasicAuthHash       string
-	Metrics                  usage.Config
+	Metrics                  distribution.MetricsConfig
 }
 
 func (o *Options) setDefaults() {
@@ -65,7 +70,7 @@ func (o *Options) setDefaults() {
 	}
 }
 
-func Run(ctx context.Context, opts Options) error {
+func Run(ctx context.Context, opts Options) (result error) {
 	opts.setDefaults()
 	if err := configureProviderTypes(opts.ProviderTypes); err != nil {
 		return err
@@ -81,12 +86,16 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	defer agentGateway.Close()
 	if usageService != nil {
 		usageService.Start()
-		defer func() { _ = usageService.Close() }()
+		defer func() {
+			if err := usageService.Close(); err != nil {
+				result = errors.Join(result, fmt.Errorf("close event pipeline: %w", err))
+			}
+		}()
 	}
 
+	defer agentGateway.Close()
 	adminHandler, err := protectAdminHandler(admin.NewHandler(agentGateway, logger.Named("admin")), opts.AdminBasicAuthHash)
 	if err != nil {
 		return fmt.Errorf("configure admin auth: %w", err)
@@ -165,6 +174,18 @@ func newDispatchHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) 
 }
 
 func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*gateway.AgentGateway, *usage.UsageService, error) {
+	if opts.Registry == nil {
+		a := opts.Assembly
+		if a.Modules == nil {
+			a = distribution.CommunityRuntime()
+			opts.Assembly = a
+		}
+		r, err := a.Registry()
+		if err != nil {
+			return nil, nil, err
+		}
+		opts.Registry = r
+	}
 	staticConfig, err := loadStaticConfig(ctx, opts)
 	if err != nil {
 		return nil, nil, err
@@ -177,7 +198,20 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 	if err := schema.RegisterDefaultStores(configstoreBackend); err != nil {
 		return nil, nil, err
 	}
-	usageService := newUsageService(configstoreBackend, logger, opts.Metrics)
+	usageService := newUsageService(configstoreBackend, logger, distributionmetrics.From(opts.Metrics))
+	bootstrapped := false
+	defer func() {
+		if !bootstrapped {
+			_ = usageService.Close()
+		}
+	}()
+	policy, err := opts.Assembly.AttributionPolicy()
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := usageService.ConfigurePublic(policy, opts.Assembly.EventSinks); err != nil {
+		return nil, nil, err
+	}
 
 	credentialStore, err := configstoreBackend.Get(schema.StoreCredentials)
 	if err != nil {
@@ -195,6 +229,7 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 	}
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(ctx, gateway.BootstrapOptions{
+		ExtensionRegistry: opts.Registry, Distribution: opts.Assembly, EventPublisher: usageService,
 		StaticLLMRoutes:     staticConfig.LLMRoutes,
 		StaticProviders:     staticConfig.Providers,
 		ConfigStoreBackend:  configstoreBackend,
@@ -204,9 +239,10 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 		UsageQuery:          usageService.Query(),
 		UsageStats:          usageService,
 		UsagePrometheus:     usageService.Prometheus(),
-		UsageConfig:         opts.Metrics.Normalized(),
+		UsageConfig:         distributionmetrics.From(opts.Metrics).Normalized(),
 		Logger:              logger,
 	}); err != nil {
+		agentGateway.Close()
 		return nil, nil, fmt.Errorf("bootstrap agent gateway: %w", err)
 	}
 	if attribution := usageService.Attribution(); attribution != nil {
@@ -214,6 +250,7 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 			attribution.Set(manager)
 		}
 	}
+	bootstrapped = true
 	return agentGateway, usageService, nil
 }
 
@@ -221,14 +258,14 @@ func newUsageService(backend configstore.ConfigStoreBackend, logger *zap.Logger,
 	einotap.Register()
 	dbProvider, ok := backend.(usage.SQLDBProvider)
 	if !ok {
-		return usage.NewUsageService(nil, nil)
+		return usage.NewUsageService(pipeline.NewEventPipeline(4096), nil)
 	}
 	sink, query, err := pipeline.NewSQLiteSink(dbProvider, cfg)
 	if err != nil {
 		if logger != nil {
 			logger.Warn("usage metrics sqlite sink unavailable", zap.Error(err))
 		}
-		return usage.NewUsageService(nil, nil)
+		return usage.NewUsageService(pipeline.NewEventPipeline(4096), nil)
 	}
 	promSink := pipeline.NewPrometheusSink()
 	sinks := []pipeline.Sink{sink, promSink}
@@ -261,7 +298,6 @@ type staticConfig struct {
 }
 
 func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) {
-	_ = ctx
 	cfg := &staticConfig{
 		Providers: map[string]provider.Provider{},
 	}

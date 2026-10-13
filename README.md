@@ -156,8 +156,11 @@ virtualKeys:
 ```
 
 `rate_limits` is optional. It independently limits LLM, MCP, and agent ingress
-for a VirtualKey with in-memory token buckets; `agent` covers common Agent
-turns and native A2A POSTs. Exceeded requests return `429` with `Retry-After`.
+for a VirtualKey through the configured limiter backend (process-local memory
+by default); `agent` covers common Agent
+turns and native A2A POSTs. Exceeded requests return `429` with `Retry-After`. Backend failures/timeouts
+default to `503 limiter_unavailable`; explicit fail-open is reported as degraded.
+Admission is never retried automatically.
 
 Set the admin Basic Auth credentials for agwctl as an environment variable, then apply the bundle:
 
@@ -593,3 +596,125 @@ go test ./pkg/llm/provider/...
 ./agw adapt --config ./Caddyfile
 ./agw run --config ./Caddyfile
 ```
+
+Reusable distribution entries live in `pkg/distribution/caddycmd`,
+`pkg/distribution/daemoncmd`, and `pkg/distribution/ctlcmd`. Separate binaries
+keep their own explicit factory/module imports and supply `distribution.Assembly`
+metadata. `daemoncmd.NewCommand` and `ctlcmd.NewCommand` create independent Cobra
+commands; their `Run` helpers load dotenv and return an exit code for main.
+`caddycmd.New(...).Run()` delegates process behavior to upstream Caddy.
+Public metrics options use `distribution.MetricsConfig` and `OTLPConfig`.
+`Assembly.Registry()` validates explicitly linked declarations; metadata never
+dynamically loads module code.
+
+See the [custom distribution guide](docs/guides/custom-distribution.md) for assembly,
+configuration, Admin, attribution and backend integration. The
+[v0.7 release notes](docs/releases/v0.7.0.md) enumerate designated compatibility
+surfaces and the remaining published-tag gates.
+
+Run `make test-extension-consumer` to build and test the separate-module consumer
+against this checkout; the same gate is included in `make verify-release`.
+
+All Admin routes share a 4 MiB received-body limit. The gateway checks the full
+body before dispatching a write, including chunked requests. Larger bodies return
+JSON HTTP 413; compressed bodies return HTTP 415. Bundle apply uses this limit
+per serialized resource, not per local Bundle file. Panic responses use generic
+JSON HTTP 500 diagnostics.
+
+### Linked extensions
+
+`agw manifest`, `agwd manifest`, and `agwctl manifest` show deterministic linked
+metadata. The CLI reports validation capabilities; `agwctl manifest --remote`
+queries the server runtime manifest through the authenticated Admin mount.
+
+Separately compiled distributions declare descriptors and configuration
+factories through `distribution.Assembly`. Gateway Bundle `extensions` use
+`module_id`, `schema_version`, and module-owned JSON `config`. Unknown modules
+fail validation/startup. Community binaries have no commercial factories.
+`GET /admin/extensions` and `GET|PUT|DELETE /admin/extensions/{module_id}` manage
+persisted envelopes in the existing ConfigStore. Caddyfile and standalone static
+Bundles do not configure internal extensions; use Admin API or Bundle apply.
+Apply handles extensions in dependency order before other resources and reports
+partial results when an extension fails. Export retains configuration and secret references.
+
+Secret fields declared by a factory accept only `{"$secret_ref":"env:NAME"}`.
+Local validation never resolves these tokens. Server preparation resolves them;
+persisted/exported JSON retains the token. Preparation/persistence failure leaves
+the current generation active. See the
+[extension contract](docs/design/enterprise-extension-contract.md#113-configuration-ownership-mutation-and-secrets).
+
+
+### Contributed Admin routes
+
+Runtime factories may declare `extension.Factory.AdminRoutes`. Their prepared
+resources implement `extension.AdminContributor`; modules need the `admin` role.
+Routes belong exclusively to `/admin/extensions/<module_id>/...`; the module root
+remains Community envelope CRUD. Patterns accept literals and single-segment
+`{name}` wildcards. Duplicate or overlapping method/path declarations fail
+assembly with `route_conflict`; GET also owns HEAD. OPTIONS is shared preflight.
+
+Handlers receive an owned reference-preserving config, logger, attribution accessor
+and owner-scoped public mutation publisher through `AdminDependencies`. The
+publisher captures trusted request identity; a module-supplied context cannot
+replace event attribution. Handlers use
+`WriteAdminError` for bounded JSON errors. No gateway, store or credentials are
+injected. Both server modes keep the outer Admin authentication, CORS, logging,
+panic recovery and full-body boundary. Module health appears in `/admin/health`;
+generation leases drain handlers before resource retirement, with bounded request
+cancellation and reverse dependency shutdown. Unconfigured modules return 503.
+
+### Limiter backend extension
+
+`pkg/gateway/virtualkey/limiter` is the candidate protected domain SPI.
+A separately linked module implements `LimiterProvider` on its prepared resource
+and returns a `LimiterBackend` for a declared type. The Community selection
+extension has schema 1 and defaults to local memory, 100 ms, and fail-closed:
+
+```yaml
+extensions:
+  - module_id: online.agentguide.community.limiter
+    schema_version: 1
+    config:
+      backend_module_id: example.organization.limiter
+      backend_type: redis
+      timeout_ms: 100
+      failure_mode: closed
+```
+
+This example requires the named backend module to be linked and configured in
+the same Bundle; Community does not ship a production Redis backend. Unknown,
+unconfigured or unavailable selections fail startup/apply. `timeout_ms` accepts
+1–1000 and is capped by the caller deadline. With no limit for a dimension,
+admission is unlimited and never calls the backend. Caller cancellation and
+shutdown and retired-policy errors never fail open. Set `failure_mode: open` only for intentional degraded
+admission on backend failure or timeout.
+
+Policies have opaque per-key/dimension generations. Unchanged policies preserve
+tokens across metadata writes and unrelated extension refreshes; changed dimensions,
+key deletion/reset and backend switches retire state. A switch resets full buckets
+without transferring tokens. Quota state must survive replacement of prepared
+connection handles; retired generations must stay fenced against late operations.
+Public mutation events report `state_reset`; admission events distinguish allow,
+deny and degraded. Prometheus exposes `agentgateway_limiter_admissions_total`
+with only dimension, outcome and bounded backend type labels.
+
+See the [limiter contract](docs/design/enterprise-extension-contract.md#116-limiter-backend-semantics)
+and reusable `limiter/contracttest.Limiter` and `LimiterRefill` suites. Released-tag
+protection and paired repository evidence remain release gates.
+
+### Trusted attribution and public event sinks
+
+Custom distributions can inject `Assembly.AttributionProducer`, exact namespaced
+`AttributeKeys`, and linked-module `EventSinks`. A validated VirtualKey supplies
+the default subject; a trusted producer can supply subject/tenant. Client tenant
+headers are ignored. `pkg/attribution` exposes bounded context values with defensive
+copies, while runtime route/Agent/run/trace correlation comes from the gateway.
+
+Public sinks receive only typed `limiter.admission` and `extension.mutation`
+envelopes from the existing pipeline. Config, secret references, resolved values,
+prompts and arbitrary error messages are excluded. Delivery uses isolated bounded
+queues, FIFO flush and deadline-aware shutdown. Overflow drops the newest event;
+delivery is best-effort without retry or replay. `GET /admin/metrics` includes
+`pipeline.rejected_events` and per-sink `pipeline.public_sinks` health/counters.
+See the [attribution/event contract](docs/design/enterprise-extension-contract.md#114-attribution-and-public-events)
+for bounds, lifecycle semantics and candidate protected symbols.

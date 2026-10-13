@@ -1,6 +1,11 @@
 package usage
 
-import "sync/atomic"
+import (
+	"context"
+	"github.com/agent-guide/agent-gateway/pkg/attribution"
+	"github.com/agent-guide/agent-gateway/pkg/event"
+	"sync/atomic"
+)
 
 type Config struct {
 	RetentionDays int        `json:"retention_days,omitempty"`
@@ -255,4 +260,49 @@ type A2ASummary struct {
 	SuccessCount int64 `json:"success_count"`
 	FailureCount int64 `json:"failure_count"`
 	AvgLatencyMS int64 `json:"avg_latency_ms"`
+}
+
+// Publish projects only public DTOs through the existing pipeline authority.
+func (s *UsageService) Publish(ctx context.Context, e event.Envelope) bool {
+	if s == nil {
+		return false
+	}
+	p, ok := s.pipeline.(event.Publisher)
+	return ok && p.Publish(ctx, e)
+}
+func (s *UsageService) CloseContext(ctx context.Context) error {
+	if s == nil || s.pipeline == nil {
+		return nil
+	}
+	if p, ok := s.pipeline.(interface{ CloseContext(context.Context) error }); ok {
+		return p.CloseContext(ctx)
+	}
+	return s.pipeline.Close()
+}
+
+func (s *UsageService) ConfigurePublic(p attribution.Policy, r []event.Registration) error {
+	if pipeline, ok := s.pipeline.(interface {
+		ConfigurePublic(attribution.Policy, []event.Registration) error
+	}); ok {
+		return pipeline.ConfigurePublic(p, r)
+	}
+	return &event.Error{Code: "sink_initialization_failed"}
+}
+func (s *UsageService) RejectedEvents() uint64 {
+	if s == nil {
+		return 0
+	}
+	if p, ok := s.pipeline.(interface{ RejectedEvents() uint64 }); ok {
+		return p.RejectedEvents()
+	}
+	return 0
+}
+func (s *UsageService) PublicStats() []event.Stats {
+	if s == nil {
+		return nil
+	}
+	if p, ok := s.pipeline.(interface{ PublicStats() []event.Stats }); ok {
+		return p.PublicStats()
+	}
+	return nil
 }

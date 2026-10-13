@@ -52,6 +52,8 @@ must be labeled as roadmap on the pages.
 - by default, changes in this repository do not preserve backward compatibility
 - do not keep legacy aliases, deprecated field names, old route shapes, old module IDs, old CLI flags, or old API-visible IDs unless the change request explicitly requires compatibility
 - when renaming or reshaping behavior, update the code, tests, `README.md`, `docs/architecture/architecture-overview.md`, `examples/Caddyfile.example`, this file, and the nearest nested `AGENTS.md` to describe only the current behavior unless compatibility is explicitly required
+- Reusable command implementation rules and the exact F1 surface list live in
+  `pkg/distribution/AGENTS.md`.
 - protected Enterprise SPI and reusable distribution entry points follow the
   compatibility policy in
   [`docs/design/enterprise-extension-contract.md`](docs/design/enterprise-extension-contract.md)
@@ -88,6 +90,8 @@ go test ./path/to/package -run TestName -v
 Notes:
 
 - `make build` builds `agw` from `cmd/agw/main.go`, `agwd` from `cmd/agwd/main.go`, and `agwctl` from `cmd/agwctl/main.go`.
+- The three mains own explicit linked-module imports and delegate to `pkg/distribution/caddycmd`, `daemoncmd`, and `ctlcmd`. Command construction must keep flag state local; dotenv, signals, and process exit belong to execution.
+- Both server mains pass `distribution.CommunityRuntime()`; CLI passes `CommunityValidation()`. These supply validated manifest metadata, with explicitly injected attribution producers/allowlists and per-lifecycle public sink factories excluded from serialization. Keep declarations aligned with main imports.
 - The resulting binary is a standard Caddy binary with custom modules compiled in, so normal Caddy subcommands such as `run`, `reload`, `validate`, and `hash-password` work.
 
 ## Core Modules
@@ -168,7 +172,7 @@ authentication is delegated to the HTTP mount layer such as Caddy
 Deep per-subsystem rules live in nested `AGENTS.md` files next to the code.
 Read the applicable subsystem file before changing either its runtime package
 or a cross-cutting adapter for it (for example `caddy/admin`,
-`caddy/dispatcher`, `standalone/server`, `pkg/gatewaybundle`, or `cmd/agwctl`):
+`caddy/dispatcher`, `standalone/server`, `pkg/gatewaybundle`, or `pkg/distribution/ctlcmd`):
 
 - `pkg/gateway/` — runtime route/VirtualKey/provider resolution (`AgentGateway`) and the public route-model packages (`llmroute`, `modelcatalog`, `mcproute`, `agentroute`, `virtualkey`) → `pkg/gateway/AGENTS.md`
 - `pkg/acp/` — native ACP runtime (`codex`, `opencode`): pooling, sessions, permissions, transcripts → `pkg/acp/AGENTS.md`
@@ -176,10 +180,14 @@ or a cross-cutting adapter for it (for example `caddy/admin`,
 - `pkg/llm/` — provider interface/registry, built-in providers, and the `einomodel` eino bridge → `pkg/llm/AGENTS.md`
 - `pkg/mcp/` — MCP service runtime and the `einotool` eino bridge → `pkg/mcp/AGENTS.md`
 - `pkg/a2a/` — A2A Protocol 1.0 JSON-RPC (Path B translating client/backend and Path A governed native proxy are implemented) → `pkg/a2a/AGENTS.md`
-- `pkg/configstore/` — generic config store/backends (persisted backend: `sqlite`; stores `providers`, `credentials`, `routes`, `mcp_services`, `agents`, `virtual_keys`, `managed_models`) → `pkg/configstore/AGENTS.md`
+- `pkg/configstore/` — generic config store/backends (persisted backend: `sqlite`; stores `providers`, `credentials`, `routes`, `mcp_services`, `agents`, `virtual_keys`, `managed_models`, `extensions`) → `pkg/configstore/AGENTS.md`
 - `pkg/agent/` — agent control plane (`pkg/agent/runtime` contracts, `Agent` model, route/service → agent index) → `pkg/agent/AGENTS.md`; builtin eino ADK host → `pkg/agent/builtin/AGENTS.md`
 - `internal/observability/` — usage events, event pipeline, OTLP export, `einotap` → `internal/observability/AGENTS.md`
 - `pkg/dispatcher/llmapi/` — LLM protocol handler runtimes; see "Protocol handler modules" above
+- `pkg/gateway/virtualkey/limiter/` — candidate protected backend SPI, generation
+  fences, strict selection and reusable suites → its nested `AGENTS.md`
+- `pkg/extension/` — linked registry, bounded envelopes and prepared generations → `pkg/extension/AGENTS.md`
+- `pkg/attribution/` and `pkg/event/` — trusted bounded context and sanitized public sink transport → their nested `AGENTS.md` files
 - `caddy/gateway/` — Caddy app wiring and global `agent_gateway` Caddyfile parsing; see "Caddy app" above
 
 Cross-cutting invariants:
@@ -221,6 +229,16 @@ The main config lives in the global `agent_gateway` block.
 
 Important current directives:
 
+- internal extensions are independent of Caddyfile and use ConfigStore as their sole configuration source; manage them through Admin API or Bundle apply. Caddyfile/Caddy JSON and standalone static Bundles reject extension configuration
+- `online.agentguide.community.limiter` schema 1 selects a linked backend using
+  `backend_module_id`, `backend_type`, `timeout_ms` (1–1000, default 100) and
+  `failure_mode` (default `closed`). Defaults use memory; alternate providers must
+  be configured dependencies. Exhaustion is 429, failure is bounded 503, explicit
+  open mode is degraded; cancellation and retired-policy errors never fail open,
+  and consumes are not retried
+- limiter generations preserve unchanged dimensions and unrelated refresh state;
+  key policy/backend changes retire state. Quota storage survives connection-handle
+  refresh; request admission always uses the current prepared handle
 - `provider_types` is startup-only provider type availability; when omitted all registered provider types are enabled
 - providers use `provider_type <name>`
 - LLM routes use `protocol <openai|anthropic|cc>`, MCP routes use `protocol mcp`, and Agent ingress routes use `protocol agent` or `protocol a2a` (HTTP Agent native Path A; see `docs/design/http-agent-runtime.md`)
@@ -233,11 +251,19 @@ Implemented families:
 
 - LLM: `/admin/llm/providers/...`, `/admin/llm/provider_types` (read-only listing), `/admin/llm/api_handler_types`, `/admin/llm/routes/...`, `/admin/llm/models/providers/{provider_id}/discovered`, `/admin/llm/models/providers/{provider_id}/refresh`, `/admin/llm/models/managed/...`
 - `/admin/virtual_keys/...`, `/admin/credentials/...`
+- Contributed Admin subroutes are declared by `Factory.AdminRoutes` and handled
+  by prepared `AdminContributor` resources only under `/admin/extensions/<module_id>/...`;
+  module roots and all other Community families are reserved. All Admin requests
+  share a full-body 4 MiB boundary (413), reject compression (415), and inherit
+  mount authentication, CORS, logging and generic JSON panic recovery. Module
+  event publishers capture trusted request identity; Publish contexts cannot
+  replace the event actor or correlation.
+- `GET /admin/manifest` and `GET /admin/extensions`, `GET|PUT|DELETE /admin/extensions/{module_id}` (reference-preserving module configuration)
 - MCP: `/admin/mcp/services/...`, `/admin/mcp/routes/...`, `/admin/mcp/runtime/...` (discovery, execution, dispatcher runtime inspection)
 - ACP: `/admin/acp/runtime/...` (native diagnostics keyed by `agent_id`)
 - builtin: `/admin/builtin/runtime/...`
 - agents: `/admin/agents/...` plus unified route CRUD under `/admin/agents/routes`
-- metrics: summaries (with pipeline health counters), per-protocol LLM/MCP/ACP timeseries and breakdowns, recent interaction events, and the Prometheus exposition endpoint `GET /admin/metrics/prometheus`
+- metrics: summaries (with combined drop/failure, rejected-event and public sink health counters), per-protocol LLM/MCP/ACP timeseries and breakdowns, recent interaction events, and the Prometheus exposition endpoint `GET /admin/metrics/prometheus`
 
 Stubbed families currently return `501 Not Implemented`:
 
@@ -249,6 +275,10 @@ Stubbed families currently return `501 Not Implemented`:
 - `docs/architecture/architecture-overview.md`: current broader architecture
 - `docs/design/enterprise-extension-contract.md`: protected external SPI,
   distribution assembly, and cross-repository compatibility rules
+- `docs/guides/custom-distribution.md`: external assembly and validation workflow
+- `docs/releases/v0.7.0.md`: exact designated surfaces and release gates
+- `docs/plans/v0.7.0-enterprise-extension-foundation.md`: active paired plan
+  for reusable distribution entry points and the first protected proof SPI
 - `examples/Caddyfile.example`: working reference config
 - `cmd/agw/main.go`: the definitive list of linked modules
 

@@ -2,6 +2,37 @@
 
 All endpoints below are under the path where `agent_gateway_admin` is mounted. The Admin API does not implement login or sessions; protect this mount with Caddy `basic_auth`, mTLS, a reverse proxy authenticator, or the standalone daemon's `--admin-basic-auth-hash` wrapper.
 
+All routes read and check the complete body before dispatch, up to 4,194,304
+received bytes. Oversize requests (including chunked bodies and trailing bytes)
+return HTTP 413 with `{"error":"request body exceeds 4194304 bytes"}`. Compressed
+bodies return HTTP 415. Bundle apply sends one resource per request, so this limit
+applies to each resource. Panic responses use generic JSON HTTP 500 errors.
+
+Linked modules may contribute routes only under
+`/admin/extensions/<module_id>/...`. Module roots remain envelope CRUD, and all
+other Community prefixes are reserved. Contributions share the authentication
+mount, CORS and body policy. Unconfigured module resources return HTTP 503 with
+`extension_unavailable`. Module readiness is included in `/admin/health`.
+
+## Manifest and extension configuration
+
+- `GET /admin/manifest`: deterministic linked runtime manifest.
+- `GET /admin/extensions`: persisted envelope list in `items`.
+- `GET /admin/extensions/{module_id}`: one reference-preserving envelope.
+- `PUT /admin/extensions/{module_id}`: strict envelope body with matching
+  `module_id`, `schema_version` and module-owned `config`; returns the committed
+  envelope.
+- `DELETE /admin/extensions/{module_id}`: deletes persisted configuration and
+  returns `status: deleted` and `id`.
+
+Extensions are owned solely by ConfigStore; configure them through this API or
+Bundle apply. Static extension configuration is unsupported. Envelopes contain no
+`source` ownership field. Missing envelopes return 404. Unknown
+module/schema or invalid config errors return bounded 400 diagnostics. Missing
+or cyclic dependencies return 409; preparation, secret resolution, persistence
+or lifecycle unavailability returns 503. Rejected writes retain the active
+generation. Secret values never appear in these envelope responses.
+
 ## Health
 
 - `GET /admin/health`
@@ -131,10 +162,21 @@ VirtualKey notes:
 - `key` is the bearer credential value clients must send on requests
 - `created_at` and `updated_at` are server-managed fields
 - optional `rate_limits.llm`, `rate_limits.mcp`, and `rate_limits.agent` entries
-  enforce in-memory request token buckets; both values must be greater than zero
-- `agent` applies to independent ACP and builtin buckets; omitted entries are
+  enforce request token buckets through the selected backend (local memory by
+  default); both values must be greater than zero
+- `agent` applies to unified Agent ingress, including ACP, builtin and HTTP/A2A; omitted entries are
   unlimited
-- exceeded requests return `429 Too Many Requests` and `Retry-After`
+- exceeded requests return `429 Too Many Requests` and rounded-up `Retry-After`
+- backend failure/timeout returns bounded `503 {"error":"limiter_unavailable"}`;
+  explicit `failure_mode: open` permits degraded admission; cancellation never does
+- configure the linked backend with schema-1 extension
+  `online.agentguide.community.limiter`: `backend_module_id`, `backend_type`,
+  `timeout_ms` (1–1000; default 100), `failure_mode` (`closed` default or `open`);
+  `{}` selects Community memory. An external backend must also be configured
+- unchanged dimensions retain tokens; changed policies or backend switches reset
+  without transfer. Events report `state_reset`; admission is never retried
+- `GET /admin/metrics/prometheus` includes `agentgateway_limiter_admissions_total`
+  with `dimension`, `outcome` and bounded `backend_type` labels
 
 ## Upstream Credentials
 

@@ -85,6 +85,20 @@ authoritative runtime design.
 
 The `caddy/gateway.App` type is the root Caddy app module with module ID `agent_gateway`. The standalone daemon in `standalone/server/` assembles the same core runtime services without depending on a Caddy app lifecycle.
 
+The thin `cmd/agw`, `cmd/agwd`, and `cmd/agwctl` mains retain edition-specific
+imports and delegate to public entries under `pkg/distribution/{caddycmd,daemoncmd,ctlcmd}`.
+Both server mains supply `distribution.CommunityRuntime()` metadata, while CLI
+supplies its validation projection. These snapshots describe explicit linking;
+validated registries and runtime manifest queries are still planned.
+Daemon and CLI constructors create fresh Cobra trees without loading dotenv.
+Their process runners load `.env.local` before `.env` with shell values taking
+precedence. Daemon signal handling is installed only when serving. Caddy delegates
+its command construction, signal handling and process exit to upstream Caddy.
+CLI command implementations and instance state live in `pkg/distribution/ctlcmd`.
+Both server assemblies accept public `distribution.MetricsConfig` values and
+adapt them to internal usage configuration during bootstrap.
+
+
 Its responsibilities are:
 
 - Provision the configured config store
@@ -557,3 +571,102 @@ An ACP Agent owns its execution config under `Agent.runtime.acp`, and
 `agent_id` directly owns the ACP process pool, sessions, permissions, runtime
 diagnostics, and attribution. Native `/admin/acp/runtime` diagnostics remain
 Agent-keyed.
+
+## Linked module configuration
+
+Distribution entries freeze `Assembly.Modules` and separately linked
+`Assembly.Factories` into an immutable extension registry. All three binaries
+expose `manifest`; the CLI projects validation roles, and both servers expose
+`GET /admin/manifest` beneath the Admin mount. Caddy receives process-owned
+assembly from its executable entry; standalone passes it explicitly.
+
+`pkg/extension.Manager` loads envelopes only from the schema-bound `extensions`
+store on the existing backend. Internal extensions are independent of Caddyfile;
+Caddyfile configures the Caddy host and bootstrap connections. Admin API and
+Bundle apply manage extension configuration; Caddy JSON and standalone static
+Bundles reject extension configuration. Mutations validate and prepare one
+complete dependency generation, persist the target envelope, and publish in
+memory. Leases retain old resources until drain or the five-second retirement
+budget. Config, manifests and Admin responses preserve secret-reference tokens.
+Only preparation receives resolved values. `pkg/admin` owns envelope CRUD and
+assembles immutable `Factory.AdminRoutes` under each literal module namespace.
+Prepared resources implement `AdminContributor` and receive only cloned config,
+logger, attribution access and owner-scoped event publication bound to the
+original trusted request identity. The handler holds
+a generation lease, linking request cancellation to resource retirement. All
+Admin routes share full-body 4 MiB checks (413), reject compression (415), and
+use generic JSON panic responses. Outer deployment authentication, CORS and
+logging apply equally to contributed routes in Caddy and standalone mode.
+Module health uses the same extension manager; shutdown drains/cancels handlers
+before resource closure in reverse dependency order.
+
+
+## Trusted attribution and public events
+
+Both runtime assemblies inject exact `AttributeKeys`, an optional trusted
+`AttributionProducer`, and linked-module `EventSinks` through `distribution.Assembly`.
+They are code-owned callbacks and values, excluded from manifests/configuration.
+A fresh sink factory runs for each server lifecycle. Unknown or duplicate sink
+owners fail assembly; failed initialization disposes previously created sinks.
+
+`pkg/attribution` copies bounded subject, tenant and correlation values into and
+out of request context. A validated VirtualKey establishes `virtualkey:<id>` as
+the default subject and supplies no tenant. The dispatcher stamps selected
+route/Agent and normalized trace/span/parent identities; runtime dimension changes
+update run and child correlation while retaining trusted identity. Raw client
+identity/tenant headers have no effect. Producer errors, panics and invalid optional
+values fall back to core correlation rather than exposing their diagnostics.
+
+`pkg/event` contains only v1 `limiter.admission` and `extension.mutation` DTOs.
+Extension PUT/DELETE success follows persistence/publication; failure contains
+an enumerated reason. Configured limiter admission emits allow/deny/degraded, with bounded unavailable
+reasons and actual backend owner IDs. Policy/backend resets emit `state_reset`.
+Prompts, arbitrary diagnostics, configs, credentials and secret-reference tokens
+have no DTO field. Validation includes the 16 KiB encoded JSON bound.
+
+The existing observability pipeline publishes those DTOs through one bounded
+transport worker per external sink; internal SQLite/Prometheus/OTLP usage stays
+on the existing accounting path. Slow/failing external sinks are isolated. Queue
+full drops the newest event; accepted events are FIFO, without retries or replay.
+Flush inserts a barrier; Close rejects new events, drains and flushes/closes once
+with a shared five-second maximum budget. That deadline cancels active callbacks;
+a stuck callback is unhealthy and cannot hold process teardown past the deadline.
+No goroutine is created per production write. Metrics include rejection counts and
+sink health in registration order, along with combined drop/failure counters.
+Standalone and Caddy report sink shutdown failures through their execution lifecycle.
+
+
+### VirtualKey admission backends
+
+The dispatcher performs one context-bound admission after VirtualKey validation
+and interaction setup, before LLM/MCP/Agent protocol dispatch. The domain-owned
+`pkg/gateway/virtualkey/limiter` SPI receives value policies and opaque per-key,
+per-dimension generations, never bearer values. Memory is the Community default.
+The schema-1 `online.agentguide.community.limiter` envelope selects a linked,
+configured `LimiterProvider` dependency; preparation resolves its backend type
+and validates health before activation. Both Caddy and standalone use this wiring.
+
+Admission uses a current generation lease and prepared connection handle. Key
+metadata writes, unchanged dimensions and unrelated extension refreshes preserve
+quota identity; changed policies, key deletion/reset and backend authority/config
+changes retire it. StatefulResource reconciles only unpublished candidate identity,
+with monotonic Snapshot.Sequence fencing. New authorities start full buckets;
+quota storage survives connection-handle replacement. No request reads storage,
+discovers a module, resolves its factory or retries uncertain consumption.
+
+The default 100 ms budget accepts 1–1000 ms and is capped by the request deadline.
+Exhaustion is 429 with rounded-up Retry-After; failures/timeouts are bounded
+503 limiter_unavailable. Explicit open mode allows degraded traffic; caller and
+retirement cancellation, retired-policy errors or shutdown cannot bypass a hard limit. Unlimited
+classes skip backend calls. Admission counters use only dimension, outcome and
+bounded backend type; external event sinks receive sanitized admission/reset DTOs
+through the existing pipeline. Gateway shutdown stops/cancels admissions and
+shares its five-second deadline with extension resource retirement.
+
+
+The external assembly workflow is documented in the
+[custom distribution guide](../guides/custom-distribution.md). The
+[v0.7 release notes](../releases/v0.7.0.md) enumerate the designated compatibility
+symbols. Linked configuration and Admin lifecycle alone do not add data-plane
+interception; additional domain seams and their ownership are
+[Proposed](../design/enterprise-extension-contract.md#12-domain-extension-coverage-and-ownership).

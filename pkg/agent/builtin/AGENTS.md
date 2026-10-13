@@ -51,4 +51,4 @@ runtime structure belongs in `docs/architecture/architecture-overview.md`.
   `tool_call`, `usage`, `permission`, `done`, `error`.
 - Register custom Go agents with `builtin.RegisterFactory`. Blank-import each
   factory package in `cmd/agw/main.go`, `cmd/agwd/main.go`, and
-  `cmd/agwctl/cmd_gateway.go`.
+  `cmd/agwctl/main.go`.

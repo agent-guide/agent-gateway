@@ -23,7 +23,7 @@ type FactoryDeps struct {
 // escape hatch for agents that need custom Go logic
 // (docs/design/agents-control-plane.md §5.7.3): implement the factory,
 // register it, and blank-import the package in cmd/agw/main.go,
-// cmd/agwd/main.go, and cmd/agwctl/cmd_gateway.go.
+// cmd/agwd/main.go, and cmd/agwctl/main.go.
 type Factory func(ctx context.Context, deps FactoryDeps, def *agent.BuiltinRuntime) (adk.Agent, error)
 
 var (

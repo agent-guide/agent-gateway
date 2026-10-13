@@ -27,6 +27,15 @@
 			path ./data/configstore.db
 		}
 
+		# Optional limiter selection envelope (schema 1). With no envelope,
+		# Community memory uses a 100 ms budget and fail-closed behavior.
+		# Configure envelopes through Admin API or agwctl apply; Caddyfile only wires the host.
+		# For an external backend, set backend_module_id/backend_type and configure
+		# its linked dependency too. Community includes no production Redis backend.
+		# Use a Bundle extensions entry for online.agentguide.community.limiter.
+		# Exhaustion returns 429; failures return bounded 503. Explicit open mode
+		# is degraded; cancellation and retired policies never fail open. No retries.
+
 		# External command for request-time OAuth token refresh. Defaults to
 		# agw-auth; set an absolute path when it is not available on PATH.
 		credential_refresh_command agw-auth refresh
@@ -174,6 +183,10 @@
 
 http://localhost:8019 {
 	# Admin routes
+ # All Admin bodies are fully checked before dispatch: 4 MiB maximum (413),
+ # compressed bodies unsupported (415). Linked module Admin subroutes under
+ # /admin/extensions/<module_id>/... inherit this mount's authentication.
+ # Module mutation events capture trusted request identity at Admin dispatch.
 	route /admin/* {
 		# Exempt the public health probe and credential-free CORS preflight.
 		@needauth {
@@ -206,3 +219,6 @@ http://127.0.0.1:8080 {
 		agent
 	}
 }
+
+# Internal extension configuration is persisted through Admin API / Bundle apply.
+# Community rejects modules absent from its linked registry.

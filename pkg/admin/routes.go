@@ -3,6 +3,7 @@ package admin
 import (
 	"errors"
 	"fmt"
+	"github.com/agent-guide/agent-gateway/pkg/event"
 	"net/http"
 	"strconv"
 	"strings"
@@ -52,6 +53,11 @@ type Route struct {
 // Routes returns all admin API routes.
 func (h *Handler) Routes() []Route {
 	return []Route{
+		{Method: http.MethodGet, Path: "/admin/manifest", Handler: h.handleManifest},
+		{Method: http.MethodGet, Path: "/admin/extensions", Handler: h.handleListExtensions},
+		{Method: http.MethodGet, Path: "/admin/extensions/{module_id}", Handler: h.handleGetExtension},
+		{Method: http.MethodPut, Path: "/admin/extensions/{module_id}", Handler: h.handlePutExtension},
+		{Method: http.MethodDelete, Path: "/admin/extensions/{module_id}", Handler: h.handleDeleteExtension},
 		// Health — public
 		{Method: http.MethodGet, Path: "/admin/health", Handler: h.handleHealth},
 
@@ -182,6 +188,12 @@ func (h *Handler) Routes() []Route {
 }
 
 func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if h.extensions != nil {
+		if err := h.extensions.Health(r.Context()); err != nil {
+			extensionError(w, err)
+			return
+		}
+	}
 	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -681,18 +693,28 @@ type metricsResponse struct {
 }
 
 type pipelineStats struct {
-	DroppedEvents uint64 `json:"dropped_events"`
-	WriteFailures uint64 `json:"write_failures"`
+	RejectedEvents uint64        `json:"rejected_events"`
+	PublicSinks    []event.Stats `json:"public_sinks,omitempty"`
+	DroppedEvents  uint64        `json:"dropped_events"`
+	WriteFailures  uint64        `json:"write_failures"`
 }
 
 func (h *Handler) pipelineStats() pipelineStats {
 	if h.usageStats == nil {
 		return pipelineStats{}
 	}
-	return pipelineStats{
+	stats := pipelineStats{
 		DroppedEvents: h.usageStats.DroppedEvents(),
 		WriteFailures: h.usageStats.WriteFailures(),
 	}
+	if source, ok := h.usageStats.(interface {
+		RejectedEvents() uint64
+		PublicStats() []event.Stats
+	}); ok {
+		stats.RejectedEvents = source.RejectedEvents()
+		stats.PublicSinks = source.PublicStats()
+	}
+	return stats
 }
 
 func (h *Handler) handlePrometheusMetrics(w http.ResponseWriter, r *http.Request) {
@@ -702,7 +724,7 @@ func (h *Handler) handlePrometheusMetrics(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(usage.RenderPrometheus(snap, h.usageStats)))
+	_, _ = w.Write([]byte(usage.RenderPrometheus(snap, h.usageStats) + h.limiterPrometheus()))
 }
 
 func (h *Handler) handleMetrics(w http.ResponseWriter, r *http.Request) {

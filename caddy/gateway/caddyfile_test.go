@@ -307,3 +307,11 @@ func TestParseAppRejectsVirtualKeyDirective(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestCaddyfileRejectsExtensionConfiguration(t *testing.T) {
+	d := caddyfile.NewTestDispenser("agent_gateway {\n extension example.fixture.secret 1 /does/not/exist.json\n}")
+	_, err := parseApp(d, nil)
+	if err == nil || !strings.Contains(err.Error(), "unknown subdirective: extension") {
+		t.Fatalf("expected extension rejection, got %v", err)
+	}
+}

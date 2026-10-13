@@ -3,6 +3,7 @@ package virtualkey
 import (
 	"context"
 	"errors"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey/limiter"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -245,22 +246,22 @@ func TestVirtualKeyRateLimiterDimensionsAndRefill(t *testing.T) {
 		RateLimitDimensionLLM, RateLimitDimensionMCP,
 		RateLimitDimensionAgent,
 	} {
-		got, err := manager.Admit(key, dimension)
+		got, err := manager.Admit(context.Background(), key, dimension)
 		if err != nil || !got.Allowed {
 			t.Fatalf("first Admit(%s) = %+v, %v", dimension, got, err)
 		}
-		got, err = manager.Admit(key, dimension)
+		got, err = manager.Admit(context.Background(), key, dimension)
 		if err != nil || got.Allowed || got.RetryAfterSeconds != 1 {
 			t.Fatalf("second Admit(%s) = %+v, %v", dimension, got, err)
 		}
 		for range 10 {
-			if denied, denyErr := manager.Admit(key, dimension); denyErr != nil || denied.Allowed {
+			if denied, denyErr := manager.Admit(context.Background(), key, dimension); denyErr != nil || denied.Allowed {
 				t.Fatalf("repeated denied Admit(%s) = %+v, %v", dimension, denied, denyErr)
 			}
 		}
 	}
 	clock.Advance(time.Second)
-	got, err := manager.Admit(key, RateLimitDimensionLLM)
+	got, err := manager.Admit(context.Background(), key, RateLimitDimensionLLM)
 	if err != nil || !got.Allowed {
 		t.Fatalf("Admit after refill = %+v, %v", got, err)
 	}
@@ -268,13 +269,13 @@ func TestVirtualKeyRateLimiterDimensionsAndRefill(t *testing.T) {
 
 func TestVirtualKeyRateLimiterIsolationAndUnlimited(t *testing.T) {
 	manager := NewVirtualKeyManager(nil)
-	unlimited, err := manager.Admit(VirtualKey{ID: "unlimited"}, RateLimitDimensionLLM)
+	unlimited, err := manager.Admit(context.Background(), VirtualKey{ID: "unlimited"}, RateLimitDimensionLLM)
 	if err != nil || !unlimited.Allowed {
 		t.Fatalf("unlimited Admit = %+v, %v", unlimited, err)
 	}
 	policy := &VirtualKeyRateLimits{LLM: &RateLimit{RequestsPerMinute: 1, Burst: 1}}
 	for _, id := range []string{"vk-a", "vk-b"} {
-		got, err := manager.Admit(VirtualKey{ID: id, RateLimits: policy}, RateLimitDimensionLLM)
+		got, err := manager.Admit(context.Background(), VirtualKey{ID: id, RateLimits: policy}, RateLimitDimensionLLM)
 		if err != nil || !got.Allowed {
 			t.Fatalf("first Admit(%s) = %+v, %v", id, got, err)
 		}
@@ -295,7 +296,7 @@ func TestVirtualKeyRateLimiterConcurrentBurst(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			got, err := manager.Admit(key, RateLimitDimensionLLM)
+			got, err := manager.Admit(context.Background(), key, RateLimitDimensionLLM)
 			if err != nil {
 				t.Errorf("Admit returned error: %v", err)
 				return
@@ -321,10 +322,10 @@ func TestVirtualKeyRateLimiterUpdateDeleteAndResetRemoveBuckets(t *testing.T) {
 	if err := manager.Create(context.Background(), key); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := manager.Admit(key, RateLimitDimensionLLM); !got.Allowed {
+	if got, _ := manager.Admit(context.Background(), key, RateLimitDimensionLLM); !got.Allowed {
 		t.Fatal("initial admission denied")
 	}
-	if got, _ := manager.Admit(key, RateLimitDimensionLLM); got.Allowed {
+	if got, _ := manager.Admit(context.Background(), key, RateLimitDimensionLLM); got.Allowed {
 		t.Fatal("second admission allowed")
 	}
 	key.RateLimits.LLM.Burst = 2
@@ -336,20 +337,20 @@ func TestVirtualKeyRateLimiterUpdateDeleteAndResetRemoveBuckets(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 {
-		if got, _ := manager.Admit(updated, RateLimitDimensionLLM); !got.Allowed {
+		if got, _ := manager.Admit(context.Background(), updated, RateLimitDimensionLLM); !got.Allowed {
 			t.Fatal("updated bucket did not reset to new burst")
 		}
 	}
 	if err := manager.Delete(context.Background(), key.ID); err != nil {
 		t.Fatal(err)
 	}
-	if len(manager.limiters.buckets) != 0 {
-		t.Fatalf("buckets after delete = %d, want 0", len(manager.limiters.buckets))
+	if len(manager.limiters.states) != 0 {
+		t.Fatalf("buckets after delete = %d, want 0", len(manager.limiters.states))
 	}
-	manager.limiters.buckets[limiterKey{virtualKeyID: "other", dimension: RateLimitDimensionLLM}] = &limiterBucket{}
+	manager.limiters.states[limiterKey{virtualKeyID: "other", dimension: RateLimitDimensionLLM}] = policyState{backend: manager.limiters.memory, request: limiter.LimiterRequest{Generation: "other"}}
 	manager.Reset()
-	if len(manager.limiters.buckets) != 0 {
-		t.Fatalf("buckets after reset = %d, want 0", len(manager.limiters.buckets))
+	if len(manager.limiters.states) != 0 {
+		t.Fatalf("buckets after reset = %d, want 0", len(manager.limiters.states))
 	}
 }
 
@@ -367,21 +368,21 @@ func TestVirtualKeyRateLimiterAgentDimensionDoesNotConsumeLLMOrMCP(t *testing.T)
 		},
 	}
 
-	if got, _ := manager.Admit(key, RateLimitDimensionAgent); !got.Allowed {
+	if got, _ := manager.Admit(context.Background(), key, RateLimitDimensionAgent); !got.Allowed {
 		t.Fatal("agent admission denied on first turn")
 	}
-	if got, _ := manager.Admit(key, RateLimitDimensionAgent); got.Allowed {
+	if got, _ := manager.Admit(context.Background(), key, RateLimitDimensionAgent); got.Allowed {
 		t.Fatal("second agent admission allowed; agent bucket should be exhausted")
 	}
 
 	// LLM and MCP ingress are unaffected by the agent admission. Internal calls
 	// likewise spend no ingress tokens unless they re-enter the dispatcher.
 	for _, dimension := range []RateLimitDimension{RateLimitDimensionLLM, RateLimitDimensionMCP} {
-		if got, _ := manager.Admit(key, dimension); !got.Allowed {
+		if got, _ := manager.Admit(context.Background(), key, dimension); !got.Allowed {
 			t.Fatalf("ingress Admit(%s) denied; agent turn leaked into ingress", dimension)
 		}
 	}
-	if got, _ := manager.Admit(key, RateLimitDimensionAgent); got.Allowed {
+	if got, _ := manager.Admit(context.Background(), key, RateLimitDimensionAgent); got.Allowed {
 		t.Fatal("agent admission allowed after ingress traffic; buckets cross-contaminated")
 	}
 }
@@ -399,7 +400,7 @@ func TestVirtualKeyRateLimiterConcurrentDenialsDoNotConsumeTokens(t *testing.T) 
 	}
 
 	// Spend the single burst token.
-	if got, _ := manager.Admit(key, RateLimitDimensionLLM); !got.Allowed {
+	if got, _ := manager.Admit(context.Background(), key, RateLimitDimensionLLM); !got.Allowed {
 		t.Fatal("initial admission denied")
 	}
 
@@ -410,7 +411,7 @@ func TestVirtualKeyRateLimiterConcurrentDenialsDoNotConsumeTokens(t *testing.T) 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			got, _ := manager.Admit(key, RateLimitDimensionLLM)
+			got, _ := manager.Admit(context.Background(), key, RateLimitDimensionLLM)
 			if got.Allowed {
 				t.Errorf("concurrent denial was allowed")
 				return
@@ -426,10 +427,10 @@ func TestVirtualKeyRateLimiterConcurrentDenialsDoNotConsumeTokens(t *testing.T) 
 	// Advancing the clock by exactly one refill interval must yield exactly one
 	// token — no more, because the 50 denials consumed none.
 	clock.Advance(time.Second)
-	if got, _ := manager.Admit(key, RateLimitDimensionLLM); !got.Allowed {
+	if got, _ := manager.Admit(context.Background(), key, RateLimitDimensionLLM); !got.Allowed {
 		t.Fatal("admission after refill denied")
 	}
-	if got, _ := manager.Admit(key, RateLimitDimensionLLM); got.Allowed {
+	if got, _ := manager.Admit(context.Background(), key, RateLimitDimensionLLM); got.Allowed {
 		t.Fatal("second admission after one-token refill allowed; denials leaked capacity")
 	}
 }

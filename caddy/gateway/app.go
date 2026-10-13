@@ -3,6 +3,9 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"github.com/agent-guide/agent-gateway/internal/distributionmetrics"
+	"github.com/agent-guide/agent-gateway/internal/distributionruntime"
+	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"strings"
 
 	"github.com/caddyserver/caddy/v2"
@@ -47,7 +50,7 @@ type App struct {
 	LLMRoutes []routecore.AgentRouteConfig `json:"llm_routes,omitempty"`
 	// Metrics configures observability retention, agent-chain governance, and
 	// optional OTLP span export of usage events.
-	Metrics usage.Config `json:"metrics,omitzero"`
+	Metrics distribution.MetricsConfig `json:"metrics,omitzero"`
 
 	logger          *zap.Logger
 	credentialMgr   *credential.Manager
@@ -67,7 +70,17 @@ func (App) CaddyModule() caddy.ModuleInfo {
 }
 
 // Provision sets up the app.
-func (a *App) Provision(ctx caddy.Context) error {
+func (a *App) Provision(ctx caddy.Context) (provisionErr error) {
+	defer func() {
+		if provisionErr != nil {
+			if a.agentGateway != nil {
+				a.agentGateway.Close()
+			}
+			if a.usageService != nil {
+				_ = a.usageService.Close()
+			}
+		}
+	}()
 	a.logger = ctx.Logger(a)
 	a.agentGateway = runtimegateway.NewAgentGateway()
 
@@ -75,6 +88,14 @@ func (a *App) Provision(ctx caddy.Context) error {
 		return fmt.Errorf("init config store: %w", err)
 	}
 	a.provisionUsageService()
+	assembly := distributionruntime.Current()
+	policy, err := assembly.AttributionPolicy()
+	if err != nil {
+		return err
+	}
+	if err := a.usageService.ConfigurePublic(policy, assembly.EventSinks); err != nil {
+		return err
+	}
 	// Provider type availability is startup-only. Always reconfigure so a
 	// reload that omits provider_types resets to "all enabled" instead of
 	// inheriting the previous process state.
@@ -111,7 +132,12 @@ func (a *App) Provision(ctx caddy.Context) error {
 	if err := a.credentialMgr.Load(ctx); err != nil {
 		return fmt.Errorf("load credentials: %w", err)
 	}
+	registry, err := assembly.Registry()
+	if err != nil {
+		return err
+	}
 	if err := a.agentGateway.Bootstrap(ctx, runtimegateway.BootstrapOptions{
+		ExtensionRegistry: registry, Distribution: assembly, EventPublisher: a.usageService,
 		StaticLLMRoutes:     a.LLMRoutes,
 		StaticProviders:     a.providers,
 		ConfigStoreBackend:  a.configBackend,
@@ -121,7 +147,7 @@ func (a *App) Provision(ctx caddy.Context) error {
 		UsageQuery:          a.usageService.Query(),
 		UsageStats:          a.usageService,
 		UsagePrometheus:     a.usageService.Prometheus(),
-		UsageConfig:         a.Metrics.Normalized(),
+		UsageConfig:         distributionmetrics.From(a.Metrics).Normalized(),
 		Logger:              a.logger,
 	}); err != nil {
 		return fmt.Errorf("configure agent gateway: %w", err)
@@ -196,18 +222,18 @@ func (a *App) provisionUsageService() {
 	einotap.Register()
 	dbProvider, ok := a.configBackend.(usage.SQLDBProvider)
 	if !ok {
-		a.usageService = usage.NewUsageService(nil, nil)
+		a.usageService = usage.NewUsageService(pipeline.NewEventPipeline(4096), nil)
 		return
 	}
-	sink, query, err := pipeline.NewSQLiteSink(dbProvider, a.Metrics)
+	sink, query, err := pipeline.NewSQLiteSink(dbProvider, distributionmetrics.From(a.Metrics))
 	if err != nil {
 		a.logger.Warn("usage metrics sqlite sink unavailable", zap.Error(err))
-		a.usageService = usage.NewUsageService(nil, nil)
+		a.usageService = usage.NewUsageService(pipeline.NewEventPipeline(4096), nil)
 		return
 	}
 	promSink := pipeline.NewPrometheusSink()
 	sinks := []pipeline.Sink{sink, promSink}
-	if otlp := a.Metrics.Normalized().OTLP; otlp.Enabled() {
+	if otlp := distributionmetrics.From(a.Metrics).Normalized().OTLP; otlp.Enabled() {
 		exporter, err := otelexport.New(context.Background(), otlp)
 		if err != nil {
 			a.logger.Warn("otlp usage exporter unavailable", zap.Error(err))
@@ -297,7 +323,13 @@ func (a *App) provisionProviders(_ caddy.Context) error {
 
 // Interface guards
 var (
-	_ caddy.App         = (*App)(nil)
-	_ caddy.Provisioner = (*App)(nil)
-	_ caddy.Validator   = (*App)(nil)
+	_ caddy.App          = (*App)(nil)
+	_ caddy.Provisioner  = (*App)(nil)
+	_ caddy.Validator    = (*App)(nil)
+	_ caddy.CleanerUpper = (*App)(nil)
 )
+
+// Cleanup also handles Caddy validation and failed provisioning.
+func (a *App) Cleanup() error {
+	return a.Stop()
+}

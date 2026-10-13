@@ -1,6 +1,7 @@
 package schema
 
 const (
+	StoreExtensions    = "extensions"
 	StoreProviders     = "providers"
 	StoreCredentials   = "credentials"
 	StoreRoutes        = "routes"

@@ -221,3 +221,12 @@ If a route sets `require_virtual_key`, create VirtualKeys through the Admin API 
 - [../guides/admin-auth.md](../guides/admin-auth.md)
 - [runtime-modes.md](runtime-modes.md)
 - [admin-api-reference.md](admin-api-reference.md)
+
+## Internal extensions configuration
+
+Caddyfile configures the Caddy host, module wiring and gateway bootstrap
+connections. Internal extensions are managed independently through
+`/admin/extensions/{module_id}` or Gateway Bundle apply and persisted in ConfigStore.
+Caddyfile has no extension configuration directive; Caddy JSON also rejects an
+`extensions` field on `agent_gateway`. Contributed Admin paths inherit the
+configured `agent_gateway_admin` mount and its authentication.

@@ -24,10 +24,11 @@ type VirtualKeyManager struct {
 	base  *configmgr.BaseConfigManager[VirtualKey]
 	store configstore.ConfigStore
 
-	mu sync.RWMutex
+	mu        sync.RWMutex
+	mutations sync.Mutex
 
 	dynamicKeyIndex map[string]string
-	limiters        *limiterRegistry
+	limiters        *limiterController
 }
 
 func NewVirtualKeyManager(store configstore.ConfigStore) *VirtualKeyManager {
@@ -75,16 +76,18 @@ func NewVirtualKeyManagerWithClock(store configstore.ConfigStore, clock Clock) *
 		}),
 		store:           store,
 		dynamicKeyIndex: map[string]string{},
-		limiters:        newLimiterRegistry(clock),
+		limiters:        newLimiterController(clock),
 	}
 }
 
 func (m *VirtualKeyManager) Reset() {
+	m.mutations.Lock()
+	defer m.mutations.Unlock()
 	m.base.Reset()
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.dynamicKeyIndex = map[string]string{}
+	m.mu.Unlock()
 	m.limiters.reset()
 }
 
@@ -122,7 +125,9 @@ func (m *VirtualKeyManager) GetByKey(ctx context.Context, key string) (VirtualKe
 		return VirtualKey{}, err
 	}
 	m.base.Cache(virtualKey)
+	m.limiters.remember(virtualKey)
 	m.cacheDynamicKey(virtualKey.ID, virtualKey.Key)
+	m.limiters.remember(virtualKey)
 	return cloneVirtualKey(virtualKey), nil
 }
 
@@ -142,6 +147,7 @@ func (m *VirtualKeyManager) GetByID(ctx context.Context, id string) (VirtualKey,
 		return VirtualKey{}, fmt.Errorf("load virtual key %q: %w", id, err)
 	}
 	m.cacheDynamicKey(virtualKey.ID, virtualKey.Key)
+	m.limiters.remember(virtualKey)
 	return cloneVirtualKey(virtualKey), nil
 }
 
@@ -156,6 +162,9 @@ func (m *VirtualKeyManager) List(ctx context.Context, opts VirtualKeyListOptions
 		cached[key.ID] = key
 	}
 	m.cacheDynamicKeys(cached)
+	for _, key := range keys {
+		m.limiters.remember(key)
+	}
 	for i := range keys {
 		keys[i] = cloneVirtualKey(keys[i])
 	}
@@ -163,14 +172,19 @@ func (m *VirtualKeyManager) List(ctx context.Context, opts VirtualKeyListOptions
 }
 
 func (m *VirtualKeyManager) Create(ctx context.Context, key VirtualKey) error {
+	m.mutations.Lock()
+	defer m.mutations.Unlock()
 	if err := m.base.Create(ctx, key); err != nil {
 		return err
 	}
 	m.cacheDynamicKey(key.ID, key.Key)
+	m.limiters.remove(ctx, key.ID, key.RateLimits, false)
 	return nil
 }
 
 func (m *VirtualKeyManager) Update(ctx context.Context, id string, key VirtualKey) error {
+	m.mutations.Lock()
+	defer m.mutations.Unlock()
 	if id == "" {
 		return fmt.Errorf("id is required")
 	}
@@ -189,16 +203,16 @@ func (m *VirtualKeyManager) Update(ctx context.Context, id string, key VirtualKe
 	key.UpdatedAt = time.Now().UTC()
 	m.cacheDynamicKey(key.ID, key.Key)
 	if !rateLimitsEqual(current.RateLimits, key.RateLimits) {
-		m.limiters.remove(id)
+		m.limiters.remove(ctx, id, key.RateLimits, false)
 	}
 	return nil
 }
 
-func (m *VirtualKeyManager) Admit(key VirtualKey, dimension RateLimitDimension) (Admission, error) {
+func (m *VirtualKeyManager) Admit(ctx context.Context, key VirtualKey, dimension RateLimitDimension) (Admission, error) {
 	if m == nil || m.limiters == nil {
 		return Admission{}, fmt.Errorf("virtual key limiter is not configured")
 	}
-	return m.limiters.admit(key, dimension)
+	return m.limiters.admit(ctx, key, dimension)
 }
 
 type storedVirtualKey struct {
@@ -215,6 +229,8 @@ func (k storedVirtualKey) ConfigStoreTag() string {
 }
 
 func (m *VirtualKeyManager) Delete(ctx context.Context, id string) error {
+	m.mutations.Lock()
+	defer m.mutations.Unlock()
 	if id == "" {
 		return fmt.Errorf("id is required")
 	}
@@ -228,9 +244,9 @@ func (m *VirtualKeyManager) Delete(ctx context.Context, id string) error {
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	delete(m.dynamicKeyIndex, current.Key)
-	m.limiters.remove(id)
+	m.mu.Unlock()
+	m.limiters.remove(ctx, id, nil, true)
 	return nil
 }
 
