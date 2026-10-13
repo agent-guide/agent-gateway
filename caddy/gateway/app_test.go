@@ -3,6 +3,9 @@ package gateway
 import (
 	"context"
 	"errors"
+	"github.com/caddyserver/caddy/v2"
+	"strings"
+	"testing"
 
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	configstoreschema "github.com/agent-guide/agent-gateway/pkg/configstore/schema"
@@ -88,4 +91,13 @@ func (s *testProvisionVirtualKeyStore) GetByIndex(_ context.Context, indexName s
 		}
 	}
 	return nil, configstore.ErrNotFound
+}
+
+func TestCaddyJSONRejectsExtensionConfiguration(t *testing.T) {
+	for _, raw := range []string{`{"extensions":[]}`, `{"extensions":[{"module_id":"example.fixture","schema_version":1,"config":{}}]}`} {
+		var app App
+		if err := caddy.StrictUnmarshalJSON([]byte(raw), &app); err == nil || !strings.Contains(err.Error(), "extensions") {
+			t.Fatalf("expected removed field rejection: %v", err)
+		}
+	}
 }

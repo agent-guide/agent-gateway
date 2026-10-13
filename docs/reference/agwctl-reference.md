@@ -144,6 +144,6 @@ factory callbacks, resolved secrets or entitlement state.
 Bundle `extensions` use `module_id`, `schema_version` and module-owned `config`.
 Validate uses local linked schemas; apply performs dependency-ordered extension
 writes before other objects, reports partial results and stops on extension
-failure. Export includes effective extension envelopes and retains secret reference
+failure. Export includes persisted extension envelopes and retains secret reference
 tokens in reference-preserving configuration. The server is the final validator.
 See the [Bundle guide](../guides/bundle-yaml.md#linked-extension-configuration).

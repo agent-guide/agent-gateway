@@ -3,9 +3,11 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
+	configsqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
-	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	"sync/atomic"
 	"testing"
 )
@@ -24,8 +26,22 @@ func TestFailedBootstrapClosesPreparedExtension(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := NewAgentGateway()
-	g.routeConfigManager = routecore.NewAgentRouteConfigManager(nil)
-	err = g.Bootstrap(context.Background(), BootstrapOptions{ExtensionRegistry: registry, Distribution: distribution.Assembly{Modules: []extension.Descriptor{d}}, StaticExtensions: []extension.Envelope{{ModuleID: d.ID, SchemaVersion: 1, Config: json.RawMessage(`{}`)}}})
+	backend, err := configstore.OpenBackend(t.Context(), "sqlite", configsqlite.Config{SQLitePath: t.TempDir() + "/config.db"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only extensions exist, so later route bootstrap must fail.
+	if err = backend.Register(schema.StoreExtensions, schema.ExtensionSchema); err != nil {
+		t.Fatal(err)
+	}
+	store, err := backend.Get(schema.StoreExtensions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Create(t.Context(), &extension.Envelope{ModuleID: d.ID, SchemaVersion: 1, Config: json.RawMessage(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	err = g.Bootstrap(context.Background(), BootstrapOptions{ExtensionRegistry: registry, Distribution: distribution.Assembly{Modules: []extension.Descriptor{d}}, ConfigStoreBackend: backend})
 	if err == nil {
 		t.Fatal("bootstrap should fail after preparation")
 	}

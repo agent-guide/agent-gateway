@@ -11,13 +11,11 @@ import (
 	"strings"
 )
 
-// Envelope retains module-owned JSON and reference tokens. Source is output
-// ownership metadata (static/dynamic), never an authorization input.
+// Envelope retains ConfigStore-owned module JSON and unresolved secret references.
 type Envelope struct {
 	ModuleID      string          `json:"module_id"`
 	SchemaVersion int             `json:"schema_version"`
 	Config        json.RawMessage `json:"config"`
-	Source        string          `json:"source,omitempty"`
 }
 
 // PreparedConfig carries tokens separately from resolved secrets. Only Prepare

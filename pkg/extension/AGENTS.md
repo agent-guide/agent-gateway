@@ -11,6 +11,10 @@ validation without secret resolution. Factory secret fields use exact JSON
 Pointers; duplicate JSON keys fail before module validation or expansion. Literal secrets and undeclared reference objects fail before ordinary
 environment expansion. Factory diagnostics never become API errors.
 
+Manager startup loads only persisted envelopes; no static extension input or
+source/ownership field exists. Caddy and standalone share this runtime. Bundle
+apply and Admin API mutate the existing ConfigStore; Caddyfile owns host wiring.
+
 Mutations serialize, prepare dependencies before dependents, persist, and publish
 one complete generation. Preparation cannot mutate active resources. Snapshot
 read handles are concurrency-safe; leases must be released after requests finish.

@@ -6,7 +6,6 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/distributionmetrics"
 	"github.com/agent-guide/agent-gateway/internal/distributionruntime"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
-	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"strings"
 
 	"github.com/caddyserver/caddy/v2"
@@ -34,7 +33,6 @@ func init() {
 // App is the Caddy app module for the Agent Gateway.
 // It manages providers, MCP clients, memory stores, and configuration.
 type App struct {
-	Extensions []extension.Envelope `json:"extensions,omitempty"`
 	// Providers lists the configured LLM providers.
 	Providers map[string]provider.ProviderConfig `json:"providers,omitempty"`
 	// ConfigStore configures persistent admin/auth state storage.
@@ -138,13 +136,8 @@ func (a *App) Provision(ctx caddy.Context) (provisionErr error) {
 	if err != nil {
 		return err
 	}
-	expanded, err := registry.ExpandConfig(a.Extensions)
-	if err != nil {
-		return err
-	}
-	a.Extensions = expanded
 	if err := a.agentGateway.Bootstrap(ctx, runtimegateway.BootstrapOptions{
-		ExtensionRegistry: registry, StaticExtensions: a.Extensions, Distribution: assembly, EventPublisher: a.usageService,
+		ExtensionRegistry: registry, Distribution: assembly, EventPublisher: a.usageService,
 		StaticLLMRoutes:     a.LLMRoutes,
 		StaticProviders:     a.providers,
 		ConfigStoreBackend:  a.configBackend,

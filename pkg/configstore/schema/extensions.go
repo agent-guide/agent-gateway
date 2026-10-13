@@ -28,7 +28,7 @@ var ExtensionSchema = configstore.StoreSchema{
 		default:
 			return fmt.Errorf("invalid extension object")
 		}
-		if !extension.ValidID(e.ModuleID) || e.SchemaVersion <= 0 || e.Source != "" {
+		if !extension.ValidID(e.ModuleID) || e.SchemaVersion <= 0 {
 			return fmt.Errorf("invalid stored extension envelope")
 		}
 		_, err := extension.DecodeObject(e.Config)

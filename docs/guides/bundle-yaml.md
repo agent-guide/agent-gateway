@@ -200,8 +200,10 @@ extensions:
 ```
 
 Each envelope belongs to a linked module and its schema. Unknown modules fail
-local and server validation. Static envelopes are startup-owned and read-only;
-dynamic ones use the existing ConfigStore and `/admin/extensions/{module_id}`.
+local and server validation. All extension envelopes use the existing ConfigStore
+and `/admin/extensions/{module_id}`. Use Bundle apply to persist configuration;
+`agwd --static-config` rejects non-empty extensions. Caddyfile and Caddy JSON
+also reject extension configuration.
 Apply orders extensions by declared dependencies before other resources, stops
 on extension failure and reports partial results. It has no whole-Bundle rollback.
 Each serialized resource shares the Admin 4 MiB received-body boundary.

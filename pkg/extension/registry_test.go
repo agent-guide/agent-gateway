@@ -163,10 +163,10 @@ func TestConfigSelectedDependencies(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := Envelope{ModuleID: a.ID, SchemaVersion: 1, Config: json.RawMessage(`{}`)}
-	_, err = NewManager(context.Background(), r, nil, []Envelope{e})
+	_, err = NewManager(context.Background(), r, &memoryPersistence{items: []Envelope{e}})
 	code(t, err, "missing_dependency")
 	e2 := Envelope{ModuleID: b.ID, SchemaVersion: 1, Config: json.RawMessage(`{}`)}
-	m, err := NewManager(context.Background(), r, nil, []Envelope{e, e2})
+	m, err := NewManager(context.Background(), r, &memoryPersistence{items: []Envelope{e, e2}})
 	if err != nil {
 		t.Fatal(err)
 	}

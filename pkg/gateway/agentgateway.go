@@ -38,7 +38,6 @@ import (
 type BootstrapOptions struct {
 	EventPublisher      event.Publisher
 	ExtensionRegistry   *extension.Registry
-	StaticExtensions    []extension.Envelope
 	Distribution        distribution.Assembly
 	StaticLLMRoutes     []routecore.AgentRouteConfig
 	StaticMCPRoutes     []routecore.AgentRouteConfig
@@ -124,7 +123,7 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 			}
 			store = adapter
 		}
-		manager, err := extension.NewManager(ctx, opts.ExtensionRegistry, store, opts.StaticExtensions)
+		manager, err := extension.NewManager(ctx, opts.ExtensionRegistry, store)
 		if err != nil {
 			return err
 		}

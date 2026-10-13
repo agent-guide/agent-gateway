@@ -222,18 +222,11 @@ If a route sets `require_virtual_key`, create VirtualKeys through the Admin API 
 - [runtime-modes.md](runtime-modes.md)
 - [admin-api-reference.md](admin-api-reference.md)
 
-## `extension`
+## Internal extensions configuration
 
-Inside the global `agent_gateway` block:
-
-```caddy
-extension online.agentguide.community.limiter 1 ./limiter.json
-```
-
-Arguments are linked module ID, schema version and module JSON file. The file
-contains only that module's `config` object; for this example it may contain
-`{"timeout_ms":100,"failure_mode":"closed"}`. Configuration is startup-owned
-and read-only. Unknown/unlinked modules or invalid schemas fail startup.
-Declared secret fields retain `{"$secret_ref":"env:NAME"}` tokens and resolve
-separately during preparation. Contributed Admin paths inherit the configured
-`agent_gateway_admin` mount and its authentication.
+Caddyfile configures the Caddy host, module wiring and gateway bootstrap
+connections. Internal extensions are managed independently through
+`/admin/extensions/{module_id}` or Gateway Bundle apply and persisted in ConfigStore.
+Caddyfile has no extension configuration directive; Caddy JSON also rejects an
+`extensions` field on `agent_gateway`. Contributed Admin paths inherit the
+configured `agent_gateway_admin` mount and its authentication.

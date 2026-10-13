@@ -55,7 +55,7 @@ func TestSelectionRefreshSwitchAndFailureIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ext, err := extension.NewManager(t.Context(), r, selectionStore{}, nil)
+	ext, err := extension.NewManager(t.Context(), r, selectionStore{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestSlowRetirementDoesNotExhaustFreshAdmissionBudget(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			ext, err := extension.NewManager(t.Context(), r, selectionStore{}, nil)
+			ext, err := extension.NewManager(t.Context(), r, selectionStore{})
 			if err != nil {
 				t.Fatal(err)
 			}

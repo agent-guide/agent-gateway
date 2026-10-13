@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/attribution"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
+	configsqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"github.com/agent-guide/agent-gateway/pkg/event"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
@@ -55,8 +58,22 @@ func newContributedAdmin(t *testing.T, resource *contributedResource, publisher 
 	if err != nil {
 		t.Fatal(err)
 	}
+	backend, err := configstore.OpenBackend(t.Context(), "sqlite", configsqlite.Config{SQLitePath: t.TempDir() + "/config.db"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = schema.RegisterDefaultStores(backend); err != nil {
+		t.Fatal(err)
+	}
+	store, err := backend.Get(schema.StoreExtensions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Create(t.Context(), &extension.Envelope{ModuleID: adminTestID, SchemaVersion: 1, Config: json.RawMessage(`{"message":"hello"}`)}); err != nil {
+		t.Fatal(err)
+	}
 	g := gateway.NewAgentGateway()
-	if err = g.Bootstrap(context.Background(), gateway.BootstrapOptions{Distribution: a, ExtensionRegistry: registry, StaticExtensions: []extension.Envelope{{ModuleID: adminTestID, SchemaVersion: 1, Config: json.RawMessage(`{"message":"hello"}`)}}, EventPublisher: publisher}); err != nil {
+	if err = g.Bootstrap(context.Background(), gateway.BootstrapOptions{Distribution: a, ExtensionRegistry: registry, ConfigStoreBackend: backend, EventPublisher: publisher}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(g.Close)

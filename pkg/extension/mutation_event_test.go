@@ -30,7 +30,7 @@ func TestMutationEventsAfterCommitAndSanitizedFailure(t *testing.T) {
 	f.Prepare = func(context.Context, PreparedConfig, Snapshot) (Resource, error) { return &countedResource{}, nil }
 	r, _ := NewRegistry(Registration{d, f})
 	store := &memoryPersistence{}
-	m, err := NewManager(context.Background(), r, store, nil)
+	m, err := NewManager(context.Background(), r, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestMutationPublicationCompletesBeforeNextMutationOrShutdown(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			m, err := NewManager(context.Background(), r, &memoryPersistence{}, nil)
+			m, err := NewManager(context.Background(), r, &memoryPersistence{})
 			if err != nil {
 				t.Fatal(err)
 			}

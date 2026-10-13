@@ -57,7 +57,7 @@ Primary detailed documents:
 - [releases/v0.6.1.md](releases/v0.6.1.md): v0.6.1 stabilization, local A2A fixture, release gates, and SQLite upgrade coverage
 - [releases/v0.6.0.md](releases/v0.6.0.md): v0.6.0 user-visible changes, compatibility notes, and limits
 - [plans/v0.6.1-stabilization.md](plans/v0.6.1-stabilization.md): v0.6.1 release verification, A2A example, smoke, and SQLite upgrade plan
-- [plans/v0.7.0-enterprise-extension-foundation.md](plans/v0.7.0-enterprise-extension-foundation.md): ConfigStore-only extension configuration review and v0.7.0 release closure
+- [plans/v0.7.0-enterprise-extension-foundation.md](plans/v0.7.0-enterprise-extension-foundation.md): ConfigStore-only extension foundation and v0.7.0 release closure
 - [design/agents-control-plane.md](design/agents-control-plane.md): shared Agent identity, resources, runtime contracts, and the external Business Workflow boundary
 - [design/request-pipeline.md](design/request-pipeline.md): synchronous Gateway Request Pipelines and upper-layer durable orchestration through Temporal or another external engine
 - [design/builtin-agent-runtime.md](design/builtin-agent-runtime.md): builtin ADK host decisions for schema, lifecycle, and permissions

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
 	"github.com/agent-guide/agent-gateway/pkg/attribution"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
@@ -61,7 +60,7 @@ func TestExtensionProcesses(t *testing.T) {
 			}
 			addr := listener.Addr().String()
 			_ = listener.Close()
-			static := extension.Envelope{ModuleID: "example.fixture.entries", SchemaVersion: 1, Config: json.RawMessage(`{"message":"static","token":{"$secret_ref":"env:AGW_FIXTURE_SECRET"}}`)}
+			initial := extension.Envelope{ModuleID: "example.fixture.entries", SchemaVersion: 1, Config: json.RawMessage(`{"message":"persisted","token":{"$secret_ref":"env:AGW_FIXTURE_SECRET"}}`)}
 			db := filepath.Join(work, "config.db")
 			path := filepath.Join(work, "config.json")
 			hash, err := bcrypt.GenerateFromPassword([]byte("fixture-pass"), bcrypt.MinCost)
@@ -69,11 +68,11 @@ func TestExtensionProcesses(t *testing.T) {
 				t.Fatal(err)
 			}
 			args := []string{"--addr", addr, "--admin-addr", addr, "--admin-basic-auth-hash", "fixture:" + string(hash), "--config-store", db, "--static-config", path}
-			var config any = map[string]any{"apiVersion": "gateway.agw/v1alpha1", "kind": "GatewayBundle", "extensions": []extension.Envelope{static}}
+			var config any = map[string]any{"apiVersion": "gateway.agw/v1alpha1", "kind": "GatewayBundle"}
 			if binary == "agw" {
 				args = []string{"run", "--config", path}
 				config = map[string]any{"admin": map[string]any{"disabled": true}, "apps": map[string]any{
-					"agent_gateway": map[string]any{"config_store": map[string]any{"sqlite": map[string]string{"sqlite_path": db}}, "extensions": []extension.Envelope{static}},
+					"agent_gateway": map[string]any{"config_store": map[string]any{"sqlite": map[string]string{"sqlite_path": db}}},
 					"http": map[string]any{"servers": map[string]any{"test": map[string]any{"listen": []string{addr}, "routes": []any{
 						map[string]any{"match": []any{map[string]any{"path": []string{"/admin/*"}}}, "handle": []any{map[string]any{"handler": "authentication", "providers": map[string]any{"http_basic": map[string]any{"accounts": []any{map[string]string{"username": "fixture", "password": string(hash)}}}}}, map[string]string{"handler": "agent_gateway_admin"}}},
 						map[string]any{"handle": []any{map[string]any{"handler": "agent_route_dispatcher", "api_handlers": map[string]any{"cc": map[string]any{}}}}},
@@ -136,12 +135,15 @@ func TestExtensionProcesses(t *testing.T) {
 				t.Fatal("Caddy/standalone manifest mismatch")
 			}
 
+			if _, err = client.PutExtension(ctx, initial); err != nil {
+				t.Fatal(err)
+			}
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			send := func(req *http.Request) (*http.Response, error) {
 				req.SetBasicAuth("fixture", "fixture-pass")
 				return httpClient.Do(req)
 			}
-			moduleURL := "http://" + addr + "/admin/extensions/" + static.ModuleID
+			moduleURL := "http://" + addr + "/admin/extensions/" + initial.ModuleID
 			unauth, err := httpClient.Get(moduleURL + "/status")
 			if err != nil {
 				t.Fatal(err)
@@ -170,7 +172,7 @@ func TestExtensionProcesses(t *testing.T) {
 				if err = json.NewDecoder(resp.Body).Decode(&value); err != nil {
 					t.Fatal(err)
 				}
-				if value.Message != "static" {
+				if value.Message != "persisted" {
 					t.Fatalf("prepared config missing: %+v", value)
 				}
 				return value
@@ -195,16 +197,19 @@ func TestExtensionProcesses(t *testing.T) {
 					t.Fatalf("oversized Community write committed: %d", resp.StatusCode)
 				}
 			}})
-			current, err := client.GetExtension(ctx, static.ModuleID)
-			if err != nil || current.Source != "static" {
-				t.Fatalf("static: %v %+v", err, current)
+			current, err := client.GetExtension(ctx, initial.ModuleID)
+			if err != nil || !bytes.Equal(current.Config, initial.Config) {
+				t.Fatalf("persisted config: %v %+v", err, current)
 			}
-			_, err = client.PutExtension(ctx, static)
-			var apiError *adminclient.Error
-			if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusConflict {
-				t.Fatalf("static writable: %v", err)
+			if _, err = client.PutExtension(ctx, initial); err != nil {
+				t.Fatal(err)
 			}
-			dynamic := static
+			unknown := initial
+			unknown.ModuleID = "example.fixture.unlinked"
+			if _, err = client.PutExtension(ctx, unknown); err == nil {
+				t.Fatal("unknown module accepted")
+			}
+			dynamic := initial
 			dynamic.ModuleID = "example.fixture.mutable"
 			dynamic.Config = json.RawMessage(`{"message":"dynamic","token":{"$secret_ref":"env:AGW_FIXTURE_SECRET"}}`)
 			if _, err = client.PutExtension(ctx, dynamic); err != nil {
@@ -234,7 +239,7 @@ extensions:
 - module_id: example.fixture.entries
   schema_version: 1
   config:
-    message: static
+    message: persisted
     token: {"$secret_ref": "env:AGW_FIXTURE_SECRET"}
 - module_id: example.fixture.mutable
   schema_version: 1
@@ -258,16 +263,55 @@ extensions:
 			runCLI("validate", "--file", applyPath)
 			runCLI("apply", "--file", applyPath)
 			exported := runCLI("export")
-			if strings.Contains(string(exported), "process-secret-never-export") || !strings.Contains(string(exported), "env:AGW_FIXTURE_SECRET") || !strings.Contains(string(exported), "source: static") {
+			if strings.Contains(string(exported), "process-secret-never-export") || !strings.Contains(string(exported), "env:AGW_FIXTURE_SECRET") || strings.Contains(string(exported), "source:") {
 				t.Fatalf("unsafe or incomplete export: %s", exported)
+			}
+			if err = command.Process.Signal(syscall.SIGTERM); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case err = <-done:
+				finished = true
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-ctx.Done():
+				t.Fatal("restart shutdown timeout")
+			}
+			processEnv := command.Env
+			command = exec.CommandContext(ctx, filepath.Join(dir, binary), args...)
+			command.Dir = work
+			command.Env = processEnv
+			command.Stdout, command.Stderr = log, log
+			if err = command.Start(); err != nil {
+				t.Fatal(err)
+			}
+			finished = false
+			go func() { done <- command.Wait() }()
+			restartDeadline := time.After(10 * time.Second)
+			for {
+				if _, err = client.Manifest(ctx); err == nil {
+					break
+				}
+				select {
+				case err = <-done:
+					finished = true
+					t.Fatalf("restart: %v", err)
+				case <-restartDeadline:
+					t.Fatal("restart startup timeout")
+				case <-time.After(25 * time.Millisecond):
+				}
+			}
+			if status().Message != "persisted" {
+				t.Fatal("initial extension not restored")
 			}
 			current, err = client.GetExtension(ctx, dynamic.ModuleID)
 			if err != nil || !strings.Contains(string(current.Config), "applied") {
 				t.Fatalf("apply missing: %v", err)
 			}
 			checkDynamicRoute(200, "applied")
-			if err = client.DeleteExtension(ctx, static.ModuleID); !errors.As(err, &apiError) || apiError.StatusCode != http.StatusConflict {
-				t.Fatalf("static delete: %v", err)
+			if err = client.DeleteExtension(ctx, initial.ModuleID); err == nil {
+				t.Fatal("required dependency deleted")
 			}
 			if err = client.DeleteExtension(ctx, dynamic.ModuleID); err != nil {
 				t.Fatal(err)

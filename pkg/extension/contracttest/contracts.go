@@ -108,7 +108,7 @@ func Configuration(t *testing.T, registrations []extension.Registration, input [
 			t.Fatal("schema mismatch accepted")
 		}
 		store := &persistence{items: slices.Clone(ordered)}
-		m, err := extension.NewManager(context.Background(), r, store, nil)
+		m, err := extension.NewManager(context.Background(), r, store)
 		if err != nil {
 			t.Fatal(err)
 		}

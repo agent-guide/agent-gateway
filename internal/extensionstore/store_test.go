@@ -26,7 +26,7 @@ func TestSQLiteEnvelopeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := extension.Envelope{ModuleID: "example.fixture.secret", SchemaVersion: 1, Config: json.RawMessage(`{"token":{"$secret_ref":"env:SQLITE_F2_SECRET"}}`), Source: "dynamic"}
+	e := extension.Envelope{ModuleID: "example.fixture.secret", SchemaVersion: 1, Config: json.RawMessage(`{"token":{"$secret_ref":"env:SQLITE_F2_SECRET"}}`)}
 	t.Setenv("SQLITE_F2_SECRET", "private-value")
 	if err = store.Put(ctx, e, true); err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestSQLiteEnvelopeRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(items)
-	if strings.Contains(string(raw), "private-value") || items[0].Source != "" {
+	if strings.Contains(string(raw), "private-value") {
 		t.Fatalf("persisted runtime value: %s", raw)
 	}
 	if err = store.Put(ctx, e, false); err != nil {

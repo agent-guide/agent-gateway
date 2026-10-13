@@ -380,9 +380,8 @@ by a manifest query or request-time directory lookup.
 
 ### 11.3 Configuration ownership, mutation and secrets
 
-The paragraphs below describe the checked-in implementation. Section 11.3.1
-records the target configuration principle pending review and implementation;
-its removal of static extension configuration has not landed.
+The configuration principle in section 11.3.1 is implemented. Internal extension
+configuration is independent of Caddyfile and owned solely by ConfigStore.
 
 Capability status: **Implemented**, with candidate consumer contracts. Registries
 validate locally without resolving secrets, and Manager prepares resources under
@@ -410,11 +409,10 @@ modules fail local validation when unavailable locally, and always fail on the
 server when not linked. CLI validation cannot authorize server execution.
 
 Persist dynamic envelopes in a schema-bound `extensions` store in the existing
-ConfigStore backend. Static envelopes remain startup-owned, visible but read-only;
-a static/dynamic duplicate ID is a startup error. Caddy JSON and its Caddyfile
-adapter feed the same envelope validator as standalone static bundles. The
-Caddyfile adds `extension <module_id> <schema_version> <config-file>`; the file
-contains module-owned JSON and uses the same secret-reference handling.
+ConfigStore backend. Manager startup loads only persisted envelopes. Caddyfile,
+Caddy app JSON and standalone static Bundles cannot supply extension envelopes;
+invalid static inputs fail rather than being ignored or imported into the store.
+Envelopes have no static/dynamic ownership field.
 
 Community owns `GET /admin/extensions` and
 `GET|PUT|DELETE /admin/extensions/{module_id}`. List/get return reference-preserving
@@ -437,7 +435,7 @@ Bundle apply first applies extensions in dependency order, then follows the
 existing resource order. It stops before dependent resources if extension apply
 fails. The whole Bundle remains a sequence of resource mutations, with explicit
 partial-result reporting and no cross-resource rollback promise. Export includes
-the effective extension envelopes and their static/dynamic ownership. Existing
+the persisted extension envelopes and their secret references. Existing
 Bundle ownership semantics remain in force; no second configuration authority
 or event store is introduced.
 
@@ -452,11 +450,12 @@ Missing references fail preparation with a bounded code and field path, never
 the value. Persisted/exported config retains the reference object, including
 when the environment variable is set. Resolved values exist only in owned
 runtime resources; they never enter DTOs, events, diagnostics or manifests.
-Environment rotation requires explicit reapply/reload and creates a generation.
+Environment rotation requires explicit reapply and creates a generation.
 
-#### 11.3.1 Target principle: host-independent extension configuration
+#### 11.3.1 Principle: host-independent extension configuration
 
-Decision status: **Proposed for review; not implemented**.
+Capability status: **Implemented**, with candidate contracts. Published-tag
+protection remains pending the release and paired-consumer gates.
 
 Caddyfile owns Caddy host configuration: listeners, TLS, HTTP middleware,
 Caddy module wiring, Admin mounting and gateway bootstrap connections. The
@@ -490,9 +489,8 @@ SQLite specifically or introduce a new store.
 
 The decision is limited to internal `extensions` configuration. It does not
 remove Caddy modules or change current provider, route or other resource
-configuration ownership. The existing static extension paths described above
-remain operational until the separately reviewed implementation change lands.
-The active foundation plan records the implementation and acceptance work.
+configuration ownership. Static extension inputs and their ownership handling have been removed.
+The active foundation plan records candidate evidence and remaining release work.
 
 ### 11.4 Attribution and public events
 

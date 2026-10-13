@@ -319,10 +319,11 @@ the dynamic validation entry used by `agwctl validate` and `apply`. It first run
 `ValidateExtensions`, including secret classification, ordinary extension
 environment expansion, linked module/schema checks and dependency validation,
 then validates the other resources. Static startup uses
-`ValidateForStaticConfigWithRegistry` and additionally enforces static restrictions.
+`ValidateForStaticConfig`, which rejects non-empty `extensions` before resource
+validation. Internal extensions are configured only through ConfigStore workflows.
 
-The registry-free `Validate`, `ValidateForConfigStore` and
-`ValidateForStaticConfig` methods reject non-empty `extensions` with
+The registry-free `Validate` and `ValidateForConfigStore` methods reject
+non-empty `extensions` with
 `extensions require linked registry validation`; they cannot validate an external
 module's envelope. Callers must provide the distribution's linked registry.
 
@@ -392,8 +393,9 @@ Current standalone integration does the following:
 - validate the bundle locally
 - instantiate static providers from bundle provider configs
 - register static provider API-key credentials into the shared credential manager
-- pass static providers, direct-provider routes and extension envelopes into runtime bootstrap
-- reject static managed models, VirtualKeys and logical-model routes
+- pass static providers and direct-provider routes into runtime bootstrap
+- load extension envelopes from ConfigStore independently of the static Bundle
+- reject static extensions, managed models, VirtualKeys and logical-model routes
 
 The shared schema contains more dynamic object families than standalone static
 loading supports. Standalone validates its own narrower startup boundary; the
@@ -404,7 +406,7 @@ The resulting runtime behavior matches the existing static-object model:
 
 - static providers are read-only
 - static routes are read-only
-- static extension envelopes are read-only and use the same prepared-generation manager
+- extensions use ConfigStore ownership and the prepared-generation manager in both server modes
 
 ## 14. Secrets Handling
 

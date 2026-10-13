@@ -580,8 +580,11 @@ expose `manifest`; the CLI projects validation roles, and both servers expose
 `GET /admin/manifest` beneath the Admin mount. Caddy receives process-owned
 assembly from its executable entry; standalone passes it explicitly.
 
-`pkg/extension.Manager` combines static envelopes with the schema-bound
-`extensions` store on the existing backend. Mutations validate and prepare one
+`pkg/extension.Manager` loads envelopes only from the schema-bound `extensions`
+store on the existing backend. Internal extensions are independent of Caddyfile;
+Caddyfile configures the Caddy host and bootstrap connections. Admin API and
+Bundle apply manage extension configuration; Caddy JSON and standalone static
+Bundles reject extension configuration. Mutations validate and prepare one
 complete dependency generation, persist the target envelope, and publish in
 memory. Leases retain old resources until drain or the five-second retirement
 budget. Config, manifests and Admin responses preserve secret-reference tokens.

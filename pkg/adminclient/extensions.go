@@ -24,7 +24,6 @@ func (c *Client) GetExtension(ctx context.Context, id string) (*extension.Envelo
 	return &out, err
 }
 func (c *Client) PutExtension(ctx context.Context, e extension.Envelope) (*extension.Envelope, error) {
-	e.Source = ""
 	var out extension.Envelope
 	err := c.do(ctx, http.MethodPut, "/admin/extensions/"+url.PathEscape(e.ModuleID), e, &out, true, http.StatusOK)
 	return &out, err

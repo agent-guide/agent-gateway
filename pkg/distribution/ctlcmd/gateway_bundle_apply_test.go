@@ -74,7 +74,7 @@ func TestApplyExtensionsPreservesLargeIntegerChanges(t *testing.T) {
 			writes := 0
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodGet && r.URL.Path == "/admin/extensions" {
-					_ = json.NewEncoder(w).Encode(map[string]any{"items": []extension.Envelope{{ModuleID: id, SchemaVersion: 1, Config: json.RawMessage(tc.stored), Source: "dynamic"}}})
+					_ = json.NewEncoder(w).Encode(map[string]any{"items": []extension.Envelope{{ModuleID: id, SchemaVersion: 1, Config: json.RawMessage(tc.stored)}}})
 					return
 				}
 				if r.Method == http.MethodPut && r.URL.Path == "/admin/extensions/"+id {

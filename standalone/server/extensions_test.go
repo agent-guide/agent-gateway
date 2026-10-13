@@ -66,7 +66,7 @@ func TestExtensionAdminAndStartup(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(exported)
-	if strings.Contains(string(raw), "do-not-export") || exported[0].Source != "dynamic" {
+	if strings.Contains(string(raw), "do-not-export") {
 		t.Fatalf("bad envelope: %s", raw)
 	}
 	_ = os.Unsetenv("STANDALONE_F2_TEST_TOKEN")
@@ -82,5 +82,17 @@ func TestExtensionAdminAndStartup(t *testing.T) {
 	e.ModuleID = "example.fixture.unknown"
 	if _, err = client.PutExtension(ctx, e); err == nil {
 		t.Fatal("unknown accepted")
+	}
+}
+
+func TestStaticBundleCannotConfigureExtensions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "static.yaml")
+	raw := []byte("apiVersion: gateway.agw/v1alpha1\nkind: GatewayBundle\nextensions:\n- module_id: example.fixture.secret\n  schema_version: 1\n  config: {}\n")
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadStaticConfig(t.Context(), Options{StaticConfigPath: path, Assembly: extensionAssembly()})
+	if err == nil || !strings.Contains(err.Error(), "extensions are not supported in static config") {
+		t.Fatalf("expected static extension rejection, got %v", err)
 	}
 }

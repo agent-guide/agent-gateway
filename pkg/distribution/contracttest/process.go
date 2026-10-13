@@ -329,6 +329,54 @@ func Distribution(t *testing.T, f ProcessFixture) {
 					t.Fatal("rejected body changed probe")
 				}
 			}})
+			// Both hosts must recover configured resources from ConfigStore without
+			// receiving extension envelopes in their startup configuration.
+			if err = cmd.Process.Signal(os.Interrupt); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case err = <-done:
+				stopped = true
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("restart shutdown deadline")
+			}
+			cmd = exec.Command(filepath.Join(f.BinDir, binary), args...)
+			cmd.Dir = work
+			cmd.Env = append(cleanEnv(f.EventFileEnv), f.EventFileEnv+"="+events)
+			cmd.Stdout, cmd.Stderr = log, log
+			if err = cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			stopped = false
+			go func() { done <- cmd.Wait() }()
+			poll(t, func() bool {
+				req, _ := http.NewRequest("GET", base+"/admin/manifest", nil)
+				resp, err := send(req)
+				if err != nil {
+					return false
+				}
+				defer resp.Body.Close()
+				return resp.StatusCode == 200
+			})
+			if !bytes.Equal(probeBefore, call("POST", f.ProbePath, `{}`, 200)) {
+				t.Fatal("persisted extension resource not restored after restart")
+			}
+			for _, e := range expected {
+				raw := call("GET", "/admin/extensions/"+e.ModuleID, "", 200)
+				var restored extension.Envelope
+				if json.Unmarshal(raw, &restored) != nil {
+					t.Fatal("invalid restored envelope")
+				}
+				var actualConfig, expectedConfig any
+				_ = json.Unmarshal(restored.Config, &actualConfig)
+				_ = json.Unmarshal(e.Config, &expectedConfig)
+				if restored.ModuleID != e.ModuleID || restored.SchemaVersion != e.SchemaVersion || !reflect.DeepEqual(actualConfig, expectedConfig) {
+					t.Fatal("persisted extension config changed after restart")
+				}
+			}
 			var key struct {
 				Key string `json:"key"`
 			}

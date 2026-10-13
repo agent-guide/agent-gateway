@@ -632,9 +632,10 @@ factories through `distribution.Assembly`. Gateway Bundle `extensions` use
 `module_id`, `schema_version`, and module-owned JSON `config`. Unknown modules
 fail validation/startup. Community binaries have no commercial factories.
 `GET /admin/extensions` and `GET|PUT|DELETE /admin/extensions/{module_id}` manage
-dynamic envelopes in the existing ConfigStore; static envelopes are read-only.
+persisted envelopes in the existing ConfigStore. Caddyfile and standalone static
+Bundles do not configure internal extensions; use Admin API or Bundle apply.
 Apply handles extensions in dependency order before other resources and reports
-partial results when an extension fails. Export retains ownership and references.
+partial results when an extension fails. Export retains configuration and secret references.
 
 Secret fields declared by a factory accept only `{"$secret_ref":"env:NAME"}`.
 Local validation never resolves these tokens. Server preparation resolves them;

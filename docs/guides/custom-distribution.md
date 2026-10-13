@@ -67,8 +67,9 @@ token. Use `agwctl validate`, `apply` and `export` as described in the
 [Bundle guide](bundle-yaml.md). Apply performs extension writes in dependency
 order and reports partial results; it is not a whole-Bundle transaction.
 
-Dynamic configuration uses `/admin/extensions/{module_id}`. Static envelopes
-are startup-owned and read-only. Mutations prepare and persist before publishing
+Configuration uses `/admin/extensions/{module_id}` and the existing ConfigStore.
+Bundle apply writes through that API. Caddyfile/Caddy JSON and standalone static
+Bundles do not configure internal extensions. Mutations prepare and persist before publishing
 one generation. Request code holds a snapshot lease; resources honor
 cancellation and retire in reverse dependency order. Preserve domain state
 explicitly when unrelated writes replace prepared handles.

@@ -60,7 +60,7 @@ func TestMutationPublicationAndRetirement(t *testing.T) {
 	}
 	registry, _ := NewRegistry(Registration{d, f})
 	store := &memoryPersistence{}
-	m, err := NewManager(context.Background(), registry, store, nil)
+	m, err := NewManager(context.Background(), registry, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,25 +109,17 @@ func TestMutationPublicationAndRetirement(t *testing.T) {
 	_, err = m.Acquire()
 	code(t, err, "closed")
 }
-func TestStaticDependencyAndCancellation(t *testing.T) {
+func TestPersistedDependencyAndCancellation(t *testing.T) {
 	a, b := descriptor("example.test.a"), descriptor("example.test.b")
 	b.Dependencies = []string{a.ID}
 	r, _ := NewRegistry(Registration{a, factory()}, Registration{b, factory()})
 	store := &memoryPersistence{items: []Envelope{{ModuleID: a.ID, SchemaVersion: 1, Config: json.RawMessage(`{}`)}, {ModuleID: b.ID, SchemaVersion: 1, Config: json.RawMessage(`{}`)}}}
-	m, err := NewManager(context.Background(), r, store, nil)
+	m, err := NewManager(context.Background(), r, store)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer m.Close(context.Background())
 	code(t, m.Delete(context.Background(), a.ID), "missing_dependency")
-	_, err = NewManager(context.Background(), r, store, []Envelope{store.items[0]})
-	code(t, err, "duplicate_module")
-	static, err := NewManager(context.Background(), r, &memoryPersistence{}, []Envelope{store.items[0]})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer static.Close(context.Background())
-	code(t, static.Put(context.Background(), store.items[0]), "static_config")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err = m.Put(ctx, store.items[0]); err == nil {
@@ -139,7 +131,7 @@ func TestConcurrentLeasesAndMutations(t *testing.T) {
 	d := descriptor("example.test.concurrent")
 	r, _ := NewRegistry(Registration{d, factory()})
 	store := &memoryPersistence{}
-	m, err := NewManager(context.Background(), r, store, nil)
+	m, err := NewManager(context.Background(), r, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +170,7 @@ func TestCloseDeadlineCancelsLeasedGeneration(t *testing.T) {
 	d := descriptor("example.test.deadline")
 	r, _ := NewRegistry(Registration{d, factory()})
 	store := &memoryPersistence{items: []Envelope{{ModuleID: d.ID, SchemaVersion: 1, Config: json.RawMessage(`{}`)}}}
-	m, err := NewManager(context.Background(), r, store, nil)
+	m, err := NewManager(context.Background(), r, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +200,7 @@ func TestValidationOnlyFactory(t *testing.T) {
 	if _, err = r.Validate(context.Background(), []Envelope{e}); err != nil {
 		t.Fatal(err)
 	}
-	_, err = NewManager(context.Background(), r, nil, []Envelope{e})
+	_, err = NewManager(context.Background(), r, &memoryPersistence{items: []Envelope{e}})
 	code(t, err, "unknown_module")
 }
 
@@ -227,11 +219,11 @@ func TestCallbackPanicIsBounded(t *testing.T) {
 	f = factory()
 	f.Prepare = func(context.Context, PreparedConfig, Snapshot) (Resource, error) { panic("private-secret-panic") }
 	r, _ = NewRegistry(Registration{d, f})
-	_, err = NewManager(context.Background(), r, nil, []Envelope{e})
+	_, err = NewManager(context.Background(), r, &memoryPersistence{items: []Envelope{e}})
 	code(t, err, "prepare_failed")
 	f.Prepare = func(context.Context, PreparedConfig, Snapshot) (Resource, error) { return panicResource{}, nil }
 	r, _ = NewRegistry(Registration{d, f})
-	m, err := NewManager(context.Background(), r, nil, []Envelope{e})
+	m, err := NewManager(context.Background(), r, &memoryPersistence{items: []Envelope{e}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +234,7 @@ func TestCloseCapsPreviouslyRetiredGenerations(t *testing.T) {
 	r, _ := NewRegistry(Registration{d, factory()})
 	e := Envelope{ModuleID: d.ID, SchemaVersion: 1, Config: json.RawMessage(`{}`)}
 	store := &memoryPersistence{items: []Envelope{e}}
-	m, err := NewManager(context.Background(), r, store, nil)
+	m, err := NewManager(context.Background(), r, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +280,7 @@ func TestPrepareOnlyReceivesDeclaredDependencies(t *testing.T) {
 	for _, d := range []Descriptor{a, b, c} {
 		store.items = append(store.items, Envelope{ModuleID: d.ID, SchemaVersion: 1, Config: json.RawMessage(`{}`)})
 	}
-	m, err := NewManager(context.Background(), r, store, nil)
+	m, err := NewManager(context.Background(), r, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +301,7 @@ func TestCloseCancelsMutationBeforeWaitingForGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := &memoryPersistence{}
-	m, err := NewManager(context.Background(), r, store, nil)
+	m, err := NewManager(context.Background(), r, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +348,7 @@ func TestCloseRetiresAWriteCommittedBeforeCancellation(t *testing.T) {
 	f.Prepare = func(context.Context, PreparedConfig, Snapshot) (Resource, error) { return resource, nil }
 	r, _ := NewRegistry(Registration{d, f})
 	store := &committedPersistence{committed: make(chan struct{})}
-	m, err := NewManager(context.Background(), r, store, nil)
+	m, err := NewManager(context.Background(), r, store)
 	if err != nil {
 		t.Fatal(err)
 	}

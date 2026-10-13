@@ -29,10 +29,10 @@
 
 		# Optional limiter selection envelope (schema 1). With no envelope,
 		# Community memory uses a 100 ms budget and fail-closed behavior.
-		# limiter.json may contain {"timeout_ms":100,"failure_mode":"closed"}.
+		# Configure envelopes through Admin API or agwctl apply; Caddyfile only wires the host.
 		# For an external backend, set backend_module_id/backend_type and configure
 		# its linked dependency too. Community includes no production Redis backend.
-		# extension online.agentguide.community.limiter 1 ./limiter.json
+		# Use a Bundle extensions entry for online.agentguide.community.limiter.
 		# Exhaustion returns 429; failures return bounded 503. Explicit open mode
 		# is degraded; cancellation and retired policies never fail open. No retries.
 
@@ -220,6 +220,5 @@ http://127.0.0.1:8080 {
 	}
 }
 
-# Separately linked module configuration, inside agent_gateway:
-# extension example.fixture.entries 1 ./extension-config.json
+# Internal extension configuration is persisted through Admin API / Bundle apply.
 # Community rejects modules absent from its linked registry.

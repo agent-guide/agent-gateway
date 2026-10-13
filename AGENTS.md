@@ -229,7 +229,7 @@ The main config lives in the global `agent_gateway` block.
 
 Important current directives:
 
-- `extension <module_id> <schema_version> <config-file>` loads startup-owned module JSON; unlinked modules fail startup
+- internal extensions are independent of Caddyfile and use ConfigStore as their sole configuration source; manage them through Admin API or Bundle apply. Caddyfile/Caddy JSON and standalone static Bundles reject extension configuration
 - `online.agentguide.community.limiter` schema 1 selects a linked backend using
   `backend_module_id`, `backend_type`, `timeout_ms` (1–1000, default 100) and
   `failure_mode` (default `closed`). Defaults use memory; alternate providers must

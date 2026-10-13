@@ -251,7 +251,7 @@ The gateway accepts a VirtualKey from either:
 ## Extension assembly
 
 Caddy and standalone supply an immutable linked registry to Bootstrap. The
-`extensions` manager owns reference-preserving static/dynamic envelopes and
+`extensions` manager owns reference-preserving ConfigStore envelopes and
 prepares full dependency generations before persistence/publication. Requests
 using module resources retain a `Lease` until completion; never read ConfigStore
 or resolve factories in a request path. Read `pkg/extension/AGENTS.md` before

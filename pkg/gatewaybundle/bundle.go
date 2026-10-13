@@ -183,13 +183,7 @@ func (b *GatewayBundle) ValidateForConfigStore() error {
 
 func (b *GatewayBundle) ValidateForStaticConfig() error {
 	if b != nil && len(b.Extensions) > 0 {
-		return fmt.Errorf("extensions require linked registry validation")
-	}
-	return b.validateStatic()
-}
-func (b *GatewayBundle) ValidateForStaticConfigWithRegistry(ctx context.Context, r *extension.Registry) error {
-	if err := b.ValidateExtensions(ctx, r); err != nil {
-		return err
+		return fmt.Errorf("extensions are not supported in static config; use the Admin API or agwctl apply")
 	}
 	return b.validateStatic()
 }

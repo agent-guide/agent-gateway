@@ -45,7 +45,7 @@ func SecretReferences(t *testing.T, registrations []extension.Registration, inpu
 		t.Fatal("invalid secret-reference fixture")
 	}
 	store := &persistence{items: present}
-	m, err := extension.NewManager(t.Context(), r, store, nil)
+	m, err := extension.NewManager(t.Context(), r, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,9 +56,6 @@ func SecretReferences(t *testing.T, registrations []extension.Registration, inpu
 		}
 	}
 	listed := m.List()
-	for i := range listed {
-		listed[i].Source = ""
-	}
 	after, err := json.Marshal(listed)
 	if err != nil {
 		t.Fatal(err)

@@ -38,7 +38,6 @@ func (s *Store) List(ctx context.Context) ([]extension.Envelope, error) {
 	return out, nil
 }
 func (s *Store) Put(ctx context.Context, e extension.Envelope, create bool) error {
-	e.Source = ""
 	if create {
 		return s.store.Create(ctx, &e)
 	}

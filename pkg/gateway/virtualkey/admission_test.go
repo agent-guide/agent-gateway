@@ -152,7 +152,7 @@ func admissionManager(t *testing.T, mode, failure string, timeout ...int) (*Virt
 		timeoutMS = timeout[0]
 	}
 	selected, _ := json.Marshal(limiter.Config{BackendModuleID: "example.fixture.limiter", BackendType: "fixture", TimeoutMS: timeoutMS, FailureMode: failure})
-	e, err := extension.NewManager(t.Context(), r, nil, []extension.Envelope{{ModuleID: "example.fixture.limiter", SchemaVersion: 1, Config: json.RawMessage(`{}`)}, {ModuleID: limiter.ModuleID, SchemaVersion: 1, Config: selected}})
+	e, err := extension.NewManager(t.Context(), r, admissionStore([]extension.Envelope{{ModuleID: "example.fixture.limiter", SchemaVersion: 1, Config: json.RawMessage(`{}`)}, {ModuleID: limiter.ModuleID, SchemaVersion: 1, Config: selected}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -406,4 +406,12 @@ func TestPolicyMutationFencesInflightAdmissionWithFailOpen(t *testing.T) {
 			}
 		})
 	}
+}
+
+func admissionStore(envelopes []extension.Envelope) selectionStore {
+	s := selectionStore{}
+	for _, e := range envelopes {
+		s[e.ModuleID] = e
+	}
+	return s
 }

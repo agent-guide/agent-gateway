@@ -17,7 +17,7 @@ modfile with a local replacement to the current Community checkout. It runs
 external signature/assembly tests with the race detector, builds all three
 binaries, checks Community dependencies for the known private module path, and
 runs help, invalid-flag, dotenv and SIGINT/SIGTERM process contracts. It also
-starts both server modes, checks manifest parity, static read-only envelopes,
+starts both server modes, checks manifest parity, ConfigStore-only envelopes and restart recovery,
 dynamic PUT/apply/export/delete and token preservation without setting the
 secret environment variable in the CLI process. The temporary
 replacement and build outputs are removed on exit. Neither `go.work` nor a local

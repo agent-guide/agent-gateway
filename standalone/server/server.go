@@ -229,7 +229,7 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 	}
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(ctx, gateway.BootstrapOptions{
-		ExtensionRegistry: opts.Registry, StaticExtensions: staticConfig.Extensions, Distribution: opts.Assembly, EventPublisher: usageService,
+		ExtensionRegistry: opts.Registry, Distribution: opts.Assembly, EventPublisher: usageService,
 		StaticLLMRoutes:     staticConfig.LLMRoutes,
 		StaticProviders:     staticConfig.Providers,
 		ConfigStoreBackend:  configstoreBackend,
@@ -293,23 +293,11 @@ func newUsageService(backend configstore.ConfigStoreBackend, logger *zap.Logger,
 }
 
 type staticConfig struct {
-	Extensions []extension.Envelope
-	Providers  map[string]provider.Provider
-	LLMRoutes  []routecore.AgentRouteConfig
+	Providers map[string]provider.Provider
+	LLMRoutes []routecore.AgentRouteConfig
 }
 
 func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) {
-	if opts.Registry == nil {
-		a := opts.Assembly
-		if a.Modules == nil {
-			a = distribution.CommunityRuntime()
-		}
-		r, err := a.Registry()
-		if err != nil {
-			return nil, err
-		}
-		opts.Registry = r
-	}
 	cfg := &staticConfig{
 		Providers: map[string]provider.Provider{},
 	}
@@ -321,14 +309,13 @@ func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) 
 	if err != nil {
 		return nil, fmt.Errorf("load static gateway bundle: %w", err)
 	}
-	if err := bundle.ValidateForStaticConfigWithRegistry(ctx, opts.Registry); err != nil {
+	if err := bundle.ValidateForStaticConfig(); err != nil {
 		return nil, fmt.Errorf("validate static gateway bundle: %w", err)
 	}
 	providers, err := instantiateStaticProviders(bundle)
 	if err != nil {
 		return nil, err
 	}
-	cfg.Extensions = bundle.Extensions
 	cfg.Providers = providers
 	cfg.LLMRoutes = append([]routecore.AgentRouteConfig(nil), bundle.LLMRoutes...)
 	return cfg, nil

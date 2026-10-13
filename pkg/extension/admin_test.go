@@ -66,7 +66,7 @@ func TestAdminMissingContributorFailsPreparation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = NewManager(context.Background(), r, nil, []Envelope{{ModuleID: reg.Descriptor.ID, SchemaVersion: 1, Config: json.RawMessage(`{}`)}})
+	_, err = NewManager(context.Background(), r, &memoryPersistence{items: []Envelope{{ModuleID: reg.Descriptor.ID, SchemaVersion: 1, Config: json.RawMessage(`{}`)}}})
 	var e *Error
 	if !errors.As(err, &e) || e.Code != "prepare_failed" || e.Field != "admin_routes" {
 		t.Fatalf("missing contributor: %v", err)
@@ -107,7 +107,7 @@ func TestAdminPublisherBindsEachRequestAndCopiesAttribution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager, err := NewManager(context.Background(), registry, nil, nil)
+	manager, err := NewManager(context.Background(), registry, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

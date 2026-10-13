@@ -74,20 +74,15 @@ func budget(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, LifecycleBudget)
 }
 
-// NewManager rejects static/dynamic conflicts and prepares all effective config
+// NewManager loads persisted configuration and prepares a complete generation
 // before returning. Startup failure closes all resources already prepared.
-func NewManager(ctx context.Context, r *Registry, store Persistence, static []Envelope) (*Manager, error) {
+func NewManager(ctx context.Context, r *Registry, store Persistence) (*Manager, error) {
 	if r == nil {
 		return nil, failure("invalid_registration", "", "registry")
 	}
 	m := &Manager{registry: r, store: store, gate: make(chan struct{}, 1)}
 	m.gate <- struct{}{}
-	effective := make([]Envelope, 0, len(static))
-	for _, e := range static {
-		e = cloneEnvelope(e)
-		e.Source = "static"
-		effective = append(effective, e)
-	}
+	var effective []Envelope
 	if store != nil {
 		dynamic, err := store.List(ctx)
 		if err != nil {
@@ -95,7 +90,6 @@ func NewManager(ctx context.Context, r *Registry, store Persistence, static []En
 		}
 		for _, e := range dynamic {
 			e = cloneEnvelope(e)
-			e.Source = "dynamic"
 			effective = append(effective, e)
 		}
 	}
@@ -325,16 +319,11 @@ func (m *Manager) Put(ctx context.Context, e Envelope) (result error) {
 	found := false
 	for i, old := range input {
 		if old.ModuleID == e.ModuleID {
-			if old.Source == "static" {
-				return failure("static_config", e.ModuleID, "")
-			}
-			e.Source = "dynamic"
 			input[i] = cloneEnvelope(e)
 			found = true
 		}
 	}
 	if !found {
-		e.Source = "dynamic"
 		input = append(input, cloneEnvelope(e))
 	}
 	g, err := m.prepare(ctx, input)
@@ -342,7 +331,6 @@ func (m *Manager) Put(ctx context.Context, e Envelope) (result error) {
 		return err
 	}
 	desired := g.snapshot.configs[e.ModuleID]
-	desired.Source = ""
 	if ctx.Err() != nil {
 		m.dispose(g)
 		return ctx.Err()
@@ -378,9 +366,6 @@ func (m *Manager) Delete(ctx context.Context, id string) (result error) {
 	for _, e := range input {
 		if e.ModuleID == id {
 			found = true
-			if e.Source == "static" {
-				return failure("static_config", id, "")
-			}
 		} else {
 			candidate = append(candidate, e)
 		}
@@ -507,8 +492,6 @@ func (m *Manager) emitMutation(ctx context.Context, id, operation string, err er
 		var e *Error
 		if errors.As(err, &e) {
 			switch e.Code {
-			case "static_config":
-				reason = "static_conflict"
 			case "invalid_config", "unknown_module", "schema_mismatch", "missing_dependency", "dependency_cycle", "prepare_failed", "persistence_failed", "closed", "unhealthy":
 				reason = e.Code
 			}

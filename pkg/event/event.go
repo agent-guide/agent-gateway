@@ -54,7 +54,7 @@ func (e *Error) Error() string { return e.Code }
 
 var moduleID = regexp.MustCompile(`^[a-z0-9-]+(\.[a-z0-9-]+)+$`)
 var eventID = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
-var reasons = map[string]bool{"": true, "rate_limited": true, "limiter_unavailable": true, "canceled": true, "invalid_config": true, "unknown_module": true, "schema_mismatch": true, "missing_dependency": true, "dependency_cycle": true, "prepare_failed": true, "persistence_failed": true, "static_conflict": true, "closed": true, "unhealthy": true, "mutation_failed": true}
+var reasons = map[string]bool{"": true, "rate_limited": true, "limiter_unavailable": true, "canceled": true, "invalid_config": true, "unknown_module": true, "schema_mismatch": true, "missing_dependency": true, "dependency_cycle": true, "prepare_failed": true, "persistence_failed": true, "closed": true, "unhealthy": true, "mutation_failed": true}
 
 func Validate(e Envelope, p attribution.Policy) error {
 	invalid := func() error { return &Error{Code: "invalid_event"} }

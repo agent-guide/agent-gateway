@@ -47,7 +47,7 @@ func TestExtensionReferenceRoundTrip(t *testing.T) {
 
 func TestExtensionIntegerExportRoundTrip(t *testing.T) {
 	raw := json.RawMessage(`{"positive":9007199254740993,"negative":-9223372036854775807,"signed_max":9223372036854775807,"unsigned_max":18446744073709551615,"nested":[9007199254740993],"fraction":1.25}`)
-	original := &GatewayBundle{APIVersion: APIVersionV1Alpha1, Kind: KindGatewayBundle, Extensions: []extension.Envelope{{ModuleID: "example.fixture.numeric", SchemaVersion: 1, Config: raw, Source: "static"}}}
+	original := &GatewayBundle{APIVersion: APIVersionV1Alpha1, Kind: KindGatewayBundle, Extensions: []extension.Envelope{{ModuleID: "example.fixture.numeric", SchemaVersion: 1, Config: raw}}}
 	encoded, err := EncodeYAML(original)
 	if err != nil {
 		t.Fatal(err)
@@ -72,7 +72,17 @@ func TestExtensionIntegerExportRoundTrip(t *testing.T) {
 	if !reflect.DeepEqual(want, got) {
 		t.Fatalf("numeric config changed: %s", decoded.Extensions[0].Config)
 	}
-	if decoded.Extensions[0].Source != "static" {
-		t.Fatal("ownership lost")
+}
+
+func TestStaticBundleRejectsExtensionsBeforeSchemaValidation(t *testing.T) {
+	for _, id := range []string{"example.fixture.secret", "example.unlinked"} {
+		b := &GatewayBundle{APIVersion: APIVersionV1Alpha1, Kind: KindGatewayBundle, Extensions: []extension.Envelope{{ModuleID: id, SchemaVersion: 1, Config: json.RawMessage(`{}`)}}}
+		if err := b.ValidateForStaticConfig(); err == nil || !strings.Contains(err.Error(), "extensions are not supported in static config") {
+			t.Fatalf("expected static rejection: %v", err)
+		}
+	}
+	b := &GatewayBundle{APIVersion: APIVersionV1Alpha1, Kind: KindGatewayBundle, Extensions: []extension.Envelope{}}
+	if err := b.ValidateForStaticConfig(); err != nil {
+		t.Fatal(err)
 	}
 }

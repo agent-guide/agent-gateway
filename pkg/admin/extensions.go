@@ -37,7 +37,7 @@ func extensionError(w http.ResponseWriter, err error) {
 	switch e.Code {
 	case "not_found":
 		status = http.StatusNotFound
-	case "static_config", "missing_dependency", "dependency_cycle":
+	case "missing_dependency", "dependency_cycle":
 		status = http.StatusConflict
 	case "prepare_failed", "unhealthy", "secret_unavailable", "persistence_failed", "closed":
 		status = http.StatusServiceUnavailable
