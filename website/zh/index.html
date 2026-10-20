@@ -43,12 +43,12 @@
         <h1>给你的 AI <em>Agent</em>，一座空管塔台。</h1>
         <p class="lede">
           AgentGuide 把注册的 agent 与经网关路由的模型、工具流量放到同一块雷达屏上。
-          看清一切、用策略治理、把 agent 编排成建制化的队伍去完成真正的企业任务
-          —— 全部通过一个由你自己部署的网关完成。
+          通过你自己部署的网关治理请求范围内的 Agent 轮次、模型调用和工具执行；
+          跨独立 Agent 的持久工作流仍是明确标注的路线图能力。
         </p>
         <div class="cta-row">
-          <a class="btn btn-primary" href="agents.html">探索 Agent 编排</a>
-          <a class="btn btn-ghost" href="platform.html">了解平台</a>
+          <a class="btn btn-primary" href="https://github.com/agent-guide/agent-gateway/releases/tag/v0.7.1">开始使用</a>
+          <a class="btn btn-ghost" href="https://github.com/agent-guide/agent-gateway">GitHub</a>
         </div>
       </div>
       <div class="diagram-frame">
@@ -125,6 +125,39 @@
       <div class="stat"><b>5</b><span>类持久化用量事件</span></div>
     </div>
   </div>
+
+  <section class="section">
+    <div class="wrap">
+      <p class="eyebrow">可验证的首次运行</p>
+      <h2>发送一个受治理的 Agent 轮次，看到可核验的证据。</h2>
+      <p class="lede">
+        v0.7.1 Compose 演示不需要模型提供商密钥。它创建受 VirtualKey
+        保护的 HTTP Agent 路由，调用确定性的 A2A fixture，持久化交互记录，
+        并暴露请求计数器。
+      </p>
+      <div class="card-grid cols-2">
+        <div class="card">
+          <span class="kicker">受治理的请求</span>
+          <h3>调用通用 Agent API</h3>
+          <div class="code-block"><pre>curl http://127.0.0.1:8080/agents/first-run/turn \
+  -H "Authorization: Bearer $AGW_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"first-run common turn"}'</pre></div>
+        </div>
+        <div class="card">
+          <span class="kicker">可观测的结果</span>
+          <h3>确认成功与归因</h3>
+          <div class="code-block"><pre>event: done
+
+agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre></div>
+        </div>
+      </div>
+      <div class="cta-row" style="margin-top: 30px;">
+        <a class="btn btn-primary" href="https://github.com/agent-guide/agent-gateway/blob/v0.7.1/docs/getting-started/first-run.md">运行演示</a>
+        <a class="btn btn-ghost" href="observability.html">查看可观测性</a>
+      </div>
+    </div>
+  </section>
 
   <section class="section">
     <div class="wrap">
@@ -304,8 +337,8 @@
         出站流量只会前往你配置的提供商与服务。
       </p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="platform.html#deploy">部署指南</a>
-        <a class="btn btn-ghost" href="observability.html">看看你能观测到什么</a>
+        <a class="btn btn-primary" href="https://github.com/agent-guide/agent-gateway/releases/tag/v0.7.1">开始使用</a>
+        <a class="btn btn-ghost" href="https://github.com/agent-guide/agent-gateway">GitHub</a>
       </div>
     </div>
   </section>

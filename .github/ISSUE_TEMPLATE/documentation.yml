@@ -1,0 +1,29 @@
+name: Documentation gap
+description: Report missing, inaccurate, or unclear project documentation.
+title: "[Docs]: "
+labels: [documentation]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Page or location
+      description: Link the README, documentation page, website page, or command help.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is unclear or incorrect?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What should a reader be able to do?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Relevant version
+      placeholder: v0.7.1, main, or not version-specific

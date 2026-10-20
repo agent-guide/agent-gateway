@@ -1,0 +1,55 @@
+name: Provider compatibility
+description: Report a provider, model, protocol, or upstream compatibility gap.
+title: "[Provider]: "
+labels: [provider-compatibility]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Gateway version
+      description: Provide the release tag or commit and relevant manifest identity.
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: Provider type, endpoint, and model
+      description: Omit credentials and private endpoint details.
+    validations:
+      required: true
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Ingress protocol
+      options:
+        - OpenAI
+        - Anthropic
+        - Claude Code (`cc`)
+        - MCP
+        - Agent / ACP
+        - HTTP / A2A
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: request
+    attributes:
+      label: Minimal sanitized request and configuration
+      description: Replace every key, token, account identifier, and private URL with a placeholder.
+    validations:
+      required: true
+  - type: textarea
+    id: response
+    attributes:
+      label: Expected and actual upstream behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I verified the behavior against the provider's current public documentation.
+          required: true
+        - label: I removed credentials and private data.
+          required: true

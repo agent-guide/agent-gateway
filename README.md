@@ -1,8 +1,14 @@
 # agent-gateway
 
-`agent-gateway` is the open-source core (Apache 2.0) of **[AgentGuide](https://agentguide.online)** — the control plane for enterprise agent systems: observe, govern, and orchestrate AI agents through one self-hosted gateway. AgentGuide is the product name; `agent-gateway` is this repository and the gateway engine it builds.
+`agent-gateway` is the Apache-2.0 gateway engine behind
+**[AgentGuide](https://agentguide.online)**. It gives LLM, MCP, builtin Agent,
+ACP, and HTTP/A2A traffic one self-hosted control point for routing, VirtualKey
+authentication, credentials, limits, configuration, and telemetry.
 
-The gateway serves LLM, MCP, and native ACP workloads. It provides OpenAI-compatible and Anthropic-compatible ingress, route-based provider dispatch, VirtualKey authentication, dynamic config backed by SQLite, and Admin APIs for gateway operations.
+Unlike an Agent framework, it governs agents and their model/tool traffic from
+the outside. Existing applications use OpenAI-, Anthropic-, Claude Code-, MCP-,
+Agent-, or A2A-compatible ingress; operators manage the gateway through a
+SQLite-backed Admin API and declarative Bundles.
 
 This repository builds three binaries:
 
@@ -11,7 +17,10 @@ This repository builds three binaries:
 - `agwctl`: management CLI for the gateway and Caddy Admin APIs
 
 > [!IMPORTANT]
-> When upgrading from the integrated CLI-auth implementation, install the
+> Stores that have not completed the external CLI-auth cutover documented since
+> v0.5.0 need a one-time credential migration. Follow the
+> [upgrade guide](docs/guides/upgrade.md#stores-from-before-the-v050-cli-auth-cutover),
+> then install the
 > separate `agw-auth` executable on the gateway's `PATH`, or configure its
 > full command with `credential_refresh_command` (Caddy) or
 > `--credential-refresh-command` plus repeatable `--credential-refresh-arg`
@@ -23,20 +32,27 @@ This repository builds three binaries:
 > `AGW_AUTH_TRANSPORT_PROFILE` on the Gateway process when the refresh
 > subprocess needs those network settings.
 
-The store keeps the historical `cliauth_credentials` table name, but this
-breaking cutover does not translate legacy credential or route type values.
-Before starting the new binary against an existing SQLite store, back up the
-database and run:
+## First successful governed request
 
-```sql
-UPDATE cliauth_credentials
-SET data = json_set(data, '$.type', 'oauth_token')
-WHERE json_extract(data, '$.type') = 'cliauth_token';
+The v0.7.1 first-run asset needs only Docker Compose. It starts the gateway and
+a deterministic development fixture, applies a Bundle, and proves VirtualKey
+enforcement, common Agent turns, native A2A ingress, persisted interactions,
+and request metrics without an LLM provider key:
 
-UPDATE routes
-SET config = replace(config, '"cliauth_token"', '"oauth_token"')
-WHERE config LIKE '%"cliauth_token"%';
+```sh
+curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.1/agent-gateway-first-run-v0.7.1.tar.gz
+curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.1/SHA256SUMS
+grep 'agent-gateway-first-run-v0.7.1.tar.gz' SHA256SUMS | shasum -a 256 -c -
+tar -xzf agent-gateway-first-run-v0.7.1.tar.gz
+cd agent-gateway-first-run-v0.7.1
+./setup.sh
+./run-smoke.sh
 ```
+
+See the [canonical first-run guide](docs/getting-started/first-run.md),
+[release installation guide](docs/guides/install-release.md), and
+[evaluated capability matrix](docs/reference/capabilities.md). Source builds
+and protocol-specific walkthroughs remain below.
 
 ## What It Does
 
@@ -60,7 +76,7 @@ WHERE config LIKE '%"cliauth_token"%';
 - **Agent Control API (ACP / HTTP)** — how consumers reach agents. Users and business apps call the gateway to launch and drive an agent.
 - **Resource Access API (LLM / MCP)** — how agents reach the outside world. An agent calls back through the gateway to use LLM providers and MCP tools.
 
-A typical request flows in four hops: ① a consumer calls the gateway over HTTP / ACP → ② the gateway launches and drives an agent → ③ the agent calls back through the gateway for LLM / MCP → ④ the gateway proxies that call to upstream resources (LLM providers, MCP servers). For builtin agents, hops ② and ③ happen in-process inside the gateway host — still routed, still observed. Because both directions pass through the gateway, it adds VirtualKey auth, routing, and config across the board, and observability is first-class: every hop is captured as audit logs, token usage, and call-chain traces for multi-agent governance.
+A typical request flows in four hops: ① a consumer calls the gateway over HTTP / ACP → ② the gateway launches and drives an agent → ③ the agent calls back through the gateway for LLM / MCP → ④ the gateway proxies that call to upstream resources (LLM providers, MCP servers). For builtin agents, hops ② and ③ happen in-process inside the gateway host — still routed, still observed. Because both directions pass through the gateway, it adds VirtualKey auth, routing, and config across the board. Persisted usage events and optional traces provide operational evidence; a durable compliance audit ledger remains roadmap work.
 
 The gateway supports three integration paths for the agents themselves:
 

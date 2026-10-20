@@ -1,0 +1,38 @@
+name: Feature proposal
+description: Propose an operator outcome or supported integration.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Operator problem
+      description: Describe the outcome that is blocked, not only a proposed API shape.
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current workaround
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior and boundaries
+      description: Include protocol, configuration, persistence, compatibility, and security implications when known.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I checked the evaluated-capabilities table and existing issues.
+          required: true
+        - label: I understand that durable workflows, memory, enterprise IAM, distributed limiting, and compliance audit remain roadmap unless separately designed.
+          required: true

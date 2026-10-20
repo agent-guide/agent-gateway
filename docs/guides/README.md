@@ -4,6 +4,8 @@ This section is for task-oriented operational guides.
 
 Current pages:
 
+- [install-release.md](install-release.md)
+- [upgrade.md](upgrade.md)
 - [admin-auth.md](admin-auth.md)
 - [bundle-yaml.md](bundle-yaml.md)
 - [oauth-credentials.md](oauth-credentials.md)

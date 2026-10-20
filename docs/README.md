@@ -40,6 +40,10 @@ Category index:
 
 Primary detailed documents:
 
+- [getting-started/first-run.md](getting-started/first-run.md): provider-credential-free v0.7.1 release evaluation
+- [guides/install-release.md](guides/install-release.md): verify and operate published archives and containers
+- [guides/upgrade.md](guides/upgrade.md): versioned migration and rollback preparation
+- [reference/capabilities.md](reference/capabilities.md): implemented, external-dependency, and roadmap boundaries
 - [guides/custom-distribution.md](guides/custom-distribution.md): assemble and verify independent distributions
 - [releases/v0.7.0.md](releases/v0.7.0.md): released extension foundation, designated symbols and acceptance
 

@@ -4,6 +4,7 @@ This section is for lookup-style reference material.
 
 Current reference pages:
 
+- [capabilities.md](capabilities.md)
 - [caddyfile-reference.md](caddyfile-reference.md)
 - [admin-api-reference.md](admin-api-reference.md)
 - [acp-api.md](acp-api.md)

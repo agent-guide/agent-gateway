@@ -1,0 +1,62 @@
+name: Defect report
+description: Report reproducible behavior that differs from the documented contract.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials or security vulnerabilities. Report vulnerabilities through the private Security Advisory flow.
+  - type: input
+    id: version
+    attributes:
+      label: Version and manifest
+      description: Provide the release tag or commit and the relevant `agw`, `agwd`, or `agwctl manifest` output with sensitive data removed.
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Runtime mode
+      options:
+        - Caddy (`agw`)
+        - Standalone (`agwd`)
+        - Management CLI (`agwctl`)
+        - Container / Compose
+        - Other or unknown
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Give the smallest configuration and exact commands needed to reproduce the issue. Replace every secret with a placeholder.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and bounded logs
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, architecture, container runtime, Go version when built from source, and relevant external adapter/provider versions.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and removed credentials and private data.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

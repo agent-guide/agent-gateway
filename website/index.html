@@ -42,14 +42,14 @@
         <p class="eyebrow">The control plane for enterprise agent systems</p>
         <h1>Air-traffic control for your <em>AI agents</em>.</h1>
         <p class="lede">
-          AgentGuide puts registered agents and gateway-routed model and tool traffic on one radar.
-          Observe everything, govern with policy, and orchestrate fleets of agents
-          that collaborate on real enterprise work — all through a single gateway
-          you run yourself.
+          AgentGuide puts registered agents and gateway-routed model and tool
+          traffic on one radar. Govern request-bound Agent turns, model calls,
+          and tool execution through a gateway you run yourself. Durable
+          cross-agent workflows remain an explicit roadmap layer.
         </p>
         <div class="cta-row">
-          <a class="btn btn-primary" href="agents.html">Explore agent orchestration</a>
-          <a class="btn btn-ghost" href="platform.html">See the platform</a>
+          <a class="btn btn-primary" href="https://github.com/agent-guide/agent-gateway/releases/tag/v0.7.1">Get started</a>
+          <a class="btn btn-ghost" href="https://github.com/agent-guide/agent-gateway">GitHub</a>
         </div>
       </div>
       <div class="diagram-frame">
@@ -126,6 +126,39 @@
       <div class="stat"><b>5</b><span>persisted usage-event families</span></div>
     </div>
   </div>
+
+  <section class="section">
+    <div class="wrap">
+      <p class="eyebrow">A verifiable first run</p>
+      <h2>Send one governed Agent turn. See the evidence.</h2>
+      <p class="lede">
+        The v0.7.1 Compose walkthrough needs no model-provider key. It creates a
+        VirtualKey-protected HTTP Agent route, calls the deterministic A2A
+        fixture, persists the interaction, and exposes the request counter.
+      </p>
+      <div class="card-grid cols-2">
+        <div class="card">
+          <span class="kicker">governed request</span>
+          <h3>Call the common Agent API</h3>
+          <div class="code-block"><pre>curl http://127.0.0.1:8080/agents/first-run/turn \
+  -H "Authorization: Bearer $AGW_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"first-run common turn"}'</pre></div>
+        </div>
+        <div class="card">
+          <span class="kicker">observable result</span>
+          <h3>Confirm success and attribution</h3>
+          <div class="code-block"><pre>event: done
+
+agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre></div>
+        </div>
+      </div>
+      <div class="cta-row" style="margin-top: 30px;">
+        <a class="btn btn-primary" href="https://github.com/agent-guide/agent-gateway/blob/v0.7.1/docs/getting-started/first-run.md">Run the walkthrough</a>
+        <a class="btn btn-ghost" href="observability.html">Inspect observability</a>
+      </div>
+    </div>
+  </section>
 
   <section class="section">
     <div class="wrap">
@@ -316,8 +349,8 @@
         SaaS. Outbound traffic goes only to providers and services you configure.
       </p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="platform.html#deploy">Deployment guide</a>
-        <a class="btn btn-ghost" href="observability.html">See what you'll observe</a>
+        <a class="btn btn-primary" href="https://github.com/agent-guide/agent-gateway/releases/tag/v0.7.1">Get started</a>
+        <a class="btn btn-ghost" href="https://github.com/agent-guide/agent-gateway">GitHub</a>
       </div>
     </div>
   </section>

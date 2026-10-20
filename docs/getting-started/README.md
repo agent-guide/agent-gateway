@@ -4,6 +4,7 @@ This section is for first-run workflows.
 
 Current pages:
 
+- [first-run.md](first-run.md): provider-credential-free v0.7.1 release evaluation with Docker Compose
 - [quickstart-llm.md](quickstart-llm.md): LLM gateway quick start (static Caddyfile and dynamic agwctl paths)
 - [quickstart-mcp.md](quickstart-mcp.md): MCP gateway quick start (dynamic agwctl path, Streamable HTTP and stdio upstreams)
 - [quickstart-acp.md](quickstart-acp.md): ACP gateway quick start (Codex/opencode runtimes through unified `protocol=agent` AgentRoutes)
