@@ -11,8 +11,12 @@ version=${1:-0.7.1}
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 revision=$(git -C "$repo" rev-parse HEAD)
 suffix="$$"
-gateway_image="agent-gateway-smoke:${suffix}"
-fixture_image="agent-gateway-a2a-fixture-smoke:${suffix}"
+gateway_image=${AGW_GATEWAY_IMAGE:-agent-gateway-smoke:${suffix}}
+fixture_image=${AGW_FIXTURE_IMAGE:-agent-gateway-a2a-fixture-smoke:${suffix}}
+build_gateway=0
+build_fixture=0
+[ -n "${AGW_GATEWAY_IMAGE:-}" ] || build_gateway=1
+[ -n "${AGW_FIXTURE_IMAGE:-}" ] || build_fixture=1
 volume="agent-gateway-smoke-${suffix}"
 gateway_container="agent-gateway-smoke-${suffix}"
 fixture_container="agent-gateway-fixture-smoke-${suffix}"
@@ -20,19 +24,32 @@ fixture_container="agent-gateway-fixture-smoke-${suffix}"
 cleanup() {
 	docker rm -f "$gateway_container" "$fixture_container" >/dev/null 2>&1 || true
 	docker volume rm "$volume" >/dev/null 2>&1 || true
-	docker image rm "$gateway_image" "$fixture_image" >/dev/null 2>&1 || true
+	if [ "$build_gateway" = 1 ]; then
+		docker image rm "$gateway_image" >/dev/null 2>&1 || true
+	fi
+	if [ "$build_fixture" = 1 ]; then
+		docker image rm "$fixture_image" >/dev/null 2>&1 || true
+	fi
 }
 trap cleanup EXIT HUP INT TERM
 
-docker build \
-	--build-arg "VERSION=$version" \
-	--build-arg "REVISION=$revision" \
-	-t "$gateway_image" "$repo"
-docker build \
-	--build-arg "VERSION=$version" \
-	--build-arg "REVISION=$revision" \
-	-f "$repo/examples/a2a-agent/Dockerfile" \
-	-t "$fixture_image" "$repo"
+if [ "$build_gateway" = 1 ]; then
+	docker build \
+		--build-arg "VERSION=$version" \
+		--build-arg "REVISION=$revision" \
+		-t "$gateway_image" "$repo"
+else
+	docker pull "$gateway_image"
+fi
+if [ "$build_fixture" = 1 ]; then
+	docker build \
+		--build-arg "VERSION=$version" \
+		--build-arg "REVISION=$revision" \
+		-f "$repo/examples/a2a-agent/Dockerfile" \
+		-t "$fixture_image" "$repo"
+else
+	docker pull "$fixture_image"
+fi
 
 assert_label() {
 	image=$1
@@ -48,6 +65,12 @@ assert_label() {
 for image in "$gateway_image" "$fixture_image"; do
 	assert_label "$image" org.opencontainers.image.version "$version"
 	assert_label "$image" org.opencontainers.image.revision "$revision"
+	target=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")
+	want_target="linux/$(go env GOARCH)"
+	if [ "$target" != "$want_target" ]; then
+		echo "$image target = $target, want $want_target" >&2
+		exit 1
+	fi
 done
 
 runtime_manifest=$(mktemp "${TMPDIR:-/tmp}/agw-container-manifest.XXXXXX")

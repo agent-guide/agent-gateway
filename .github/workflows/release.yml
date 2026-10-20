@@ -1,0 +1,421 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v0.7.1"
+
+permissions:
+  contents: read
+
+env:
+  GATEWAY_IMAGE: ghcr.io/agent-guide/agent-gateway
+  FIXTURE_IMAGE: ghcr.io/agent-guide/agent-gateway-a2a-fixture
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Validate tag and manifest identity
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          [[ "$GITHUB_REF_NAME" == "v$version" && "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go run ./cmd/agwd manifest > "$RUNNER_TEMP/runtime-manifest.json"
+          jq -e --arg version "$version" \
+            '.edition.version == $version and all(.modules[]; .version == $version)' \
+            "$RUNNER_TEMP/runtime-manifest.json"
+          go run ./cmd/agwctl manifest > "$RUNNER_TEMP/validation-manifest.json"
+          jq -e --arg version "$version" \
+            '.edition.version == $version and all(.modules[]; .version == $version)' \
+            "$RUNNER_TEMP/validation-manifest.json"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Verify source release gates
+        run: make verify-release
+      - name: Smoke source release processes
+        run: make smoke-release
+      - name: Verify immutable Community consumer candidate
+        run: make test-extension-consumer-candidate COMMUNITY_COMMIT="$GITHUB_SHA"
+
+  archives:
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+          - runner: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+          - runner: macos-15-intel
+            goos: darwin
+            goarch: amd64
+          - runner: macos-15
+            goos: darwin
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build and execute archive verification
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: >-
+          make verify-release-archive
+          RELEASE_VERSION=${{ needs.preflight.outputs.version }}
+          RELEASE_OUTPUT_DIR=dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-archive-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  images:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    outputs:
+      gateway_digest: ${{ steps.gateway.outputs.digest }}
+      fixture_digest: ${{ steps.fixture.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish versioned gateway image
+        id: gateway
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.GATEWAY_IMAGE }}:${{ github.ref_name }}
+            ${{ env.GATEWAY_IMAGE }}:sha-${{ github.sha }}
+          build-args: |
+            VERSION=${{ needs.preflight.outputs.version }}
+            REVISION=${{ github.sha }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha,scope=gateway-release
+          cache-to: type=gha,mode=max,scope=gateway-release
+      - name: Attest gateway image provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.GATEWAY_IMAGE }}
+          subject-digest: ${{ steps.gateway.outputs.digest }}
+          push-to-registry: true
+      - name: Build and publish versioned fixture image
+        id: fixture
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: examples/a2a-agent/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.FIXTURE_IMAGE }}:${{ github.ref_name }}
+            ${{ env.FIXTURE_IMAGE }}:sha-${{ github.sha }}
+          build-args: |
+            VERSION=${{ needs.preflight.outputs.version }}
+            REVISION=${{ github.sha }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha,scope=fixture-release
+          cache-to: type=gha,mode=max,scope=fixture-release
+      - name: Attest fixture image provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.FIXTURE_IMAGE }}
+          subject-digest: ${{ steps.fixture.outputs.digest }}
+          push-to-registry: true
+
+  public-images:
+    needs: [preflight, images]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Verify both image digests are anonymously pullable
+        env:
+          GATEWAY_REF: ${{ env.GATEWAY_IMAGE }}@${{ needs.images.outputs.gateway_digest }}
+          FIXTURE_REF: ${{ env.FIXTURE_IMAGE }}@${{ needs.images.outputs.fixture_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          check_public_image() {
+            local ref=$1
+            if docker pull "$ref"; then
+              return
+            fi
+            echo "::error title=GHCR package is not public::$ref could not be pulled without registry credentials. New GHCR packages default to private; an agent-guide organization owner must change both release packages to Public and rerun the failed jobs."
+            exit 1
+          }
+          check_public_image "$GATEWAY_REF"
+          check_public_image "$FIXTURE_REF"
+
+  image-smoke:
+    needs: [preflight, images]
+    name: Image smoke (${{ matrix.goarch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            goarch: amd64
+          - runner: ubuntu-24.04-arm
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Smoke immutable published images
+        env:
+          AGW_GATEWAY_IMAGE: ${{ env.GATEWAY_IMAGE }}@${{ needs.images.outputs.gateway_digest }}
+          AGW_FIXTURE_IMAGE: ${{ env.FIXTURE_IMAGE }}@${{ needs.images.outputs.fixture_digest }}
+        run: ./scripts/smoke-container "${{ needs.preflight.outputs.version }}"
+
+  image-scan:
+    needs: [preflight, images]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Scan gateway image
+        id: gateway_scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.GATEWAY_IMAGE }}@${{ needs.images.outputs.gateway_digest }}
+          format: json
+          output: gateway-trivy.json
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Scan fixture image
+        id: fixture_scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.FIXTURE_IMAGE }}@${{ needs.images.outputs.fixture_digest }}
+          format: json
+          output: fixture-trivy.json
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-image-scans
+          path: "*-trivy.json"
+          if-no-files-found: error
+          retention-days: 30
+      - name: Enforce vulnerability gate
+        if: always()
+        env:
+          GATEWAY_OUTCOME: ${{ steps.gateway_scan.outcome }}
+          FIXTURE_OUTCOME: ${{ steps.fixture_scan.outcome }}
+        run: test "$GATEWAY_OUTCOME" = success && test "$FIXTURE_OUTCOME" = success
+
+  source-sbom:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Materialize exact tagged source
+        run: |
+          mkdir -p "$RUNNER_TEMP/tag-source" dist
+          git archive --format=tar "$GITHUB_SHA" | tar -x -C "$RUNNER_TEMP/tag-source"
+      - name: Generate SPDX JSON SBOM
+        uses: anchore/sbom-action@v0.24.0
+        with:
+          path: ${{ runner.temp }}/tag-source
+          format: spdx-json
+          output-file: dist/agent-gateway-source-v${{ needs.preflight.outputs.version }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-source-sbom
+          path: dist/*.spdx.json
+          if-no-files-found: error
+          retention-days: 7
+
+  first-run:
+    needs: [preflight, images, public-images, image-smoke, image-scan]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Package and verify digest-pinned first-run asset
+        env:
+          GATEWAY_IMAGE_REF: ${{ env.GATEWAY_IMAGE }}@${{ needs.images.outputs.gateway_digest }}
+          FIXTURE_IMAGE_REF: ${{ env.FIXTURE_IMAGE }}@${{ needs.images.outputs.fixture_digest }}
+        run: >-
+          make verify-first-run-archive
+          RELEASE_VERSION=${{ needs.preflight.outputs.version }}
+          RELEASE_OUTPUT_DIR=dist
+          GATEWAY_IMAGE_REF="$GATEWAY_IMAGE_REF"
+          FIXTURE_IMAGE_REF="$FIXTURE_IMAGE_REF"
+      - name: Execute first-run archive outside the checkout
+        env:
+          AGW_FIRST_RUN_ARCHIVE: ${{ github.workspace }}/dist/agent-gateway-first-run-v${{ needs.preflight.outputs.version }}.tar.gz
+          AGW_GATEWAY_IMAGE: ${{ env.GATEWAY_IMAGE }}@${{ needs.images.outputs.gateway_digest }}
+          AGW_FIXTURE_IMAGE: ${{ env.FIXTURE_IMAGE }}@${{ needs.images.outputs.fixture_digest }}
+        run: ./scripts/smoke-first-run "${{ needs.preflight.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-first-run
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-release:
+    needs: [preflight, archives, images, public-images, image-smoke, image-scan, source-sbom, first-run]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-archive-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-first-run
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-source-sbom
+          path: dist
+      - name: Generate and verify release checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find dist -maxdepth 1 -name '*.tar.gz' -type f | wc -l | tr -d ' ')" = 5
+          (cd dist && find . -maxdepth 1 -name '*.tar.gz' -type f -print \
+            | sed 's|^./||' | LC_ALL=C sort | xargs sha256sum) > dist/SHA256SUMS
+          (cd dist && sha256sum -c SHA256SUMS)
+      - name: Attest release archive provenance
+        uses: actions/attest@v4
+        with:
+          subject-checksums: dist/SHA256SUMS
+      - name: Attest source SBOM provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/*.spdx.json
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: docs/releases/v0.7.1.md
+          files: |
+            dist/*.tar.gz
+            dist/*.spdx.json
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true
+
+  post-publish:
+    needs: [preflight, images, publish-release]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Download and verify public release assets
+        run: |
+          mkdir -p "$RUNNER_TEMP/public-release"
+          gh release download "$GITHUB_REF_NAME" --dir "$RUNNER_TEMP/public-release"
+          cd "$RUNNER_TEMP/public-release"
+          sha256sum -c SHA256SUMS
+      - name: Execute the public first-run asset without registry credentials
+        env:
+          AGW_FIRST_RUN_ARCHIVE: ${{ runner.temp }}/public-release/agent-gateway-first-run-v${{ needs.preflight.outputs.version }}.tar.gz
+          AGW_GATEWAY_IMAGE: ${{ env.GATEWAY_IMAGE }}@${{ needs.images.outputs.gateway_digest }}
+          AGW_FIXTURE_IMAGE: ${{ env.FIXTURE_IMAGE }}@${{ needs.images.outputs.fixture_digest }}
+        run: ./scripts/smoke-first-run "${{ needs.preflight.outputs.version }}"
+
+  promote-latest:
+    needs: [images, post-publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Move latest to verified image digests
+        run: |
+          docker buildx imagetools create \
+            --tag "${GATEWAY_IMAGE}:latest" \
+            "${GATEWAY_IMAGE}@${{ needs.images.outputs.gateway_digest }}"
+          docker buildx imagetools create \
+            --tag "${FIXTURE_IMAGE}:latest" \
+            "${FIXTURE_IMAGE}@${{ needs.images.outputs.fixture_digest }}"
