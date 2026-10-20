@@ -1,6 +1,6 @@
 # Makefile for Caddy LLM Router
 
-.PHONY: all build build-agw build-agwd build-agwctl build-xcaddy clean deps fmt verify-release smoke-release release-archive verify-release-archive test-extension-consumer test-extension-consumer-candidate test-extension-consumer-release
+.PHONY: all build build-agw build-agwd build-agwctl build-xcaddy clean deps fmt verify-release smoke-release smoke-container release-archive verify-release-archive test-extension-consumer test-extension-consumer-candidate test-extension-consumer-release
 
 # Binary names
 BINARY_NAME=agw
@@ -67,6 +67,10 @@ verify-release:
 # Exercise the built binaries and both HTTP Agent ingress paths as processes.
 smoke-release: build
 	AGW_RELEASE_SMOKE=1 $(GOTEST) ./tests/release -run TestReleaseProcesses -v
+
+# Build and smoke the native gateway and deterministic fixture images.
+smoke-container:
+	./scripts/smoke-container $(RELEASE_VERSION)
 
 # Build and verify a native release archive. CI runs this target on every
 # supported operating-system and architecture tuple.

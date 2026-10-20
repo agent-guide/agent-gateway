@@ -1,0 +1,117 @@
+#!/bin/sh
+
+set -eu
+
+if [ "$#" -gt 1 ]; then
+	echo "usage: $0 [version-without-v]" >&2
+	exit 2
+fi
+
+version=${1:-0.7.1}
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+revision=$(git -C "$repo" rev-parse HEAD)
+suffix="$$"
+gateway_image="agent-gateway-smoke:${suffix}"
+fixture_image="agent-gateway-a2a-fixture-smoke:${suffix}"
+volume="agent-gateway-smoke-${suffix}"
+gateway_container="agent-gateway-smoke-${suffix}"
+fixture_container="agent-gateway-fixture-smoke-${suffix}"
+
+cleanup() {
+	docker rm -f "$gateway_container" "$fixture_container" >/dev/null 2>&1 || true
+	docker volume rm "$volume" >/dev/null 2>&1 || true
+	docker image rm "$gateway_image" "$fixture_image" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT HUP INT TERM
+
+docker build \
+	--build-arg "VERSION=$version" \
+	--build-arg "REVISION=$revision" \
+	-t "$gateway_image" "$repo"
+docker build \
+	--build-arg "VERSION=$version" \
+	--build-arg "REVISION=$revision" \
+	-f "$repo/examples/a2a-agent/Dockerfile" \
+	-t "$fixture_image" "$repo"
+
+assert_label() {
+	image=$1
+	label=$2
+	want=$3
+	got=$(docker image inspect --format "{{ index .Config.Labels \"$label\" }}" "$image")
+	if [ "$got" != "$want" ]; then
+		echo "$image label $label = $got, want $want" >&2
+		exit 1
+	fi
+}
+
+for image in "$gateway_image" "$fixture_image"; do
+	assert_label "$image" org.opencontainers.image.version "$version"
+	assert_label "$image" org.opencontainers.image.revision "$revision"
+done
+
+runtime_manifest=$(mktemp "${TMPDIR:-/tmp}/agw-container-manifest.XXXXXX")
+trap 'rm -f "$runtime_manifest"; cleanup' EXIT HUP INT TERM
+docker run --rm --read-only --entrypoint agwd "$gateway_image" manifest >"$runtime_manifest"
+AGW_CONTAINER_RUNTIME_MANIFEST="$runtime_manifest" \
+	AGW_EXPECTED_VERSION="$version" \
+	go test "$repo/tests/release" -run TestContainerManifestIdentity -count=1 -v
+
+docker volume create "$volume" >/dev/null
+docker run -d \
+	--name "$gateway_container" \
+	--read-only \
+	--tmpfs /tmp:rw,noexec,nosuid,size=16m \
+	--mount "type=volume,source=$volume,target=/var/lib/agent-gateway" \
+	"$gateway_image" >/dev/null
+
+attempt=0
+while :; do
+	status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$gateway_container")
+	if [ "$status" = healthy ]; then
+		break
+	fi
+	attempt=$((attempt + 1))
+	if [ "$attempt" -ge 60 ]; then
+		docker logs "$gateway_container" >&2 || true
+		echo "gateway container did not become healthy (status=$status)" >&2
+		exit 1
+	fi
+	sleep 1
+done
+
+if [ "$(docker exec "$gateway_container" id -u)" != 10001 ]; then
+	echo "gateway container is not running as uid 10001" >&2
+	exit 1
+fi
+docker exec "$gateway_container" test -s /var/lib/agent-gateway/configstore.db
+docker stop -t 10 "$gateway_container" >/dev/null
+docker rm "$gateway_container" >/dev/null
+
+docker run -d \
+	--name "$gateway_container" \
+	--read-only \
+	--tmpfs /tmp:rw,noexec,nosuid,size=16m \
+	--mount "type=volume,source=$volume,target=/var/lib/agent-gateway" \
+	"$gateway_image" >/dev/null
+docker exec "$gateway_container" test -s /var/lib/agent-gateway/configstore.db
+
+docker run -d --name "$fixture_container" --read-only "$fixture_image" >/dev/null
+attempt=0
+while :; do
+	status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$fixture_container")
+	if [ "$status" = healthy ]; then
+		break
+	fi
+	attempt=$((attempt + 1))
+	if [ "$attempt" -ge 30 ]; then
+		docker logs "$fixture_container" >&2 || true
+		echo "fixture container did not become healthy (status=$status)" >&2
+		exit 1
+	fi
+	sleep 1
+done
+if [ "$(docker exec "$fixture_container" id -u)" != 10002 ]; then
+	echo "fixture container is not running as uid 10002" >&2
+	exit 1
+fi

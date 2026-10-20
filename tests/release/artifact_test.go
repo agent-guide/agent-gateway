@@ -78,6 +78,30 @@ func TestReleaseArtifactIdentity(t *testing.T) {
 	}
 }
 
+func TestContainerManifestIdentity(t *testing.T) {
+	path := os.Getenv("AGW_CONTAINER_RUNTIME_MANIFEST")
+	if path == "" {
+		t.Skip("set AGW_CONTAINER_RUNTIME_MANIFEST through scripts/smoke-container")
+	}
+	wantVersion := requireEnv(t, "AGW_EXPECTED_VERSION")
+	want, err := distribution.CommunityRuntime().Manifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertManifestVersion(t, want, wantVersion)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got distribution.Assembly
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatal("container runtime manifest does not match CommunityRuntime")
+	}
+}
+
 func assertManifestVersion(t *testing.T, manifest distribution.Assembly, want string) {
 	t.Helper()
 	if manifest.Edition.Version != want {
