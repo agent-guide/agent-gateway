@@ -1,0 +1,48 @@
+#!/bin/sh
+
+set -eu
+
+if [ "$#" -ne 2 ]; then
+	echo "usage: $0 <version-without-v> <output-directory>" >&2
+	exit 2
+fi
+
+version=$1
+output_dir=$2
+case "$version" in
+	''|*[!0-9A-Za-z.-]*)
+		echo "invalid release version: $version" >&2
+		exit 2
+		;;
+esac
+
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+goos=${GOOS:-$(go env GOOS)}
+goarch=${GOARCH:-$(go env GOARCH)}
+archive_base="agent-gateway-v${version}-${goos}-${goarch}"
+temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/agw-release.XXXXXX")
+trap 'rm -rf "$temp_dir"' EXIT HUP INT TERM
+stage="$temp_dir/$archive_base"
+mkdir -p "$stage" "$output_dir"
+
+source_commit=$(git -C "$repo" rev-parse HEAD)
+go_version=$(go env GOVERSION)
+
+for binary in agw agwd agwctl; do
+	CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags=-buildid= \
+		-o "$stage/$binary" "$repo/cmd/$binary"
+done
+
+cp "$repo/LICENSE" "$stage/LICENSE"
+cp "$repo/release/archive-README.md" "$stage/README.md"
+printf '%s\n' \
+	'{' \
+	"  \"version\": \"$version\"," \
+	"  \"source_commit\": \"$source_commit\"," \
+	"  \"go_version\": \"$go_version\"," \
+	"  \"target\": {\"os\": \"$goos\", \"arch\": \"$goarch\"}" \
+	'}' >"$stage/RELEASE-METADATA.json"
+
+archive="$output_dir/$archive_base.tar.gz"
+tar -C "$temp_dir" -czf "$archive" "$archive_base"
+printf '%s\n' "$archive"

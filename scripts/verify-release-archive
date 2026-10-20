@@ -1,0 +1,51 @@
+#!/bin/sh
+
+set -eu
+
+if [ "$#" -ne 4 ]; then
+	echo "usage: $0 <archive> <version-without-v> <goos> <goarch>" >&2
+	exit 2
+fi
+
+archive=$1
+version=$2
+goos=$3
+goarch=$4
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+archive_base="agent-gateway-v${version}-${goos}-${goarch}"
+temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/agw-release-verify.XXXXXX")
+trap 'rm -rf "$temp_dir"' EXIT HUP INT TERM
+
+entries="$temp_dir/entries"
+tar -tzf "$archive" >"$entries"
+while IFS= read -r entry; do
+	case "$entry" in
+		/*|../*|*/../*|*/..)
+			echo "unsafe archive path: $entry" >&2
+			exit 1
+			;;
+	esac
+done <"$entries"
+
+actual="$temp_dir/actual"
+expected="$temp_dir/expected"
+LC_ALL=C sort "$entries" >"$actual"
+printf '%s\n' \
+	"$archive_base/" \
+	"$archive_base/LICENSE" \
+	"$archive_base/README.md" \
+	"$archive_base/RELEASE-METADATA.json" \
+	"$archive_base/agw" \
+	"$archive_base/agwctl" \
+	"$archive_base/agwd" | LC_ALL=C sort >"$expected"
+if ! diff -u "$expected" "$actual"; then
+	echo "release archive has unexpected content" >&2
+	exit 1
+fi
+
+tar -C "$temp_dir" -xzf "$archive"
+AGW_RELEASE_ARTIFACT_DIR="$temp_dir/$archive_base" \
+	AGW_EXPECTED_VERSION="$version" \
+	AGW_EXPECTED_GOOS="$goos" \
+	AGW_EXPECTED_GOARCH="$goarch" \
+	go test "$repo/tests/release" -run TestReleaseArtifactIdentity -count=1 -v
