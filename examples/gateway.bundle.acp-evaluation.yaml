@@ -1,0 +1,33 @@
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+
+# Optional coding-agent evaluation. This is not part of the credential-free
+# first run: install and authenticate the selected external ACP adapter first.
+agents:
+  - id: coding-agent
+    name: Coding Agent
+    runtime:
+      type: acp
+      acp:
+        # Use opencode only after installing and authenticating that adapter.
+        agent_type: codex
+        cwd: /tmp/agw-coding-agent
+        allowed_roots: [/tmp/agw-coding-agent]
+        max_instances: 2
+        permission_mode: interactive
+    routes: {}
+    resources: {}
+    policy: {}
+
+agentRoutes:
+  - id: coding-agent-turn
+    protocol: agent
+    agent_id: coding-agent
+    match_policy:
+      path_prefix: /agents/coding
+    auth_policy:
+      require_virtual_key: true
+
+virtualKeys:
+  - id: coding-agent-key
+    allowed_route_ids: [coding-agent-turn]

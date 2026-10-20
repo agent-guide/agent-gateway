@@ -12,17 +12,23 @@ import (
 
 func TestFirstRunBundleIsLocallyValid(t *testing.T) {
 	root := repositoryRoot(t)
-	path := filepath.Join(root, "examples", "first-run", "gateway.bundle.yaml")
-	bundle, err := gatewaybundle.LoadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
 	registry, err := distribution.CommunityValidation().Registry()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := bundle.ValidateWithRegistry(t.Context(), registry); err != nil {
-		t.Fatal(err)
+	for _, path := range []string{
+		filepath.Join(root, "examples", "first-run", "gateway.bundle.yaml"),
+		filepath.Join(root, "examples", "gateway.bundle.acp-evaluation.yaml"),
+	} {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			bundle, err := gatewaybundle.LoadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := bundle.ValidateWithRegistry(t.Context(), registry); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
