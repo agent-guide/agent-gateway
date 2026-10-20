@@ -21,4 +21,6 @@ Lifecycle convention:
 
 Current plans:
 
-There are no active release plans.
+- [v0.7.1-adoption-readiness.md](v0.7.1-adoption-readiness.md): published
+  binaries and images, deterministic first run, evaluation assets, documentation,
+  and artifact-level release gates
