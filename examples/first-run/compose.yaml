@@ -1,0 +1,86 @@
+name: agent-gateway-first-run
+
+services:
+  gateway:
+    image: ${AGW_GATEWAY_IMAGE:-ghcr.io/agent-guide/agent-gateway:v0.7.1}
+    command:
+      - agwd
+      - --addr
+      - 0.0.0.0:8080
+      - --admin-addr
+      - 127.0.0.1:8019
+      - --config-store
+      - /var/lib/agent-gateway/configstore.db
+    environment:
+      AGW_ADMIN_BASIC_AUTH_HASH: ${AGW_ADMIN_BASIC_AUTH_HASH:?run ./setup.sh first}
+    ports:
+      - 127.0.0.1:8080:8080
+    volumes:
+      - gateway-data:/var/lib/agent-gateway
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  fixture:
+    image: ${AGW_FIXTURE_IMAGE:-ghcr.io/agent-guide/agent-gateway-a2a-fixture:v0.7.1}
+    network_mode: service:gateway
+    depends_on:
+      gateway:
+        condition: service_started
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  init:
+    image: ${AGW_GATEWAY_IMAGE:-ghcr.io/agent-guide/agent-gateway:v0.7.1}
+    network_mode: service:gateway
+    depends_on:
+      gateway:
+        condition: service_healthy
+      fixture:
+        condition: service_healthy
+    environment:
+      AGW_ADMIN_ADDR: http://127.0.0.1:8019
+      AGW_ADMIN_BASIC_AUTH: ${AGW_ADMIN_BASIC_AUTH:?run ./setup.sh first}
+    volumes:
+      - ./gateway.bundle.yaml:/project/gateway.bundle.yaml:ro
+      - ./init.sh:/project/init.sh:ro
+    entrypoint: [/bin/sh, /project/init.sh]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    profiles: [tools]
+
+  smoke:
+    image: ${AGW_GATEWAY_IMAGE:-ghcr.io/agent-guide/agent-gateway:v0.7.1}
+    network_mode: service:gateway
+    depends_on:
+      gateway:
+        condition: service_healthy
+      fixture:
+        condition: service_healthy
+    environment:
+      AGW_ADMIN_ADDR: http://127.0.0.1:8019
+      AGW_ADMIN_BASIC_AUTH: ${AGW_ADMIN_BASIC_AUTH:?run ./setup.sh first}
+    volumes:
+      - ./smoke.sh:/project/smoke.sh:ro
+    entrypoint: [/bin/sh, /project/smoke.sh]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    profiles: [tools]
+
+volumes:
+  gateway-data:

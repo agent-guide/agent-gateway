@@ -1,0 +1,40 @@
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+
+agents:
+  - id: first-run-agent
+    name: Deterministic first-run Agent
+    description: Development-only HTTP Agent backed by the published A2A fixture.
+    runtime:
+      type: http
+      http:
+        card_url: http://127.0.0.1:8090/.well-known/agent-card.json
+        protocol: a2a
+        timeout_seconds: 30
+    routes: {}
+    resources: {}
+    policy: {}
+
+agentRoutes:
+  - id: first-run-turn
+    protocol: agent
+    agent_id: first-run-agent
+    match_policy:
+      path_prefix: /agents/first-run
+    auth_policy:
+      require_virtual_key: true
+
+  - id: first-run-a2a
+    protocol: a2a
+    agent_id: first-run-agent
+    match_policy:
+      host: 127.0.0.1
+      path_prefix: /a2a/first-run
+      methods: [GET, POST]
+    auth_policy:
+      require_virtual_key: true
+
+virtualKeys:
+  - id: first-run-key
+    description: Generated key for the provider-credential-free first-run walkthrough.
+    allowed_route_ids: [first-run-turn, first-run-a2a]

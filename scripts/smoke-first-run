@@ -1,0 +1,57 @@
+#!/bin/sh
+
+set -eu
+
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+version=${1:-0.7.1}
+revision=$(git -C "$repo" rev-parse HEAD)
+suffix="$$"
+gateway_image="agent-gateway-first-run-smoke:${suffix}"
+fixture_image="agent-gateway-first-run-fixture-smoke:${suffix}"
+temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/agw-first-run.XXXXXX")
+project_name="agent-gateway-first-run-${suffix}"
+project_dir="$temp_dir/first-run"
+
+cleanup() {
+	if [ -f "$project_dir/.env.local" ]; then
+		AGW_GATEWAY_IMAGE="$gateway_image" AGW_FIXTURE_IMAGE="$fixture_image" \
+		AGW_COMPOSE_PROJECT="$project_name" \
+		docker compose --project-name "$project_name" --project-directory "$project_dir" \
+			--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
+			down --volumes --remove-orphans >/dev/null 2>&1 || true
+	fi
+	docker image rm "$gateway_image" "$fixture_image" >/dev/null 2>&1 || true
+	rm -rf "$temp_dir"
+}
+trap cleanup EXIT HUP INT TERM
+
+cp -R "$repo/examples/first-run" "$project_dir"
+cmp "$repo/examples/first-run/gateway.bundle.yaml" "$project_dir/gateway.bundle.yaml"
+
+docker build --build-arg "VERSION=$version" --build-arg "REVISION=$revision" \
+	-t "$gateway_image" "$repo"
+docker build --build-arg "VERSION=$version" --build-arg "REVISION=$revision" \
+	-f "$repo/examples/a2a-agent/Dockerfile" -t "$fixture_image" "$repo"
+
+export AGW_GATEWAY_IMAGE="$gateway_image"
+export AGW_FIXTURE_IMAGE="$fixture_image"
+export AGW_ADMIN_PASSWORD=first-run-ci-password
+export AGW_COMPOSE_PROJECT="$project_name"
+"$project_dir/setup.sh"
+"$project_dir/run-smoke.sh"
+
+key_before=$(docker compose --project-name "$project_name" --project-directory "$project_dir" \
+	--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
+	run --rm --no-deps --entrypoint agwctl init --output json virtualkey get first-run-key \
+	| sed -n 's/.*"key":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+docker compose --project-name "$project_name" --project-directory "$project_dir" \
+	--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" down
+"$project_dir/setup.sh"
+key_after=$(docker compose --project-name "$project_name" --project-directory "$project_dir" \
+	--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
+	run --rm --no-deps --entrypoint agwctl init --output json virtualkey get first-run-key \
+	| sed -n 's/.*"key":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+if [ -z "$key_before" ] || [ "$key_before" != "$key_after" ]; then
+	echo "VirtualKey did not survive container replacement" >&2
+	exit 1
+fi
