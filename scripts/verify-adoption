@@ -1,0 +1,44 @@
+#!/bin/sh
+
+set -eu
+
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/agw-adoption.XXXXXX")
+trap 'rm -rf "$temp_dir"' EXIT HUP INT TERM
+agwctl=${AGWCTL_BIN:-$temp_dir/agwctl}
+
+if [ -z "${AGWCTL_BIN:-}" ]; then
+	go build -trimpath -o "$agwctl" "$repo/cmd/agwctl"
+fi
+
+DEEPSEEK_API_KEY=example-deepseek-key \
+OPENAI_API_KEY=example-openai-key \
+ANTHROPIC_API_KEY=example-anthropic-key \
+ZHIPU_API_KEY=example-zhipu-key \
+MCP_HTTP_URL=http://127.0.0.1:18080/mcp \
+MCP_HTTP_KEY=example-mcp-key \
+MCP_SSE_URL=http://127.0.0.1:18080/sse \
+MCP_FILESYSTEM_ROOT=/tmp \
+	find "$repo/examples" -type f \
+		\( -name 'gateway.bundle*.yaml' -o -name 'gateway.static*.yaml' \) \
+		-exec "$agwctl" validate -f {} \;
+
+go test "$repo/tests/release" \
+	-run 'TestDocumentationLinks|TestBilingualWebsiteParity|TestReleaseFacingFilesArePortable' \
+	-count=1
+
+find "$repo/examples" "$repo/scripts" -type f -name '*.sh' -exec sh -n {} +
+for script in "$repo"/scripts/*; do
+	if [ -f "$script" ] && [ -x "$script" ]; then
+		sh -n "$script"
+	fi
+done
+
+tracked=$(git -C "$repo" ls-files README.md CONTRIBUTING.md SECURITY.md docs examples release website .github)
+if [ -n "$tracked" ] && printf '%s\n' "$tracked" \
+	| xargs git -C "$repo" grep -n -E \
+		'(/Users/[^ <`]+|C:\\Users\\|first-run-ci-password|sk-[A-Za-z0-9_-]{16,}|\$2[aby]\$[0-9][0-9]\$)' -- \
+	| grep -v '# dummy'; then
+	echo "release-facing files contain a local path or credential-shaped value" >&2
+	exit 1
+fi

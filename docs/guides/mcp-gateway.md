@@ -55,7 +55,7 @@ mcpRoutes:
       require_virtual_key: true
 ```
 
-See [examples/gateway.bundle.mcp.yaml](/Users/simpcl/github/agent-guide/agent-gateway/examples/gateway.bundle.mcp.yaml).
+See [examples/gateway.bundle.mcp.yaml](../../examples/gateway.bundle.mcp.yaml).
 
 ## MCP Route Behavior
 

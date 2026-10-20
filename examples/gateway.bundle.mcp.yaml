@@ -10,6 +10,7 @@ kind: GatewayBundle
 #   MCP_HTTP_URL   — base URL of a Streamable HTTP MCP server
 #   MCP_HTTP_KEY   — API key for the Streamable HTTP server (omit auth block if not needed)
 #   MCP_SSE_URL    — SSE stream URL of a legacy SSE MCP server
+#   MCP_FILESYSTEM_ROOT — directory exposed by the optional stdio example
 
 mcpServices:
 
@@ -40,8 +41,7 @@ mcpServices:
     args:
       - -y
       - "@modelcontextprotocol/server-filesystem"
-      - /private/tmp
-      - /Users/simpcl/github/agent-guide/agent-gateway
+      - ${MCP_FILESYSTEM_ROOT}
     env:
       NODE_ENV: production
 
@@ -70,5 +70,4 @@ virtualKeys:
     tag: local-test
     allowed_route_ids:
       - mcp:mcp-http:mcp-http
-      - mcp:mcp-sse:mcp-sse
       - mcp:mcp-filesystem:mcp-fs

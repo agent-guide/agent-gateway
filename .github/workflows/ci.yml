@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
 
 permissions:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -21,3 +21,29 @@ jobs:
         run: make verify-release
       - name: Smoke release processes
         run: make smoke-release
+
+  adoption:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify documentation, examples, and release-facing content
+        run: make verify-adoption
+      - name: Build and execute the native release archive
+        run: make verify-release-archive
+
+  containers:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify the native gateway and fixture containers
+        run: make smoke-container
+      - name: Execute the first-run project outside the checkout
+        run: make smoke-first-run

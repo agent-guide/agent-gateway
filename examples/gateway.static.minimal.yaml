@@ -9,7 +9,7 @@ providers:
 
 llmRoutes:
   - id: chat-prod
-    llm_api: openai
+    protocol: openai
     match_policy:
       path_prefix: /
       methods:
