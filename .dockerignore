@@ -6,7 +6,12 @@
 .vscode
 data
 dist
+docs
 logs
+release
+tests
+website
+examples/first-run
 examples/venv
 agw
 agwd

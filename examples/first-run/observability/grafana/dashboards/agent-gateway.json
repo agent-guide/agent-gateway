@@ -1,0 +1,79 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "agent-gateway-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "targets": [{"expr": "sum by (route_kind, runtime_type) (rate(agentgateway_usage_requests_total[$__rate_interval]))", "legendFormat": "{{route_kind}} / {{runtime_type}}", "refId": "A"}],
+      "title": "Request volume",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "agent-gateway-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "targets": [{"expr": "sum by (route_kind, runtime_type) (rate(agentgateway_usage_failures_total[$__rate_interval]))", "legendFormat": "{{route_kind}} / {{runtime_type}}", "refId": "A"}],
+      "title": "Failed requests",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "agent-gateway-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 8},
+      "id": 3,
+      "targets": [{"expr": "sum by (route_kind, runtime_type) (increase(agentgateway_usage_tokens_total[$__range]))", "legendFormat": "{{route_kind}} / {{runtime_type}}", "refId": "A"}],
+      "title": "Tokens in selected range (optional LLM usage)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "agent-gateway-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 8},
+      "id": 4,
+      "targets": [{"expr": "sum by (dimension, outcome, backend_type) (increase(agentgateway_limiter_admissions_total[$__range]))", "legendFormat": "{{dimension}} / {{outcome}} / {{backend_type}}", "refId": "A"}],
+      "title": "Limiter outcomes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "agent-gateway-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 8},
+      "id": 5,
+      "targets": [
+        {"expr": "sum(increase(agentgateway_usage_dropped_events_total[$__range]))", "legendFormat": "dropped", "refId": "A"},
+        {"expr": "sum(increase(agentgateway_usage_write_failures_total[$__range]))", "legendFormat": "write failures", "refId": "B"}
+      ],
+      "title": "Usage pipeline health",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "tempo", "uid": "agent-gateway-tempo"},
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 15},
+      "id": 6,
+      "targets": [{"query": "{ resource.service.name = \"agent-gateway\" }", "queryType": "traceql", "refId": "A"}],
+      "title": "Agent interactions and span latency",
+      "type": "traces"
+    },
+    {
+      "gridPos": {"h": 5, "w": 24, "x": 0, "y": 25},
+      "id": 7,
+      "options": {"content": "The credential-free A2A smoke produces an Agent/HTTP interaction and request counter only. Failure samples require a controlled failed turn. Token panels require an optional LLM response with usage. Model/tool child spans appear only when a scenario actually invokes those components. Span duration in Tempo is the latency source; Agent Gateway does not emit a Prometheus latency series.", "mode": "markdown"},
+      "title": "Evidence boundaries",
+      "type": "text"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 41,
+  "tags": ["agent-gateway", "evaluation"],
+  "templating": {"list": []},
+  "time": {"from": "now-30m", "to": "now"},
+  "timezone": "browser",
+  "title": "Agent Gateway evaluation",
+  "uid": "agent-gateway-evaluation",
+  "version": 1
+}

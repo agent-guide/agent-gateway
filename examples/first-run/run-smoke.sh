@@ -10,5 +10,12 @@ if [ ! -f "$env_file" ]; then
 	exit 1
 fi
 
-docker compose --project-name "$project_name" --project-directory "$project_dir" \
-	--env-file "$env_file" -f "$project_dir/compose.yaml" run --rm smoke
+if grep -q '^AGW_OTLP_ENDPOINT=' "$env_file"; then
+	docker compose --project-name "$project_name" --project-directory "$project_dir" \
+		--env-file "$env_file" -f "$project_dir/compose.yaml" \
+		-f "$project_dir/compose.observability.yaml" --profile observability \
+		run --rm smoke
+else
+	docker compose --project-name "$project_name" --project-directory "$project_dir" \
+		--env-file "$env_file" -f "$project_dir/compose.yaml" run --rm smoke
+fi

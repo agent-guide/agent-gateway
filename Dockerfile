@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 FROM golang:1.25.5-alpine3.22 AS build
 
 ARG TARGETOS

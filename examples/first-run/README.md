@@ -42,3 +42,26 @@ docker compose --env-file .env.local down --volumes
 
 The fixture is evaluation infrastructure, not a production Agent SDK. The
 gateway image contains no provider credential and does not include `agw-auth`.
+
+## Optional observability profile
+
+After the base smoke succeeds, start the non-production telemetry stack:
+
+```sh
+./start-observability.sh
+./run-smoke.sh
+```
+
+Open `http://127.0.0.1:3000`. The provisioned dashboard uses only the gateway's
+existing bounded Prometheus counters. Tempo supplies span duration and trace
+trees; there is no Prometheus latency series. The base A2A turn proves an
+Agent/HTTP request and interaction only. Token panels need an optional LLM
+scenario that reports usage, failure panels need a controlled failed turn, and
+model/tool children appear only when those components actually run.
+
+Prometheus and Tempo retain evaluation data for 24 hours. Grafana uses
+anonymous Viewer access on host loopback, and none of these defaults are
+suitable for a shared or production deployment. Telemetry services are behind
+the `observability` profile, while `compose.observability.yaml` adds the
+loopback-only Grafana port only when `start-observability.sh` is used. They are
+not required by the base first-run path.

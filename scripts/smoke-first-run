@@ -12,13 +12,22 @@ temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/agw-first-run.XXXXXX")
 project_name="agent-gateway-first-run-${suffix}"
 project_dir="$temp_dir/first-run"
 
+compose_down() {
+	if [ "${AGW_SMOKE_OBSERVABILITY:-0}" = 1 ]; then
+		docker compose --project-name "$project_name" --project-directory "$project_dir" \
+			--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
+			--profile observability down "$@"
+	else
+		docker compose --project-name "$project_name" --project-directory "$project_dir" \
+			--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" down "$@"
+	fi
+}
+
 cleanup() {
 	if [ -f "$project_dir/.env.local" ]; then
 		AGW_GATEWAY_IMAGE="$gateway_image" AGW_FIXTURE_IMAGE="$fixture_image" \
 		AGW_COMPOSE_PROJECT="$project_name" \
-		docker compose --project-name "$project_name" --project-directory "$project_dir" \
-			--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
-			down --volumes --remove-orphans >/dev/null 2>&1 || true
+			compose_down --volumes --remove-orphans >/dev/null 2>&1 || true
 	fi
 	docker image rm "$gateway_image" "$fixture_image" >/dev/null 2>&1 || true
 	rm -rf "$temp_dir"
@@ -40,12 +49,40 @@ export AGW_COMPOSE_PROJECT="$project_name"
 "$project_dir/setup.sh"
 "$project_dir/run-smoke.sh"
 
+if [ "${AGW_SMOKE_OBSERVABILITY:-0}" = 1 ]; then
+	"$project_dir/start-observability.sh"
+	"$project_dir/run-smoke.sh"
+	attempt=0
+	until docker compose --project-name "$project_name" --project-directory "$project_dir" \
+		--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
+		exec -T gateway wget -q -T 3 -O /tmp/grafana-search.json \
+		'http://127.0.0.1:3000/api/search?query=Agent%20Gateway' \
+		&& docker compose --project-name "$project_name" --project-directory "$project_dir" \
+		--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
+		exec -T gateway grep -q 'agent-gateway-evaluation' /tmp/grafana-search.json; do
+		attempt=$((attempt + 1))
+		if [ "$attempt" -ge 60 ]; then
+			echo "provisioned Grafana dashboard did not load" >&2
+			exit 1
+		fi
+		sleep 1
+	done
+	docker compose --project-name "$project_name" --project-directory "$project_dir" \
+		--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
+		exec -T gateway wget -q -T 5 -O - \
+		'http://127.0.0.1:9090/api/v1/query?query=agentgateway_usage_requests_total' \
+		| grep -q '"status":"success"'
+	docker compose --project-name "$project_name" --project-directory "$project_dir" \
+		--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
+		exec -T gateway wget -q -T 5 -O - http://127.0.0.1:3200/ready \
+		| grep -q ready
+fi
+
 key_before=$(docker compose --project-name "$project_name" --project-directory "$project_dir" \
 	--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
 	run --rm --no-deps --entrypoint agwctl init --output json virtualkey get first-run-key \
 	| sed -n 's/.*"key":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
-docker compose --project-name "$project_name" --project-directory "$project_dir" \
-	--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" down
+compose_down
 "$project_dir/setup.sh"
 key_after=$(docker compose --project-name "$project_name" --project-directory "$project_dir" \
 	--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \

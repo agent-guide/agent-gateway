@@ -11,6 +11,11 @@ services:
       - 127.0.0.1:8019
       - --config-store
       - /var/lib/agent-gateway/configstore.db
+      - --metrics-otlp-endpoint
+      - ${AGW_OTLP_ENDPOINT:-}
+      - --metrics-otlp-insecure
+      - --metrics-otlp-service-name
+      - agent-gateway
     environment:
       AGW_ADMIN_BASIC_AUTH_HASH: ${AGW_ADMIN_BASIC_AUTH_HASH:?run ./setup.sh first}
     ports:
@@ -82,5 +87,86 @@ services:
       - no-new-privileges:true
     profiles: [tools]
 
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    network_mode: service:gateway
+    depends_on:
+      gateway:
+        condition: service_healthy
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=24h
+      - --web.listen-address=127.0.0.1:9090
+    volumes:
+      - ./observability/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - prometheus-data:/prometheus
+    secrets:
+      - admin-password
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    profiles: [observability]
+
+  tempo:
+    image: grafana/tempo:3.1.0
+    network_mode: service:gateway
+    depends_on:
+      gateway:
+        condition: service_healthy
+    command: [-config.file=/etc/tempo/tempo.yaml]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    profiles: [observability]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.160.0
+    network_mode: service:gateway
+    depends_on:
+      gateway:
+        condition: service_healthy
+      tempo:
+        condition: service_started
+    command: [--config=/etc/otelcol-contrib/config.yaml]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    read_only: true
+    profiles: [observability]
+
+  grafana:
+    image: grafana/grafana:13.2.0
+    network_mode: service:gateway
+    depends_on:
+      prometheus:
+        condition: service_started
+      tempo:
+        condition: service_started
+    environment:
+      GF_SERVER_HTTP_ADDR: 0.0.0.0
+      GF_SERVER_HTTP_PORT: 3000
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    profiles: [observability]
+
 volumes:
   gateway-data:
+  prometheus-data:
+  tempo-data:
+  grafana-data:
+
+secrets:
+  admin-password:
+    file: ./.admin-password

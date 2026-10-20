@@ -1,0 +1,22 @@
+server:
+  http_listen_address: 127.0.0.1
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 127.0.0.1:4319
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+backend_worker:
+  compaction:
+    block_retention: 24h

@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Agent Gateway
+    orgId: 1
+    folder: Agent Gateway
+    type: file
+    disableDeletion: true
+    editable: false
+    options:
+      path: /var/lib/grafana/dashboards

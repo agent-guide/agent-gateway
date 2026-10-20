@@ -30,6 +30,7 @@ go.work.sum
 # env file
 .env
 .env.local
+/examples/first-run/.admin-password
 
 # config file
 Caddyfile1
