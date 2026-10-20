@@ -49,3 +49,9 @@ AGW_RELEASE_ARTIFACT_DIR="$temp_dir/$archive_base" \
 	AGW_EXPECTED_GOOS="$goos" \
 	AGW_EXPECTED_GOARCH="$goarch" \
 	go test "$repo/tests/release" -run TestReleaseArtifactIdentity -count=1 -v
+
+if [ "$goos" = linux ]; then
+	AGW_RELEASE_SMOKE=1 \
+		AGW_RELEASE_BIN_DIR="$temp_dir/$archive_base" \
+		go test "$repo/tests/release" -run TestReleaseProcesses -count=1 -v
+fi

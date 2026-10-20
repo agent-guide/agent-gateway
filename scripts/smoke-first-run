@@ -6,20 +6,32 @@ repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 version=${1:-0.7.1}
 revision=$(git -C "$repo" rev-parse HEAD)
 suffix="$$"
-gateway_image="agent-gateway-first-run-smoke:${suffix}"
-fixture_image="agent-gateway-first-run-fixture-smoke:${suffix}"
+gateway_image=${AGW_GATEWAY_IMAGE:-agent-gateway-first-run-smoke:${suffix}}
+fixture_image=${AGW_FIXTURE_IMAGE:-agent-gateway-first-run-fixture-smoke:${suffix}}
+build_gateway=0
+build_fixture=0
+[ -n "${AGW_GATEWAY_IMAGE:-}" ] || build_gateway=1
+[ -n "${AGW_FIXTURE_IMAGE:-}" ] || build_fixture=1
 temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/agw-first-run.XXXXXX")
 project_name="agent-gateway-first-run-${suffix}"
 project_dir="$temp_dir/first-run"
 
+compose_base() {
+	docker compose --project-name "$project_name" --project-directory "$project_dir" \
+		--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" "$@"
+}
+
+compose_observability() {
+	docker compose --project-name "$project_name" --project-directory "$project_dir" \
+		--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
+		-f "$project_dir/compose.observability.yaml" --profile observability "$@"
+}
+
 compose_down() {
 	if [ "${AGW_SMOKE_OBSERVABILITY:-0}" = 1 ]; then
-		docker compose --project-name "$project_name" --project-directory "$project_dir" \
-			--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
-			--profile observability down "$@"
+		compose_observability down "$@"
 	else
-		docker compose --project-name "$project_name" --project-directory "$project_dir" \
-			--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" down "$@"
+		compose_base down "$@"
 	fi
 }
 
@@ -29,18 +41,36 @@ cleanup() {
 		AGW_COMPOSE_PROJECT="$project_name" \
 			compose_down --volumes --remove-orphans >/dev/null 2>&1 || true
 	fi
-	docker image rm "$gateway_image" "$fixture_image" >/dev/null 2>&1 || true
+	if [ "$build_gateway" = 1 ]; then
+		docker image rm "$gateway_image" >/dev/null 2>&1 || true
+	fi
+	if [ "$build_fixture" = 1 ]; then
+		docker image rm "$fixture_image" >/dev/null 2>&1 || true
+	fi
 	rm -rf "$temp_dir"
 }
 trap cleanup EXIT HUP INT TERM
 
-cp -R "$repo/examples/first-run" "$project_dir"
+if [ -n "${AGW_FIRST_RUN_ARCHIVE:-}" ]; then
+	packaged_gateway_ref=${AGW_PACKAGED_GATEWAY_IMAGE_REF:-$gateway_image}
+	packaged_fixture_ref=${AGW_PACKAGED_FIXTURE_IMAGE_REF:-$fixture_image}
+	"$repo/scripts/verify-first-run-archive" "$AGW_FIRST_RUN_ARCHIVE" "$version" \
+		"$packaged_gateway_ref" "$packaged_fixture_ref"
+	tar -C "$temp_dir" -xzf "$AGW_FIRST_RUN_ARCHIVE"
+	project_dir="$temp_dir/agent-gateway-first-run-v${version}"
+else
+	cp -R "$repo/examples/first-run" "$project_dir"
+fi
 cmp "$repo/examples/first-run/gateway.bundle.yaml" "$project_dir/gateway.bundle.yaml"
 
-docker build --build-arg "VERSION=$version" --build-arg "REVISION=$revision" \
-	-t "$gateway_image" "$repo"
-docker build --build-arg "VERSION=$version" --build-arg "REVISION=$revision" \
-	-f "$repo/examples/a2a-agent/Dockerfile" -t "$fixture_image" "$repo"
+if [ "$build_gateway" = 1 ]; then
+	docker build --build-arg "VERSION=$version" --build-arg "REVISION=$revision" \
+		-t "$gateway_image" "$repo"
+fi
+if [ "$build_fixture" = 1 ]; then
+	docker build --build-arg "VERSION=$version" --build-arg "REVISION=$revision" \
+		-f "$repo/examples/a2a-agent/Dockerfile" -t "$fixture_image" "$repo"
+fi
 
 export AGW_GATEWAY_IMAGE="$gateway_image"
 export AGW_FIXTURE_IMAGE="$fixture_image"
@@ -53,13 +83,10 @@ if [ "${AGW_SMOKE_OBSERVABILITY:-0}" = 1 ]; then
 	"$project_dir/start-observability.sh"
 	"$project_dir/run-smoke.sh"
 	attempt=0
-	until docker compose --project-name "$project_name" --project-directory "$project_dir" \
-		--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
-		exec -T gateway wget -q -T 3 -O /tmp/grafana-search.json \
+	until compose_observability exec -T gateway wget -q -T 3 -O /tmp/grafana-search.json \
 		'http://127.0.0.1:3000/api/search?query=Agent%20Gateway' \
-		&& docker compose --project-name "$project_name" --project-directory "$project_dir" \
-		--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
-		exec -T gateway grep -q 'agent-gateway-evaluation' /tmp/grafana-search.json; do
+		&& compose_observability exec -T gateway grep -q \
+			'agent-gateway-evaluation' /tmp/grafana-search.json; do
 		attempt=$((attempt + 1))
 		if [ "$attempt" -ge 60 ]; then
 			echo "provisioned Grafana dashboard did not load" >&2
@@ -67,26 +94,23 @@ if [ "${AGW_SMOKE_OBSERVABILITY:-0}" = 1 ]; then
 		fi
 		sleep 1
 	done
-	docker compose --project-name "$project_name" --project-directory "$project_dir" \
-		--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
-		exec -T gateway wget -q -T 5 -O - \
+	compose_observability exec -T gateway wget -q -T 5 -O - \
 		'http://127.0.0.1:9090/api/v1/query?query=agentgateway_usage_requests_total' \
 		| grep -q '"status":"success"'
-	docker compose --project-name "$project_name" --project-directory "$project_dir" \
-		--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
-		exec -T gateway wget -q -T 5 -O - http://127.0.0.1:3200/ready \
+	compose_observability exec -T gateway wget -q -T 5 -O - \
+		http://127.0.0.1:3200/ready \
 		| grep -q ready
+	curl -fsS --max-time 5 http://127.0.0.1:3000/api/health \
+		| grep -q '"database"'
 fi
 
-key_before=$(docker compose --project-name "$project_name" --project-directory "$project_dir" \
-	--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
-	run --rm --no-deps --entrypoint agwctl init --output json virtualkey get first-run-key \
+key_before=$(compose_base run --rm --no-deps --entrypoint agwctl init \
+	--output json virtualkey get first-run-key \
 	| sed -n 's/.*"key":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
 compose_down
 "$project_dir/setup.sh"
-key_after=$(docker compose --project-name "$project_name" --project-directory "$project_dir" \
-	--env-file "$project_dir/.env.local" -f "$project_dir/compose.yaml" \
-	run --rm --no-deps --entrypoint agwctl init --output json virtualkey get first-run-key \
+key_after=$(compose_base run --rm --no-deps --entrypoint agwctl init \
+	--output json virtualkey get first-run-key \
 	| sed -n 's/.*"key":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
 if [ -z "$key_before" ] || [ "$key_before" != "$key_after" ]; then
 	echo "VirtualKey did not survive container replacement" >&2

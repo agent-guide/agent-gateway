@@ -1,6 +1,6 @@
 # Makefile for Caddy LLM Router
 
-.PHONY: all build build-agw build-agwd build-agwctl build-xcaddy clean deps fmt verify-release smoke-release smoke-container smoke-first-run smoke-observability release-archive verify-release-archive test-extension-consumer test-extension-consumer-candidate test-extension-consumer-release
+.PHONY: all build build-agw build-agwd build-agwctl build-xcaddy clean deps fmt verify-release smoke-release smoke-container smoke-first-run smoke-observability release-archive verify-release-archive first-run-archive verify-first-run-archive test-extension-consumer test-extension-consumer-candidate test-extension-consumer-release
 
 # Binary names
 BINARY_NAME=agw
@@ -89,6 +89,19 @@ verify-release-archive: release-archive
 	./scripts/verify-release-archive \
 		$(RELEASE_OUTPUT_DIR)/agent-gateway-v$(RELEASE_VERSION)-$$(go env GOOS)-$$(go env GOARCH).tar.gz \
 		$(RELEASE_VERSION) $$(go env GOOS) $$(go env GOARCH)
+
+# Package the checkout's first-run project with immutable image references.
+# Release automation supplies the two digest-qualified references.
+first-run-archive:
+	@test -n "$(GATEWAY_IMAGE_REF)" || (echo 'set GATEWAY_IMAGE_REF to an image digest reference' >&2; exit 2)
+	@test -n "$(FIXTURE_IMAGE_REF)" || (echo 'set FIXTURE_IMAGE_REF to an image digest reference' >&2; exit 2)
+	./scripts/package-first-run $(RELEASE_VERSION) \
+		"$(GATEWAY_IMAGE_REF)" "$(FIXTURE_IMAGE_REF)" $(RELEASE_OUTPUT_DIR)
+
+verify-first-run-archive: first-run-archive
+	./scripts/verify-first-run-archive \
+		$(RELEASE_OUTPUT_DIR)/agent-gateway-first-run-v$(RELEASE_VERSION).tar.gz \
+		$(RELEASE_VERSION) "$(GATEWAY_IMAGE_REF)" "$(FIXTURE_IMAGE_REF)"
 
 # Build the independent Go-module entries against this checkout using a temporary
 # replacement only; no go.work or replace directive is checked in.

@@ -1,0 +1,75 @@
+#!/bin/sh
+
+set -eu
+
+if [ "$#" -ne 4 ]; then
+	echo "usage: $0 <version-without-v> <gateway-image@sha256:digest> <fixture-image@sha256:digest> <output-directory>" >&2
+	exit 2
+fi
+
+version=$1
+gateway_ref=$2
+fixture_ref=$3
+output_dir=$4
+case "$version" in
+	''|*[!0-9A-Za-z.-]*)
+		echo "invalid release version: $version" >&2
+		exit 2
+		;;
+esac
+validate_image_ref() {
+	repository=$1
+	ref=$2
+	case "$ref" in
+		"$repository"@sha256:*) ;;
+		*) echo "$repository image must use the official immutable digest reference" >&2; exit 2 ;;
+	esac
+	digest=${ref#"$repository"@sha256:}
+	if [ "${#digest}" -ne 64 ]; then
+		echo "$repository image digest must contain 64 hexadecimal characters" >&2
+		exit 2
+	fi
+	case "$digest" in
+		*[!0-9a-f]*) echo "$repository image digest is not lowercase hexadecimal" >&2; exit 2 ;;
+	esac
+}
+validate_image_ref ghcr.io/agent-guide/agent-gateway "$gateway_ref"
+validate_image_ref ghcr.io/agent-guide/agent-gateway-a2a-fixture "$fixture_ref"
+
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+source_dir="$repo/examples/first-run"
+archive_base="agent-gateway-first-run-v${version}"
+temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/agw-first-run-package.XXXXXX")
+trap 'rm -rf "$temp_dir"' EXIT HUP INT TERM
+stage="$temp_dir/$archive_base"
+mkdir -p "$stage/observability/grafana/dashboards" \
+	"$stage/observability/grafana/provisioning/dashboards" \
+	"$stage/observability/grafana/provisioning/datasources" \
+	"$output_dir"
+
+cp "$source_dir/.env.example" "$stage/.env.example"
+cp "$source_dir/README.md" "$source_dir/compose.observability.yaml" \
+	"$source_dir/gateway.bundle.yaml" \
+	"$source_dir/init.sh" "$source_dir/run-smoke.sh" "$source_dir/smoke.sh" \
+	"$source_dir/start-observability.sh" "$stage/"
+cp "$source_dir/observability/prometheus.yaml" \
+	"$source_dir/observability/otel-collector.yaml" \
+	"$source_dir/observability/tempo.yaml" "$stage/observability/"
+cp "$source_dir/observability/grafana/dashboards/agent-gateway.json" \
+	"$stage/observability/grafana/dashboards/"
+cp "$source_dir/observability/grafana/provisioning/dashboards/dashboards.yaml" \
+	"$stage/observability/grafana/provisioning/dashboards/"
+cp "$source_dir/observability/grafana/provisioning/datasources/datasources.yaml" \
+	"$stage/observability/grafana/provisioning/datasources/"
+
+sed \
+	-e "s|ghcr.io/agent-guide/agent-gateway:v${version}|$gateway_ref|g" \
+	-e "s|ghcr.io/agent-guide/agent-gateway-a2a-fixture:v${version}|$fixture_ref|g" \
+	"$source_dir/compose.yaml" >"$stage/compose.yaml"
+sed "s|ghcr.io/agent-guide/agent-gateway:v${version}|$gateway_ref|g" \
+	"$source_dir/setup.sh" >"$stage/setup.sh"
+chmod 0755 "$stage"/*.sh
+
+archive="$output_dir/$archive_base.tar.gz"
+tar -C "$temp_dir" -czf "$archive" "$archive_base"
+printf '%s\n' "$archive"

@@ -1,0 +1,89 @@
+#!/bin/sh
+
+set -eu
+
+if [ "$#" -ne 4 ]; then
+	echo "usage: $0 <archive> <version-without-v> <gateway-image@sha256:digest> <fixture-image@sha256:digest>" >&2
+	exit 2
+fi
+
+archive=$1
+version=$2
+gateway_ref=$3
+fixture_ref=$4
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+archive_base="agent-gateway-first-run-v${version}"
+temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/agw-first-run-verify.XXXXXX")
+trap 'rm -rf "$temp_dir"' EXIT HUP INT TERM
+
+entries="$temp_dir/entries"
+tar -tzf "$archive" >"$entries"
+while IFS= read -r entry; do
+	case "$entry" in
+		/*|../*|*/../*|*/..)
+			echo "unsafe archive path: $entry" >&2
+			exit 1
+			;;
+	esac
+done <"$entries"
+
+actual="$temp_dir/actual"
+expected="$temp_dir/expected"
+LC_ALL=C sort "$entries" >"$actual"
+printf '%s\n' \
+	"$archive_base/" \
+	"$archive_base/.env.example" \
+	"$archive_base/README.md" \
+	"$archive_base/compose.observability.yaml" \
+	"$archive_base/compose.yaml" \
+	"$archive_base/gateway.bundle.yaml" \
+	"$archive_base/init.sh" \
+	"$archive_base/observability/" \
+	"$archive_base/observability/grafana/" \
+	"$archive_base/observability/grafana/dashboards/" \
+	"$archive_base/observability/grafana/dashboards/agent-gateway.json" \
+	"$archive_base/observability/grafana/provisioning/" \
+	"$archive_base/observability/grafana/provisioning/dashboards/" \
+	"$archive_base/observability/grafana/provisioning/dashboards/dashboards.yaml" \
+	"$archive_base/observability/grafana/provisioning/datasources/" \
+	"$archive_base/observability/grafana/provisioning/datasources/datasources.yaml" \
+	"$archive_base/observability/otel-collector.yaml" \
+	"$archive_base/observability/prometheus.yaml" \
+	"$archive_base/observability/tempo.yaml" \
+	"$archive_base/run-smoke.sh" \
+	"$archive_base/setup.sh" \
+	"$archive_base/smoke.sh" \
+	"$archive_base/start-observability.sh" | LC_ALL=C sort >"$expected"
+if ! diff -u "$expected" "$actual"; then
+	echo "first-run archive has unexpected content" >&2
+	exit 1
+fi
+
+tar -C "$temp_dir" -xzf "$archive"
+project_dir="$temp_dir/$archive_base"
+cmp "$repo/examples/first-run/gateway.bundle.yaml" "$project_dir/gateway.bundle.yaml"
+
+for file in compose.observability.yaml gateway.bundle.yaml init.sh smoke.sh \
+	observability/prometheus.yaml observability/otel-collector.yaml \
+	observability/tempo.yaml observability/grafana/provisioning \
+	observability/grafana/dashboards; do
+	test -e "$project_dir/$file" || {
+		echo "Compose local input is missing: $file" >&2
+		exit 1
+	}
+done
+
+grep -F "$gateway_ref" "$project_dir/compose.yaml" >/dev/null
+grep -F "$fixture_ref" "$project_dir/compose.yaml" >/dev/null
+grep -F "$gateway_ref" "$project_dir/setup.sh" >/dev/null
+if grep -R -E '(first-run-ci-password|sk-[A-Za-z0-9_-]{12,}|\$2[aby]\$[0-9][0-9]\$)' "$project_dir" >/dev/null; then
+	echo "first-run archive contains a credential-shaped value" >&2
+	exit 1
+fi
+if find "$project_dir" -type f \( -name '.env.local' -o -name '.admin-password' -o -name '*.db' \) | grep . >/dev/null; then
+	echo "first-run archive contains generated state or a local credential file" >&2
+	exit 1
+fi
+
+AGW_PACKAGED_FIRST_RUN_DIR="$project_dir" \
+	go test "$repo/tests/release" -run 'TestPackagedFirstRunBundleMatchesSource|TestFirstRunBundleIsLocallyValid' -count=1
