@@ -206,7 +206,7 @@ func (q *UsageQueries) InteractionsSummary(opts usage.BreakdownOptions) (usage.B
 		return usage.BreakdownResponse{}, err
 	}
 	for key, value := range opts.Filters {
-		if value == "" || key == opts.GroupBy {
+		if value == "" {
 			continue
 		}
 		col, ok := interactionFilters[key]
@@ -274,7 +274,7 @@ func (q *UsageQueries) timeseries(table string, opts usage.TimeseriesOptions, al
 }
 
 func (q *UsageQueries) timeseriesWithFilters(table string, opts usage.TimeseriesOptions, allowedGroups, allowedFilters map[string]string, measures string) (usage.SeriesResponse, error) {
-	bucket, bucketMS, err := resolveBucket(opts.Bucket)
+	bucket, bucketMS, err := usage.ResolveBucket(opts.Bucket)
 	if err != nil {
 		return usage.SeriesResponse{}, err
 	}
@@ -342,7 +342,7 @@ func (q *UsageQueries) breakdown(table string, opts usage.BreakdownOptions, allo
 		return usage.BreakdownResponse{}, err
 	}
 	for key, value := range opts.Filters {
-		if value == "" || key == opts.GroupBy {
+		if value == "" {
 			continue
 		}
 		col, ok := allowedGroups[key]
@@ -519,49 +519,6 @@ func buildTimeWhere(from, to string) ([]string, []any, error) {
 		args = append(args, unixMillis(t))
 	}
 	return where, args, nil
-}
-
-// resolveBucket maps a caller-supplied bucket value to its canonical name and
-// width in milliseconds. It accepts named buckets with plural/short forms
-// ("minute"/"minutes"/"min"/"m", "hour"/"hours"/"hr"/"h", "day"/"days"/"d") and
-// Grafana-style duration strings ("3h", "5m", "30s", "1d", "90m"). An empty
-// value defaults to "hour". The bucketing SQL works for any positive width, so
-// the only constraint is that the resolved duration is greater than zero.
-func resolveBucket(bucket string) (string, int64, error) {
-	normalized := strings.ToLower(strings.TrimSpace(bucket))
-	switch normalized {
-	case "minute", "minutes", "min", "m":
-		return "minute", int64(time.Minute / time.Millisecond), nil
-	case "hour", "hours", "hr", "h", "":
-		return "hour", int64(time.Hour / time.Millisecond), nil
-	case "day", "days", "d":
-		return "day", int64(24 * time.Hour / time.Millisecond), nil
-	}
-	if d, ok := parseDurationBucket(normalized); ok {
-		return normalized, int64(d / time.Millisecond), nil
-	}
-	return "", 0, fmt.Errorf("bucket %q is not supported (use minute, hour, day, or a duration like 3h, 5m, 1d)", bucket)
-}
-
-// parseDurationBucket parses a Grafana-style duration bucket. Go's
-// time.ParseDuration has no day unit, so a trailing "<n>d" is expanded to hours
-// first. Returns ok=false for non-duration or non-positive values.
-func parseDurationBucket(s string) (time.Duration, bool) {
-	if s == "" {
-		return 0, false
-	}
-	if num, found := strings.CutSuffix(s, "d"); found {
-		days, err := strconv.ParseFloat(num, 64)
-		if err != nil || days <= 0 {
-			return 0, false
-		}
-		return time.Duration(days * float64(24*time.Hour)), true
-	}
-	d, err := time.ParseDuration(s)
-	if err != nil || d <= 0 {
-		return 0, false
-	}
-	return d, true
 }
 
 func allowedGroupBy(groupBy string, allowed map[string]string) (string, error) {

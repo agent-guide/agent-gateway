@@ -751,7 +751,11 @@ func (h *Handler) handleListLLMMetricsEvents(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *Handler) handleLLMMetricsTimeseries(w http.ResponseWriter, r *http.Request) {
-	opts := metricTimeseriesOptions(r, []string{"route_id", "provider_id", "virtual_key_id", "upstream_model", "llm_api"})
+	opts, err := metricTimeseriesOptions(r, []string{"route_id", "provider_id", "virtual_key_id", "upstream_model", "llm_api"})
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	attribution, ok := h.agentAttributionFromRequest(w, r)
 	if !ok {
 		return
@@ -809,7 +813,11 @@ func (h *Handler) handleListMCPMetricsEvents(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *Handler) handleMCPMetricsTimeseries(w http.ResponseWriter, r *http.Request) {
-	opts := metricTimeseriesOptions(r, []string{"route_id", "service_id", "virtual_key_id", "method", "tool_name", "result_status"})
+	opts, err := metricTimeseriesOptions(r, []string{"route_id", "service_id", "virtual_key_id", "method", "tool_name", "result_status"})
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	attribution, ok := h.agentAttributionFromRequest(w, r)
 	if !ok {
 		return
@@ -878,7 +886,11 @@ func (h *Handler) handleListACPMetricsEvents(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *Handler) handleACPMetricsTimeseries(w http.ResponseWriter, r *http.Request) {
-	opts := metricTimeseriesOptions(r, []string{"route_id", "route_protocol", "virtual_key_id", "agent_type", "operation"})
+	opts, err := metricTimeseriesOptions(r, []string{"route_id", "route_protocol", "virtual_key_id", "agent_type", "operation"})
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	attribution, ok := h.agentAttributionFromRequest(w, r)
 	if !ok {
 		return
@@ -993,9 +1005,13 @@ func (h *Handler) handleMetricInteractionsSummary(w http.ResponseWriter, r *http
 }
 
 func (h *Handler) handleMetricInteractionsTimeseries(w http.ResponseWriter, r *http.Request) {
-	opts := metricTimeseriesOptions(r, []string{
+	opts, err := metricTimeseriesOptions(r, []string{
 		"route_kind", "route_protocol", "route_id", "virtual_key_id", "runtime_type", "service_id", "session_id", "run_id",
 	})
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	attribution, ok := h.agentAttributionFromRequest(w, r)
 	if !ok {
 		return
@@ -1075,8 +1091,12 @@ func metricEventListOptions(r *http.Request, filterKeys []string) (usage.EventLi
 	}, nil
 }
 
-func metricTimeseriesOptions(r *http.Request, filterKeys []string) usage.TimeseriesOptions {
+func metricTimeseriesOptions(r *http.Request, filterKeys []string) (usage.TimeseriesOptions, error) {
 	q := r.URL.Query()
+	bucket, _, err := usage.ResolveBucket(q.Get("bucket"))
+	if err != nil {
+		return usage.TimeseriesOptions{}, err
+	}
 	filters := map[string]string{}
 	for _, key := range filterKeys {
 		if value := strings.TrimSpace(q.Get(key)); value != "" {
@@ -1086,10 +1106,10 @@ func metricTimeseriesOptions(r *http.Request, filterKeys []string) usage.Timeser
 	return usage.TimeseriesOptions{
 		From:    strings.TrimSpace(q.Get("from")),
 		To:      strings.TrimSpace(q.Get("to")),
-		Bucket:  strings.TrimSpace(q.Get("bucket")),
+		Bucket:  bucket,
 		GroupBy: strings.TrimSpace(q.Get("group_by")),
 		Filters: filters,
-	}
+	}, nil
 }
 
 func metricBreakdownOptions(r *http.Request, filterKeys []string) (usage.BreakdownOptions, error) {

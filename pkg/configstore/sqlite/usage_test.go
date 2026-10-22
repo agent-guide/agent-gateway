@@ -480,6 +480,30 @@ func TestAttributionFilterFallback(t *testing.T) {
 	if rc := series.Items[0]["request_count"]; rc != int64(2) {
 		t.Fatalf("timeseries request_count = %v, want 2", rc)
 	}
+	interactionSeries, err := q.InteractionsTimeseries(usage.TimeseriesOptions{Bucket: "hour", GroupBy: "route_id", Attribution: filter})
+	if err != nil {
+		t.Fatalf("InteractionsTimeseries() error = %v", err)
+	}
+	if len(interactionSeries.Items) != 1 || interactionSeries.Items[0]["group_value"] != "r-owned" {
+		t.Fatalf("interaction timeseries = %#v, want a single r-owned group", interactionSeries.Items)
+	}
+	if rc := interactionSeries.Items[0]["request_count"]; rc != int64(2) {
+		t.Fatalf("interaction timeseries request_count = %v, want 2", rc)
+	}
+
+	// A filter remains meaningful when it names the same dimension as group_by.
+	filteredBreakdown, err := q.LLMBreakdown(usage.BreakdownOptions{
+		GroupBy: "route_id", Filters: map[string]string{"route_id": "r-owned"}, Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("LLMBreakdown(group filter) error = %v", err)
+	}
+	if len(filteredBreakdown.Items) != 1 || filteredBreakdown.Items[0]["group_value"] != "r-owned" {
+		t.Fatalf("group-filtered breakdown = %#v, want only r-owned", filteredBreakdown.Items)
+	}
+	if rc := filteredBreakdown.Items[0]["request_count"]; rc != int64(2) {
+		t.Fatalf("group-filtered breakdown request_count = %v, want 2", rc)
+	}
 
 	// An empty filter must not silently widen to all rows.
 	empty, err := q.ListEvents("llm", usage.EventListOptions{Limit: 10, Attribution: &usage.AttributionFilter{}})
@@ -491,7 +515,7 @@ func TestAttributionFilterFallback(t *testing.T) {
 	}
 }
 
-func TestInteractionsSummaryServiceAndSessionFilters(t *testing.T) {
+func TestInteractionAggregatesSupportUnifiedFilters(t *testing.T) {
 	backend, err := Open(t.Context(), Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
@@ -505,13 +529,13 @@ func TestInteractionsSummaryServiceAndSessionFilters(t *testing.T) {
 	// a service_id nor a session_id. The new filters must narrow to just the
 	// matching ACP rows.
 	if err := InsertACPUsageEvent(db, usage.ACPUsageEvent{
-		InteractionEvent: usage.InteractionEvent{EventID: "acp-a", SpanID: "s1", StartedAt: now, FinishedAt: now, RouteID: "acp-route", RouteKind: "acp", Success: true, StatusCode: 200},
+		InteractionEvent: usage.InteractionEvent{EventID: "acp-a", SpanID: "s1", StartedAt: now, FinishedAt: now, RouteID: "acp-route", RouteKind: "acp", Success: true, StatusCode: 200, RunID: "run-1"},
 		ServiceID:        "codex-main", AgentType: "codex", Operation: "turn", SessionID: "sess-1",
 	}); err != nil {
 		t.Fatalf("insert acp-a: %v", err)
 	}
 	if err := InsertACPUsageEvent(db, usage.ACPUsageEvent{
-		InteractionEvent: usage.InteractionEvent{EventID: "acp-b", SpanID: "s2", StartedAt: now, FinishedAt: now, RouteID: "acp-route", RouteKind: "acp", Success: true, StatusCode: 200},
+		InteractionEvent: usage.InteractionEvent{EventID: "acp-b", SpanID: "s2", StartedAt: now, FinishedAt: now, RouteID: "acp-route", RouteKind: "acp", Success: true, StatusCode: 200, RunID: "run-2"},
 		ServiceID:        "codex-main", AgentType: "codex", Operation: "turn", SessionID: "sess-2",
 	}); err != nil {
 		t.Fatalf("insert acp-b: %v", err)
@@ -547,6 +571,31 @@ func TestInteractionsSummaryServiceAndSessionFilters(t *testing.T) {
 	}
 	if rc := bySession.Items[0]["request_count"]; rc != int64(1) {
 		t.Fatalf("session_id summary request_count = %v, want 1", rc)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		filters map[string]string
+		want    int64
+	}{
+		{name: "service", filters: map[string]string{"service_id": "codex-main"}, want: 2},
+		{name: "session", filters: map[string]string{"session_id": "sess-1"}, want: 1},
+		{name: "run", filters: map[string]string{"run_id": "run-1"}, want: 1},
+	} {
+		t.Run("timeseries_"+tc.name, func(t *testing.T) {
+			series, err := q.InteractionsTimeseries(usage.TimeseriesOptions{
+				Bucket: "hour", GroupBy: "route_kind", Filters: tc.filters,
+			})
+			if err != nil {
+				t.Fatalf("InteractionsTimeseries() error = %v", err)
+			}
+			if len(series.Items) != 1 || series.Items[0]["group_value"] != "acp" {
+				t.Fatalf("InteractionsTimeseries() items = %#v, want only acp", series.Items)
+			}
+			if got := series.Items[0]["request_count"]; got != tc.want {
+				t.Fatalf("InteractionsTimeseries() request_count = %v, want %d", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -887,15 +936,52 @@ func TestUsageSummaryPreservesFractionalAverageLatency(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	for i, latency := range []int64{10, 11} {
+		base := usage.InteractionEvent{
+			StartedAt: now, FinishedAt: now.Add(time.Duration(latency) * time.Millisecond),
+			Success: true, StatusCode: 200, LatencyMS: latency,
+		}
+		llmEvent := base
+		llmEvent.EventID = "fractional-llm-" + fmt.Sprint(i)
+		llmEvent.SpanID = "llm-span-" + fmt.Sprint(i)
+		llmEvent.RouteID = "llm-route"
+		llmEvent.RouteKind = "llm"
 		if err := InsertLLMUsageEvent(db, usage.LLMUsageEvent{
-			InteractionEvent: usage.InteractionEvent{
-				EventID: "fractional-average-" + fmt.Sprint(i), SpanID: "span-" + fmt.Sprint(i),
-				StartedAt: now, FinishedAt: now.Add(time.Duration(latency) * time.Millisecond),
-				RouteID: "route-1", RouteKind: "llm", Success: true, StatusCode: 200, LatencyMS: latency,
-			},
-			UsageFinalized: true,
+			InteractionEvent: llmEvent,
+			UsageFinalized:   true,
 		}); err != nil {
 			t.Fatalf("InsertLLMUsageEvent(%d) error = %v", i, err)
+		}
+		mcpEvent := base
+		mcpEvent.EventID = "fractional-mcp-" + fmt.Sprint(i)
+		mcpEvent.SpanID = "mcp-span-" + fmt.Sprint(i)
+		mcpEvent.RouteID = "mcp-route"
+		mcpEvent.RouteKind = "mcp"
+		if err := InsertMCPUsageEvent(db, usage.MCPUsageEvent{InteractionEvent: mcpEvent, Method: "tools/call"}); err != nil {
+			t.Fatalf("InsertMCPUsageEvent(%d) error = %v", i, err)
+		}
+		acpEvent := base
+		acpEvent.EventID = "fractional-acp-" + fmt.Sprint(i)
+		acpEvent.SpanID = "acp-span-" + fmt.Sprint(i)
+		acpEvent.RouteID = "acp-route"
+		acpEvent.RouteKind = "agent"
+		if err := InsertACPUsageEvent(db, usage.ACPUsageEvent{InteractionEvent: acpEvent, Operation: "turn"}); err != nil {
+			t.Fatalf("InsertACPUsageEvent(%d) error = %v", i, err)
+		}
+		builtinEvent := base
+		builtinEvent.EventID = "fractional-builtin-" + fmt.Sprint(i)
+		builtinEvent.SpanID = "builtin-span-" + fmt.Sprint(i)
+		builtinEvent.RouteID = "builtin-route"
+		builtinEvent.RouteKind = "agent"
+		if err := InsertBuiltinUsageEvent(db, usage.BuiltinUsageEvent{InteractionEvent: builtinEvent, Operation: "turn"}); err != nil {
+			t.Fatalf("InsertBuiltinUsageEvent(%d) error = %v", i, err)
+		}
+		a2aEvent := base
+		a2aEvent.EventID = "fractional-a2a-" + fmt.Sprint(i)
+		a2aEvent.SpanID = "a2a-span-" + fmt.Sprint(i)
+		a2aEvent.RouteID = "a2a-route"
+		a2aEvent.RouteKind = "agent"
+		if err := InsertA2AUsageEvent(db, a2aEvent); err != nil {
+			t.Fatalf("InsertA2AUsageEvent(%d) error = %v", i, err)
 		}
 	}
 
@@ -903,8 +989,19 @@ func TestUsageSummaryPreservesFractionalAverageLatency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Summary() error = %v", err)
 	}
-	if summary.LLM.AvgLatencyMS != 10.5 {
-		t.Fatalf("summary.LLM.AvgLatencyMS = %v, want 10.5", summary.LLM.AvgLatencyMS)
+	for _, tc := range []struct {
+		name string
+		got  float64
+	}{
+		{name: "LLM", got: summary.LLM.AvgLatencyMS},
+		{name: "MCP", got: summary.MCP.AvgLatencyMS},
+		{name: "ACP", got: summary.ACP.AvgLatencyMS},
+		{name: "Builtin", got: summary.Builtin.AvgLatencyMS},
+		{name: "A2A", got: summary.A2A.AvgLatencyMS},
+	} {
+		if tc.got != 10.5 {
+			t.Errorf("summary.%s.AvgLatencyMS = %v, want 10.5", tc.name, tc.got)
+		}
 	}
 }
 
@@ -952,48 +1049,14 @@ func TestInteractionsTimeseriesIncludesBuiltinAndA2ARuntimeTables(t *testing.T) 
 	if !seen["builtin"] || !seen["http"] {
 		t.Fatalf("InteractionsTimeseries() runtime groups = %#v, want builtin and http", seen)
 	}
-}
 
-func TestResolveBucket(t *testing.T) {
-	cases := []struct {
-		bucket   string
-		wantName string
-		wantMS   int64
-		wantErr  bool
-	}{
-		{"minute", "minute", int64(time.Minute / time.Millisecond), false},
-		{"minutes", "minute", int64(time.Minute / time.Millisecond), false},
-		{"min", "minute", int64(time.Minute / time.Millisecond), false},
-		{"m", "minute", int64(time.Minute / time.Millisecond), false},
-		{"hour", "hour", int64(time.Hour / time.Millisecond), false},
-		{"hours", "hour", int64(time.Hour / time.Millisecond), false},
-		{"", "hour", int64(time.Hour / time.Millisecond), false},
-		{"DAY", "day", int64(24 * time.Hour / time.Millisecond), false},
-		{"days", "day", int64(24 * time.Hour / time.Millisecond), false},
-		{"3h", "3h", int64(3 * time.Hour / time.Millisecond), false},
-		{"5m", "5m", int64(5 * time.Minute / time.Millisecond), false},
-		{"30s", "30s", int64(30 * time.Second / time.Millisecond), false},
-		{"90m", "90m", int64(90 * time.Minute / time.Millisecond), false},
-		{"2d", "2d", int64(2 * 24 * time.Hour / time.Millisecond), false},
-		{"0h", "", 0, true},
-		{"-5m", "", 0, true},
-		{"week", "", 0, true},
-		{"abc", "", 0, true},
+	summary, err := NewUsageQueries(db).InteractionsSummary(usage.BreakdownOptions{
+		GroupBy: "runtime_type", Filters: map[string]string{"runtime_type": "builtin"}, Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("InteractionsSummary(group filter) error = %v", err)
 	}
-	for _, tc := range cases {
-		name, ms, err := resolveBucket(tc.bucket)
-		if tc.wantErr {
-			if err == nil {
-				t.Errorf("resolveBucket(%q) error = nil, want error", tc.bucket)
-			}
-			continue
-		}
-		if err != nil {
-			t.Errorf("resolveBucket(%q) error = %v", tc.bucket, err)
-			continue
-		}
-		if name != tc.wantName || ms != tc.wantMS {
-			t.Errorf("resolveBucket(%q) = (%q, %d), want (%q, %d)", tc.bucket, name, ms, tc.wantName, tc.wantMS)
-		}
+	if len(summary.Items) != 1 || summary.Items[0]["group_value"] != "builtin" {
+		t.Fatalf("InteractionsSummary(group filter) items = %#v, want only builtin", summary.Items)
 	}
 }
