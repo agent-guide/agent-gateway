@@ -3,8 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agent 与编排 — AgentGuide</title>
-<meta name="description" content="用声明式拓扑运行 builtin agent，统一管理 ACP agent 与外部身份，并在同一控制面上规划跨 Agent 任务和 workflow。">
+<title>Agent 运行时 — AgentGuide</title>
+<meta name="description" content="运行 builtin Agent，通过 ACP 管理 Codex 和 OpenCode，并通过同一套受治理的 Turn API 连接远程 A2A Agent。">
+<link rel="canonical" href="https://agentguide.online/zh/agents.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="AgentGuide">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:title" content="Agent 运行时 — AgentGuide">
+<meta property="og:description" content="运行 builtin Agent，通过 ACP 管理 Codex 和 OpenCode，并通过同一套受治理的 Turn API 连接远程 A2A Agent。">
+<meta property="og:url" content="https://agentguide.online/zh/agents.html">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Agent 运行时 — AgentGuide">
+<meta name="twitter:description" content="运行 builtin Agent，通过 ACP 管理 Codex 和 OpenCode，并通过同一套受治理的 Turn API 连接远程 A2A Agent。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -25,7 +36,7 @@
     <nav class="nav-links" aria-label="主导航">
       <a href="index.html">首页</a>
       <a href="platform.html">平台</a>
-      <a href="agents.html" aria-current="page">Agent 与编排</a>
+      <a href="agents.html" aria-current="page">Agent 运行时</a>
       <a href="solutions.html">行业方案</a>
       <a href="observability.html">观测与治理</a>
       <a href="why.html">为什么选 AgentGuide</a>
@@ -38,12 +49,11 @@
 
   <section class="page-head">
     <div class="wrap">
-      <p class="eyebrow">Agent 与编排</p>
-      <h1>注册、发布、授权、协同。</h1>
+      <p class="eyebrow">Agent 运行时</p>
+      <h1>注册、发布、治理、巡检。</h1>
       <p class="lede">
-        真正的问题从来不是代理某个协议，而是把 agent 当作一支受管的队伍来运营：
-        注册它们、安全地对外发布、分配模型与工具、盯住它们在做什么、裁决人工审批、
-        再协调它们跨 agent 协作。这就是 AgentGuide 控制平面的职责。
+        把兼容的 Agent 放到稳定路由之后，分配模型与工具资源，裁决人工审批，并保留
+        运行证据。跨独立 Agent 的持久协调属于上层 Workflow，而不是当前网关职责。
       </p>
     </div>
   </section>
@@ -55,6 +65,10 @@
       <p class="lede">
         agent 是一等对象，拥有路由、资源、策略、用量与健康状况
         —— builtin、ACP 与 HTTP 今天均可由网关执行；HTTP Path B 将通用轮次 API 翻译为 A2A Protocol 1.0 JSON-RPC。
+      </p>
+      <p class="lede">
+        Claude Code 是模型客户端，不是第四种 Agent Runtime。它通过专用的
+        <code>cc</code> Anthropic Messages 入口接入；Codex 与 OpenCode 则由 ACP 管理。
       </p>
 
       <div class="feature-row">
@@ -103,7 +117,7 @@
           <span class="kicker">runtime · http · a2a</span>
           <h3>HTTP — 注册你的外部 Agent</h3>
           <p>
-            用任意框架构建、运行在你自己基础设施上的 agent，今天可以注册 Agent Card URL 与管理身份。
+            用兼容框架构建、运行在你自己基础设施上的 Agent，可以注册 Agent Card URL 与管理身份。
             执行使用 A2A Protocol 1.0：既可通过通用 <code>/turn</code> API 翻译调用，
             也可使用原生受治理 A2A JSON-RPC 代理入口；网关不持有远端 task 的持久状态。
           </p>
@@ -112,7 +126,7 @@
           <li><b>同一套身份模型</b> 路由、资源、策略、用量与健康，与其他运行时一致。</li>
           <li><b>归因引用</b> 路由归属明确时，绑定路由的流量会归因到该 agent。</li>
           <li><b>双入口</b> 通用轮次使用请求绑定的翻译器；原生 A2A 在同一治理边界内保留 JSON-RPC 请求体与 SSE 帧。</li>
-          <li><b>无锁定</b> LangChain、ADK、自研栈 —— 网关一视同仁。</li>
+          <li><b>框架无关的契约</b> LangChain、ADK 与自研栈只要暴露受支持的 A2A 契约即可接入。</li>
         </ul>
       </div>
 
@@ -131,7 +145,7 @@
             <tr>
               <td>Builtin</td>
               <td>网关（进程内）</td>
-              <td>可组合的企业 agent、多 agent 拓扑</td>
+              <td>配置定义的 Agent 与内联拓扑</td>
               <td><span class="tag">声明式拓扑</span></td>
               <td>轮次 + 内部模型与工具 span</td>
             </tr>
@@ -145,7 +159,7 @@
             <tr>
               <td>HTTP</td>
               <td>你（外部服务）</td>
-              <td>任意框架上的存量 agent</td>
+              <td>兼容 A2A 的存量 Agent</td>
               <td><span class="tag-steel tag">A2A 翻译轮次</span></td>
               <td>路由归属明确时归因</td>
             </tr>
@@ -188,7 +202,7 @@
           <span class="kicker">agent as a product</span>
           <h3>像发布 API 一样发布 Agent</h3>
           <p>
-            统一且与运行时无关的 AgentRoute 之后，builtin 或 ACP agent 是一个有稳定端点的企业能力：消费方拿到一个 URL 和一把虚拟密钥；
+            统一且与运行时无关的 AgentRoute 之后，builtin 或 ACP agent 是一个有稳定端点的内部能力：消费方拿到一个 URL 和一把虚拟密钥；
             你保有版本化的定义、按消费方的计量，以及一处吊销访问的权力。
             像交付服务一样向内部团队交付 agent。
           </p>
@@ -253,8 +267,9 @@
       <p class="eyebrow">Workspace 与 Workflow</p>
       <h2>从单个 Agent，到一支协同作战的队伍。</h2>
       <p class="lede">
-        终局是多个 agent 协作交付大型复杂任务 —— 网关既是调度器、也是策略引擎、
-        还是"飞行记录仪"。整个平台都在为这一层打地基。
+        多个独立 Agent 最终可以共同交付更大的任务，但持久协调属于网关上层：
+        外部 Workflow Engine 负责任务与恢复，AgentGuide 继续提供请求绑定的路由、
+        策略与证据边界。
       </p>
 
       <div class="card-grid cols-2">
@@ -279,22 +294,23 @@
           <span class="kicker">roadmap · tasks</span>
           <h3>任务与调度</h3>
           <p>
-            由网关持有的工作单元：立即在某个 agent 上执行 prompt、续接会话、
-            定时任务、从 agent A 交接到 agent B —— 具备持久状态、重试、取消与审计元数据。
+            上层工作单元可以执行 Agent、续接会话、安排周期任务，或把工作从 Agent A
+            交给 Agent B。持久状态、重试、取消和恢复由外部 Engine 持有。
           </p>
         </div>
         <div class="card">
           <span class="kicker">roadmap · workflows</span>
           <h3>跨 Agent 工作流</h3>
           <p>
-            横跨独立 agent 的工作流定义与运行：交接与依赖语义、拓扑视图、人工检查点
-            —— 把企业级任务分解到整支 agent 舰队。
+            上层 Workflow 可以跨独立 Agent 提供交接与依赖语义、拓扑视图、人工检查点
+            和工件血缘。这仍属于路线图。
           </p>
         </div>
       </div>
 
       <div class="cta-row" style="margin-top: 36px;">
-        <a class="btn btn-primary" href="observability.html">每一步都被观测 →</a>
+        <a class="btn btn-primary" href="https://github.com/agent-guide/agent-gateway/blob/main/README.zh-CN.md#无需模型-provider-key-即可试用">试跑一个受治理的 Agent Turn →</a>
+        <a class="btn btn-ghost" href="observability.html">查看证据层</a>
       </div>
     </div>
   </section>
@@ -328,7 +344,7 @@
     <nav class="footer-links" aria-label="页脚导航">
       <a href="index.html">首页</a>
       <a href="platform.html">平台</a>
-      <a href="agents.html">Agent 与编排</a>
+      <a href="agents.html">Agent 运行时</a>
       <a href="solutions.html">行业方案</a>
       <a href="observability.html">观测与治理</a>
       <a href="why.html">为什么选 AgentGuide</a>

@@ -3,8 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AgentGuide — Observe, govern &amp; orchestrate your AI agents</title>
-<meta name="description" content="AgentGuide is a self-hosted AI agent gateway with shipping runtime, governance, and observability foundations for LLMs, MCP tools, and agents — plus a roadmap for cross-agent orchestration.">
+<title>AgentGuide — Self-hosted control point for coding agents</title>
+<meta name="description" content="Run and govern Codex, OpenCode, A2A agents, LLMs, and MCP tools through one self-hosted gateway.">
+<link rel="canonical" href="https://agentguide.online/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="AgentGuide">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="zh_CN">
+<meta property="og:title" content="AgentGuide — Self-hosted control point for coding agents">
+<meta property="og:description" content="Run and govern Codex, OpenCode, A2A agents, LLMs, and MCP tools through one self-hosted gateway.">
+<meta property="og:url" content="https://agentguide.online/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="AgentGuide — Self-hosted control point for coding agents">
+<meta name="twitter:description" content="Run and govern Codex, OpenCode, A2A agents, LLMs, and MCP tools through one self-hosted gateway.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -25,7 +36,7 @@
     <nav class="nav-links" aria-label="Main">
       <a href="index.html" aria-current="page">Home</a>
       <a href="platform.html">Platform</a>
-      <a href="agents.html">Agents &amp; Orchestration</a>
+      <a href="agents.html">Agent Runtimes</a>
       <a href="solutions.html">Solutions</a>
       <a href="observability.html">Observability &amp; Governance</a>
       <a href="why.html">Why AgentGuide</a>
@@ -39,17 +50,16 @@
   <section class="hero">
     <div class="wrap hero-grid">
       <div>
-        <p class="eyebrow">The control plane for enterprise agent systems</p>
-        <h1>Air-traffic control for your <em>AI agents</em>.</h1>
+        <p class="eyebrow">Self-hosted control point for coding agents</p>
+        <h1>Run and govern <em>coding agents</em>, models, and tools.</h1>
         <p class="lede">
-          AgentGuide puts registered agents and gateway-routed model and tool
-          traffic on one radar. Govern request-bound Agent turns, model calls,
-          and tool execution through a gateway you run yourself. Durable
-          cross-agent workflows remain an explicit roadmap layer.
+          AgentGuide uses the open-source Agent Gateway to run Codex, OpenCode,
+          builtin agents, and remote A2A agents behind protected routes — while
+          governing the LLM and MCP traffic that crosses the same gateway.
         </p>
         <div class="cta-row">
-          <a class="btn btn-primary" href="https://github.com/agent-guide/agent-gateway/releases/tag/v0.7.1">Get started</a>
-          <a class="btn btn-ghost" href="https://github.com/agent-guide/agent-gateway">GitHub</a>
+          <a class="btn btn-primary" href="https://github.com/agent-guide/agent-gateway/blob/v0.7.1/docs/getting-started/first-run.md">Try without a provider key</a>
+          <a class="btn btn-ghost" href="https://github.com/agent-guide/agent-gateway">View on GitHub</a>
         </div>
       </div>
       <div class="diagram-frame">
@@ -72,7 +82,7 @@
           <text class="dg-label" x="252" y="154">builtin agent host</text>
           <text class="dg-label" x="252" y="178">policy + limits</text>
           <text class="dg-label dg-label-accent" x="252" y="220">observe · govern</text>
-          <text class="dg-label dg-label-accent" x="252" y="242">orchestrate</text>
+          <text class="dg-label dg-label-accent" x="252" y="242">agent runtimes</text>
           <text class="dg-label" x="252" y="272">usage events + traces</text>
 
           <!-- right: executable ACP agents plus registered HTTP identities -->
@@ -165,10 +175,10 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
       <p class="eyebrow">Why a gateway</p>
       <h2>Agents are easy to launch. They are hard to run.</h2>
       <p class="lede">
-        Once agents call models, invoke tools, and spawn other agents, nobody can
-        answer the basic questions: what did it cost, who approved that action,
-        which agent broke production? AgentGuide sits on the path of routed calls
-        and turns agent traffic into something you can see, control, and compose.
+        Once agents call models and invoke tools, teams need to know who started
+        the turn, which resources it reached, who approved an action, and where it
+        failed. AgentGuide turns traffic on the governed path into evidence and
+        enforceable controls.
       </p>
       <div class="card-grid">
         <div class="card">
@@ -193,19 +203,19 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
           <a class="more" href="observability.html#governance">Governance →</a>
         </div>
         <div class="card">
-          <span class="kicker">Orchestrate</span>
-          <h3>Compose agents into real workflows</h3>
+          <span class="kicker">Run</span>
+          <h3>Expose agents through one governed API</h3>
           <p>
-            Run agents inside the gateway today with declarative topologies —
-            sequential, parallel, supervisor, plan-execute and more. Gateway-owned
-            tasks and workflows across independent agents are the next control-plane layer.
+            Use one AgentRoute contract for builtin, ACP, and HTTP/A2A runtimes.
+            Builtin topologies compose roles inside one request-bound turn; durable
+            tasks and hand-offs across independent agents remain roadmap work.
           </p>
-          <a class="more" href="agents.html">Agents &amp; orchestration →</a>
+          <a class="more" href="agents.html">Agent runtimes →</a>
         </div>
       </div>
       <p style="margin-top: 28px; font-size: 0.95rem;">
-        Not another agent framework — AgentGuide orchestrates agents from the
-        outside, whatever they're built with.
+        Not another agent framework — AgentGuide governs compatible agents from
+        the outside while their implementation stays separate.
         <a href="why.html">How it relates to LangGraph, AutoGen &amp; co →</a>
       </p>
     </div>
@@ -213,39 +223,43 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
 
   <section class="section">
     <div class="wrap">
-      <p class="eyebrow">Three identity models, one control plane</p>
-      <h2>Bring the agent you have. Or build it in the gateway.</h2>
+      <p class="eyebrow">Three runtimes, four integration paths</p>
+      <h2>Connect the agents and clients you already use.</h2>
       <p class="lede">
-        Every registered agent — wherever it runs — gets one first-class identity: routes,
-        resources, policy, usage, and health, all managed from a single control plane.
+        Registered agents get routes, policy, usage, and runtime state. Claude Code
+        remains a model client through the separate <code>cc</code> ingress profile.
       </p>
-      <div class="card-grid">
-        <div class="card">
-          <span class="kicker">runtime · builtin</span>
-          <h3>Builtin agents</h3>
-          <p>
-            Declared as configuration, materialized inside the gateway — no separate
-            process. The deepest option: inner model calls and tool executions are
-            traced individually, and orchestration topologies are first-class.
-          </p>
-        </div>
+      <div class="card-grid cols-4">
         <div class="card">
           <span class="kicker">runtime · acp</span>
-          <h3>ACP agents</h3>
+          <h3>Codex &amp; OpenCode</h3>
           <p>
-            The gateway owns the lifecycle of Agent Client Protocol agents such as
-            Codex and OpenCode: process pooling, sessions and transcripts, streaming
-            turns, and permission decisions routed through your policy.
+            Manage compatible coding agents through ACP with pooling, streaming
+            turns, permissions, sessions, and transcripts where supported.
           </p>
         </div>
         <div class="card">
           <span class="kicker">runtime · http · a2a</span>
-          <h3>HTTP agents</h3>
+          <h3>Remote A2A agents</h3>
           <p>
-            Agents on your infrastructure can register as first-class identities
-            with resource and route references. Execution uses A2A Protocol 1.0:
-            choose the translated common <code>/turn</code> API or native governed
-            A2A JSON-RPC proxy ingress.
+            Register an A2A Protocol 1.0 service and choose translated common turns
+            or governed native JSON-RPC ingress.
+          </p>
+        </div>
+        <div class="card">
+          <span class="kicker">runtime · builtin</span>
+          <h3>Builtin agents</h3>
+          <p>
+            Define an agent, model route, MCP tools, and topology as configuration;
+            the in-process eino ADK host materializes it.
+          </p>
+        </div>
+        <div class="card">
+          <span class="kicker">client · cc profile</span>
+          <h3>Claude Code</h3>
+          <p>
+            Route Claude Code through its dedicated Anthropic Messages ingress to
+            compatible domestic or international providers. It is not an ACP runtime.
           </p>
         </div>
       </div>
@@ -260,63 +274,19 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
     </div>
   </section>
 
-  <section class="band">
-    <div class="wrap">
-      <p class="eyebrow">Product direction · multi-agent collaboration</p>
-      <h2>Workspaces and workflows turn agents into a workforce.</h2>
-      <p class="lede">
-        Single agents answer questions. Fleets of agents deliver projects.
-        AgentGuide is built toward the second. Today it provides the runtime,
-        identity, topology, permission, and observability foundations; shared mission
-        workspaces and workflows across independent agents are the next layer.
-      </p>
-      <div class="card-grid">
-        <div class="card">
-          <span class="kicker">shipping now · workspace view</span>
-          <h3>See the agent in one place</h3>
-          <p>
-            The per-agent workspace aggregates definition, runtime state, linked
-            resources, pending permissions, usage, interactions, and shallow health.
-          </p>
-        </div>
-        <div class="card">
-          <span class="kicker">shipping now · builtin topology</span>
-          <h3>Compose inside one governed turn</h3>
-          <p>
-            Inline sub-agents collaborate through plan-execute loops, supervisor
-            delegation, and parallel fan-out, with model and tool calls traced
-            beneath the turn.
-          </p>
-        </div>
-        <div class="card">
-          <span class="kicker">building next · tasks &amp; workflows</span>
-          <h3>Coordinate independent agents</h3>
-          <p>
-            Durable tasks, scheduling, cross-runtime hand-offs, artifact lineage,
-            budget enforcement, and compliance-grade audit are roadmap capabilities
-            built on the foundations shipping today.
-          </p>
-        </div>
-      </div>
-      <div class="cta-row" style="margin-top: 36px;">
-        <a class="btn btn-primary" href="agents.html#orchestration">How orchestration works</a>
-        <a class="btn btn-ghost" href="solutions.html">Industry blueprints</a>
-      </div>
-    </div>
-  </section>
-
   <section class="section">
     <div class="wrap">
       <p class="eyebrow">The foundation</p>
       <h2>A serious LLM &amp; MCP gateway underneath.</h2>
       <p class="lede">
-        Orchestration is only as trustworthy as the layer it stands on. AgentGuide
-        ships a production LLM gateway and MCP gateway in the same binary.
+        Agent runtimes are only as trustworthy as the resources beneath them.
+        AgentGuide ships implemented LLM and MCP gateway paths in the same
+        self-hosted runtime.
       </p>
       <div class="card-grid cols-2">
         <div class="card">
           <span class="kicker">llm gateway</span>
-          <h3>One API over every provider</h3>
+          <h3>One API across supported providers</h3>
           <ul>
             <li>OpenAI, Anthropic, Gemini, DeepSeek, Qwen, Zhipu, OpenRouter, Ollama and more</li>
             <li>OpenAI- and Anthropic-compatible endpoints, plus a Claude Code-ready profile</li>
@@ -340,17 +310,50 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
     </div>
   </section>
 
+  <section class="section">
+    <div class="wrap">
+      <p class="eyebrow">Product direction · clearly separated roadmap</p>
+      <h2>Build durable collaboration on a governed runtime.</h2>
+      <p class="lede">
+        Runtime identity, request-bound builtin topologies, permissions, and
+        observability ship today. Durable coordination across independent agents is
+        a separate future layer, not a capability of the current gateway.
+      </p>
+      <div class="card-grid">
+        <div class="card">
+          <span class="kicker">shipping now · per-agent view</span>
+          <h3>Inspect one agent in context</h3>
+          <p>Definitions, routes, runtime state, pending permissions, usage, interactions, and shallow health share one operator view.</p>
+        </div>
+        <div class="card">
+          <span class="kicker">shipping now · builtin topology</span>
+          <h3>Compose inside one turn</h3>
+          <p>Supervisor, plan-execute, parallel, and other builtin topologies coordinate inline roles within one request-bound execution.</p>
+        </div>
+        <div class="card">
+          <span class="kicker">roadmap · external workflow layer</span>
+          <h3>Coordinate independent agents</h3>
+          <p>Durable tasks, schedules, cross-runtime hand-offs, artifact lineage, budgets, and compliance audit remain roadmap capabilities.</p>
+        </div>
+      </div>
+      <div class="cta-row" style="margin-top: 36px;">
+        <a class="btn btn-primary" href="agents.html#orchestration">See the current boundary</a>
+        <a class="btn btn-ghost" href="solutions.html">Explore target blueprints</a>
+      </div>
+    </div>
+  </section>
+
   <section class="section cta-final">
     <div class="wrap">
       <p class="eyebrow">Get started</p>
-      <h2>One binary. Your infrastructure. Full control.</h2>
+      <h2>One self-hosted runtime. A verifiable first request.</h2>
       <p class="lede">
-        AgentGuide deploys as a single self-hosted binary — no required control-plane
-        SaaS. Outbound traffic goes only to providers and services you configure.
+        Evaluate the gateway without a provider credential, then connect only the
+        agents, providers, and services you choose. No hosted control plane is required.
       </p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/agent-guide/agent-gateway/releases/tag/v0.7.1">Get started</a>
-        <a class="btn btn-ghost" href="https://github.com/agent-guide/agent-gateway">GitHub</a>
+        <a class="btn btn-primary" href="https://github.com/agent-guide/agent-gateway/blob/v0.7.1/docs/getting-started/first-run.md">Run the walkthrough</a>
+        <a class="btn btn-ghost" href="https://github.com/agent-guide/agent-gateway">View on GitHub</a>
       </div>
     </div>
   </section>
@@ -365,7 +368,7 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
     <nav class="footer-links" aria-label="Footer">
       <a href="index.html">Home</a>
       <a href="platform.html">Platform</a>
-      <a href="agents.html">Agents &amp; Orchestration</a>
+      <a href="agents.html">Agent Runtimes</a>
       <a href="solutions.html">Solutions</a>
       <a href="observability.html">Observability &amp; Governance</a>
       <a href="why.html">Why AgentGuide</a>

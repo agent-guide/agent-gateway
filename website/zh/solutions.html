@@ -5,6 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>行业方案 — AgentGuide</title>
 <meta name="description" content="建立在 AgentGuide 已交付运行时底座与编排路线图上的目标方案蓝图：软件交付、证据充分的审核、金融治理和客户交付后台。">
+<link rel="canonical" href="https://agentguide.online/zh/solutions.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="AgentGuide">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:title" content="行业方案 — AgentGuide">
+<meta property="og:description" content="建立在 AgentGuide 已交付 Runtime、治理与观测底座上的行业方案蓝图。">
+<meta property="og:url" content="https://agentguide.online/zh/solutions.html">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="行业方案 — AgentGuide">
+<meta name="twitter:description" content="建立在 AgentGuide 已交付 Runtime、治理与观测底座上的行业方案蓝图。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -25,7 +36,7 @@
     <nav class="nav-links" aria-label="主导航">
       <a href="index.html">首页</a>
       <a href="platform.html">平台</a>
-      <a href="agents.html">Agent 与编排</a>
+      <a href="agents.html">Agent 运行时</a>
       <a href="solutions.html" aria-current="page">行业方案</a>
       <a href="observability.html">观测与治理</a>
       <a href="why.html">为什么选 AgentGuide</a>
@@ -39,13 +50,13 @@
   <section class="page-head">
     <div class="wrap">
       <p class="eyebrow">行业方案</p>
-      <h1>企业问题是组织化的，答案也应该是。</h1>
+      <h1>运营问题是组织化的，答案也应该是。</h1>
       <p class="lede">
         没有哪个单独的 agent 能上线一个产品、通过一次临床审核、批准一笔贷款，
         或者独自打理一整批客户项目。
-        这些蓝图展示专家 agent 团队如何在 AgentGuide 上组合、治理与观测。
-        它们把当前已交付的运行时底座与路线图中的任务、跨 Agent workflow、
-        Artifact、记忆和合规控制组合在一起，是目标架构，而非预制产品。
+        这些蓝图把 AgentGuide 当前请求绑定的 Runtime 与治理底座，同未来负责持久任务、
+        跨 Agent 交接、Artifact、记忆和合规控制的外部 Workflow 层组合起来。
+        它们是目标架构，而非预制产品。
       </p>
       <div class="chip-row">
         <span class="chip chip-accent">已交付底座</span>
@@ -86,7 +97,7 @@
         <li><b>编码 agent 受托管</b> Codex 与 OpenCode 以 ACP agent 运行 —— 进程池化、会话可续接、转录可回放、文件系统边界由你划定。</li>
         <li><b>组合边界</b> builtin supervisor 与 plan-execute 今天可以协调内联角色；把工作交给独立 ACP Codex/OpenCode agent 仍需要跨 Agent workflow。</li>
         <li><b>审批积木</b> builtin MCP 操作可以挂起等待交互式审批；ACP agent 发起的权限请求也能交给运营者，并在超时后 fail-closed。</li>
-        <li><b>按环节看 token</b> 可归因事件提供 prompt、completion、缓存与推理 token；金额成本与预算强制执行仍在路线图上。</li>
+        <li><b>按环节看 Token</b> Provider 返回对应数据时，可归因事件提供 prompt、completion、缓存与推理 Token；金额成本与预算强制执行仍在路线图上。</li>
       </ul>
     </div>
   </section>
@@ -130,8 +141,8 @@
       <p class="eyebrow">金融服务</p>
       <h2>可追踪风控决策的目标架构。</h2>
       <p class="lede">
-        KYC、风险、反欺诈、合规各司其职；网关可以让联合决策更可解释。
-        当前 trace 覆盖经路由的交互；可回放的决策血缘与合规审计属于 workflow 和 Artifact 路线图。
+        KYC、风险、反欺诈、合规各司其职。网关可以保留经其路由的交互证据；
+        可回放的联合决策血缘与合规审计属于外部 Workflow 和 Artifact 路线图。
       </p>
 
       <div class="pipeline" role="img" aria-label="流水线：KYC，然后风险评分与欺诈筛查并行，然后合规检查，然后人工审批，最后决策存档">
@@ -188,7 +199,7 @@
       <ul class="feature-list">
         <li><b>一支角色团队，而非一批人头</b> 内联的规划、检索、撰写、审阅角色今天可以组成 builtin supervisor 拓扑。Codex 今天可以作为托管 ACP agent 运行；让两种运行时加入同一条持久流程仍需要跨 Agent workflow。</li>
         <li><b>接你已有的工具</b> 邮件、文档、日历、代码仓库可以作为 MCP 服务接入；builtin 角色在执行时只获得定义中声明的工具。</li>
-        <li><b>默认只出草稿</b> 任何内容发给客户之前都要经过交互式人工审批 —— 未回应就是不发送。</li>
+        <li><b>默认只出草稿</b> 选定的交付操作可以要求交互式人工审批；未回应的请求 fail-closed。</li>
         <li><b>知识越攒越厚</b> 项目 FAQ、模板与历史周报沉淀成可复用的资产库 —— 在路线图上，经由工件总线与共享记忆实现。</li>
       </ul>
     </div>
@@ -221,7 +232,7 @@
     <nav class="footer-links" aria-label="页脚导航">
       <a href="index.html">首页</a>
       <a href="platform.html">平台</a>
-      <a href="agents.html">Agent 与编排</a>
+      <a href="agents.html">Agent 运行时</a>
       <a href="solutions.html">行业方案</a>
       <a href="observability.html">观测与治理</a>
       <a href="why.html">为什么选 AgentGuide</a>

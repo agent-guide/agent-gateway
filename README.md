@@ -1,736 +1,228 @@
-# agent-gateway
+# Agent Gateway
+
+[English](README.md) | [简体中文](README.zh-CN.md)
+
+> Run and govern Codex, OpenCode, A2A agents, LLMs, and MCP tools through one
+> self-hosted gateway.
+
+Agent Gateway lets teams expose compatible existing agents as authenticated
+internal APIs and gives their model and tool traffic the same control point for
+routing, credentials, limits, configuration, and telemetry. Run Codex or
+OpenCode through ACP, connect remote A2A Protocol 1.0 agents, host
+configuration-defined builtin agents, and expose OpenAI-, Anthropic-, Claude
+Code-, and MCP-compatible endpoints.
 
 `agent-gateway` is the Apache-2.0 gateway engine behind
-**[AgentGuide](https://agentguide.online)**. It gives LLM, MCP, builtin Agent,
-ACP, and HTTP/A2A traffic one self-hosted control point for routing, VirtualKey
-authentication, credentials, limits, configuration, and telemetry.
+[AgentGuide](https://agentguide.online). It governs agents from the outside; it
+is not an Agent framework or a durable workflow engine.
 
-Unlike an Agent framework, it governs agents and their model/tool traffic from
-the outside. Existing applications use OpenAI-, Anthropic-, Claude Code-, MCP-,
-Agent-, or A2A-compatible ingress; operators manage the gateway through a
-SQLite-backed Admin API and declarative Bundles.
+[Website](https://agentguide.online) · [Documentation](docs/README.md) ·
+[Install](docs/guides/install-release.md) ·
+[Evaluated capabilities](docs/reference/capabilities.md) ·
+[Releases](https://github.com/agent-guide/agent-gateway/releases) ·
+[Support](https://github.com/agent-guide/agent-gateway/issues)
 
-This repository builds three binaries:
+## Try it without a provider key
 
-- `agw`: Caddy-based gateway runtime
-- `agwd`: standalone gateway daemon
-- `agwctl`: management CLI for the gateway and Caddy Admin APIs
-
-> [!IMPORTANT]
-> Stores that have not completed the external CLI-auth cutover documented since
-> v0.5.0 need a one-time credential migration. Follow the
-> [upgrade guide](docs/guides/upgrade.md#stores-from-before-the-v050-cli-auth-cutover),
-> then install the
-> separate `agw-auth` executable on the gateway's `PATH`, or configure its
-> full command with `credential_refresh_command` (Caddy) or
-> `--credential-refresh-command` plus repeatable `--credential-refresh-arg`
-> flags (`agwd`). OAuth credential refresh is now
-> request-driven, so the first request after an idle period can add up to 30
-> seconds of refresh latency. A refresh failure rejects that credential for the
-> current attempt; the request fails if no alternate credential or configured
-> provider authentication is available. Set `AGW_AUTH_PROXY_URL` or
-> `AGW_AUTH_TRANSPORT_PROFILE` on the Gateway process when the refresh
-> subprocess needs those network settings.
-
-## First successful governed request
-
-The v0.7.1 first-run asset needs only Docker Compose. It starts the gateway and
-a deterministic development fixture, applies a Bundle, and proves VirtualKey
-enforcement, common Agent turns, native A2A ingress, persisted interactions,
-and request metrics without an LLM provider key:
+The shortest supported evaluation path needs Docker Engine with Compose v2,
+`curl`, and `tar`. It downloads a checksummed Compose project, starts the
+gateway and a deterministic development fixture, applies a Bundle, and sends
+governed Agent requests. It needs no repository checkout, local Go toolchain,
+or LLM provider credential.
 
 ```sh
 curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.1/agent-gateway-first-run-v0.7.1.tar.gz
 curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.1/SHA256SUMS
-grep 'agent-gateway-first-run-v0.7.1.tar.gz' SHA256SUMS | shasum -a 256 -c -
+```
+
+Verify the archive on Linux:
+
+```sh
+grep 'agent-gateway-first-run-v0.7.1.tar.gz' SHA256SUMS | sha256sum -c -
+```
+
+On macOS, use `shasum -a 256 -c -` instead of `sha256sum -c -`. Then start
+the project and run the smoke test:
+
+```sh
 tar -xzf agent-gateway-first-run-v0.7.1.tar.gz
 cd agent-gateway-first-run-v0.7.1
 ./setup.sh
 ./run-smoke.sh
 ```
 
-See the [canonical first-run guide](docs/getting-started/first-run.md),
-[release installation guide](docs/guides/install-release.md), and
-[evaluated capability matrix](docs/reference/capabilities.md). Source builds
-and protocol-specific walkthroughs remain below.
+A successful run ends with:
 
-## What It Does
+```text
+Common Agent turn, native A2A ingress, VirtualKey enforcement, interaction persistence, and request metrics passed.
+```
 
-- expose OpenAI-compatible and Anthropic-compatible HTTP APIs
-- route requests to direct providers or logical model targets
-- manage providers, routes, VirtualKeys, and credentials through an Admin API
-- consume `oauth_token` credentials created by an external tool and invoke the configured refresh command for expiring tokens on the request path
-- support MCP gateway routing, discovery, execution, and runtime inspection
-- expose the first native ACP control surface for codex/opencode agent routing
-- host builtin agents in-process on eino ADK and serve them through the same `POST /<agent-route>/turn` SSE contract as ACP-backed Agents; interactive tool permissions can suspend a turn on an ADK checkpoint until a human allows or denies each call
-- execute ACP and builtin Agents through one runtime-neutral backend registry and unified AgentRoutes, with shared run ids, ordered event sequencing, normalized errors, and cross-runtime usage correlation
-- connect remote HTTP Agents through translated common turns or governed native A2A Protocol 1.0 JSON-RPC ingress
-- run with either a Caddyfile-based runtime or a standalone daemon with a config store
+This proves:
+
+- rejection of an Agent turn without its VirtualKey;
+- a protected common Agent turn over SSE;
+- public native A2A Card discovery and governed JSON-RPC ingress;
+- persisted interaction lookup; and
+- an incremented Prometheus request counter.
+
+Run `./start-observability.sh` to add the evaluation-only Prometheus, Tempo,
+OpenTelemetry Collector, and Grafana profile. The fixture and anonymous local
+Grafana access are for evaluation, not production. See the
+[first-run guide](docs/getting-started/first-run.md) for prerequisites, reset
+commands, and exact boundaries.
+
+## Why Agent Gateway
+
+Teams can usually start one Agent. The harder operational problem is giving
+many users and Agents a shared boundary without losing identity, policy, or
+evidence as traffic crosses Agent, model, and tool protocols.
+
+| Need | Gateway boundary |
+| --- | --- |
+| Expose existing Agents as internal services | Unified AgentRoutes, VirtualKey authentication, streaming turns, cancellation, permissions, sessions, and transcripts where the runtime supports them |
+| Govern model and tool access | OpenAI-, Anthropic-, and Claude Code-compatible LLM routes plus managed MCP services and routes |
+| Connect remote Agents | Common-turn translation and governed native A2A Protocol 1.0 JSON-RPC ingress |
+| Operate one configuration surface | SQLite-backed Admin API, declarative Bundle validate/apply/export, and idempotent updates |
+| Inspect what happened | Persisted interactions, per-protocol metrics, Prometheus counters, and optional OpenTelemetry traces |
+| Keep the control point private | Self-hosted Caddy-based or standalone runtime with operator-owned storage and deployment authentication |
+
+This focus is intentionally narrower than a general Agent SDK or a hosted AI
+platform. Agent Gateway supplies the runtime boundary; your applications,
+Agents, providers, MCP servers, and any durable business workflow engine remain
+separate systems.
+
+## Agent integration paths
+
+| Path | Use it for | What you bring |
+| --- | --- | --- |
+| **ACP** | Drive Codex or OpenCode as a protected internal Agent API | An external ACP adapter, workspace, and its upstream authentication |
+| **HTTP/A2A** | Connect an Agent implemented in any stack | A remote A2A Protocol 1.0 Agent Card and service |
+| **Builtin** | Materialize configuration-defined Agents in process | A gateway LLM route, optional managed MCP tools, and a supported eino ADK topology |
+
+Claude Code uses the gateway differently: it is a client of the dedicated `cc`
+Anthropic Messages ingress profile, not an ACP Agent runtime. That profile can
+route Claude Code traffic to compatible domestic or international model
+providers.
 
 ## Architecture
 
-![agent-gateway architecture overview](docs/architecture/assets/agent-gateway-overview.svg)
+![Agent Gateway architecture overview](docs/architecture/assets/agent-gateway-overview.svg)
 
-`agent-gateway` is a multi-protocol gateway that connects, manages, and observes AI agents on a single binary. It exposes two distinct API surfaces, one for each direction of traffic:
+The gateway exposes two directions of traffic:
 
-- **Agent Control API (ACP / HTTP)** — how consumers reach agents. Users and business apps call the gateway to launch and drive an agent.
-- **Resource Access API (LLM / MCP)** — how agents reach the outside world. An agent calls back through the gateway to use LLM providers and MCP tools.
+- **Agent Control API (Agent / ACP / HTTP / A2A)** — consumers launch and drive
+  Agents through protected routes.
+- **Resource Access API (LLM / MCP)** — applications and Agents reach models
+  and tools through governed routes.
 
-A typical request flows in four hops: ① a consumer calls the gateway over HTTP / ACP → ② the gateway launches and drives an agent → ③ the agent calls back through the gateway for LLM / MCP → ④ the gateway proxies that call to upstream resources (LLM providers, MCP servers). For builtin agents, hops ② and ③ happen in-process inside the gateway host — still routed, still observed. Because both directions pass through the gateway, it adds VirtualKey auth, routing, and config across the board. Persisted usage events and optional traces provide operational evidence; a durable compliance audit ledger remains roadmap work.
+A request can enter through an AgentRoute, execute through the selected ACP,
+builtin, or HTTP runtime, and call back through LLM or MCP routes. VirtualKeys,
+routing, configuration, and telemetry apply at the relevant boundaries. See
+the [architecture overview](docs/architecture/architecture-overview.md) for the
+runtime flow and dependency boundaries.
 
-The gateway supports three integration paths for the agents themselves:
+## Choose your starting point
 
-- **No-code (builtin)**: define an agent as pure configuration — model through a gateway LLM route, tools through gateway-managed MCP services, topology (single, sequential, parallel, loop, supervisor, planexecute, deep) — and the gateway's in-process eino ADK host materializes and runs it. No process to ship, no code to write.
-- **Low-code**: drive off-the-shelf CLI coding agents (Codex, OpenCode) directly over ACP — no custom code required. (Claude Code plugs in as a gateway consumer through the Claude Code-compatible `cc` API profile, not over ACP.)
-- **Full control**: bring your own agent in any stack and let the gateway manage and observe it.
+| Goal | Start here | Additional requirement |
+| --- | --- | --- |
+| Verify a governed Agent request | [Provider-key-free first run](docs/getting-started/first-run.md) | Docker Compose only |
+| Evaluate Codex or OpenCode | [Coding Agent evaluation](docs/guides/evaluate-coding-agent.md) | External ACP adapter, workspace, and upstream authentication |
+| Connect a remote A2A Agent | [HTTP Agent quick start](docs/getting-started/quickstart-http-agent.md) | An A2A Protocol 1.0 service, or the local fixture |
+| Route OpenAI, Anthropic, or Claude Code traffic | [LLM quick start](docs/getting-started/quickstart-llm.md) | A compatible provider and credential |
+| Govern MCP tools | [MCP quick start](docs/getting-started/quickstart-mcp.md) | A Streamable HTTP or stdio MCP service |
 
-## Quick Start
+## What ships
 
-Build the binaries:
+- **Agent runtimes:** native ACP pooling and lifecycle management, an in-process
+  eino ADK host for builtin Agents, and HTTP/A2A translation and native ingress.
+- **Resource gateways:** direct-provider or logical-model LLM routing, MCP
+  discovery and execution, credentials, VirtualKeys, and per-domain admission
+  limits.
+- **Operations:** SQLite persistence, Admin APIs, declarative Bundles, durable
+  usage events, interaction views, Prometheus metrics, and optional OTLP export.
+- **Ingress profiles:** OpenAI-compatible, Anthropic Messages, the separate
+  Claude Code-compatible `cc` profile, MCP, common Agent turns, and A2A Protocol
+  1.0 JSON-RPC.
+- **Distribution modes:** `agw` for the Caddy-based runtime, `agwd` for the
+  standalone daemon, and `agwctl` for management and validation.
 
-```bash
+Provider implementations and protocol fidelity vary by upstream. Check the
+[provider guide](docs/guides/providers.md),
+[provider option reference](docs/reference/provider-option-reference.md), and
+[evaluated capability matrix](docs/reference/capabilities.md) before choosing a
+production path.
+
+## Current boundaries
+
+- The Community limiter is process-local; a production distributed limiter and
+  multi-node HA coordination are not included.
+- Memory, durable workflows, schedules, durable human Tasks, enterprise IAM/SSO,
+  organization roles, cost budgets, and a durable compliance audit ledger are
+  not implemented.
+- Interactive Agent tool permission decisions are implemented, but they are not
+  a general human-task workflow system.
+- ACP execution requires a separately supplied Codex or OpenCode adapter,
+  workspace, and upstream authentication.
+- OAuth refresh requires the separately installed `agw-auth` command or a
+  compatible external refresher.
+- Operational events and traces provide telemetry; they are not a compliance
+  record.
+
+The [evaluated capability matrix](docs/reference/capabilities.md) separates
+implemented, externally dependent, and roadmap behavior. Roadmap capabilities
+are not presented as shipped features.
+
+## Install and operate
+
+Published release archives support Linux and macOS on amd64 and arm64. The
+[release installation guide](docs/guides/install-release.md) covers checksums,
+container images, runtime identity, persistence, and shutdown behavior.
+
+To build all three binaries from source:
+
+```sh
 make build
 ```
 
-Keep the Caddyfile minimal and declare providers, routes, and VirtualKeys in bundle YAML files applied at runtime via `agwctl apply`.
-
-Create a minimal `Caddyfile` (no providers or routes). LLM providers and routes can also be declared statically in the Caddyfile; see [docs/getting-started/quickstart-llm.md](docs/getting-started/quickstart-llm.md) for that flow:
-
-```caddy
-{
-	admin localhost:2019
-
-	agent_gateway {
-		config_store sqlite {
-			path ./data/configstore.db
-		}
-		credential_refresh_command agw-auth refresh
-	}
-}
-
-http://localhost:8019 {
-	route /admin/* {
-		basic_auth {
-			admin <hashed-password>
-		}
-		agent_gateway_admin
-	}
-}
-
-http://127.0.0.1:8080 {
-	agent_route_dispatcher {
-		llm_api openai
-		llm_api anthropic
-		llm_api cc
-		mcp
-		agent
-	}
-}
-```
-
-Generate the hash with `./agw hash-password --plaintext 'your-password'` and run the gateway:
-
-```bash
-./agw hash-password --plaintext 'your-password'
-OPENAI_API_KEY=sk-... ./agw run --config ./Caddyfile
-```
-
-## LLM Quick Start
-
-Declare an LLM provider, route, and VirtualKey in a bundle YAML applied at runtime via `agwctl apply`.
-
-Create a bundle file `gateway.bundle.yaml`:
-
-```yaml
-apiVersion: gateway.agw/v1alpha1
-kind: GatewayBundle
-providers:
-  - id: openai-main
-    provider_type: openai
-    api_key: ${OPENAI_API_KEY}
-    default_model: gpt-4.1
-    options:
-      compact: none
-llmRoutes:
-  - id: openai-chat
-    protocol: openai
-    match_policy:
-      path_prefix: /
-    auth_policy:
-      require_virtual_key: true
-    target_policy:
-      provider_target:
-        provider_id: openai-main
-virtualKeys:
-  - id: test-key
-    allowed_route_ids:
-      - openai-chat
-    rate_limits:
-      llm:
-        requests_per_minute: 60
-        burst: 10
-```
-
-`rate_limits` is optional. It independently limits LLM, MCP, and agent ingress
-for a VirtualKey through the configured limiter backend (process-local memory
-by default); `agent` covers common Agent
-turns and native A2A POSTs. Exceeded requests return `429` with `Retry-After`. Backend failures/timeouts
-default to `503 limiter_unavailable`; explicit fail-open is reported as degraded.
-Admission is never retried automatically.
-
-Set the admin Basic Auth credentials for agwctl as an environment variable, then apply the bundle:
-
-```bash
-export AGW_ADMIN_BASIC_AUTH=admin:your-password
-
-OPENAI_API_KEY=sk-... ./agwctl apply -f gateway.bundle.yaml
-```
-
-`apply` is idempotent — it creates objects that do not exist, updates those that have changed, and skips unchanged ones:
-
-```
-apply: gateway.bundle.yaml
-  create provider openai-main
-  create llm_route openai-chat
-  create virtual_key test-key
-summary: create=3 update=0 skip=0 error=0
-```
-
-Retrieve the generated VirtualKey value and verify the OpenAI-compatible data
-plane directly:
-
-```bash
-AGW_API_KEY=$(./agwctl virtualkey get test-key | jq -r '.key')
-curl -sS http://127.0.0.1:8080/v1/chat/completions \
-  -H "Authorization: Bearer $AGW_API_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{"messages":[{"role":"user","content":"hello"}]}'
-
-curl -sS http://127.0.0.1:8080/v1/responses \
-  -H "Authorization: Bearer $AGW_API_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{"input":"hello"}'
-```
-
-`agwctl` is a control-plane management CLI; protocol data-plane checks use
-the corresponding HTTP, MCP, or Agent client directly.
-
-The `AGW_ADMIN_ADDR` environment variable sets the admin API address (default: `http://localhost:8019`). Run `agwctl export` to dump the current gateway state as a bundle YAML.
-
-Provider `options.compact` selects compatibility request shaping. In Caddyfile provider blocks, configure it as `option compact <cc|codex|none>`. In bundle YAML, configure it as `options.compact`. Providers ignore modes they do not implement.
-
-Built-in `provider_type` values: `openai`, `anthropic`, `claudecode`, `codex`, `gemini`, `ollama`, `openrouter`, `deepseek`, `zhipu`, `qwen`, `grok`. The `zhipu` provider supports GLM Coding Plan Chat Completions, including request-level thinking, `reasoning_content` replay, and streamed tool arguments; set its `base_url` to `https://open.bigmodel.cn/api/coding/paas/v4`, or set `options.api_profile` to `coding_plan` when using a custom proxy URL. For Claude Code through an Anthropic-compatible endpoint such as GLM Coding Plan, use `provider_type claudecode`; it preserves signed and redacted thinking blocks across tool turns and accepts generic capability overrides such as `context_window`, `max_output_tokens`, `default_max_tokens`, and `vision`. The `qwen` provider targets DashScope's OpenAI-compatible mode and supports an optional `options.enable_thinking` (bool) to control Qwen thinking mode; per-request reasoning fields override it. The `grok` provider targets xAI's OpenAI-compatible Chat Completions API (`https://api.x.ai/v1`) and native `/v1/responses`. It supports optional `options.reasoning_effort` (`none|low|medium|high|xhigh`); `none` is forwarded for grok-4.3 and omitted on models that reject it. Server-side search uses Responses tools (`web_search`, `x_search`), not a provider `search_mode`.
-
-Logical-model routes filter candidates against request needs. Requests with
-client-executed tools require a managed-model candidate whose resolved
-capabilities include `tools: true`; incomplete managed-model capability metadata
-can therefore make a tool request return “no eligible bindings.” Anthropic
-server tools use atomic protocol-feature filtering instead of this generic
-client-tool capability. Native Anthropic request/history/response values use a
-scoped protocol-state envelope internally; when a selected provider declares
-complete Anthropic body or stream delivery, the Messages response coordinator
-relays that native response with only the client-visible model rewritten.
-`/v1/messages/count_tokens` is classified as local execution during parsing,
-so it still passes route auth, size, and rate-limit governance but does not
-resolve a provider, candidate, credential, or protocol-fidelity requirement.
-On `protocol=cc` routes it returns the local estimate used by Claude Code; on
-standard `protocol=anthropic` routes the recognized endpoint returns
-`501 Not Implemented`.
-
-## MCP Quick Start
-
-The MCP gateway uses the same minimal Caddyfile as the Quick Start. Enable `mcp` in the dispatcher, then apply an MCP bundle.
-
-Create or reuse the minimal Caddyfile from the Quick Start above (the `mcp` directive is already present in `agent_route_dispatcher`). Run the gateway, then create a bundle file `gateway.bundle.mcp.yaml`.
-
-**Streamable HTTP upstream** (remote MCP server over HTTP):
-
-```yaml
-apiVersion: gateway.agw/v1alpha1
-kind: GatewayBundle
-mcpServices:
-  - id: mcp-main
-    name: Main MCP Service
-    transport: streamable_http
-    url: ${MCP_SERVICE_URL}
-mcpRoutes:
-  - id: mcp-main-route
-    service_id: mcp-main
-    match_policy:
-      path_prefix: /mcp
-    auth_policy:
-      require_virtual_key: true
-virtualKeys:
-  - id: mcp-key
-    allowed_route_ids:
-      - mcp-main-route
-```
-
-Route ids must be slash-free. If `id` is omitted the gateway auto-generates a
-deterministic id `mcp:<service_id>:<path-slug>` (the path prefix lowercased with
-non-alphanumeric runs collapsed to `-`, `/` → `root`), so `/mcp` on `mcp-main`
-becomes `mcp:mcp-main:mcp`. The id above is set explicitly only for readability;
-because the auto-generated id is predictable you may also reference it directly
-in `allowed_route_ids`.
-
-**stdio upstream** (local subprocess, e.g. `@modelcontextprotocol/server-filesystem`):
-
-```yaml
-apiVersion: gateway.agw/v1alpha1
-kind: GatewayBundle
-mcpServices:
-  - id: mcp-fs
-    name: Filesystem MCP Service
-    transport: stdio
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-mcpRoutes:
-  - id: mcp-fs-route
-    service_id: mcp-fs
-    match_policy:
-      path_prefix: /mcp
-    auth_policy:
-      require_virtual_key: true
-virtualKeys:
-  - id: mcp-key
-    allowed_route_ids:
-      - mcp-fs-route
-```
-
-Apply and verify:
-
-```bash
-export AGW_ADMIN_BASIC_AUTH=admin:your-password
-
-MCP_SERVICE_URL=https://your-mcp-server/mcp ./agwctl apply -f gateway.bundle.mcp.yaml
-
-# Discover tools via admin API
-./agwctl mcp-service tools mcp-main
-
-# Retrieve the VirtualKey and send an MCP request
-MCP_API_KEY=$(./agwctl virtualkey get mcp-key | jq -r '.key')
-
-curl -s http://127.0.0.1:8080/mcp \
-  -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $MCP_API_KEY" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-```
-
-MCP route IDs are auto-generated as the deterministic, slash-free `mcp:<service_id>:<path-slug>` when `id` is omitted (the path prefix lowercased with non-alphanumeric runs collapsed to `-`, `/` → `root`). See [docs/getting-started/quickstart-mcp.md](docs/getting-started/quickstart-mcp.md) for the full walkthrough.
-
-## ACP Agent Quick Start
-
-Enable `agent` in `agent_route_dispatcher`, then apply an ACP-backed Agent and a unified AgentRoute. ACP runtime configuration is owned directly by the Agent; there is no separate ACP service object or ACP-specific ingress route.
-
-For Codex, install the adapter and create the working directory:
-
-```bash
-npm install -g @zed-industries/codex-acp
-mkdir -p /tmp/acp-codex-test
-```
-
-Create a bundle file `gateway.bundle.acp.yaml`:
-
-```yaml
-apiVersion: gateway.agw/v1alpha1
-kind: GatewayBundle
-
-agents:
-  - id: codex-main
-    name: Codex
-    runtime:
-      type: acp
-      acp:
-        agent_type: codex
-        cwd: /tmp/acp-codex-test
-        allowed_roots: [/tmp/acp-codex-test]
-        max_instances: 4
-        permission_mode: auto_approve
-    routes: {}
-    resources: {}
-    policy: {}
-    disabled: false
-
-agentRoutes:
-  - id: acp-codex
-    agent_id: codex-main
-    match_policy:
-      path_prefix: /acp/codex
-    auth_policy:
-      require_virtual_key: true
-
-virtualKeys:
-  - id: acp-key
-    allowed_route_ids:
-      - acp-codex
-```
-
-Apply and verify:
-
-```bash
-export AGW_ADMIN_BASIC_AUTH=admin:your-password
-
-./agwctl apply -f gateway.bundle.acp.yaml
-
-./agwctl agent get codex-main
-./agwctl agent-route list
-./agwctl acp-runtime get
-```
-
-Send a streamed turn through the dispatcher:
-
-```bash
-ACP_API_KEY=$(./agwctl virtualkey get acp-key | jq -r '.key')
-
-curl -N -s http://127.0.0.1:8080/acp/codex/turn \
-  -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $ACP_API_KEY" \
-  -d '{"input":"Reply with exactly one word: pong","options":{"version":"v1","runtime":{"thread_id":"t-demo-1"}}}'
-```
-
-List sessions or replay a transcript through the same AgentRoute and VirtualKey:
-
-```bash
-curl -s "http://127.0.0.1:8080/acp/codex/sessions?cwd=/tmp/acp-codex-test" \
-  -H "Authorization: Bearer $ACP_API_KEY"
-
-curl -s "http://127.0.0.1:8080/acp/codex/sessions/<session-id>/transcript" \
-  -H "Authorization: Bearer $ACP_API_KEY"
-```
-
-Inspect sessions, replay transcripts, or operate on runtime state through Agent-level capability APIs:
-
-```bash
-./agwctl agent sessions codex-main --cwd /tmp/acp-codex-test
-./agwctl agent transcript codex-main <session-id>
-
-./agwctl acp-runtime inflight
-./agwctl acp-runtime close-thread codex-main t-demo-1
-```
-
-Agent route IDs are auto-generated as `agent:<agent_id>:<path-slug>` when omitted. Permission modes are `deny`, `auto_approve`, and `interactive`; clients must follow the runtime capability's advertised resume mode.
-
-See [docs/getting-started/quickstart-acp.md](docs/getting-started/quickstart-acp.md), [docs/architecture/acp-architecture.md](docs/architecture/acp-architecture.md), [docs/reference/acp-technical-spec.md](docs/reference/acp-technical-spec.md), and [docs/reference/acp-api.md](docs/reference/acp-api.md) for the full ACP documentation.
-
-## HTTP Agent Quick Start
-
-Register an existing A2A Protocol 1.0 service as an HTTP Agent, then expose it
-through either the gateway's common `/turn` API or governed native A2A ingress.
-Replace `card_url` with the remote service's Agent Card URL. HTTPS is required
-except for loopback development addresses.
-
-For a self-contained local run, start the development-only fixture first and
-use `http://127.0.0.1:8090/.well-known/agent-card.json` as `card_url`:
-
-```bash
-go run ./examples/a2a-agent --listen 127.0.0.1:8090
-curl -fsS http://127.0.0.1:8090/healthz
-```
-
-The fixture implements deterministic `SendMessage` and
-`SendStreamingMessage` responses and is not a production Agent SDK.
-
-Create `gateway.bundle.http-agent.yaml`:
-
-```yaml
-apiVersion: gateway.agw/v1alpha1
-kind: GatewayBundle
-
-agents:
-  - id: remote-reviewer
-    name: Remote Reviewer
-    runtime:
-      type: http
-      http:
-        card_url: https://reviewer.internal/.well-known/agent-card.json
-        protocol: a2a
-        timeout_seconds: 120
-    routes: {}
-    resources: {}
-    policy: {}
-
-agentRoutes:
-  - id: reviewer-turn
-    protocol: agent
-    agent_id: remote-reviewer
-    match_policy:
-      path_prefix: /agents/reviewer
-    auth_policy:
-      require_virtual_key: true
-
-  - id: reviewer-a2a
-    protocol: a2a
-    agent_id: remote-reviewer
-    match_policy:
-      host: 127.0.0.1
-      path_prefix: /a2a/reviewer
-      methods: [GET, POST]
-    auth_policy:
-      require_virtual_key: true
-
-virtualKeys:
-  - id: reviewer-key
-    allowed_route_ids: [reviewer-turn, reviewer-a2a]
-```
-
-The native route's `host` is the hostname clients use to reach the gateway; do
-not include the listener port. Apply the bundle and retrieve its generated
-VirtualKey:
-
-```bash
-export AGW_ADMIN_BASIC_AUTH=admin:your-password
-
-./agwctl validate -f gateway.bundle.http-agent.yaml
-./agwctl apply -f gateway.bundle.http-agent.yaml
-./agwctl agent get remote-reviewer
-./agwctl agent-route list
-
-AGENT_API_KEY=$(./agwctl virtualkey get reviewer-key | jq -r '.key')
-```
-
-Send a turn through the runtime-neutral Agent API. The gateway translates the
-request to A2A and returns the common Agent SSE event contract:
-
-```bash
-curl -N -s http://127.0.0.1:8080/agents/reviewer/turn \
-  -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $AGENT_API_KEY" \
-  -d '{"input":"Review this change"}'
-```
-
-Or discover the rewritten public Card and use native A2A JSON-RPC. Card
-discovery is public; native POSTs retain VirtualKey and rate-limit admission:
-
-```bash
-curl -s http://127.0.0.1:8080/a2a/reviewer/.well-known/agent-card.json
-
-curl -s http://127.0.0.1:8080/a2a/reviewer \
-  -H 'Content-Type: application/json' \
-  -H 'A2A-Version: 1.0' \
-  -H "Authorization: Bearer $AGENT_API_KEY" \
-  -d '{"jsonrpc":"2.0","id":"demo-1","method":"SendMessage","params":{"message":{"messageId":"m1","role":"ROLE_USER","parts":[{"text":"Review this"}]}}}'
-```
-
-Route creation fails closed unless the Card exposes a usable, same-origin A2A
-1.0 `JSONRPC` interface. If the remote Card requires bearer authentication,
-configure an Agent-owned credential and set `runtime.http.auth_ref` as described
-in the guide.
-
-See [HTTP Agent Quick Start](docs/getting-started/quickstart-http-agent.md),
-[HTTP Agent Guide](docs/guides/http-agents.md), and
-[Native A2A Ingress Reference](docs/reference/a2a-ingress.md) for setup,
-authentication, session, error, header, and limit details.
-
-## Metrics Admin API
-
-Usage metrics are backed by the SQLite usage event tables (`llm_usage_events`,
-`mcp_usage_events`, `acp_usage_events`, `builtin_usage_events`,
-`a2a_usage_events`) when the sqlite config store backend is active. Unified Agent ingress keeps
-`route_kind=agent`, with `route_protocol=agent` for common turns or
-`route_protocol=a2a` for native proxy requests. ACP and builtin select their
-typed table through `runtime_type`; HTTP/A2A requests use the A2A table without
-fabricating token usage. New ACP Agent events use
-`agent_id` directly and do not populate the historical `service_id` column.
-Prometheus counters use only the bounded `route_kind` and `runtime_type` labels.
-
-```text
-GET /admin/metrics                       # per-kind summaries + pipeline health counters
-GET /admin/metrics/prometheus            # O(1) in-process counter snapshot (text exposition)
-
-GET /admin/metrics/llm/events            # recent LLM events
-GET /admin/metrics/llm/timeseries        # LLM aggregates bucketed over time
-GET /admin/metrics/llm/breakdown         # LLM aggregates grouped by a dimension
-
-GET /admin/metrics/mcp/events            # recent MCP events
-GET /admin/metrics/mcp/timeseries        # MCP aggregates bucketed over time
-GET /admin/metrics/mcp/breakdown         # MCP aggregates grouped by a dimension
-GET /admin/metrics/mcp/tools/summary     # MCP breakdown fixed to tool_name
-
-GET /admin/metrics/acp/events            # recent ACP events
-GET /admin/metrics/acp/timeseries        # ACP aggregates bucketed over time
-GET /admin/metrics/acp/breakdown         # ACP aggregates grouped by a dimension
-GET /admin/metrics/acp/summary           # ACP breakdown (operation/agent_type)
-
-GET /admin/metrics/interactions          # cross-protocol interaction events
-GET /admin/metrics/interactions/summary  # cross-protocol breakdown
-```
-
-`timeseries` and `breakdown` share one shape per protocol: `from`, `to`,
-`limit`, `group_by`, and the protocol's filter keys (LLM:
-`route_id`/`provider_id`/`virtual_key_id`/`upstream_model`/`llm_api`; MCP:
-`route_id`/`service_id`/`virtual_key_id`/`method`/`tool_name`/`result_status`;
-ACP: `route_id`/`route_protocol`/`virtual_key_id`/`agent_type`/`operation`).
-`timeseries` also takes `bucket` (`minute|hour|day`, short forms like `m`/`h`/`d`,
-or Grafana-style durations like `3h`/`5m`/`1d`; empty defaults to `hour`). See
-[docs/reference/admin-api-reference.md](docs/reference/admin-api-reference.md)
-for the full Admin API surface.
-
-## Runtimes
-
-- `agw` uses a Caddyfile plus the shared config store
-- `agwd` runs as a standalone daemon with `--config-store` and optional `--static-config`
-- `agwctl` talks to the gateway Admin API or the Caddy admin API; interactive CLI login is provided by the separate `agw-auth` project
-
-See [docs/README.md](docs/README.md) for runtime-specific guides and references.
+The binaries have separate roles:
+
+| Binary | Role |
+| --- | --- |
+| `agw` | Caddy-based gateway runtime; retains standard Caddy commands such as `run`, `reload`, `validate`, and `hash-password` |
+| `agwd` | Standalone gateway daemon backed by the shared config store |
+| `agwctl` | Management CLI for Bundle validation/apply/export and Admin operations |
+
+Use the [Bundle guide](docs/guides/bundle-yaml.md) for dynamic configuration,
+the [Caddyfile reference](docs/reference/caddyfile-reference.md) for the Caddy
+runtime, and the [runtime modes reference](docs/reference/runtime-modes.md) to
+choose between `agw` and `agwd`.
 
 ## Documentation
 
-- [docs/README.md](docs/README.md): documentation index and ownership model
-- [docs/architecture/architecture-overview.md](docs/architecture/architecture-overview.md): current architecture overview
-- [docs/architecture/mcp-architecture.md](docs/architecture/mcp-architecture.md): MCP gateway architecture
-- [docs/architecture/acp-architecture.md](docs/architecture/acp-architecture.md): ACP gateway architecture
-- [docs/architecture/configstore-architecture.md](docs/architecture/configstore-architecture.md): config store architecture
-- [docs/design/agents-control-plane.md](docs/design/agents-control-plane.md): cross-runtime agent control-plane design
-- [docs/design/request-pipeline.md](docs/design/request-pipeline.md): synchronous gateway request pipelines and the upper-layer Temporal/business-workflow boundary
-- [docs/design/builtin-agent-runtime.md](docs/design/builtin-agent-runtime.md): builtin ADK runtime decisions and invariants
-- [docs/design/http-agent-runtime.md](docs/design/http-agent-runtime.md): HTTP agent runtime — register `runtime.http.card_url` with required `protocol: a2a`; Path B translates the common `/turn` API and Path A exposes governed native A2A 1.0 JSON-RPC
-- [docs/design/guardrails.md](docs/design/guardrails.md): Community Guardrails Core and external check extension boundary
-- [docs/design/enterprise-extension-contract.md](docs/design/enterprise-extension-contract.md): protected SPI, distribution assembly, and cross-repository compatibility rules
-- [docs/design/gateway-bundle-yaml.md](docs/design/gateway-bundle-yaml.md): bundle YAML design
+- [Documentation index](docs/README.md)
+- [Getting started](docs/getting-started/README.md)
+- [Task-oriented guides](docs/guides/README.md)
+- [API and configuration reference](docs/reference/README.md)
+- [Current architecture](docs/architecture/README.md)
+- [Design decisions and contracts](docs/design/README.md)
+- [Release notes](docs/releases/README.md)
+- [Contributor verification](docs/development/README.md)
 
-## Current Limits
+## Upgrading
 
-- OpenAI-compatible chat and Anthropic-compatible messages are the primary mature LLM paths
-- OpenAI embeddings are not implemented; token counting is a local estimate on `protocol=cc`, while the recognized endpoint returns `501 Not Implemented` on standard `protocol=anthropic`
-- MCP is active in the dispatcher and Admin API surface, but some adjacent subsystems are still evolving
-- ACP is a functional runtime behind unified `protocol=agent` AgentRoutes, with a reusable stdio driver and thin codex/opencode adapters; crash retry and the in-repo Codex app-server bridge remain deferred
-- metrics Admin APIs expose durable SQLite-backed LLM/MCP/ACP summaries and events, plus a cross-protocol interaction view that includes builtin and HTTP Agent traffic; pipeline drop/failure counters are included. A Prometheus exposition endpoint (`GET /admin/metrics/prometheus`) serves O(1) in-process counters, and usage events can be exported as OpenTelemetry spans to an OTLP collector (`metrics { otlp { endpoint ... } }` in the Caddyfile or `--metrics-otlp-*` agwd flags; see the commented OTLP profile in `examples/Caddyfile.example`) — events carry W3C trace/span/parent ids, so the collector sees the full interaction span tree including builtin-agent internal calls; an optional `components` toggle nests one span per eino chat-model component call under the interaction span
-- the agents control plane is active: `pkg/agent`, the `agents` config store, gateway-bundle parity, `/admin/agents` CRUD, runtime capabilities, exact-run list/cancel, one-shot permissions, and capability-gated sessions/transcripts; usage events carry optional `agent_id`, `run_id`, and `runtime_type` correlation
-- memory is not implemented; `/admin/memory/...` is a reserved Admin API family whose endpoints return `501 Not Implemented`
+v0.7.1 adds no protocol or persisted-resource migration beyond v0.7.0. Stores
+that have not completed the external CLI-auth cutover documented since v0.5.0
+need a one-time credential migration and a separately installed refresh
+command. Do not start an upgrade until you have reviewed the applicable
+[upgrade guide](docs/guides/upgrade.md) and rollback preparation.
 
-## Development
+## Community and license
 
-Useful commands:
+Use [GitHub Issues](https://github.com/agent-guide/agent-gateway/issues) for
+reproducible defects, provider compatibility reports, feature proposals, and
+documentation gaps. Do not include credentials, private prompts, or private
+configuration. Report suspected vulnerabilities through the private process in
+[SECURITY.md](SECURITY.md).
 
-```bash
-go test ./...
-go test ./pkg/admin ./pkg/gateway ./pkg/dispatcher/...
-go test ./pkg/llm/provider/...
-```
-
-```bash
-./agw adapt --config ./Caddyfile
-./agw run --config ./Caddyfile
-```
-
-Reusable distribution entries live in `pkg/distribution/caddycmd`,
-`pkg/distribution/daemoncmd`, and `pkg/distribution/ctlcmd`. Separate binaries
-keep their own explicit factory/module imports and supply `distribution.Assembly`
-metadata. `daemoncmd.NewCommand` and `ctlcmd.NewCommand` create independent Cobra
-commands; their `Run` helpers load dotenv and return an exit code for main.
-`caddycmd.New(...).Run()` delegates process behavior to upstream Caddy.
-Public metrics options use `distribution.MetricsConfig` and `OTLPConfig`.
-`Assembly.Registry()` validates explicitly linked declarations; metadata never
-dynamically loads module code.
-
-See the [custom distribution guide](docs/guides/custom-distribution.md) for assembly,
-configuration, Admin, attribution and backend integration. The
-[v0.7 release notes](docs/releases/v0.7.0.md) enumerate designated compatibility
-surfaces and the remaining published-tag gates.
-
-Run `make test-extension-consumer` to build and test the separate-module consumer
-against this checkout; the same gate is included in `make verify-release`.
-
-All Admin routes share a 4 MiB received-body limit. The gateway checks the full
-body before dispatching a write, including chunked requests. Larger bodies return
-JSON HTTP 413; compressed bodies return HTTP 415. Bundle apply uses this limit
-per serialized resource, not per local Bundle file. Panic responses use generic
-JSON HTTP 500 diagnostics.
-
-### Linked extensions
-
-`agw manifest`, `agwd manifest`, and `agwctl manifest` show deterministic linked
-metadata. The CLI reports validation capabilities; `agwctl manifest --remote`
-queries the server runtime manifest through the authenticated Admin mount.
-
-Separately compiled distributions declare descriptors and configuration
-factories through `distribution.Assembly`. Gateway Bundle `extensions` use
-`module_id`, `schema_version`, and module-owned JSON `config`. Unknown modules
-fail validation/startup. Community binaries have no commercial factories.
-`GET /admin/extensions` and `GET|PUT|DELETE /admin/extensions/{module_id}` manage
-persisted envelopes in the existing ConfigStore. Caddyfile and standalone static
-Bundles do not configure internal extensions; use Admin API or Bundle apply.
-Apply handles extensions in dependency order before other resources and reports
-partial results when an extension fails. Export retains configuration and secret references.
-
-Secret fields declared by a factory accept only `{"$secret_ref":"env:NAME"}`.
-Local validation never resolves these tokens. Server preparation resolves them;
-persisted/exported JSON retains the token. Preparation/persistence failure leaves
-the current generation active. See the
-[extension contract](docs/design/enterprise-extension-contract.md#113-configuration-ownership-mutation-and-secrets).
-
-
-### Contributed Admin routes
-
-Runtime factories may declare `extension.Factory.AdminRoutes`. Their prepared
-resources implement `extension.AdminContributor`; modules need the `admin` role.
-Routes belong exclusively to `/admin/extensions/<module_id>/...`; the module root
-remains Community envelope CRUD. Patterns accept literals and single-segment
-`{name}` wildcards. Duplicate or overlapping method/path declarations fail
-assembly with `route_conflict`; GET also owns HEAD. OPTIONS is shared preflight.
-
-Handlers receive an owned reference-preserving config, logger, attribution accessor
-and owner-scoped public mutation publisher through `AdminDependencies`. The
-publisher captures trusted request identity; a module-supplied context cannot
-replace event attribution. Handlers use
-`WriteAdminError` for bounded JSON errors. No gateway, store or credentials are
-injected. Both server modes keep the outer Admin authentication, CORS, logging,
-panic recovery and full-body boundary. Module health appears in `/admin/health`;
-generation leases drain handlers before resource retirement, with bounded request
-cancellation and reverse dependency shutdown. Unconfigured modules return 503.
-
-### Limiter backend extension
-
-`pkg/gateway/virtualkey/limiter` is the protected domain SPI beginning with v0.7.0.
-A separately linked module implements `LimiterProvider` on its prepared resource
-and returns a `LimiterBackend` for a declared type. The Community selection
-extension has schema 1 and defaults to local memory, 100 ms, and fail-closed:
-
-```yaml
-extensions:
-  - module_id: online.agentguide.community.limiter
-    schema_version: 1
-    config:
-      backend_module_id: example.organization.limiter
-      backend_type: redis
-      timeout_ms: 100
-      failure_mode: closed
-```
-
-This example requires the named backend module to be linked and configured in
-the same Bundle; Community does not ship a production Redis backend. Unknown,
-unconfigured or unavailable selections fail startup/apply. `timeout_ms` accepts
-1–1000 and is capped by the caller deadline. With no limit for a dimension,
-admission is unlimited and never calls the backend. Caller cancellation and
-shutdown and retired-policy errors never fail open. Set `failure_mode: open` only for intentional degraded
-admission on backend failure or timeout.
-
-Policies have opaque per-key/dimension generations. Unchanged policies preserve
-tokens across metadata writes and unrelated extension refreshes; changed dimensions,
-key deletion/reset and backend switches retire state. A switch resets full buckets
-without transferring tokens. Quota state must survive replacement of prepared
-connection handles; retired generations must stay fenced against late operations.
-Public mutation events report `state_reset`; admission events distinguish allow,
-deny and degraded. Prometheus exposes `agentgateway_limiter_admissions_total`
-with only dimension, outcome and bounded backend type labels.
-
-See the [limiter contract](docs/design/enterprise-extension-contract.md#116-limiter-backend-semantics)
-and reusable `limiter/contracttest.Limiter` and `LimiterRefill` suites. Released-tag
-protection and paired repository evidence remain release gates.
-
-### Trusted attribution and public event sinks
-
-Custom distributions can inject `Assembly.AttributionProducer`, exact namespaced
-`AttributeKeys`, and linked-module `EventSinks`. A validated VirtualKey supplies
-the default subject; a trusted producer can supply subject/tenant. Client tenant
-headers are ignored. `pkg/attribution` exposes bounded context values with defensive
-copies, while runtime route/Agent/run/trace correlation comes from the gateway.
-
-Public sinks receive only typed `limiter.admission` and `extension.mutation`
-envelopes from the existing pipeline. Config, secret references, resolved values,
-prompts and arbitrary error messages are excluded. Delivery uses isolated bounded
-queues, FIFO flush and deadline-aware shutdown. Overflow drops the newest event;
-delivery is best-effort without retry or replay. `GET /admin/metrics` includes
-`pipeline.rejected_events` and per-sink `pipeline.public_sinks` health/counters.
-See the [attribution/event contract](docs/design/enterprise-extension-contract.md#114-attribution-and-public-events)
-for bounds, lifecycle semantics and designated protected symbols.
+Contributions are welcome; start with [CONTRIBUTING.md](CONTRIBUTING.md).
+Agent Gateway is licensed under [Apache License 2.0](LICENSE).

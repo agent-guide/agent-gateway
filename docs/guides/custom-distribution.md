@@ -85,7 +85,7 @@ Request attribution and the module-scoped publisher are supplied by assembly.
 To supply VirtualKey admission, implement `LimiterProvider` on a prepared module
 resource and return its `LimiterBackend`. Configure that module and the
 `online.agentguide.community.limiter` selection envelope together. See the
-[limiter configuration example](../../README.md#limiter-backend-extension).
+[limiter backend semantics and configuration](../design/enterprise-extension-contract.md#116-limiter-backend-semantics).
 Registration alone does not install request interception; each runtime domain
 needs its own injection contract.
 

@@ -1,6 +1,9 @@
 # Documentation
 
-This directory holds the detailed documentation for `agent-gateway`. The repository root `README.md` is intentionally limited to project overview and quick start; detailed operational, architectural, and design material belongs here.
+This directory holds the detailed documentation for `agent-gateway`. The
+repository root `README.md` and its synchronized Chinese counterpart
+`README.zh-CN.md` are intentionally limited to project overview and quick
+start; detailed operational, architectural, and design material belongs here.
 
 ## Sections
 
@@ -78,7 +81,8 @@ Primary detailed documents:
 
 ## Notes
 
-- the root `README.md` is intentionally limited to overview and quick start
+- the root `README.md` and `README.zh-CN.md` stay synchronized and are
+  intentionally limited to overview and quick start
 - `design/` explains why the system has a shape and which rules must remain
   true; it does not retain completed implementation phases
 - `architecture/` describes how the checked-in system currently runs; proposed

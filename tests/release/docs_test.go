@@ -19,6 +19,7 @@ func TestDocumentationLinks(t *testing.T) {
 	root := repositoryRoot(t)
 	paths := []string{
 		filepath.Join(root, "README.md"),
+		filepath.Join(root, "README.zh-CN.md"),
 		filepath.Join(root, "CONTRIBUTING.md"),
 		filepath.Join(root, "SECURITY.md"),
 	}
@@ -48,6 +49,29 @@ func TestDocumentationLinks(t *testing.T) {
 	}
 }
 
+func TestBilingualReadmeParity(t *testing.T) {
+	root := repositoryRoot(t)
+	english := readFile(t, filepath.Join(root, "README.md"))
+	chinese := readFile(t, filepath.Join(root, "README.zh-CN.md"))
+
+	for _, token := range []string{"\n## ", "\n### ", "```"} {
+		if strings.Count(english, token) != strings.Count(chinese, token) {
+			t.Errorf("README token count differs for %q", token)
+		}
+	}
+
+	englishLinks := markdownLinkTargets(english)
+	chineseLinks := markdownLinkTargets(chinese)
+	if len(englishLinks) != len(chineseLinks) {
+		t.Fatalf("README link count differs: English=%d Chinese=%d", len(englishLinks), len(chineseLinks))
+	}
+	for index := range englishLinks {
+		if englishLinks[index] != chineseLinks[index] {
+			t.Errorf("README link %d differs: English=%q Chinese=%q", index, englishLinks[index], chineseLinks[index])
+		}
+	}
+}
+
 func TestBilingualWebsiteParity(t *testing.T) {
 	root := repositoryRoot(t)
 	english, err := filepath.Glob(filepath.Join(root, "website", "*.html"))
@@ -68,6 +92,40 @@ func TestBilingualWebsiteParity(t *testing.T) {
 		}
 		if !strings.Contains(en, `hreflang="zh"`) || !strings.Contains(zh, `hreflang="en"`) {
 			t.Errorf("%s language alternates are incomplete", filepath.Base(enPath))
+		}
+		name := filepath.Base(enPath)
+		enURL := "https://agentguide.online/" + name
+		zhURL := "https://agentguide.online/zh/" + name
+		if name == "index.html" {
+			enURL = "https://agentguide.online/"
+			zhURL = "https://agentguide.online/zh/"
+		}
+		for language, page := range map[string]string{"English": en, "Chinese": zh} {
+			for _, token := range []string{
+				`<meta property="og:title"`,
+				`<meta property="og:description"`,
+				`<meta name="twitter:card" content="summary">`,
+				`<meta name="twitter:title"`,
+				`<meta name="twitter:description"`,
+			} {
+				if strings.Count(page, token) != 1 {
+					t.Errorf("%s %s page must contain one %q", name, language, token)
+				}
+			}
+		}
+		for language, pageURL := range map[string]string{"English": enURL, "Chinese": zhURL} {
+			page := en
+			if language == "Chinese" {
+				page = zh
+			}
+			for _, token := range []string{
+				`<link rel="canonical" href="` + pageURL + `">`,
+				`<meta property="og:url" content="` + pageURL + `">`,
+			} {
+				if strings.Count(page, token) != 1 {
+					t.Errorf("%s %s page must contain one %q", name, language, token)
+				}
+			}
 		}
 	}
 }
@@ -176,6 +234,15 @@ func filesWithExtension(t *testing.T, root, extension string) []string {
 		t.Fatal(err)
 	}
 	return paths
+}
+
+func markdownLinkTargets(raw string) []string {
+	matches := markdownLinkPattern.FindAllStringSubmatch(raw, -1)
+	targets := make([]string, 0, len(matches))
+	for _, match := range matches {
+		targets = append(targets, match[1])
+	}
+	return targets
 }
 
 func readFile(t *testing.T, path string) string {
