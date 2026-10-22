@@ -28,6 +28,11 @@ case "${1:-checkout}" in
  checkout)
   if [ "$#" -ne 0 ]; then echo "usage: $0 [candidate COMMIT | release]" >&2; exit 2; fi
   go mod edit -modfile="$work/go.mod" -replace="github.com/agent-guide/agent-gateway=$repo"
+  # The checked-in fixture remains the immutable v0.7.0 consumer. Reconcile
+  # only its temporary modfile so a candidate may raise its required Go or
+  # transitive module versions without rewriting the published-tag fixture.
+  cd "$repo/tests/extensionconsumer"
+  go mod tidy -modfile="$work/go.mod"
   ;;
  candidate)
   if [ "$#" -ne 2 ]; then echo "usage: $0 candidate COMMIT" >&2; exit 2; fi
