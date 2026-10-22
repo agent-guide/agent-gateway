@@ -217,49 +217,49 @@ type BreakdownResponse struct {
 }
 
 type LLMSummary struct {
-	RequestCount    int64 `json:"request_count"`
-	SuccessCount    int64 `json:"success_count"`
-	FailureCount    int64 `json:"failure_count"`
-	InputTokens     int64 `json:"input_tokens"`
-	OutputTokens    int64 `json:"output_tokens"`
-	TotalTokens     int64 `json:"total_tokens"`
-	CachedTokens    int64 `json:"cached_tokens"`
-	ReasoningTokens int64 `json:"reasoning_tokens"`
-	AvgLatencyMS    int64 `json:"avg_latency_ms"`
+	RequestCount    int64   `json:"request_count"`
+	SuccessCount    int64   `json:"success_count"`
+	FailureCount    int64   `json:"failure_count"`
+	InputTokens     int64   `json:"input_tokens"`
+	OutputTokens    int64   `json:"output_tokens"`
+	TotalTokens     int64   `json:"total_tokens"`
+	CachedTokens    int64   `json:"cached_tokens"`
+	ReasoningTokens int64   `json:"reasoning_tokens"`
+	AvgLatencyMS    float64 `json:"avg_latency_ms"`
 }
 
 type MCPSummary struct {
-	RequestCount   int64 `json:"request_count"`
-	SuccessCount   int64 `json:"success_count"`
-	FailureCount   int64 `json:"failure_count"`
-	ToolsCallCount int64 `json:"tools_call_count"`
-	AvgLatencyMS   int64 `json:"avg_latency_ms"`
+	RequestCount   int64   `json:"request_count"`
+	SuccessCount   int64   `json:"success_count"`
+	FailureCount   int64   `json:"failure_count"`
+	ToolsCallCount int64   `json:"tools_call_count"`
+	AvgLatencyMS   float64 `json:"avg_latency_ms"`
 }
 
 type ACPSummary struct {
-	RequestCount int64 `json:"request_count"`
-	TurnCount    int64 `json:"turn_count"`
-	SuccessCount int64 `json:"success_count"`
-	FailureCount int64 `json:"failure_count"`
-	AvgLatencyMS int64 `json:"avg_latency_ms"`
+	RequestCount int64   `json:"request_count"`
+	TurnCount    int64   `json:"turn_count"`
+	SuccessCount int64   `json:"success_count"`
+	FailureCount int64   `json:"failure_count"`
+	AvgLatencyMS float64 `json:"avg_latency_ms"`
 }
 
 type BuiltinSummary struct {
-	RequestCount int64 `json:"request_count"`
-	TurnCount    int64 `json:"turn_count"`
-	SuccessCount int64 `json:"success_count"`
-	FailureCount int64 `json:"failure_count"`
-	AvgLatencyMS int64 `json:"avg_latency_ms"`
+	RequestCount int64   `json:"request_count"`
+	TurnCount    int64   `json:"turn_count"`
+	SuccessCount int64   `json:"success_count"`
+	FailureCount int64   `json:"failure_count"`
+	AvgLatencyMS float64 `json:"avg_latency_ms"`
 }
 
 // A2ASummary covers both native protocol=a2a ingress and translated
 // protocol=agent turns backed by runtime.type=http. Neither path fabricates
 // token usage.
 type A2ASummary struct {
-	RequestCount int64 `json:"request_count"`
-	SuccessCount int64 `json:"success_count"`
-	FailureCount int64 `json:"failure_count"`
-	AvgLatencyMS int64 `json:"avg_latency_ms"`
+	RequestCount int64   `json:"request_count"`
+	SuccessCount int64   `json:"success_count"`
+	FailureCount int64   `json:"failure_count"`
+	AvgLatencyMS float64 `json:"avg_latency_ms"`
 }
 
 // Publish projects only public DTOs through the existing pipeline authority.

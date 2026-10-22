@@ -869,6 +869,38 @@ func TestUsageWriterQuerySummaryAndEvents(t *testing.T) {
 	}
 }
 
+func TestUsageSummaryPreservesFractionalAverageLatency(t *testing.T) {
+	backend, err := Open(t.Context(), Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	db := backend.UsageDB()
+	if err := MigrateUsageTables(db); err != nil {
+		t.Fatalf("MigrateUsageTables() error = %v", err)
+	}
+	now := time.Now().UTC()
+	for i, latency := range []int64{10, 11} {
+		if err := InsertLLMUsageEvent(db, usage.LLMUsageEvent{
+			InteractionEvent: usage.InteractionEvent{
+				EventID: "fractional-average-" + fmt.Sprint(i), SpanID: "span-" + fmt.Sprint(i),
+				StartedAt: now, FinishedAt: now.Add(time.Duration(latency) * time.Millisecond),
+				RouteID: "route-1", RouteKind: "llm", Success: true, StatusCode: 200, LatencyMS: latency,
+			},
+			UsageFinalized: true,
+		}); err != nil {
+			t.Fatalf("InsertLLMUsageEvent(%d) error = %v", i, err)
+		}
+	}
+
+	summary, err := NewUsageQueries(db).Summary()
+	if err != nil {
+		t.Fatalf("Summary() error = %v", err)
+	}
+	if summary.LLM.AvgLatencyMS != 10.5 {
+		t.Fatalf("summary.LLM.AvgLatencyMS = %v, want 10.5", summary.LLM.AvgLatencyMS)
+	}
+}
+
 func TestResolveBucket(t *testing.T) {
 	cases := []struct {
 		bucket   string
