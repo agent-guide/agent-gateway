@@ -158,12 +158,37 @@ func (q *UsageQueries) ACPSummary(opts usage.BreakdownOptions) (usage.BreakdownR
 	return q.breakdown(`acp_usage_events`, opts, acpGroups, acpMeasures)
 }
 
+var interactionGroups = map[string]string{
+	"route_kind": "route_kind", "route_protocol": "route_protocol", "route_id": "route_id",
+	"virtual_key_id": "virtual_key_id", "runtime_type": "runtime_type",
+}
+
+var interactionFilters = map[string]string{
+	"route_kind": "route_kind", "route_protocol": "route_protocol", "route_id": "route_id",
+	"virtual_key_id": "virtual_key_id", "runtime_type": "runtime_type", "service_id": "service_id",
+	"session_id": "session_id", "run_id": "run_id",
+}
+
+const interactionMeasures = `COUNT(*) AS request_count, COALESCE(SUM(success),0) AS success_count,
+	COALESCE(SUM(CASE WHEN success=0 THEN 1 ELSE 0 END),0) AS failure_count,
+	COALESCE(AVG(latency_ms),0) AS avg_latency_ms`
+
+func interactionAggregateTable() string {
+	baseCols := `started_at, route_kind, route_protocol, route_id, virtual_key_id, success, latency_ms, agent_id, run_id, runtime_type`
+	return "(" +
+		"SELECT " + baseCols + ", NULL AS service_id, NULL AS session_id FROM llm_usage_events UNION ALL " +
+		"SELECT " + baseCols + ", service_id, NULL AS session_id FROM mcp_usage_events UNION ALL " +
+		"SELECT " + baseCols + ", service_id, session_id FROM acp_usage_events UNION ALL " +
+		"SELECT " + baseCols + ", NULL AS service_id, session_id FROM builtin_usage_events WHERE COALESCE(operation, '') <> 'permission_expire' UNION ALL " +
+		"SELECT " + baseCols + ", NULL AS service_id, NULL AS session_id FROM a2a_usage_events) interactions"
+}
+
+func (q *UsageQueries) InteractionsTimeseries(opts usage.TimeseriesOptions) (usage.SeriesResponse, error) {
+	return q.timeseriesWithFilters(interactionAggregateTable(), opts, interactionGroups, interactionFilters, interactionMeasures)
+}
+
 func (q *UsageQueries) InteractionsSummary(opts usage.BreakdownOptions) (usage.BreakdownResponse, error) {
-	allowed := map[string]string{
-		"route_kind": "route_kind", "route_protocol": "route_protocol", "route_id": "route_id", "virtual_key_id": "virtual_key_id",
-		"runtime_type": "runtime_type",
-	}
-	groupCol, err := allowedGroupBy(opts.GroupBy, allowed)
+	groupCol, err := allowedGroupBy(opts.GroupBy, interactionGroups)
 	if err != nil {
 		return usage.BreakdownResponse{}, err
 	}
@@ -175,19 +200,7 @@ func (q *UsageQueries) InteractionsSummary(opts usage.BreakdownOptions) (usage.B
 	// session_id are projected from the protocol tables (NULL where absent) so the
 	// mixed interaction view can be narrowed to a single ACP service or session
 	// without exposing them as group_by dimensions.
-	filterable := map[string]string{
-		"route_kind": "route_kind", "route_protocol": "route_protocol", "route_id": "route_id", "virtual_key_id": "virtual_key_id",
-		"service_id": "service_id", "session_id": "session_id", "run_id": "run_id", "runtime_type": "runtime_type",
-	}
-	baseCols := `event_id, started_at, route_kind, route_protocol, route_id, virtual_key_id, success, latency_ms, agent_id, run_id, runtime_type`
-	query := "SELECT " + groupCol + ` AS group_value, COUNT(*) AS request_count, COALESCE(SUM(success),0) AS success_count,
-		COALESCE(SUM(CASE WHEN success=0 THEN 1 ELSE 0 END),0) AS failure_count, COALESCE(AVG(latency_ms),0) AS avg_latency_ms
-		FROM (` +
-		"SELECT " + baseCols + ", NULL AS service_id, NULL AS session_id FROM llm_usage_events UNION ALL " +
-		"SELECT " + baseCols + ", service_id, NULL AS session_id FROM mcp_usage_events UNION ALL " +
-		"SELECT " + baseCols + ", service_id, session_id FROM acp_usage_events UNION ALL " +
-		"SELECT " + baseCols + ", NULL AS service_id, session_id FROM builtin_usage_events WHERE COALESCE(operation, '') <> 'permission_expire' UNION ALL " +
-		"SELECT " + baseCols + ", NULL AS service_id, NULL AS session_id FROM a2a_usage_events) interactions"
+	query := "SELECT " + groupCol + " AS group_value, " + interactionMeasures + " FROM " + interactionAggregateTable()
 	where, args, err := buildTimeWhere(opts.From, opts.To)
 	if err != nil {
 		return usage.BreakdownResponse{}, err
@@ -196,7 +209,7 @@ func (q *UsageQueries) InteractionsSummary(opts usage.BreakdownOptions) (usage.B
 		if value == "" || key == opts.GroupBy {
 			continue
 		}
-		col, ok := filterable[key]
+		col, ok := interactionFilters[key]
 		if !ok {
 			continue
 		}
@@ -257,6 +270,10 @@ func (q *UsageQueries) listRows(baseQuery, table string, allowedFilters map[stri
 }
 
 func (q *UsageQueries) timeseries(table string, opts usage.TimeseriesOptions, allowedGroups map[string]string, measures string) (usage.SeriesResponse, error) {
+	return q.timeseriesWithFilters(table, opts, allowedGroups, allowedGroups, measures)
+}
+
+func (q *UsageQueries) timeseriesWithFilters(table string, opts usage.TimeseriesOptions, allowedGroups, allowedFilters map[string]string, measures string) (usage.SeriesResponse, error) {
 	bucket, bucketMS, err := resolveBucket(opts.Bucket)
 	if err != nil {
 		return usage.SeriesResponse{}, err
@@ -282,7 +299,7 @@ func (q *UsageQueries) timeseries(table string, opts usage.TimeseriesOptions, al
 		if value == "" {
 			continue
 		}
-		col, ok := allowedGroups[key]
+		col, ok := allowedFilters[key]
 		if !ok {
 			continue
 		}

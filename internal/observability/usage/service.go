@@ -54,6 +54,7 @@ type QueryService interface {
 	ACPTimeseries(opts TimeseriesOptions) (SeriesResponse, error)
 	ACPBreakdown(opts BreakdownOptions) (BreakdownResponse, error)
 	ACPSummary(opts BreakdownOptions) (BreakdownResponse, error)
+	InteractionsTimeseries(opts TimeseriesOptions) (SeriesResponse, error)
 	InteractionsSummary(opts BreakdownOptions) (BreakdownResponse, error)
 }
 

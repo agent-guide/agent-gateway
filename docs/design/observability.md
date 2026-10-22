@@ -701,7 +701,18 @@ audit spans carry the synthetic `route_id` `/admin/acp` and `route_protocol`
 
 `GET /admin/metrics/interactions/summary`
 
-Returns aggregated totals grouped by `route_kind`, `route_protocol`, `route_id`, or `virtual_key_id`.
+Returns aggregated totals grouped by `route_kind`, `route_protocol`, `route_id`,
+`virtual_key_id`, or `runtime_type`.
+
+`GET /admin/metrics/interactions/timeseries`
+
+Returns bucketed request, outcome and average-latency measures across all typed
+interaction tables. It supports the common `from`, `to`, `bucket`, `group_by`,
+`agent_id`, `route_kind`, `route_protocol`, `route_id`, `virtual_key_id` and
+`runtime_type` dimensions, plus `service_id`, `session_id` and `run_id` filters.
+Unlike the ACP-specific timeseries, this endpoint is
+the complete Agent trend source because it includes ACP, builtin and A2A-backed
+Agent interactions.
 
 ## 10. Storage Contract
 

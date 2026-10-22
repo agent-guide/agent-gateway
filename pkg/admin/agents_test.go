@@ -364,6 +364,10 @@ func (q *recordingUsageQuery) ACPBreakdown(usage.BreakdownOptions) (usage.Breakd
 func (q *recordingUsageQuery) ACPSummary(usage.BreakdownOptions) (usage.BreakdownResponse, error) {
 	return usage.BreakdownResponse{}, nil
 }
+func (q *recordingUsageQuery) InteractionsTimeseries(opts usage.TimeseriesOptions) (usage.SeriesResponse, error) {
+	q.seriesOpts = opts
+	return usage.SeriesResponse{Bucket: opts.Bucket, GroupBy: opts.GroupBy}, nil
+}
 func (q *recordingUsageQuery) InteractionsSummary(opts usage.BreakdownOptions) (usage.BreakdownResponse, error) {
 	q.breakdownOpts = opts
 	return usage.BreakdownResponse{GroupBy: opts.GroupBy, Limit: opts.Limit}, nil
@@ -490,6 +494,25 @@ func TestMetricInteractionsSummaryAllowsServiceAndSessionFilters(t *testing.T) {
 	}
 	if query.breakdownOpts.Filters["service_id"] != "codex-main" || query.breakdownOpts.Filters["session_id"] != "sess-1" {
 		t.Fatalf("summary filters = %#v, want service_id and session_id preserved", query.breakdownOpts.Filters)
+	}
+}
+
+func TestMetricInteractionsTimeseriesPreservesUnifiedFilters(t *testing.T) {
+	query := &recordingUsageQuery{}
+	h := &Handler{usageQuery: query}
+	req := httptest.NewRequest(http.MethodGet, "/admin/metrics/interactions/timeseries?bucket=3h&group_by=route_id&route_kind=agent&runtime_type=builtin", nil)
+	rec := httptest.NewRecorder()
+
+	h.handleMetricInteractionsTimeseries(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if query.seriesOpts.Bucket != "3h" || query.seriesOpts.GroupBy != "route_id" {
+		t.Fatalf("timeseries options = %#v", query.seriesOpts)
+	}
+	if query.seriesOpts.Filters["route_kind"] != "agent" || query.seriesOpts.Filters["runtime_type"] != "builtin" {
+		t.Fatalf("timeseries filters = %#v, want agent and builtin", query.seriesOpts.Filters)
 	}
 }
 

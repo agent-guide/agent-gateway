@@ -796,6 +796,13 @@ func TestUsageWriterQuerySummaryAndEvents(t *testing.T) {
 	if len(interactionSummary.Items) != 3 {
 		t.Fatalf("interaction summary count = %d, want 3 groups: %#v", len(interactionSummary.Items), interactionSummary.Items)
 	}
+	interactionSeries, err := q.InteractionsTimeseries(usage.TimeseriesOptions{Bucket: "hour", GroupBy: "route_kind"})
+	if err != nil {
+		t.Fatalf("InteractionsTimeseries() error = %v", err)
+	}
+	if len(interactionSeries.Items) != 3 {
+		t.Fatalf("interaction timeseries count = %d, want 3 groups: %#v", len(interactionSeries.Items), interactionSeries.Items)
+	}
 	// The interactions projection must surface each protocol's labeling column so
 	// the consumer can name a span by what it did rather than the route_id.
 	mixed, err := q.ListInteractions(usage.EventListOptions{Limit: 10})
@@ -898,6 +905,52 @@ func TestUsageSummaryPreservesFractionalAverageLatency(t *testing.T) {
 	}
 	if summary.LLM.AvgLatencyMS != 10.5 {
 		t.Fatalf("summary.LLM.AvgLatencyMS = %v, want 10.5", summary.LLM.AvgLatencyMS)
+	}
+}
+
+func TestInteractionsTimeseriesIncludesBuiltinAndA2ARuntimeTables(t *testing.T) {
+	backend, err := Open(t.Context(), Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	db := backend.UsageDB()
+	if err := MigrateUsageTables(db); err != nil {
+		t.Fatalf("MigrateUsageTables() error = %v", err)
+	}
+	now := time.Now().UTC()
+	if err := InsertBuiltinUsageEvent(db, usage.BuiltinUsageEvent{
+		InteractionEvent: usage.InteractionEvent{
+			EventID: "builtin-turn", SpanID: "builtin-span", StartedAt: now, FinishedAt: now.Add(10 * time.Millisecond),
+			RouteID: "agent-route", RouteKind: "agent", RouteProtocol: "agent", RuntimeType: "builtin",
+			Success: true, StatusCode: 200, LatencyMS: 10,
+		},
+		Operation: "turn",
+	}); err != nil {
+		t.Fatalf("InsertBuiltinUsageEvent() error = %v", err)
+	}
+	if err := InsertA2AUsageEvent(db, usage.InteractionEvent{
+		EventID: "http-turn", SpanID: "http-span", StartedAt: now, FinishedAt: now.Add(20 * time.Millisecond),
+		RouteID: "agent-route", RouteKind: "agent", RouteProtocol: "a2a", RuntimeType: "http",
+		Success: true, StatusCode: 200, LatencyMS: 20,
+	}); err != nil {
+		t.Fatalf("InsertA2AUsageEvent() error = %v", err)
+	}
+
+	series, err := NewUsageQueries(db).InteractionsTimeseries(usage.TimeseriesOptions{
+		Bucket: "hour", GroupBy: "runtime_type", Filters: map[string]string{"route_kind": "agent"},
+	})
+	if err != nil {
+		t.Fatalf("InteractionsTimeseries() error = %v", err)
+	}
+	if len(series.Items) != 2 {
+		t.Fatalf("InteractionsTimeseries() items = %#v, want builtin and http", series.Items)
+	}
+	seen := map[string]bool{}
+	for _, item := range series.Items {
+		seen[fmt.Sprint(item["group_value"])] = true
+	}
+	if !seen["builtin"] || !seen["http"] {
+		t.Fatalf("InteractionsTimeseries() runtime groups = %#v, want builtin and http", seen)
 	}
 }
 

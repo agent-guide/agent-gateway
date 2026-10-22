@@ -183,6 +183,7 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodGet, Path: "/admin/metrics/acp/breakdown", Handler: h.handleACPMetricsBreakdown},
 		{Method: http.MethodGet, Path: "/admin/metrics/acp/summary", Handler: h.handleACPMetricsSummary},
 		{Method: http.MethodGet, Path: "/admin/metrics/interactions", Handler: h.handleListMetricInteractions},
+		{Method: http.MethodGet, Path: "/admin/metrics/interactions/timeseries", Handler: h.handleMetricInteractionsTimeseries},
 		{Method: http.MethodGet, Path: "/admin/metrics/interactions/summary", Handler: h.handleMetricInteractionsSummary},
 	}
 }
@@ -969,7 +970,7 @@ func (h *Handler) handleListMetricInteractions(w http.ResponseWriter, r *http.Re
 }
 
 func (h *Handler) handleMetricInteractionsSummary(w http.ResponseWriter, r *http.Request) {
-	opts, err := metricBreakdownOptions(r, []string{"route_kind", "route_protocol", "route_id", "virtual_key_id", "service_id", "session_id"})
+	opts, err := metricBreakdownOptions(r, []string{"route_kind", "route_protocol", "route_id", "virtual_key_id", "runtime_type", "service_id", "session_id", "run_id"})
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
@@ -984,6 +985,27 @@ func (h *Handler) handleMetricInteractionsSummary(w http.ResponseWriter, r *http
 		return
 	}
 	resp, err := h.usageQuery.InteractionsSummary(opts)
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, resp)
+}
+
+func (h *Handler) handleMetricInteractionsTimeseries(w http.ResponseWriter, r *http.Request) {
+	opts := metricTimeseriesOptions(r, []string{
+		"route_kind", "route_protocol", "route_id", "virtual_key_id", "runtime_type", "service_id", "session_id", "run_id",
+	})
+	attribution, ok := h.agentAttributionFromRequest(w, r)
+	if !ok {
+		return
+	}
+	opts.Attribution = attribution
+	if h.usageQuery == nil {
+		_ = httpjson.Write(w, http.StatusOK, usage.SeriesResponse{Bucket: opts.Bucket, GroupBy: opts.GroupBy})
+		return
+	}
+	resp, err := h.usageQuery.InteractionsTimeseries(opts)
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
