@@ -1,4 +1,4 @@
-# First run with the v0.7.1 release
+# First run with the v0.7.2 release
 
 This is the shortest supported evaluation path. It uses the published gateway
 and deterministic A2A fixture images, requires no provider credential, and does
@@ -13,11 +13,11 @@ not require a repository checkout or local Go toolchain.
 Download and verify the independent first-run asset:
 
 ```sh
-curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.1/agent-gateway-first-run-v0.7.1.tar.gz
-curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.1/SHA256SUMS
-grep 'agent-gateway-first-run-v0.7.1.tar.gz' SHA256SUMS | shasum -a 256 -c -
-tar -xzf agent-gateway-first-run-v0.7.1.tar.gz
-cd agent-gateway-first-run-v0.7.1
+curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.2/agent-gateway-first-run-v0.7.2.tar.gz
+curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.2/SHA256SUMS
+grep 'agent-gateway-first-run-v0.7.2.tar.gz' SHA256SUMS | shasum -a 256 -c -
+tar -xzf agent-gateway-first-run-v0.7.2.tar.gz
+cd agent-gateway-first-run-v0.7.2
 ```
 
 On Linux, `sha256sum -c -` can replace `shasum -a 256 -c -`.

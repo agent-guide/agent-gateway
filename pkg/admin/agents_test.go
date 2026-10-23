@@ -364,6 +364,10 @@ func (q *recordingUsageQuery) ACPBreakdown(usage.BreakdownOptions) (usage.Breakd
 func (q *recordingUsageQuery) ACPSummary(usage.BreakdownOptions) (usage.BreakdownResponse, error) {
 	return usage.BreakdownResponse{}, nil
 }
+func (q *recordingUsageQuery) InteractionsTimeseries(opts usage.TimeseriesOptions) (usage.SeriesResponse, error) {
+	q.seriesOpts = opts
+	return usage.SeriesResponse{Bucket: opts.Bucket, GroupBy: opts.GroupBy}, nil
+}
 func (q *recordingUsageQuery) InteractionsSummary(opts usage.BreakdownOptions) (usage.BreakdownResponse, error) {
 	q.breakdownOpts = opts
 	return usage.BreakdownResponse{GroupBy: opts.GroupBy, Limit: opts.Limit}, nil
@@ -493,6 +497,58 @@ func TestMetricInteractionsSummaryAllowsServiceAndSessionFilters(t *testing.T) {
 	}
 }
 
+func TestMetricInteractionsTimeseriesPreservesUnifiedFilters(t *testing.T) {
+	query := &recordingUsageQuery{}
+	h := &Handler{usageQuery: query}
+	req := httptest.NewRequest(http.MethodGet, "/admin/metrics/interactions/timeseries?bucket=3h&group_by=route_id&route_kind=agent&runtime_type=builtin", nil)
+	rec := httptest.NewRecorder()
+
+	h.handleMetricInteractionsTimeseries(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if query.seriesOpts.Bucket != "3h" || query.seriesOpts.GroupBy != "route_id" {
+		t.Fatalf("timeseries options = %#v", query.seriesOpts)
+	}
+	if query.seriesOpts.Filters["route_kind"] != "agent" || query.seriesOpts.Filters["runtime_type"] != "builtin" {
+		t.Fatalf("timeseries filters = %#v, want agent and builtin", query.seriesOpts.Filters)
+	}
+}
+
+func TestMetricInteractionsTimeseriesWithoutQueryValidatesBucket(t *testing.T) {
+	t.Run("canonical alias", func(t *testing.T) {
+		h := &Handler{}
+		req := httptest.NewRequest(http.MethodGet, "/admin/metrics/interactions/timeseries?bucket=hours", nil)
+		rec := httptest.NewRecorder()
+
+		h.handleMetricInteractionsTimeseries(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		var resp usage.SeriesResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if resp.Bucket != "hour" {
+			t.Fatalf("bucket = %q, want canonical hour", resp.Bucket)
+		}
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		h := &Handler{}
+		req := httptest.NewRequest(http.MethodGet, "/admin/metrics/interactions/timeseries?bucket=week", nil)
+		rec := httptest.NewRecorder()
+
+		h.handleMetricInteractionsTimeseries(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+		}
+	})
+}
+
 func TestSuccessFromAnyHandlesNormalizedBoolRows(t *testing.T) {
 	for _, tc := range []struct {
 		value any
@@ -581,6 +637,23 @@ func TestMetricsTimeseriesResolvesAgentAttribution(t *testing.T) {
 	// agent_id must NOT leak into the literal filter map (attribution handles it).
 	if _, ok := query.seriesOpts.Filters["agent_id"]; ok {
 		t.Fatalf("agent_id leaked into filters: %#v", query.seriesOpts.Filters)
+	}
+
+	interactionReq := httptest.NewRequest(http.MethodGet, "/admin/metrics/interactions/timeseries?agent_id=coding-agent", nil)
+	interactionRec := httptest.NewRecorder()
+	h.handleMetricInteractionsTimeseries(interactionRec, interactionReq)
+	if interactionRec.Code != http.StatusOK {
+		t.Fatalf("interaction status = %d, body = %s", interactionRec.Code, interactionRec.Body.String())
+	}
+	interactionAttr := query.seriesOpts.Attribution
+	if interactionAttr == nil || interactionAttr.AgentID != "coding-agent" {
+		t.Fatalf("interaction attribution = %+v, want AgentID=coding-agent", interactionAttr)
+	}
+	if len(interactionAttr.RouteIDs) != 1 || interactionAttr.RouteIDs[0] != "llm-route" {
+		t.Fatalf("interaction route fallback = %#v, want llm-route", interactionAttr.RouteIDs)
+	}
+	if _, ok := query.seriesOpts.Filters["agent_id"]; ok {
+		t.Fatalf("agent_id leaked into interaction filters: %#v", query.seriesOpts.Filters)
 	}
 }
 

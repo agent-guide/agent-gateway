@@ -6,21 +6,21 @@ command, not from `agw version`, which reports the embedded Caddy version.
 
 ## Download and verify an archive
 
-Choose one asset from the v0.7.1 release:
+Choose one asset from the v0.7.2 release:
 
 | Host | Archive |
 | --- | --- |
-| Linux amd64 | `agent-gateway-v0.7.1-linux-amd64.tar.gz` |
-| Linux arm64 | `agent-gateway-v0.7.1-linux-arm64.tar.gz` |
-| macOS amd64 | `agent-gateway-v0.7.1-darwin-amd64.tar.gz` |
-| macOS arm64 | `agent-gateway-v0.7.1-darwin-arm64.tar.gz` |
+| Linux amd64 | `agent-gateway-v0.7.2-linux-amd64.tar.gz` |
+| Linux arm64 | `agent-gateway-v0.7.2-linux-arm64.tar.gz` |
+| macOS amd64 | `agent-gateway-v0.7.2-darwin-amd64.tar.gz` |
+| macOS arm64 | `agent-gateway-v0.7.2-darwin-arm64.tar.gz` |
 
 Download the selected archive and `SHA256SUMS` from the same release. For
 example:
 
 ```sh
-asset=agent-gateway-v0.7.1-darwin-arm64.tar.gz
-base=https://github.com/agent-guide/agent-gateway/releases/download/v0.7.1
+asset=agent-gateway-v0.7.2-darwin-arm64.tar.gz
+base=https://github.com/agent-guide/agent-gateway/releases/download/v0.7.2
 curl -LO "$base/$asset"
 curl -LO "$base/SHA256SUMS"
 grep " $asset\$" SHA256SUMS | shasum -a 256 -c -
@@ -42,7 +42,7 @@ tool. Reject the download if the checksum line is absent or verification fails.
 `agw` and `agwd` must report the Community runtime projection; `agwctl` reports
 the Community validation projection. They are intentionally different module
 sets. In every output, `edition.version` and every included Community module
-version must be `0.7.1`.
+version must be `0.7.2`.
 
 ## Install the binaries
 
@@ -82,7 +82,7 @@ The [first-run guide](../getting-started/first-run.md) is the supported Compose
 example, including read-only root filesystems and a writable data volume.
 
 Use an immutable digest in managed deployments. The version tag is
-`ghcr.io/agent-guide/agent-gateway:v0.7.1`; release notes record the verified
+`ghcr.io/agent-guide/agent-gateway:v0.7.2`; release notes record the verified
 digest. Select `agw` explicitly for Caddy configurations or `agwctl` for a
 management job.
 

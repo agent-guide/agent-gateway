@@ -1,11 +1,11 @@
 # Evaluated capabilities
 
-This matrix describes the Community v0.7.1 distribution. “Implemented” means
+This matrix describes the Community v0.7.2 distribution. “Implemented” means
 the capability is exercised by checked-in tests or release gates. “External”
 means the gateway integration exists but evaluation needs separately supplied
 software, credentials, or infrastructure. “Roadmap” is not implemented.
 
-| Area | Status | v0.7.1 boundary |
+| Area | Status | v0.7.2 boundary |
 | --- | --- | --- |
 | OpenAI-compatible ingress | Implemented | Non-streaming and SSE requests through governed LLM routes. |
 | Anthropic Messages and Claude Code profile | Implemented | Anthropic-compatible ingress plus the separate `cc` profile; Claude Code is a client profile, not an ACP backend. |

@@ -15,7 +15,7 @@ GOTEST=$(GOCMD) test
 GOGET=$(GOCMD) get
 GOMOD=$(GOCMD) mod
 XCADDY=xcaddy
-RELEASE_VERSION?=0.7.1
+RELEASE_VERSION?=0.7.2
 RELEASE_OUTPUT_DIR?=dist/release
 
 all: clean deps build

@@ -19,7 +19,7 @@ LABEL org.opencontainers.image.title="Agent Gateway deterministic A2A fixture" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.licenses="Apache-2.0" \
-      org.opencontainers.image.documentation="https://github.com/agent-guide/agent-gateway/tree/v0.7.1/examples/a2a-agent"
+      org.opencontainers.image.documentation="https://github.com/agent-guide/agent-gateway/tree/v0.7.2/examples/a2a-agent"
 
 RUN addgroup -S -g 10002 fixture && \
     adduser -S -D -H -u 10002 -G fixture fixture

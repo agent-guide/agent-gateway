@@ -4,6 +4,18 @@ Read every section between the installed version and the target version. Back
 up the SQLite store and retain the current binaries or image digest before
 starting a new release.
 
+## Upgrading to v0.7.2
+
+v0.7.2 adds no protocol or persisted-resource migration. It corrects metrics
+aggregation and filtering, adds the unified interaction timeseries endpoint,
+and updates Eino from v0.9.15 to v0.9.22.
+
+Builtin Agent definitions that set
+`runtime.builtin.middlewares.agentsmd.max_total_bytes` now receive a strict
+cumulative content cap: a document that crosses the remaining budget is
+truncated and later documents are omitted. Definitions that leave the value at
+zero remain unlimited.
+
 ## Upgrading to v0.7.1
 
 v0.7.1 changes distribution and onboarding, not gateway protocols or persisted
@@ -67,7 +79,7 @@ handle.
 
 ## Stores from before the v0.5.0 CLI-auth cutover
 
-This is not a v0.7.0 or v0.7.1 migration. It applies only when a store has not
+This is not a v0.7.0, v0.7.1, or v0.7.2 migration. It applies only when a store has not
 completed the external CLI-auth cutover documented since v0.5.0. The historical
 table name remains `cliauth_credentials`, but current credential and route
 values use `oauth_token`.

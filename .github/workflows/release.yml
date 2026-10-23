@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "v0.7.1"
+      - "v0.7.2"
 
 permissions:
   contents: read
@@ -365,7 +365,7 @@ jobs:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          body_path: docs/releases/v0.7.1.md
+          body_path: docs/releases/v0.7.2.md
           files: |
             dist/*.tar.gz
             dist/*.spdx.json

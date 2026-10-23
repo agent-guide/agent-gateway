@@ -212,11 +212,11 @@
         或模型 Provider 凭据。基础 Runtime 使用内嵌 SQLite；ACP Adapter、上游服务
         和可选的外部凭据刷新器仍是独立集成。
       </p>
-      <div class="code-block"><pre>curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.1/agent-gateway-first-run-v0.7.1.tar.gz
-curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.1/SHA256SUMS
-grep 'agent-gateway-first-run-v0.7.1.tar.gz' SHA256SUMS | sha256sum -c -
-tar -xzf agent-gateway-first-run-v0.7.1.tar.gz
-cd agent-gateway-first-run-v0.7.1
+      <div class="code-block"><pre>curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.2/agent-gateway-first-run-v0.7.2.tar.gz
+curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.2/SHA256SUMS
+grep 'agent-gateway-first-run-v0.7.2.tar.gz' SHA256SUMS | sha256sum -c -
+tar -xzf agent-gateway-first-run-v0.7.2.tar.gz
+cd agent-gateway-first-run-v0.7.2
 ./setup.sh
 ./run-smoke.sh</pre></div>
       <p style="margin-top: 18px;">macOS 请把 <code>sha256sum -c -</code> 替换为 <code>shasum -a 256 -c -</code>。测试通过会证明受保护的通用 Agent Turn、原生 A2A 入口、VirtualKey 执行、Interaction 持久化和请求指标均可工作。</p>

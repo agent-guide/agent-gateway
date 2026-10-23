@@ -7,7 +7,7 @@ if [ "$#" -gt 1 ]; then
 	exit 2
 fi
 
-version=${1:-0.7.1}
+version=${1:-0.7.2}
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 revision=$(git -C "$repo" rev-parse HEAD)
 suffix="$$"

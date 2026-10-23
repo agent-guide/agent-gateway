@@ -30,9 +30,9 @@ verify the Agent Gateway release identity with:
 
 `agw` and `agwd` report the Community runtime manifest. `agwctl` reports the
 smaller Community validation manifest. Their `edition.version` and included
-module versions must be `0.7.1`. The upstream `agw version` command reports the
+module versions must be `0.7.2`. The upstream `agw version` command reports the
 embedded Caddy version and is not the Agent Gateway release identity.
 
 For installation, Admin authentication, data mounts, upgrades, and rollback,
 see https://agentguide.online and the versioned documentation at
-https://github.com/agent-guide/agent-gateway/tree/v0.7.1/docs.
+https://github.com/agent-guide/agent-gateway/tree/v0.7.2/docs.

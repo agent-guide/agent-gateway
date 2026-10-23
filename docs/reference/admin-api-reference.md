@@ -295,6 +295,7 @@ second session-keyed control operation.
 - `GET /admin/metrics/acp/breakdown`
 - `GET /admin/metrics/acp/summary`
 - `GET /admin/metrics/interactions`
+- `GET /admin/metrics/interactions/timeseries`
 - `GET /admin/metrics/interactions/summary`
 
 Metrics are backed by SQLite usage event tables when the sqlite config store
@@ -318,7 +319,7 @@ from the admin-plane audit spans the manager records when polling `/admin/acp`
 (`route_protocol=admin`).
 
 The LLM/MCP/ACP `breakdown`, `timeseries`, and `events` endpoints — and
-`interactions`/`interactions/summary` — also accept an `agent_id` filter. Unlike a
+`interactions`/`interactions/{summary,timeseries}` — also accept an `agent_id` filter. Unlike a
 plain column filter, `agent_id` resolves the agent server-side and scopes results
 by its full attribution — the durable `agent_id` tag **OR** the resource routes
 the agent currently owns — matching `GET /admin/agents/{id}/usage`. This lets
@@ -335,6 +336,11 @@ common `from`/`to`/`limit`/`success`, it filters by `route_kind`,
 filter described above — pass `agent_id` to scope the whole call chain to a single
 agent server-side. The durable `agent_id` tag, when present, is surfaced per span
 in the response.
+`GET /admin/metrics/interactions/timeseries` buckets the unified interaction
+projection and supports grouping by route kind/protocol/id, Virtual Key or
+runtime type, with service/session/run filters. It is the complete Agent trend source because it combines ACP,
+builtin and A2A-backed HTTP Agent event tables; the ACP-specific timeseries does
+not represent the other Agent runtimes.
 Timeseries supports `bucket=minute|hour|day` (plural and short forms such as
 `minutes`/`min`/`m` are also accepted, as are Grafana-style durations such as
 `3h`/`5m`/`30s`/`1d`; empty defaults to `hour`). `mcp/tools/summary` and

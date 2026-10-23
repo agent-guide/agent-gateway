@@ -263,7 +263,7 @@ Implemented families:
 - ACP: `/admin/acp/runtime/...` (native diagnostics keyed by `agent_id`)
 - builtin: `/admin/builtin/runtime/...`
 - agents: `/admin/agents/...` plus unified route CRUD under `/admin/agents/routes`
-- metrics: summaries (with combined drop/failure, rejected-event and public sink health counters), per-protocol LLM/MCP/ACP timeseries and breakdowns, recent interaction events, and the Prometheus exposition endpoint `GET /admin/metrics/prometheus`
+- metrics: summaries (with combined drop/failure, rejected-event and public sink health counters), per-protocol LLM/MCP/ACP timeseries and breakdowns, unified interaction summary/timeseries across all typed event tables, recent interaction events, and the Prometheus exposition endpoint `GET /admin/metrics/prometheus`
 
 Stubbed families currently return `501 Not Implemented`:
 

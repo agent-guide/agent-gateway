@@ -3,7 +3,7 @@
 set -eu
 
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-version=${1:-0.7.1}
+version=${1:-0.7.2}
 revision=$(git -C "$repo" rev-parse HEAD)
 suffix="$$"
 gateway_image=${AGW_GATEWAY_IMAGE:-agent-gateway-first-run-smoke:${suffix}}
