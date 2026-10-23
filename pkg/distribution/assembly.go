@@ -76,7 +76,7 @@ func Annotate(cmd *cobra.Command, a Assembly) {
 // CommunityRuntime is the metadata shared by both Community server entries.
 func CommunityRuntime() Assembly {
 	const prefix = "online.agentguide.community."
-	const version = "0.7.1"
+	const version = "0.7.2"
 	a := Assembly{Edition: Edition{Name: "community", Version: version}, Factories: map[string]*extension.Factory{limiter.ModuleID: limiter.Factory(true)}}
 	a.Modules = append(a.Modules, extension.Descriptor{ID: limiter.ModuleID, Version: version, SchemaVersion: 1, Capabilities: []string{prefix + "limiter"}, Roles: []string{"runtime", "validation", "spi"}})
 	a.Modules = append(a.Modules, extension.Descriptor{ID: prefix + "gateway", Version: version, SchemaVersion: 1, Capabilities: []string{prefix + "llm", prefix + "mcp", prefix + "agent", prefix + "metrics", prefix + "admin"}, Roles: []string{"runtime", "validation", "admin"}})

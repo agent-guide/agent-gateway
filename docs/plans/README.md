@@ -19,8 +19,4 @@ Lifecycle convention:
   `AGENTS.md`, and release notes) describe the resulting behavior, the plan is
   deleted — git history is the archive
 
-Current plans:
-
-- [v0.7.1-adoption-readiness.md](v0.7.1-adoption-readiness.md): published
-  binaries and images, deterministic first run, evaluation assets, documentation,
-  and artifact-level release gates
+There are currently no active execution plans.

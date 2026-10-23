@@ -77,6 +77,39 @@ func TestServeTurnAgentsMDInjectsInlineDocsTransiently(t *testing.T) {
 	}
 }
 
+func TestServeTurnAgentsMDHonorsMaxTotalBytesForFirstDoc(t *testing.T) {
+	model := replyModel("ok")
+	a := testAgent("md-limit")
+	a.Runtime.Builtin.Middlewares = &agent.BuiltinMiddlewares{AgentsMD: &agent.BuiltinAgentsMD{
+		Enabled:       true,
+		MaxTotalBytes: 32,
+		Docs: []agent.BuiltinAgentsMDDoc{
+			{Path: "AGENTS.md", Content: strings.Repeat("a", 64) + "TAIL_MARKER"},
+		},
+	}}
+	host := NewHost(Config{
+		Agents: &fakeAgentSource{agents: map[string]agent.Agent{"md-limit": a}},
+		Models: &fakeModelResolver{model: model},
+	})
+
+	if err := host.ServeTurn(t.Context(), "md-limit", TurnRequest{Input: "run"}, (&collectedEvents{}).sink); err != nil {
+		t.Fatalf("ServeTurn() error = %v", err)
+	}
+
+	model.mu.Lock()
+	defer model.mu.Unlock()
+	for _, msg := range model.requests[len(model.requests)-1] {
+		if !strings.Contains(msg.Content, strings.Repeat("a", 16)) {
+			continue
+		}
+		if strings.Contains(msg.Content, "TAIL_MARKER") {
+			t.Fatalf("agentsmd content exceeded max_total_bytes: %q", msg.Content)
+		}
+		return
+	}
+	t.Fatal("model request did not contain the truncated agentsmd document")
+}
+
 func TestServeTurnReductionClearsOldToolOutputs(t *testing.T) {
 	bigOutput := strings.Repeat("PAYLOAD ", 500) // ~4000 chars ≈ 1000 estimated tokens
 	var mu sync.Mutex

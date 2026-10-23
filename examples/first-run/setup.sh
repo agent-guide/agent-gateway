@@ -26,7 +26,7 @@ case "$password" in
 		;;
 esac
 
-gateway_image=${AGW_GATEWAY_IMAGE:-ghcr.io/agent-guide/agent-gateway:v0.7.1}
+gateway_image=${AGW_GATEWAY_IMAGE:-ghcr.io/agent-guide/agent-gateway:v0.7.2}
 hash=$(docker run --rm --read-only "$gateway_image" agw hash-password --plaintext "$password")
 case "$hash" in
 	\$2*) ;;

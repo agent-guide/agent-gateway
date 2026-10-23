@@ -210,8 +210,9 @@ type BuiltinAgentsMD struct {
 	// sections and anchor @import references between docs; an @import that
 	// resolves to no doc is skipped with a load warning, not an error.
 	Docs []BuiltinAgentsMDDoc `json:"docs,omitempty"`
-	// MaxTotalBytes caps the cumulative injected content; once exceeded,
-	// remaining docs are skipped. 0 means no cap.
+	// MaxTotalBytes caps the cumulative injected content. A document that
+	// crosses the remaining budget is truncated and later documents are
+	// omitted. 0 means no cap.
 	MaxTotalBytes int `json:"max_total_bytes,omitempty"`
 }
 

@@ -29,22 +29,22 @@ Bundle，并发送受治理的 Agent 请求。整个过程不需要克隆仓库�
 LLM Provider 凭证。
 
 ```sh
-curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.1/agent-gateway-first-run-v0.7.1.tar.gz
-curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.1/SHA256SUMS
+curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.2/agent-gateway-first-run-v0.7.2.tar.gz
+curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.2/SHA256SUMS
 ```
 
 在 Linux 上校验压缩包：
 
 ```sh
-grep 'agent-gateway-first-run-v0.7.1.tar.gz' SHA256SUMS | sha256sum -c -
+grep 'agent-gateway-first-run-v0.7.2.tar.gz' SHA256SUMS | sha256sum -c -
 ```
 
 在 macOS 上把 `sha256sum -c -` 替换为 `shasum -a 256 -c -`。然后启动项目并
 运行冒烟测试：
 
 ```sh
-tar -xzf agent-gateway-first-run-v0.7.1.tar.gz
-cd agent-gateway-first-run-v0.7.1
+tar -xzf agent-gateway-first-run-v0.7.2.tar.gz
+cd agent-gateway-first-run-v0.7.2
 ./setup.sh
 ./run-smoke.sh
 ```
@@ -192,7 +192,7 @@ make build
 
 ## 升级
 
-v0.7.1 没有在 v0.7.0 之外增加协议或持久化资源迁移。尚未完成自 v0.5.0 起记录
+v0.7.2 没有在 v0.7.0 之外增加协议或持久化资源迁移。尚未完成自 v0.5.0 起记录
 的外部 CLI 鉴权切换的 Store，需要执行一次性 Credential 迁移并单独安装刷新
 命令。在阅读适用的[升级指南](docs/guides/upgrade.md)并准备回滚方案前，请勿开始
 升级。

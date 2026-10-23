@@ -225,16 +225,16 @@
         runtime uses embedded SQLite; ACP adapters, upstream services, and an
         optional external credential refresher remain separate integrations.
       </p>
-      <div class="code-block"><pre>curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.1/agent-gateway-first-run-v0.7.1.tar.gz
-curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.1/SHA256SUMS
-grep 'agent-gateway-first-run-v0.7.1.tar.gz' SHA256SUMS | sha256sum -c -
-tar -xzf agent-gateway-first-run-v0.7.1.tar.gz
-cd agent-gateway-first-run-v0.7.1
+      <div class="code-block"><pre>curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.2/agent-gateway-first-run-v0.7.2.tar.gz
+curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.2/SHA256SUMS
+grep 'agent-gateway-first-run-v0.7.2.tar.gz' SHA256SUMS | sha256sum -c -
+tar -xzf agent-gateway-first-run-v0.7.2.tar.gz
+cd agent-gateway-first-run-v0.7.2
 ./setup.sh
 ./run-smoke.sh</pre></div>
       <p style="margin-top: 18px;">On macOS, replace <code>sha256sum -c -</code> with <code>shasum -a 256 -c -</code>. A passing run proves protected common Agent turns, native A2A ingress, VirtualKey enforcement, interaction persistence, and request metrics.</p>
       <div class="cta-row" style="margin-top: 32px;">
-        <a class="btn btn-primary" href="https://github.com/agent-guide/agent-gateway/blob/v0.7.1/docs/getting-started/first-run.md">Open the first-run guide →</a>
+        <a class="btn btn-primary" href="https://github.com/agent-guide/agent-gateway/blob/v0.7.2/docs/getting-started/first-run.md">Open the first-run guide →</a>
         <a class="btn btn-ghost" href="https://github.com/agent-guide/agent-gateway">View on GitHub</a>
       </div>
     </div>

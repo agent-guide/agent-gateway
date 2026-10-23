@@ -31,22 +31,22 @@ governed Agent requests. It needs no repository checkout, local Go toolchain,
 or LLM provider credential.
 
 ```sh
-curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.1/agent-gateway-first-run-v0.7.1.tar.gz
-curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.1/SHA256SUMS
+curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.2/agent-gateway-first-run-v0.7.2.tar.gz
+curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.2/SHA256SUMS
 ```
 
 Verify the archive on Linux:
 
 ```sh
-grep 'agent-gateway-first-run-v0.7.1.tar.gz' SHA256SUMS | sha256sum -c -
+grep 'agent-gateway-first-run-v0.7.2.tar.gz' SHA256SUMS | sha256sum -c -
 ```
 
 On macOS, use `shasum -a 256 -c -` instead of `sha256sum -c -`. Then start
 the project and run the smoke test:
 
 ```sh
-tar -xzf agent-gateway-first-run-v0.7.1.tar.gz
-cd agent-gateway-first-run-v0.7.1
+tar -xzf agent-gateway-first-run-v0.7.2.tar.gz
+cd agent-gateway-first-run-v0.7.2
 ./setup.sh
 ./run-smoke.sh
 ```
@@ -210,7 +210,7 @@ choose between `agw` and `agwd`.
 
 ## Upgrading
 
-v0.7.1 adds no protocol or persisted-resource migration beyond v0.7.0. Stores
+v0.7.2 adds no protocol or persisted-resource migration beyond v0.7.0. Stores
 that have not completed the external CLI-auth cutover documented since v0.5.0
 need a one-time credential migration and a separately installed refresh
 command. Do not start an upgrade until you have reviewed the applicable
