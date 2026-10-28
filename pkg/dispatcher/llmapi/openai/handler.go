@@ -341,12 +341,14 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 	cachedTokens := 0
 	reasoningTokens := 0
 	usageFinalized := false
+	var streamErr error
 	for {
 		chunk, err := stream.Recv()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
+			streamErr = err
 			httplog.Error(h.logger, "http request failed", r, http.StatusOK, fmt.Errorf("receive stream chunk: %w", err),
 				zap.String("protocol", "openai"),
 				zap.String("model", chatReq.Model),
@@ -377,6 +379,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 
 		payload, err := json.Marshal(toStreamChunk(chatReq.Model, chunk))
 		if err != nil {
+			streamErr = err
 			httplog.Error(h.logger, "http request failed", r, http.StatusOK, fmt.Errorf("marshal stream chunk: %w", err),
 				zap.String("protocol", "openai"),
 				zap.String("model", chatReq.Model),
@@ -386,11 +389,13 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 		fmt.Fprintf(w, "data: %s\n\n", payload)
 		flusher.Flush()
 	}
-	h.logger.Debug("openai: stream completed",
-		zap.String("request_type", string(provider.LLMApiRequestTypeChat)),
-		zap.String("model", chatReq.Model),
-		zap.Int("chunks", chunkCount),
-	)
+	if streamErr == nil {
+		h.logger.Debug("openai: stream completed",
+			zap.String("request_type", string(provider.LLMApiRequestTypeChat)),
+			zap.String("model", chatReq.Model),
+			zap.Int("chunks", chunkCount),
+		)
+	}
 	recordToolNameSet(r, toolNames)
 	usage.SpanFromContext(r.Context()).SetExtension(usage.LLMExtension{
 		InputTokens:     usage.Int(inputTokens),
@@ -400,7 +405,23 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 		ReasoningTokens: usage.Int(reasoningTokens),
 		UsageFinalized:  usage.Bool(usageFinalized),
 	})
-	fmt.Fprint(w, "data: [DONE]\n\n")
+	if streamErr != nil {
+		errorType := "provider_stream_failed"
+		if dispatcher.IsClientCanceled(streamErr) {
+			errorType = "client_cancelled"
+		}
+		usage.SpanFromContext(ctx).AddAnnotation("error_type", errorType)
+		if marker, ok := w.(interface{ MarkFailed() }); ok {
+			marker.MarkFailed()
+		}
+		payload, _ := json.Marshal(openAIErrorResponse{Error: openAIErrorBody{
+			Message: "Stream interrupted before completion",
+			Type:    "api_error",
+		}})
+		fmt.Fprintf(w, "data: %s\n\n", payload)
+	} else {
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}
 	flusher.Flush()
 }
 

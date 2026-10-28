@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/agent-guide/agent-gateway/internal/httpcapture"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	"github.com/agent-guide/agent-gateway/pkg/credential"
@@ -1595,4 +1598,89 @@ func firstDataLine(body string) string {
 		}
 	}
 	return ""
+}
+
+func TestServeStreamReportsReadFailure(t *testing.T) {
+	for _, partial := range []bool{false, true} {
+		name := "before_first_chunk"
+		if partial {
+			name = "after_partial_content"
+		}
+		t.Run(name, func(t *testing.T) {
+			stream, writer := schema.Pipe[*schema.Message](2)
+			if partial {
+				writer.Send(&schema.Message{Content: "partial answer"}, nil)
+			}
+			writer.Send(nil, io.ErrUnexpectedEOF)
+			writer.Close()
+			prov := &testProvider{streamResp: stream}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			newHandler().serveStream(rec, req, prov, &provider.ChatRequest{Model: "test"})
+			body := rec.Body.String()
+			if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "text/event-stream" {
+				t.Fatalf("unexpected response: %v", rec.Result())
+			}
+			if strings.Contains(body, "[DONE]") {
+				t.Fatalf("failed stream has success marker: %s", body)
+			}
+			if partial && !strings.Contains(body, "partial answer") {
+				t.Fatalf("partial content lost: %s", body)
+			}
+			events := strings.Split(strings.TrimSpace(body), "\n\n")
+			var payload openAIErrorResponse
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(events[len(events)-1], "data: ")), &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Error.Type != "api_error" || payload.Error.Message == "" {
+				t.Fatalf("missing stream error: %s", body)
+			}
+		})
+	}
+}
+
+func TestServeStreamInteractionOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		streamErr     error
+		wantErrorType string
+	}{
+		{name: "success"},
+		{name: "truncated", streamErr: io.ErrUnexpectedEOF, wantErrorType: "provider_stream_failed"},
+		{name: "read_failure", streamErr: errors.New("upstream read failed"), wantErrorType: "provider_stream_failed"},
+		{name: "cancelled", streamErr: fmt.Errorf("receive: %w", context.Canceled), wantErrorType: "client_cancelled"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stream, writer := schema.Pipe[*schema.Message](2)
+			writer.Send(&schema.Message{Content: "partial answer"}, nil)
+			if tc.streamErr != nil {
+				writer.Send(nil, tc.streamErr)
+			}
+			writer.Close()
+			sink := &usage.InMemorySink{}
+			span, ctx := usage.NewObserver(sink).Begin(t.Context(), usage.InteractionDimensions{RouteKind: "llm"})
+			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"test","messages":[{"role":"user","content":"hello"}],"stream":true}`)).WithContext(ctx)
+			handler := newHandler()
+			prepared, _, err := handler.PrepareLLMApiRequest(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rec := httpcapture.NewResponseRecorder(httptest.NewRecorder())
+			if err := handler.ServeLLMApi(rec, req, &testProvider{streamResp: stream}, prepared); err != nil {
+				t.Fatal(err)
+			}
+			// Finish with the same outcome calculation used by the dispatcher.
+			span.Finish(usage.InteractionOutcome{Success: rec.StatusCode() < 400 && !rec.Failed(), StatusCode: rec.StatusCode()})
+			if len(sink.Events) != 1 {
+				t.Fatalf("events = %d, want 1", len(sink.Events))
+			}
+			ev, ok := sink.Events[0].(usage.LLMUsageEvent)
+			if !ok {
+				t.Fatalf("event type = %T, want LLMUsageEvent", sink.Events[0])
+			}
+			if ev.Success != (tc.streamErr == nil) || ev.StatusCode != http.StatusOK || ev.ErrorType != tc.wantErrorType {
+				t.Fatalf("outcome = success:%v status:%d error_type:%q, want success:%v status:200 error_type:%q", ev.Success, ev.StatusCode, ev.ErrorType, tc.streamErr == nil, tc.wantErrorType)
+			}
+		})
+	}
 }

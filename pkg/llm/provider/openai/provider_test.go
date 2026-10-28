@@ -3,12 +3,15 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/agent-guide/agent-gateway/pkg/credential"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
+	"github.com/cloudwego/eino/schema"
 )
 
 func chatAndCaptureRequest(t *testing.T, options map[string]any, req *provider.ChatRequest) map[string]any {
@@ -123,4 +126,83 @@ func TestCompactCCDropsUnsupportedMetadataAndUser(t *testing.T) {
 
 func boolPtr(v bool) *bool {
 	return &v
+}
+
+func TestStreamRequiresFinishReason(t *testing.T) {
+	for _, tc := range []struct {
+		name, tail string
+		wantError  bool
+	}{
+		{"truncated", "", true},
+		{"done_without_finish", "data: [DONE]\n\n", true},
+		{"stop", "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", false},
+		{"tool_calls", "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"partial\"},\"finish_reason\":null}]}\n\n"+tc.tail)
+			}))
+			defer server.Close()
+			p, err := New(provider.ProviderConfig{ProviderType: "openai", APIKey: "test", BaseURL: server.URL + "/v1"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			stream, err := p.StreamChat(context.Background(), &provider.ChatRequest{Model: "test"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer stream.Close()
+			var content string
+			for {
+				msg, err := stream.Recv()
+				if err != nil {
+					if tc.wantError && !errors.Is(err, io.ErrUnexpectedEOF) {
+						t.Fatalf("want unexpected EOF, got %v", err)
+					}
+					if !tc.wantError && err != io.EOF {
+						t.Fatal(err)
+					}
+					break
+				}
+				if msg != nil {
+					content += msg.Content
+				}
+			}
+			if content != "partial" {
+				t.Fatalf("partial content lost: %q", content)
+			}
+		})
+	}
+}
+
+func TestStreamFinishCancellationBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name, finish   string
+		terminal, want error
+	}{
+		{"finished_then_canceled", "stop", nil, io.EOF},
+		{"unfinished_then_canceled", "", nil, context.Canceled},
+		{"finished_with_transport_error", "stop", io.ErrUnexpectedEOF, io.ErrUnexpectedEOF},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			source, writer := schema.Pipe[*schema.Message](2)
+			writer.Send(&schema.Message{Content: "answer", ResponseMeta: &schema.ResponseMeta{FinishReason: tc.finish}}, nil)
+			if tc.terminal != nil {
+				writer.Send(nil, tc.terminal)
+			}
+			writer.Close()
+			stream := requireStreamFinish(ctx, source)
+			defer stream.Close()
+			if msg, err := stream.Recv(); err != nil || msg.Content != "answer" {
+				t.Fatalf("first chunk = %v, %v", msg, err)
+			}
+			cancel()
+			if _, err := stream.Recv(); !errors.Is(err, tc.want) {
+				t.Fatalf("terminal error = %v, want %v", err, tc.want)
+			}
+		})
+	}
 }

@@ -3,6 +3,8 @@ package openai
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"strings"
 
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
@@ -81,7 +83,29 @@ func (p *Provider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*
 	if err != nil {
 		return nil, statuserr.Wrap(openaibase.NormalizeError(err), 502)
 	}
-	return stream, nil
+	return requireStreamFinish(ctx, stream), nil
+}
+
+func requireStreamFinish(ctx context.Context, stream *schema.StreamReader[*schema.Message]) *schema.StreamReader[*schema.Message] {
+	// The upstream SDK treats a closed SSE body as EOF even without a final
+	// choice. Do not turn an interrupted answer/tool call into a successful run.
+	finished := false
+	return schema.StreamReaderWithConvert(stream, func(message *schema.Message) (*schema.Message, error) {
+		if message != nil && message.ResponseMeta != nil && message.ResponseMeta.FinishReason != "" {
+			finished = true
+		}
+		return message, nil
+	}, schema.WithOnEOF(func() (any, error) {
+		// A normal EOF after the final choice remains successful even if the
+		// caller cancels between consuming that choice and reading EOF.
+		if finished {
+			return nil, io.EOF
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("openai: stream ended before finish_reason: %w", io.ErrUnexpectedEOF)
+	}))
 }
 
 func (p *Provider) CreateResponses(ctx context.Context, req *provider.ResponsesRequest) (*provider.ResponsesResponse, error) {
