@@ -437,6 +437,7 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 // BootstrapOptions.ACPRuntime. It captures the owner key, translated runtime
 // config, and turn request, and emits a minimal native event sequence.
 type agentRouteACPRuntime struct {
+	stopReason  string
 	owner       string
 	cfg         hostconfig.Config
 	req         acphost.TurnRequest
@@ -451,7 +452,11 @@ func (r *agentRouteACPRuntime) ServeConfiguredTurn(_ context.Context, owner stri
 	if err := emit(acphost.TurnEvent{Event: agentruntime.EventContent, Text: "acp answer"}); err != nil {
 		return err
 	}
-	return emit(acphost.TurnEvent{Event: agentruntime.EventDone, StopReason: "end_turn"})
+	reason := r.stopReason
+	if reason == "" {
+		reason = "end_turn"
+	}
+	return emit(acphost.TurnEvent{Event: agentruntime.EventDone, StopReason: reason})
 }
 
 func (r *agentRouteACPRuntime) RetireOwnerDeferred(ownerID, keep string) (int, func()) {
@@ -575,6 +580,19 @@ func TestDispatchAgentRouteACPTurnSuccess(t *testing.T) {
 	}
 	if turnEvent.ServiceID != "" || turnEvent.Operation != "turn" || turnEvent.ThreadID != "thread-1" || turnEvent.SessionID != "native-session" {
 		t.Fatalf("typed acp extension = %+v", turnEvent)
+	}
+
+	for _, reason := range []string{"cancelled", "permission_required"} {
+		native.stopReason = reason
+		req := httptest.NewRequest(http.MethodPost, "/agents/acp/turn", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		if err := handler.Dispatch(rec, req, nil); err != nil {
+			t.Fatal(err)
+		}
+		events := eventsOfType[usage.ACPUsageEvent](sink.events)
+		if got := events[len(events)-1].ResultStatus; got != reason {
+			t.Fatalf("native outcome = %q, recorded = %q", reason, got)
+		}
 	}
 }
 

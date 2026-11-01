@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
@@ -192,6 +193,28 @@ func (h *Handler) serveAgentTurn(w http.ResponseWriter, r *http.Request, backend
 		counts := map[string]int{}
 		emit = observeAgentACPEvents(r.Context(), emit, counts)
 	}
+	var outcome atomic.Value
+	outcome.Store("success")
+	next := emit
+	emit = func(ev agentruntime.TurnEvent) error {
+		if ev.Event == agentruntime.EventError {
+			outcome.Store("error")
+		}
+		if ev.Event == agentruntime.EventDone {
+			var terminal struct {
+				StopReason string `json:"stop_reason"`
+			}
+			if json.Unmarshal(ev.Data, &terminal) == nil {
+				switch terminal.StopReason {
+				case agentruntime.StopReasonCancelled:
+					outcome.Store("cancelled")
+				case agentruntime.StopReasonPermissionRequired:
+					outcome.Store("permission_required")
+				}
+			}
+		}
+		return next(ev)
+	}
 	result, serveErr := sequencer.ServeSegment(r.Context(), backend, a, req, emit)
 	if serveErr != nil {
 		setAgentOperationExtension(r.Context(), a, "turn", req.SessionID, "error")
@@ -202,8 +225,8 @@ func (h *Handler) serveAgentTurn(w http.ResponseWriter, r *http.Request, backend
 		}
 		usage.SpanFromContext(r.Context()).AddAnnotation("error_type", string(code))
 	}
-	if serveErr == nil {
-		setAgentOperationExtension(r.Context(), a, "turn", req.SessionID, "success")
+	if serveErr == nil || outcome.Load().(string) == "cancelled" {
+		setAgentOperationExtension(r.Context(), a, "turn", req.SessionID, outcome.Load().(string))
 	}
 	return nil
 }
