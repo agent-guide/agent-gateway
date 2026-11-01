@@ -556,7 +556,7 @@ func TestDispatchAgentRouteACPTurnSuccess(t *testing.T) {
 	if native.cfg.AgentType != baseacp.AgentTypeOpencode || native.cfg.DefaultModel != "model-a" || len(native.cfg.AllowedRoots) != 1 || native.cfg.AllowedRoots[0] != cwd {
 		t.Fatalf("native runtime config = %+v", native.cfg)
 	}
-	if native.req.ThreadID != "thread-1" || native.req.Model != "model-b" || native.req.Input != "hello" {
+	if !strings.HasPrefix(native.req.ThreadID, "client:") || native.req.Model != "model-b" || native.req.Input != "hello" {
 		t.Fatalf("native turn request = %+v", native.req)
 	}
 	if native.req.RunID == "" {

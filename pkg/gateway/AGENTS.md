@@ -264,3 +264,9 @@ bounded backend type, never identities. Backend switching resets without transfe
 Common HTTP Agent session bindings include the authenticated route/VirtualKey
 scope. Cross-client and unknown supplied sessions fail session_not_found before
 remote execution; trusted Admin/unscoped runtime tests retain inspection semantics.
+
+ACP data-plane clients must prove session/permission ownership in the validated
+VirtualKey/route/runtime scope. Namespace thread keys before native dispatch.
+Preserve the native session-list contract and filter results by proven ownership;
+never replace it with an identifier-only list or disable pagination. Ownership
+eviction/restart fails closed; Admin inspection retains its existing authority.

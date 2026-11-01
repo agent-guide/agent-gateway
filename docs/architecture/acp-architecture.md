@@ -150,3 +150,12 @@ converted bundle to a clean store, and then switch binaries. The helper embeds
 ACP service config into Agents, converts runtime-specific routes to
 AgentRoutes, rewrites VirtualKey references, removes server timestamps, and
 checks route-ID collisions across all families.
+
+Client session and permission identifiers are not authority. The Gateway ACP
+adapter binds them to authenticated dispatcher VirtualKey/route/runtime scope
+and namespaces client threads. Admin inspection remains native and unfiltered.
+Client listing preserves native cwd/cursor and metadata while filtering unowned
+sessions; empty filtered pages can still carry the native next cursor. Ownership
+is process-local and uses the existing HTTP client-binding LRU budget, without
+a new fixed session TTL. Restart/eviction cannot authorize an explicit load;
+start a new conversation. These checks add no platform resource/file services.

@@ -230,3 +230,8 @@ Agent Gateway is licensed under [Apache License 2.0](LICENSE).
 Authenticated common HTTP Agent sessions are bound to the VirtualKey, route and
 runtime definition that created them. A session ID alone grants no continuation
 access; unknown ownership after restart requires a new conversation.
+
+ACP threads, explicit session continuation, transcripts and pending permission
+decisions are isolated by authenticated VirtualKey/route/runtime. Session listing
+retains native pagination and metadata, filtered to proven client ownership.
+Restart or bounded ownership-cache eviction requires a new client conversation.

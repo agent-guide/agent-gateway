@@ -47,6 +47,7 @@ type acpAgentConfig struct {
 // ACPBackend is the permanent Agent runtime adapter over the native ACP
 // manager.
 type ACPBackend struct {
+	clientScopes   acpClientScopes
 	runtime        ACPTurnServer
 	runs           *agentruntime.RunRegistry
 	permissions    *agentruntime.PermissionBroker
@@ -333,6 +334,17 @@ func (b *ACPBackend) ServeTurn(ctx context.Context, a agentpkg.Agent, req agentr
 	if entry.disabled {
 		return agentruntime.NewError(agentruntime.ErrorAgentDisabled, "acp runtime is disabled")
 	}
+	scope := agentClientScope(ctx, a)
+	if req.SessionID != "" && !b.clientScopes.ownsSession(a.ID, req.SessionID, scope) {
+		return agentruntime.NewError(agentruntime.ErrorSessionNotFound, "session is not available to this client")
+	}
+	opts.ThreadID = acpClientThread(scope, opts.ThreadID)
+	var permissionIDs []string
+	defer func() {
+		for _, id := range permissionIDs {
+			b.clientScopes.forgetPermission(a.ID, id)
+		}
+	}()
 	ctx = bridgeRuntimeIdentities(ctx)
 	runtimeCfg := entry.config
 	nativeReq := acphost.TurnRequest{
@@ -382,6 +394,9 @@ func (b *ACPBackend) ServeTurn(ctx context.Context, a agentpkg.Agent, req agentr
 	}
 	err = b.runtime.ServeConfiguredTurn(ctx, a.ID, runtimeCfg, nativeReq, func(ev acphost.TurnEvent) error {
 		registeredPermission := false
+		if err := b.clientScopes.rememberSession(a.ID, ev.SessionID, scope); err != nil {
+			return err
+		}
 		if ev.SessionID != "" && b.runs != nil {
 			b.runs.SetSession(a.ID, req.RunID, ev.SessionID)
 		}
@@ -410,6 +425,8 @@ func (b *ACPBackend) ServeTurn(ctx context.Context, a agentpkg.Agent, req agentr
 					return regErr
 				}
 				registeredPermission = true
+				b.clientScopes.bindPermission(a.ID, ev.RequestID, scope)
+				permissionIDs = append(permissionIDs, ev.RequestID)
 			}
 		}
 		if emitErr := emit(commonACPEvent(ev)); emitErr != nil {
@@ -440,6 +457,10 @@ func (b *ACPBackend) CancelRun(ctx context.Context, a agentpkg.Agent, req agentr
 }
 
 func (b *ACPBackend) ResolvePermission(ctx context.Context, a agentpkg.Agent, decision agentruntime.PermissionDecision) error {
+	if !b.clientScopes.ownsPermission(a.ID, decision.RequestID, agentClientScope(ctx, a)) {
+		return agentruntime.NewError(agentruntime.ErrorPermissionNotFound, "permission is not available to this client")
+	}
+
 	if b.permissions == nil {
 		return agentruntime.NewError(agentruntime.ErrorCapabilityNotSupported, "permission resolution is not configured")
 	}
@@ -463,12 +484,19 @@ func (b *ACPBackend) ListSessions(ctx context.Context, a agentpkg.Agent, req age
 	}
 	out := agentruntime.ListSessionsResponse{NextCursor: resp.NextCursor, Sessions: make([]agentruntime.Session, 0, len(resp.Sessions))}
 	for _, s := range resp.Sessions {
+		if !b.clientScopes.ownsSession(a.ID, s.SessionID, agentClientScope(ctx, a)) {
+			continue
+		}
 		out.Sessions = append(out.Sessions, agentruntime.Session{SessionID: s.SessionID, Title: s.Title, UpdatedAt: s.UpdatedAt, Details: s.Meta})
 	}
 	return out, nil
 }
 
 func (b *ACPBackend) LoadTranscript(ctx context.Context, a agentpkg.Agent, req agentruntime.TranscriptRequest) (agentruntime.TranscriptResponse, error) {
+	if !b.clientScopes.ownsSession(a.ID, req.SessionID, agentClientScope(ctx, a)) {
+		return agentruntime.TranscriptResponse{}, agentruntime.NewError(agentruntime.ErrorSessionNotFound, "session is not available to this client")
+	}
+
 	provider, ok := b.runtime.(interface {
 		LoadConfiguredTranscript(context.Context, string, hostconfig.Config, acphost.TranscriptRequest) (acphost.TranscriptResponse, error)
 	})
