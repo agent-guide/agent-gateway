@@ -210,7 +210,7 @@ func TestHTTPRuntimeManagerRefreshesOAuthCredentialOnEveryOperation(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim, err := execution.bindings.claim("session-1", true)
+	claim, err := execution.bindings.claim("session-1", true, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestHTTPRuntimeManagerRefreshesOAuthCredentialOnEveryOperation(t *testing.T
 	if current != execution {
 		t.Fatal("OAuth token refresh replaced the execution handle")
 	}
-	resumed, err := current.bindings.claim("session-1", true)
+	resumed, err := current.bindings.claim("session-1", true, "")
 	if err != nil || resumed.original.contextID != "ctx-1" || resumed.original.taskID != "task-1" {
 		t.Fatalf("OAuth token refresh retired binding: claim=%#v err=%v", resumed, err)
 	}

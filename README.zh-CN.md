@@ -206,3 +206,6 @@ Prompt 或私有配置。疑似安全漏洞请使用 [SECURITY.md](SECURITY.md)�
 
 欢迎参与贡献，请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。Agent Gateway 使用
 [Apache License 2.0](LICENSE)。
+
+已认证的通用 HTTP Agent 会话绑定创建它的 VirtualKey、路由和运行配置。仅持有
+会话 ID 不授予续接权限；重启后归属不可证明的会话需要重新开启。

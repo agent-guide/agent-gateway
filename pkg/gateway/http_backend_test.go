@@ -209,21 +209,21 @@ func TestHTTPSessionBindingsClaimAndExpiry(t *testing.T) {
 	bindings := newHTTPSessionBindings()
 	now := time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)
 	bindings.now = func() time.Time { return now }
-	first, err := bindings.claim("session-1", true)
+	first, err := bindings.claim("session-1", true, "")
 	if err != nil || first.resetReason != "binding_missing" {
 		t.Fatalf("first claim = %#v, %v", first, err)
 	}
-	if _, err := bindings.claim("session-1", true); !errors.Is(err, agentruntime.ErrSessionBusy) {
+	if _, err := bindings.claim("session-1", true, ""); !errors.Is(err, agentruntime.ErrSessionBusy) {
 		t.Fatalf("concurrent claim error = %v", err)
 	}
 	bindings.finish(first, "ctx-1", "task-1")
-	resumed, err := bindings.claim("session-1", true)
+	resumed, err := bindings.claim("session-1", true, "")
 	if err != nil || !resumed.resumed || resumed.original.taskID != "task-1" {
 		t.Fatalf("resumed claim = %#v, %v", resumed, err)
 	}
 	bindings.finish(resumed, "ctx-1", "")
 	now = now.Add(httpBindingTTL + time.Second)
-	expired, err := bindings.claim("session-1", true)
+	expired, err := bindings.claim("session-1", true, "")
 	if err != nil || expired.resetReason != "binding_expired" || expired.resumed {
 		t.Fatalf("expired claim = %#v, %v", expired, err)
 	}
@@ -235,7 +235,7 @@ func TestHTTPSessionBindingsEnforceLRUCap(t *testing.T) {
 	bindings.now = func() time.Time { return now }
 	for i := 0; i <= httpBindingCap; i++ {
 		sessionID := fmt.Sprintf("session-%04d", i)
-		claim, err := bindings.claim(sessionID, false)
+		claim, err := bindings.claim(sessionID, false, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -757,4 +757,39 @@ func writeTestAgentCard(w http.ResponseWriter, endpoint string, streaming bool) 
 	fmt.Fprintf(w, "{\"name\":\"Remote\",\"description\":\"\",\"version\":\"1\",\"capabilities\":{\"streaming\":%t},"+
 		"\"defaultInputModes\":[\"text/plain\"],\"defaultOutputModes\":[\"text/plain\"],\"skills\":[],"+
 		"\"supportedInterfaces\":[{\"url\":%q,\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}]}", streaming, endpoint)
+}
+
+func TestHTTPSessionBindingsRejectForeignAndUnknownOwners(t *testing.T) {
+	bindings := newHTTPSessionBindings()
+	now := time.Now()
+	bindings.now = func() time.Time { return now }
+	first, err := bindings.claim("owned", false, "client-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Even an in-flight identifier must not reveal another client's busy state.
+	if _, err := bindings.claim("owned", true, "client-b"); !errors.Is(err, agentruntime.ErrSessionNotFound) {
+		t.Fatalf("foreign pending session: %v", err)
+	}
+	bindings.finish(first, "remote-context", "remote-task")
+	for _, scope := range []string{"client-b", "other-route", "other-runtime"} {
+		if _, err := bindings.claim("owned", true, scope); !errors.Is(err, agentruntime.ErrSessionNotFound) {
+			t.Fatalf("foreign session: %v", err)
+		}
+	}
+	resumed, err := bindings.claim("owned", true, "client-a")
+	if err != nil || !resumed.resumed || resumed.original.contextID != "remote-context" {
+		t.Fatalf("owner resume failed: %v", err)
+	}
+	bindings.restore(resumed)
+	if _, err := bindings.claim("unknown", true, "client-a"); !errors.Is(err, agentruntime.ErrSessionNotFound) {
+		t.Fatalf("unknown session: %v", err)
+	}
+	if _, err := newHTTPSessionBindings().claim("owned", true, "client-a"); !errors.Is(err, agentruntime.ErrSessionNotFound) {
+		t.Fatalf("restarted session: %v", err)
+	}
+	now = now.Add(httpBindingTTL + time.Second)
+	if _, err := bindings.claim("owned", true, "client-a"); !errors.Is(err, agentruntime.ErrSessionNotFound) {
+		t.Fatalf("expired session: %v", err)
+	}
 }

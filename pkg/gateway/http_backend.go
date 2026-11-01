@@ -22,6 +22,7 @@ const (
 )
 
 type httpSessionBinding struct {
+	scope      string
 	contextID  string
 	taskID     a2a.TaskID
 	claimed    bool
@@ -213,6 +214,7 @@ func newHTTPSessionBindings() *httpSessionBindings {
 }
 
 type httpBindingClaim struct {
+	scope       string
 	sessionID   string
 	original    httpSessionBinding
 	hadOriginal bool
@@ -220,18 +222,24 @@ type httpBindingClaim struct {
 	resetReason string
 }
 
-func (b *httpSessionBindings) claim(sessionID string, supplied bool) (httpBindingClaim, error) {
+func (b *httpSessionBindings) claim(sessionID string, supplied bool, scope string) (httpBindingClaim, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	now := b.now().UTC()
-	claim := httpBindingClaim{sessionID: sessionID}
+	claim := httpBindingClaim{sessionID: sessionID, scope: scope}
 	existing, ok := b.entries[sessionID]
 	if ok && !existing.expiresAt.IsZero() && !now.Before(existing.expiresAt) {
 		delete(b.entries, sessionID)
 		ok = false
 		claim.resetReason = "binding_expired"
 	}
+	// A supplied identifier is never authority for an authenticated route.
+	// Expiry, eviction and restart require that client to start a new session.
+	if scope != "" && ((supplied && !ok) || (ok && existing.scope != scope)) {
+		return claim, agentruntime.NewError(agentruntime.ErrorSessionNotFound, "session is not available to this client")
+	}
 	if ok {
+		claim.scope = existing.scope
 		if existing.claimed {
 			return claim, agentruntime.NewError(agentruntime.ErrorSessionBusy, "HTTP Agent session is busy")
 		}
@@ -243,7 +251,7 @@ func (b *httpSessionBindings) claim(sessionID string, supplied bool) (httpBindin
 	if supplied && claim.resetReason == "" {
 		claim.resetReason = "binding_missing"
 	}
-	b.entries[sessionID] = httpSessionBinding{claimed: true, lastUsedAt: now}
+	b.entries[sessionID] = httpSessionBinding{scope: scope, claimed: true, lastUsedAt: now}
 	return claim, nil
 }
 
@@ -252,7 +260,7 @@ func (b *httpSessionBindings) finish(claim httpBindingClaim, contextID string, t
 	defer b.mu.Unlock()
 	now := b.now().UTC()
 	b.entries[claim.sessionID] = httpSessionBinding{
-		contextID: contextID, taskID: taskID, expiresAt: now.Add(httpBindingTTL), lastUsedAt: now,
+		scope: claim.scope, contextID: contextID, taskID: taskID, expiresAt: now.Add(httpBindingTTL), lastUsedAt: now,
 	}
 	b.evictLocked()
 }
@@ -368,7 +376,7 @@ func (b *HTTPBackend) ServeTurn(ctx context.Context, agent agentpkg.Agent, req a
 	if sessionID == "" {
 		sessionID = uuid.NewString()
 	}
-	claim, err := execution.bindings.claim(sessionID, suppliedSession)
+	claim, err := execution.bindings.claim(sessionID, suppliedSession, agentClientScope(ctx, agent))
 	if err != nil {
 		return err
 	}

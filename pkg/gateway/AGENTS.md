@@ -260,3 +260,7 @@ changing this wiring.
 Run virtualkey/extension/dispatcher/Admin race tests and the independent consumer
 limiter suite when changing admission. Counters label only dimension/outcome and
 bounded backend type, never identities. Backend switching resets without transfer.
+
+Common HTTP Agent session bindings include the authenticated route/VirtualKey
+scope. Cross-client and unknown supplied sessions fail session_not_found before
+remote execution; trusted Admin/unscoped runtime tests retain inspection semantics.

@@ -226,3 +226,7 @@ configuration. Report suspected vulnerabilities through the private process in
 
 Contributions are welcome; start with [CONTRIBUTING.md](CONTRIBUTING.md).
 Agent Gateway is licensed under [Apache License 2.0](LICENSE).
+
+Authenticated common HTTP Agent sessions are bound to the VirtualKey, route and
+runtime definition that created them. A session ID alone grants no continuation
+access; unknown ownership after restart requires a new conversation.

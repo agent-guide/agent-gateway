@@ -79,7 +79,13 @@ The backend keeps bounded, process-local session bindings between the gateway
 session and the A2A `contextId` plus an interrupted `taskId`. It supports
 request-bound execution, cancellation, input-required continuation, and
 authentication-required failure mapping. It does not turn the gateway into an
-A2A task store.
+A2A task store. Agent-route session bindings include the trusted route,
+VirtualKey, Agent and runtime-configuration identity. A supplied session from
+another scope returns `session_not_found` before any upstream request; so do
+unknown, expired or evicted sessions on the route. Start without `session_id`
+after a restart or lost binding. IDs never establish ownership. Trusted internal
+calls without a route retain the existing unscoped reset behavior. This applies
+to the common Agent API, not native A2A task authorization.
 
 ## Path A: Native Governed A2A
 
