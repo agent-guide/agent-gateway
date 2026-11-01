@@ -123,6 +123,13 @@ func (m *Manager) Create(ctx context.Context, a Agent) error {
 	if err := m.store.Create(ctx, storedAgent{cfg: &a, tag: a.Runtime.Type}); err != nil {
 		return err
 	}
+	// The store owns persisted timestamps. Publish the same facts returned by
+	// Admin reads, so execution stamps survive a restart without changing.
+	persisted, err := m.Get(ctx, a.ID)
+	if err != nil {
+		return err
+	}
+	prospective[a.ID] = persisted
 	m.commitGeneration(ctx, prospective)
 	return nil
 }
@@ -163,6 +170,13 @@ func (m *Manager) Update(ctx context.Context, id string, a Agent) error {
 	if err := m.store.Update(ctx, storedAgent{cfg: &a, tag: a.Runtime.Type}); err != nil {
 		return err
 	}
+	// The store owns persisted timestamps. Publish the same facts returned by
+	// Admin reads, so execution stamps survive a restart without changing.
+	persisted, err := m.Get(ctx, a.ID)
+	if err != nil {
+		return err
+	}
+	prospective[a.ID] = persisted
 	m.commitGeneration(ctx, prospective)
 	return nil
 }

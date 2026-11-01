@@ -130,3 +130,8 @@ an `agwctl agent` read surface; create/update flow through the bundle.
 See `docs/design/agents-control-plane.md` for the cross-runtime direction and
 `docs/design/builtin-agent-runtime.md` for the builtin runtime decisions and
 invariants.
+
+Create/Update publish timestamps read back from the persisted store. If that
+verification read fails after a successful write, the mutation has an unknown
+outcome to the caller and the prior generation remains published; Refresh
+recovers the stored generation. Do not publish unverified pre-storage metadata.
