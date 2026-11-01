@@ -75,7 +75,7 @@ var CredentialSchema = configstore.StoreSchema{
 	},
 	Metadata: configstore.MetadataFuncs{
 		PrimaryKeyFunc: primaryKeyFromStringFields("ID"),
-		TagFunc:        requiredTagFromStringField("ProviderType", "provider_type"),
+		TagFunc:        optionalTagFromStringField("ProviderType"),
 	},
 }
 

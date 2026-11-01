@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
+	credmodel "github.com/agent-guide/agent-gateway/pkg/credential/model"
 	modelcatalog "github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
@@ -239,4 +241,66 @@ func newTestBackend(t *testing.T) configstore.ConfigStoreBackend {
 		t.Fatalf("open sqlite db: %v", err)
 	}
 	return configstore.NewBackend(&SQLiteConfigStoreCreator{db: db})
+}
+
+// HTTP credentials have an Agent owner rather than an LLM provider tag.
+func TestHTTPCredentialPersistence(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "credentials.db")
+	open := func() (configstore.ConfigStore, func()) {
+		t.Helper()
+		db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sqlDB, err := db.DB()
+		if err != nil {
+			t.Fatal(err)
+		}
+		backend := configstore.NewBackend(&SQLiteConfigStoreCreator{db: db})
+		if err := backend.Register(schema.StoreCredentials, schema.CredentialSchema); err != nil {
+			t.Fatal(err)
+		}
+		store, err := backend.Get(schema.StoreCredentials)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return store, func() {
+			if err := sqlDB.Close(); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	store, closeDB := open()
+	credential := &credmodel.Credential{ID: "http-key", Scope: "http-agent:Agent-A", Type: "api_key", Attributes: map[string]string{"api_key": "first"}}
+	if err := store.Create(ctx, credential); err != nil {
+		t.Fatal(err)
+	}
+	credential.Attributes["api_key"] = "rotated"
+	if err := store.Update(ctx, credential); err != nil {
+		t.Fatal(err)
+	}
+	provider := &credmodel.Credential{ID: "provider-key", Scope: "id:provider", ProviderType: "openai", ProviderID: "provider", Type: "api_key"}
+	if err := store.Create(ctx, provider); err != nil {
+		t.Fatal(err)
+	}
+	invalid := &credmodel.Credential{ID: "unbound", Type: "api_key"}
+	if err := store.Create(ctx, invalid); err == nil {
+		t.Fatal("accepted unbound credential")
+	}
+	closeDB()
+	store, closeDB = open()
+	defer closeDB()
+	value, err := store.Get(ctx, "http-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := value.(*credmodel.Credential)
+	if got.Scope != "http-agent:Agent-A" || got.ProviderType != "" || got.ProviderID != "" || got.Attributes["api_key"] != "rotated" {
+		t.Fatal("HTTP credential changed after reopen")
+	}
+	items, err := store.ListByTag(ctx, "openai")
+	if err != nil || len(items) != 1 || items[0].(*credmodel.Credential).ID != "provider-key" {
+		t.Fatalf("provider tag selection failed: count=%d error=%v", len(items), err)
+	}
 }
