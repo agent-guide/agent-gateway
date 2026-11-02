@@ -54,7 +54,7 @@ func (m CancelMode) options() []adk.AgentCancelOption {
 			adk.WithRecursive(),
 		}
 	}
-	return []adk.AgentCancelOption{adk.WithAgentCancelMode(adk.CancelImmediate)}
+	return []adk.AgentCancelOption{adk.WithAgentCancelMode(adk.CancelImmediate), adk.WithRecursive()}
 }
 
 // inflightTurn is one running ADK turn an operator can cancel. Turns on one

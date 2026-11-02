@@ -23,6 +23,8 @@ runtime structure belongs in `docs/architecture/architecture-overview.md`.
 - Every fresh or resumed turn must register cancellation by
   `(agent_id, session_id)`. Cancellation discards the uncommitted partial
   exchange and emits `done` with `stop_reason: "cancelled"`.
+  Both force and graceful cancellation must propagate recursively into nested
+  topology nodes; cancelling only the outer Runner leaves child model calls alive.
 
 ## Permissions and middleware
 

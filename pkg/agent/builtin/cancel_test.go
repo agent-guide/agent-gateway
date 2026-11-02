@@ -232,3 +232,80 @@ func TestServeTurnGracefulCancelPropagatesToSequentialChild(t *testing.T) {
 		t.Fatalf("done events = %+v, want one with stop_reason %q", dones, StopReasonCancelled)
 	}
 }
+
+func TestServeTurnForceCancelPropagatesToNestedLoopChild(t *testing.T) {
+	block := make(chan struct{})
+	started := make(chan struct{}, 1)
+	model := &fakeChatModel{
+		block:   block,
+		started: started,
+		script:  func(_ []*schema.Message) *schema.Message { return schema.AssistantMessage("late", nil) },
+	}
+	a := testAgent("triage")
+	a.Runtime.Builtin.Topology = agent.BuiltinTopology{
+		Kind: agent.TopologyKindSequential,
+		SubAgents: []agent.BuiltinSubAgent{{
+			Name: "nested",
+			Topology: &agent.BuiltinTopology{
+				Kind:          agent.TopologyKindLoop,
+				MaxIterations: 2,
+				SubAgents:     []agent.BuiltinSubAgent{{Name: "leaf"}},
+			},
+		}},
+	}
+	host := NewHost(Config{
+		Agents: &fakeAgentSource{agents: map[string]agent.Agent{"triage": a}},
+		Models: &fakeModelResolver{model: model},
+	})
+
+	sink := &collectedEvents{}
+	done := make(chan error, 1)
+	go func() {
+		done <- host.ServeTurn(context.Background(), "triage", TurnRequest{Input: "hi"}, sink.sink)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		close(block)
+		t.Fatal("child model call did not start")
+	}
+	inflight := host.ListInFlight()
+	if len(inflight) != 1 {
+		close(block)
+		t.Fatalf("ListInFlight() = %+v, want one turn", inflight)
+	}
+	cancelled, err := host.CancelTurn("triage", inflight[0].SessionID, CancelModeForce)
+	if err != nil || !cancelled {
+		close(block)
+		t.Fatalf("CancelTurn() = %v, %v; want true, nil", cancelled, err)
+	}
+	defer close(block)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("force-cancelled ServeTurn() returned err = %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("ServeTurn did not force-cancel the nested blocked model")
+	}
+	dones := sink.byName(EventDone)
+	if len(dones) != 1 || dones[0].StopReason != StopReasonCancelled {
+		t.Fatalf("done events = %+v, want one with stop_reason %q", dones, StopReasonCancelled)
+	}
+	if len(sink.byName(EventContent)) != 0 || len(host.ListInFlight()) != 0 {
+		t.Fatal("force-cancelled nested turn retained content or in-flight state")
+	}
+	host.sessions.mu.Lock()
+	session := host.sessions.agents["triage"][inflight[0].SessionID]
+	messages := 0
+	if session != nil {
+		messages = len(session.messages)
+	}
+	host.sessions.mu.Unlock()
+	if messages != 0 {
+		t.Fatalf("cancelled nested turn committed %d messages", messages)
+	}
+
+}

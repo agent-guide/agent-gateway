@@ -449,7 +449,8 @@ key uniquely identifies the running turn. The entry is removed when the run
 returns. Two modes:
 
 - **force** (`CancelImmediate`, default): abort now — the in-flight model or
-  tool step is abandoned and the turn ends immediately. This is the answer for
+  tool step is abandoned and the turn ends immediately. Cancellation propagates
+  recursively through nested topology nodes. This is the answer for
   stuck turns; the operator does not wait for `turn_timeout_seconds`.
 - **graceful** (`CancelAfterChatModel | CancelAfterToolCalls` with a grace
   timeout and recursive propagation): stop after the current model/tool step
