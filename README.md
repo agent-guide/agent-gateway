@@ -146,6 +146,13 @@ runtime flow and dependency boundaries.
 - **Distribution modes:** `agw` for the Caddy-based runtime, `agwd` for the
   standalone daemon, and `agwctl` for management and validation.
 
+LLM routes can be shared by multiple Agents and direct API clients. Builtin
+model calls retain the executing Agent identity for usage; direct LLM calls
+without that identity are counted only at route level. Agent entry routes and
+VirtualKey authorization remain independent. Admin deletion rejects LLM and MCP routes
+still referenced by an Agent. The check and deletion are serialized with Agent
+writes, which validate resource route existence and kind.
+
 Provider implementations and protocol fidelity vary by upstream. Check the
 [provider guide](docs/guides/providers.md),
 [provider option reference](docs/reference/provider-option-reference.md), and

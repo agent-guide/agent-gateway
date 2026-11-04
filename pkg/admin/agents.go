@@ -373,21 +373,17 @@ func (h *Handler) getAgentOr404(w http.ResponseWriter, r *http.Request) (agentpk
 	return a, true
 }
 
-// agentAttributionFilter builds the metrics attribution selector for an agent:
-// the durable agent_id tag OR any resource route the agent currently owns. This
-// is what lets per-agent reads include untagged-but-mappable events (pre-P1
-// history, or events written before a resource route was reassigned to this
-// agent) instead of only events stamped at write time.
+// agentAttributionFilter uses durable execution identity for shared LLM usage.
+// Only untagged MCP history may fall back to exclusive MCP route references.
 func agentAttributionFilter(a agentpkg.Agent) *usage.AttributionFilter {
 	f := &usage.AttributionFilter{AgentID: a.ID}
-	f.RouteIDs = append(f.RouteIDs, a.Routes.LLMRouteIDs...)
 	f.RouteIDs = append(f.RouteIDs, a.Routes.MCPRouteIDs...)
 	return f
 }
 
 // agentAttributionFromRequest resolves an optional `agent_id` query filter into
-// a metrics attribution selector (the durable agent_id tag OR the agent's owned
-// resource routes, matching the per-agent usage/interactions reads). When no
+// a metrics attribution selector (the durable agent_id tag OR untagged exclusive
+// MCP routes, matching the per-agent usage/interactions reads). When no
 // agent_id is present it returns (nil, true) so callers apply no attribution.
 // On an unresolvable agent id it writes the error response and returns ok=false.
 func (h *Handler) agentAttributionFromRequest(w http.ResponseWriter, r *http.Request) (*usage.AttributionFilter, bool) {
@@ -413,8 +409,8 @@ func (h *Handler) agentAttributionFromRequest(w http.ResponseWriter, r *http.Req
 }
 
 // handleGetAgentInteractions returns interaction events attributed to the agent.
-// Agent ingress uses the durable agent_id tag; resource route ids recover
-// historical and nested LLM/MCP rows without reviving ACP service identity.
+// Events use the durable agent_id tag; exclusive MCP route ids recover only
+// untagged MCP history. LLM route references never recover Agent usage.
 func (h *Handler) handleGetAgentInteractions(w http.ResponseWriter, r *http.Request) {
 	a, ok := h.getAgentOr404(w, r)
 	if !ok {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,8 +23,9 @@ type AgentRouteLookup interface {
 // for write-time attribution. The snapshot and index are rebuilt on every
 // mutation and never read from the config store on the hot path.
 type Manager struct {
-	store       configstore.ConfigStore
-	routeLookup AgentRouteLookup
+	store                  configstore.ConfigStore
+	routeLookup            AgentRouteLookup
+	validateResourceRoutes func(context.Context, Routes) error
 
 	// writeMu serializes the validate -> prospective-generation ->
 	// store-write -> generation-commit sequence so the P0
@@ -41,7 +44,7 @@ type Manager struct {
 	listeners      []DefinitionListener
 
 	mu      sync.RWMutex
-	byRoute map[string]string // route id -> agent id
+	byRoute map[string]string // exclusive MCP route id -> agent id
 }
 
 func NewManager(store configstore.ConfigStore) *Manager {
@@ -58,6 +61,57 @@ func (m *Manager) SetRouteLookup(lookup AgentRouteLookup) {
 		return
 	}
 	m.routeLookup = lookup
+}
+
+// SetResourceRouteValidator wires control-plane dependency validation before
+// the manager is used. The callback runs under writeMu and must not reenter it.
+func (m *Manager) SetResourceRouteValidator(validate func(context.Context, Routes) error) {
+	m.validateResourceRoutes = validate
+}
+
+// DeleteUnreferencedLLMRoute serializes the reference check and deletion with
+// Agent writes. The callback must complete deletion before returning and must
+// not reenter the Agent manager's mutation methods.
+func (m *Manager) DeleteUnreferencedLLMRoute(ctx context.Context, id string, remove func(context.Context, string) error) error {
+	return m.deleteUnreferencedResourceRoute(ctx, id, "llm", remove)
+}
+
+// DeleteUnreferencedMCPRoute serializes the reference check and deletion with
+// Agent writes. The callback must complete deletion before returning and must
+// not reenter the Agent manager's mutation methods.
+func (m *Manager) DeleteUnreferencedMCPRoute(ctx context.Context, id string, remove func(context.Context, string) error) error {
+	return m.deleteUnreferencedResourceRoute(ctx, id, "mcp", remove)
+}
+
+func (m *Manager) deleteUnreferencedResourceRoute(ctx context.Context, id, kind string, remove func(context.Context, string) error) error {
+	if m == nil || m.store == nil {
+		return ErrAgentNotConfigured
+	}
+	m.writeMu.Lock()
+	defer m.writeMu.Unlock()
+	agents, err := m.List(ctx)
+	if err != nil {
+		return err
+	}
+	var refs []string
+	for _, a := range agents {
+		routeIDs := a.Routes.LLMRouteIDs
+		if kind == "mcp" {
+			routeIDs = a.Routes.MCPRouteIDs
+		}
+		if slices.Contains(routeIDs, id) {
+			refs = append(refs, a.ID)
+		}
+	}
+	if len(refs) > 0 {
+		slices.Sort(refs)
+		errReferenced := ErrLLMRouteReferenced
+		if kind == "mcp" {
+			errReferenced = ErrMCPRouteReferenced
+		}
+		return fmt.Errorf("%w: %s route %q is still referenced by agents: %s", errReferenced, kind, id, strings.Join(refs, ", "))
+	}
+	return remove(ctx, id)
 }
 
 func (m *Manager) List(ctx context.Context) ([]Agent, error) {
@@ -106,7 +160,12 @@ func (m *Manager) Create(ctx context.Context, a Agent) error {
 	if err := a.Validate(); err != nil {
 		return err
 	}
-	if err := m.checkRouteUniqueness(ctx, a, ""); err != nil {
+	if m.validateResourceRoutes != nil {
+		if err := m.validateResourceRoutes(ctx, a.Routes); err != nil {
+			return err
+		}
+	}
+	if err := m.checkMCPRouteUniqueness(ctx, a, ""); err != nil {
 		return err
 	}
 	a.NormalizeTimestamps(time.Now().UTC())
@@ -153,7 +212,12 @@ func (m *Manager) Update(ctx context.Context, id string, a Agent) error {
 	if err := a.Validate(); err != nil {
 		return err
 	}
-	if err := m.checkRouteUniqueness(ctx, a, id); err != nil {
+	if m.validateResourceRoutes != nil {
+		if err := m.validateResourceRoutes(ctx, a.Routes); err != nil {
+			return err
+		}
+	}
+	if err := m.checkMCPRouteUniqueness(ctx, a, id); err != nil {
 		return err
 	}
 	a.NormalizeTimestamps(time.Now().UTC())
@@ -212,11 +276,10 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// checkRouteUniqueness keeps the route -> agent attribution mapping
-// unambiguous. Route ids are globally unique in the shared routes store, so any
-// route id may be claimed by at most one agent across all route families.
-func (m *Manager) checkRouteUniqueness(ctx context.Context, a Agent, excludeID string) error {
-	routeIDs := agentRouteIDs(a)
+// checkMCPRouteUniqueness preserves exclusive MCP attribution. LLM routes are
+// shared dependencies; their callers are attributed by trusted execution identity.
+func (m *Manager) checkMCPRouteUniqueness(ctx context.Context, a Agent, excludeID string) error {
+	routeIDs := agentMCPRouteIDs(a)
 	if len(routeIDs) == 0 {
 		return nil
 	}
@@ -228,7 +291,7 @@ func (m *Manager) checkRouteUniqueness(ctx context.Context, a Agent, excludeID s
 		if other.ID == excludeID || other.ID == a.ID {
 			continue
 		}
-		for routeID := range agentRouteIDs(other) {
+		for routeID := range agentMCPRouteIDs(other) {
 			if _, ok := routeIDs[routeID]; ok {
 				return fmt.Errorf("route %q is already bound by agent %q", routeID, other.ID)
 			}
@@ -296,7 +359,7 @@ func (m *Manager) Recommit(ctx context.Context) error {
 	return nil
 }
 
-// ResolveAgentID maps an originating resource route back to a single agent for
+// ResolveAgentID maps an originating MCP route back to a single agent for
 // write-time usage attribution. The service/session arguments remain part of
 // the protocol-neutral usage seam for MCP callers but do not identify an Agent.
 // It returns ok=false when the route mapping is empty.
@@ -335,13 +398,8 @@ func decodeAgentItem(id string, item any) (Agent, error) {
 	return cloned, nil
 }
 
-func agentRouteIDs(a Agent) map[string]struct{} {
+func agentMCPRouteIDs(a Agent) map[string]struct{} {
 	out := map[string]struct{}{}
-	for _, routeID := range a.Routes.LLMRouteIDs {
-		if routeID != "" {
-			out[routeID] = struct{}{}
-		}
-	}
 	for _, routeID := range a.Routes.MCPRouteIDs {
 		if routeID != "" {
 			out[routeID] = struct{}{}

@@ -607,12 +607,9 @@ func unixMillis(t time.Time) int64 {
 	return t.UTC().UnixNano() / int64(time.Millisecond)
 }
 
-// attributionWhere builds the per-agent OR clause `(agent_id = ? OR route_id IN
-// (...))`. AgentRoute ingress is attributed solely by its durable agent_id;
-// route ids recover historical nested resource usage only. A non-nil filter
-// that yields no usable arm
-// collapses to a match-nothing clause so an attribution filter never silently
-// widens to all rows; a nil filter means "no attribution filtering".
+// attributionWhere matches durable Agent identity, with a fallback only for
+// untagged exclusive MCP routes. LLM routes are shared and never establish
+// identity. An empty filter matches nothing; nil means no attribution filter.
 func attributionWhere(f *usage.AttributionFilter) (string, []any) {
 	if f == nil {
 		return "", nil
@@ -624,7 +621,7 @@ func attributionWhere(f *usage.AttributionFilter) (string, []any) {
 		args = append(args, f.AgentID)
 	}
 	if ids := dedupeNonEmpty(f.RouteIDs); len(ids) > 0 {
-		clauses = append(clauses, "route_id IN ("+sqlPlaceholders(len(ids))+")")
+		clauses = append(clauses, "((agent_id IS NULL OR agent_id = '') AND route_kind = 'mcp' AND route_id IN ("+sqlPlaceholders(len(ids))+"))")
 		for _, id := range ids {
 			args = append(args, id)
 		}

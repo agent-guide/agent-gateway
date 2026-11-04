@@ -83,7 +83,7 @@ func NewObserver(sink EventSink) Observer {
 }
 
 // NewObserverWithAttribution wires an attribution holder so the observer stamps
-// agent_id at Begin from the route id when the caller did not set it.
+// agent_id at Begin from an MCP route id when the caller did not set it.
 func NewObserverWithAttribution(sink EventSink, attribution *AgentAttribution) Observer {
 	return Observer{sink: sink, attribution: attribution}
 }
@@ -96,7 +96,7 @@ func (o Observer) Begin(ctx context.Context, dims InteractionDimensions) (Intera
 		dims.SpanID = GenerateSpanID()
 	}
 	agentID := dims.AgentID
-	if agentID == "" && o.attribution != nil {
+	if agentID == "" && dims.RouteKind == "mcp" && o.attribution != nil {
 		if resolved, ok := o.attribution.ResolveAgentID(dims.RouteID, "", ""); ok {
 			agentID = resolved
 		}

@@ -49,6 +49,11 @@ The id is fully predictable, so other objects (e.g. `allowed_route_ids`) can
 reference it before apply; two routes whose paths slugify to the same value
 collide and surface as a duplicate-id error, at which point set an explicit id.
 
+Agent manager bootstrap wires resource-route validation for Agent Create/Update:
+LLM and MCP references must exist and match their declared kind. This runs under
+the Agent mutation lock shared by guarded Admin LLM/MCP route deletion, keeping
+reference validation and deletion serialized.
+
 ## `llmroute/`
 
 Defines the route model used by static config, the Admin API, and runtime resolution.

@@ -401,7 +401,7 @@ virtualKeys:
 	}
 }
 
-func TestValidateAgentsRejectsDuplicateRouteBinding(t *testing.T) {
+func TestValidateAgentsRejectsDuplicateMCPRouteBinding(t *testing.T) {
 	bundle, err := DecodeYAML([]byte(`
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
@@ -414,7 +414,7 @@ agents:
         card_url: https://agent-a.example/.well-known/agent-card.json
         protocol: a2a
     routes:
-      llm_route_ids:
+      mcp_route_ids:
         - shared-route
   - id: agent-b
     name: Agent B
@@ -852,5 +852,37 @@ func TestDecodeRejectsLegacyAgentRuntimeBundle(t *testing.T) {
 	_, err := DecodeYAML([]byte("apiVersion: gateway.agw/v1alpha1\nkind: GatewayBundle\nacpServices: []\n"))
 	if err == nil || !strings.Contains(err.Error(), "legacy_agent_runtime_config") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestValidateAgentsAllowsSharedLLMRoutes(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+agents:
+  - id: agent-a
+    name: Agent A
+    runtime:
+      type: builtin
+      builtin:
+        model:
+          llm_route_id: shared-route
+    routes:
+      llm_route_ids: [shared-route]
+  - id: agent-b
+    name: Agent B
+    runtime:
+      type: builtin
+      builtin:
+        model:
+          llm_route_id: shared-route
+    routes:
+      llm_route_ids: [shared-route]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bundle.ValidateForConfigStore(); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -698,3 +698,73 @@ func TestServeTurnPlanExecuteTopologyRunsPlanExecuteReplan(t *testing.T) {
 		t.Fatalf("requireTools seen = %v, want [true false true]", got)
 	}
 }
+
+// The production sink serializes events; this fixture records concurrent turns.
+type sharedModelUsageSink struct {
+	mu     sync.Mutex
+	events []any
+}
+
+func (s *sharedModelUsageSink) Enqueue(event any) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = append(s.events, event)
+	return true
+}
+
+func TestConcurrentAgentsShareModelRouteWithIndependentUsage(t *testing.T) {
+	a, b := testAgent("shared-a"), testAgent("shared-b")
+	if a.Runtime.Builtin.Model.LLMRouteID != b.Runtime.Builtin.Model.LLMRouteID {
+		t.Fatal("fixture routes differ")
+	}
+	release := make(chan struct{})
+	started := make(chan struct{}, 2)
+	model := &fakeChatModel{block: release, started: started, script: func([]*schema.Message) *schema.Message {
+		return schema.AssistantMessage("shared model response", nil)
+	}}
+	events := &sharedModelUsageSink{}
+	source := &fakeAgentSource{agents: map[string]agent.Agent{a.ID: a, b.ID: b}}
+	host := NewHost(Config{Agents: source, Models: &fakeModelResolver{model: model}, Observer: usage.NewObserver(events)})
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	errors := make(chan error, 2)
+	for _, id := range []string{a.ID, b.ID} {
+		go func() {
+			sink := &collectedEvents{}
+			errors <- host.ServeTurn(ctx, id, TurnRequest{Input: "hello"}, sink.sink)
+		}()
+	}
+	// Both Agents must enter the same model before either call is released.
+	for range 2 {
+		select {
+		case <-started:
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	close(release)
+	for range 2 {
+		if err := <-errors; err != nil {
+			t.Fatal(err)
+		}
+	}
+	counts := map[string]int{}
+	events.mu.Lock()
+	for _, event := range events.events {
+		if llm, ok := event.(usage.LLMUsageEvent); ok {
+			if llm.RouteID != "chat-main" {
+				t.Errorf("unexpected route %q", llm.RouteID)
+			}
+			counts[llm.AgentID]++
+		}
+	}
+	events.mu.Unlock()
+	if counts[a.ID] != 1 || counts[b.ID] != 1 || len(counts) != 2 {
+		t.Fatalf("LLM attribution = %v", counts)
+	}
+	// Removing one definition must not remove the other Agent's model dependency.
+	delete(source.agents, a.ID)
+	if err := host.ServeTurn(ctx, b.ID, TurnRequest{Input: "still available"}, (&collectedEvents{}).sink); err != nil {
+		t.Fatal(err)
+	}
+}

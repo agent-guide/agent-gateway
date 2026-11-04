@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
+	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
@@ -397,8 +399,14 @@ func (h *Handler) handleDeleteMCPRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusNotFound, "mcp route not found")
 		return
 	}
-	if err := resolver.DeleteConfig(r.Context(), id); err != nil {
-		if errors.Is(err, mcproute.ErrStaticRouteReadOnly) {
+	remove := resolver.DeleteConfig
+	if h.agentManager != nil {
+		remove = func(ctx context.Context, id string) error {
+			return h.agentManager.DeleteUnreferencedMCPRoute(ctx, id, resolver.DeleteConfig)
+		}
+	}
+	if err := remove(r.Context(), id); err != nil {
+		if errors.Is(err, mcproute.ErrStaticRouteReadOnly) || errors.Is(err, agentpkg.ErrMCPRouteReferenced) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}

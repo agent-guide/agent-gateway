@@ -187,14 +187,14 @@ func (m *Manager) commitGeneration(ctx context.Context, agents map[string]Agent)
 	}
 }
 
-// buildAttributionIndex derives the resource-route -> Agent map defensively: a
+// buildAttributionIndex derives the MCP-route -> Agent map defensively: a
 // route_id claimed by more than one Agent is dropped rather than silently
 // picking a winner.
 func buildAttributionIndex(agents map[string]Agent) map[string]string {
 	byRoute := map[string]string{}
 	ambiguousRoutes := map[string]struct{}{}
 	for _, a := range agents {
-		for routeID := range agentRouteIDs(a) {
+		for routeID := range agentMCPRouteIDs(a) {
 			if owner, exists := byRoute[routeID]; exists && owner != a.ID {
 				delete(byRoute, routeID)
 				ambiguousRoutes[routeID] = struct{}{}

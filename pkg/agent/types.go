@@ -21,6 +21,8 @@ import (
 var (
 	ErrAgentNotConfigured = fmt.Errorf("agent is not configured")
 	ErrAgentRouteTarget   = fmt.Errorf("agent is targeted by an agent route")
+	ErrLLMRouteReferenced = fmt.Errorf("llm route is referenced by agents")
+	ErrMCPRouteReferenced = fmt.Errorf("mcp route is referenced by agents")
 )
 
 // Runtime backend types, split by who owns the agent's process lifecycle.
@@ -84,8 +86,9 @@ type HTTPRuntime struct {
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 
-// Routes are management/display references used to surface matching ingress
-// routes and to drive attribution; they do not select the execution backend.
+// Routes are resource references; they do not select the execution backend.
+// LLM routes are shared dependencies, not Agent ownership or authorization.
+// MCP routes retain exclusive ownership for legacy attribution.
 type Routes struct {
 	LLMRouteIDs []string `json:"llm_route_ids,omitempty"`
 	MCPRouteIDs []string `json:"mcp_route_ids,omitempty"`

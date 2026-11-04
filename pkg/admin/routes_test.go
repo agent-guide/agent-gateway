@@ -911,6 +911,7 @@ func TestLLMRouteCreateRejectsClientManagedTimestamps(t *testing.T) {
 func TestMCPRouteAutoIDIsSlashFreeAndAddressable(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testMCPRouteStore{items: map[string]*routecore.AgentRouteConfig{}},
+		agentStore: newAgentConfigStore(),
 	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -2399,4 +2400,172 @@ func loginForTest(t *testing.T, handler *Handler, username string, password stri
 	_ = username
 	_ = password
 	return "external-auth"
+}
+
+func TestDeleteSharedLLMRouteChecksAllAgentReferences(t *testing.T) {
+	ctx := t.Context()
+	store := &testRouteStore{items: map[string]*routecore.AgentRouteConfig{
+		"shared": {ID: "shared", Kind: routecore.RouteKindLLM, Protocol: "openai"},
+	}}
+	routes := routecore.NewAgentRouteConfigManager(store)
+	agents := agentpkg.NewManager(newAgentConfigStore())
+	for _, id := range []string{"a", "b"} {
+		if err := agents.Create(ctx, agentpkg.Agent{
+			ID: id, Name: id,
+			Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{CardURL: "https://example.com/card", Protocol: "a2a"}},
+			Routes:  agentpkg.Routes{LLMRouteIDs: []string{"shared"}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := &Handler{agentManager: agents, routeConfigManager: routes}
+	remove := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodDelete, "/admin/llm/routes/shared", nil)
+		req.SetPathValue("id", "shared")
+		rec := httptest.NewRecorder()
+		h.handleDeleteLLMRoute(rec, req)
+		return rec
+	}
+	rec := remove()
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "a, b") {
+		t.Fatalf("shared delete = %d %s", rec.Code, rec.Body.String())
+	}
+	if err := agents.Delete(ctx, "a"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := remove(); rec.Code != http.StatusConflict {
+		t.Fatalf("remaining reference not protected: %d", rec.Code)
+	}
+	if err := agents.Delete(ctx, "b"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := remove(); rec.Code != http.StatusOK {
+		t.Fatalf("unreferenced delete = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAgentResourceRouteValidationAndDeletedReferences(t *testing.T) {
+	store := &testRouteStore{items: map[string]*routecore.AgentRouteConfig{
+		"chat":  {ID: "chat", Kind: routecore.RouteKindLLM, Protocol: "openai"},
+		"tools": {ID: "tools", Kind: routecore.RouteKindMCP, Protocol: "mcp"},
+	}}
+	gw := newTestAgentGateway(&testConfigStore{routeStore: store, agentStore: newAgentConfigStore()}, nil, nil, nil, nil)
+	h := NewHandler(gw, nil)
+	a := agentpkg.Agent{
+		ID: "a", Name: "a", Disabled: true,
+		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{CardURL: "https://example.com/card", Protocol: "a2a"}},
+	}
+	write := func(update bool, routes agentpkg.Routes) *httptest.ResponseRecorder {
+		t.Helper()
+		a.Routes = routes
+		body, err := json.Marshal(a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/admin/agents", bytes.NewReader(body))
+		req.SetPathValue("id", a.ID)
+		rec := httptest.NewRecorder()
+		if update {
+			h.handleUpdateAgent(rec, req)
+		} else {
+			h.handleCreateAgent(rec, req)
+		}
+		return rec
+	}
+	invalid := []agentpkg.Routes{
+		{LLMRouteIDs: []string{"missing"}},
+		{LLMRouteIDs: []string{"tools"}},
+		{MCPRouteIDs: []string{"chat"}},
+		{MCPRouteIDs: []string{"missing"}},
+	}
+	for _, routes := range invalid {
+		if rec := write(false, routes); rec.Code != http.StatusBadRequest {
+			t.Fatalf("invalid create %+v = %d %s", routes, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := write(false, agentpkg.Routes{LLMRouteIDs: []string{"chat"}, MCPRouteIDs: []string{"tools"}}); rec.Code != http.StatusCreated {
+		t.Fatalf("valid create = %d %s", rec.Code, rec.Body.String())
+	}
+	for _, routes := range invalid {
+		if rec := write(true, routes); rec.Code != http.StatusBadRequest {
+			t.Fatalf("invalid update %+v = %d %s", routes, rec.Code, rec.Body.String())
+		}
+	}
+	remove := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodDelete, "/admin/llm/routes/chat", nil)
+		req.SetPathValue("id", "chat")
+		rec := httptest.NewRecorder()
+		h.handleDeleteLLMRoute(rec, req)
+		return rec
+	}
+	if rec := remove(); rec.Code != http.StatusConflict {
+		t.Fatalf("delete referenced route = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := write(true, agentpkg.Routes{}); rec.Code != http.StatusOK {
+		t.Fatalf("clear references = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := remove(); rec.Code != http.StatusOK {
+		t.Fatalf("delete unreferenced route = %d %s", rec.Code, rec.Body.String())
+	}
+	for _, update := range []bool{false, true} {
+		if rec := write(update, agentpkg.Routes{LLMRouteIDs: []string{"chat"}}); rec.Code != http.StatusBadRequest {
+			t.Fatalf("write deleted route reference (update=%v) = %d %s", update, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestDeleteMCPRouteProtectsAgentReferences(t *testing.T) {
+	store := &testRouteStore{items: map[string]*routecore.AgentRouteConfig{
+		"tools": {ID: "tools", Kind: routecore.RouteKindMCP, Protocol: "mcp"},
+	}}
+	gw := newTestAgentGateway(&testConfigStore{routeStore: store, agentStore: newAgentConfigStore()}, nil, nil, nil, nil)
+	h := NewHandler(gw, nil)
+	a := agentpkg.Agent{
+		ID: "a", Name: "a", Disabled: true,
+		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{CardURL: "https://example.com/card", Protocol: "a2a"}},
+		Routes:  agentpkg.Routes{MCPRouteIDs: []string{"tools"}},
+	}
+	if err := gw.AgentManager().Create(t.Context(), a); err != nil {
+		t.Fatal(err)
+	}
+	remove := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodDelete, "/admin/mcp/routes/tools", nil)
+		req.SetPathValue("id", "tools")
+		rec := httptest.NewRecorder()
+		h.handleDeleteMCPRoute(rec, req)
+		return rec
+	}
+	if rec := remove(); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "agents: a") {
+		t.Fatalf("referenced MCP route delete = %d %s", rec.Code, rec.Body.String())
+	}
+	if _, err := gw.MCPRouteResolver().GetConfig(t.Context(), "tools"); err != nil {
+		t.Fatalf("referenced route was deleted: %v", err)
+	}
+	// A rejected deletion must leave the dependency valid for subsequent updates.
+	a.Name = "renamed"
+	if err := gw.AgentManager().Update(t.Context(), a.ID, a); err != nil {
+		t.Fatalf("update after rejected deletion: %v", err)
+	}
+	a.Routes.MCPRouteIDs = nil
+	if err := gw.AgentManager().Update(t.Context(), a.ID, a); err != nil {
+		t.Fatal(err)
+	}
+	if rec := remove(); rec.Code != http.StatusOK {
+		t.Fatalf("unreferenced MCP route delete = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := remove(); rec.Code != http.StatusNotFound {
+		t.Fatalf("missing MCP route delete = %d %s", rec.Code, rec.Body.String())
+	}
+	a.Routes.MCPRouteIDs = []string{"tools"}
+	body, err := json.Marshal(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPut, "/admin/agents/a", bytes.NewReader(body))
+	req.SetPathValue("id", "a")
+	rec := httptest.NewRecorder()
+	h.handleUpdateAgent(rec, req)
+	if rec.Code != http.StatusBadRequest || strings.Contains(rec.Body.String(), "agent not found") {
+		t.Fatalf("deleted MCP reference update = %d %s", rec.Code, rec.Body.String())
+	}
 }

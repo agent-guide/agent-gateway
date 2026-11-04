@@ -441,7 +441,7 @@ func TestMetricInteractionsResolvesAgentAttribution(t *testing.T) {
 	query := &recordingUsageQuery{}
 	h := &Handler{agentManager: manager, usageQuery: query}
 	// agent_id on the generic interactions endpoint must resolve to full attribution
-	// (tag OR declared resource routes), not a literal agent_id filter — unified with
+	// (durable tag only for shared LLM routes), not a literal agent_id filter — unified with
 	// the per-agent interactions read and the metrics endpoints.
 	req := httptest.NewRequest(http.MethodGet, "/admin/metrics/interactions?agent_id=coding-agent&route_kind=llm", nil)
 	rec := httptest.NewRecorder()
@@ -455,8 +455,8 @@ func TestMetricInteractionsResolvesAgentAttribution(t *testing.T) {
 	if attr == nil || attr.AgentID != "coding-agent" {
 		t.Fatalf("attribution = %+v, want AgentID=coding-agent", attr)
 	}
-	if len(attr.RouteIDs) != 1 || attr.RouteIDs[0] != "llm-route" {
-		t.Fatalf("route fallback = %#v, want llm-route", attr.RouteIDs)
+	if len(attr.RouteIDs) != 0 {
+		t.Fatalf("shared LLM routes must not establish attribution: %#v", attr.RouteIDs)
 	}
 	// agent_id must not leak into the literal filter map; other filters still apply.
 	if _, ok := query.opts.Filters["agent_id"]; ok {
@@ -596,8 +596,8 @@ func TestAgentUsageIncludesAttributedLLMTimeseries(t *testing.T) {
 	if query.seriesOpts.Attribution == nil || query.seriesOpts.Attribution.AgentID != "coding-agent" {
 		t.Fatalf("series attribution = %+v, want coding-agent", query.seriesOpts.Attribution)
 	}
-	if len(query.seriesOpts.Attribution.RouteIDs) != 1 || query.seriesOpts.Attribution.RouteIDs[0] != "llm-route" {
-		t.Fatalf("series route fallback = %#v, want llm-route", query.seriesOpts.Attribution.RouteIDs)
+	if len(query.seriesOpts.Attribution.RouteIDs) != 0 {
+		t.Fatalf("shared LLM routes must not establish attribution: %#v", query.seriesOpts.Attribution.RouteIDs)
 	}
 }
 
@@ -617,7 +617,7 @@ func TestMetricsTimeseriesResolvesAgentAttribution(t *testing.T) {
 	query := &recordingUsageQuery{}
 	h := &Handler{agentManager: manager, usageQuery: query}
 	// The generic metrics endpoints must resolve agent_id into the FULL attribution
-	// (durable tag OR declared resource routes), not a literal agent_id filter — this
+	// (durable tag only for shared LLM routes), not a literal agent_id filter — this
 	// is what makes an agent-filtered read a superset of the per-agent usage rollup.
 	req := httptest.NewRequest(http.MethodGet, "/admin/metrics/llm/timeseries?agent_id=coding-agent", nil)
 	rec := httptest.NewRecorder()
@@ -631,8 +631,8 @@ func TestMetricsTimeseriesResolvesAgentAttribution(t *testing.T) {
 	if attr == nil || attr.AgentID != "coding-agent" {
 		t.Fatalf("attribution = %+v, want AgentID=coding-agent", attr)
 	}
-	if len(attr.RouteIDs) != 1 || attr.RouteIDs[0] != "llm-route" {
-		t.Fatalf("route fallback = %#v, want llm-route", attr.RouteIDs)
+	if len(attr.RouteIDs) != 0 {
+		t.Fatalf("shared LLM routes must not establish attribution: %#v", attr.RouteIDs)
 	}
 	// agent_id must NOT leak into the literal filter map (attribution handles it).
 	if _, ok := query.seriesOpts.Filters["agent_id"]; ok {
@@ -649,8 +649,8 @@ func TestMetricsTimeseriesResolvesAgentAttribution(t *testing.T) {
 	if interactionAttr == nil || interactionAttr.AgentID != "coding-agent" {
 		t.Fatalf("interaction attribution = %+v, want AgentID=coding-agent", interactionAttr)
 	}
-	if len(interactionAttr.RouteIDs) != 1 || interactionAttr.RouteIDs[0] != "llm-route" {
-		t.Fatalf("interaction route fallback = %#v, want llm-route", interactionAttr.RouteIDs)
+	if len(interactionAttr.RouteIDs) != 0 {
+		t.Fatalf("shared LLM routes must not establish attribution: %#v", interactionAttr.RouteIDs)
 	}
 	if _, ok := query.seriesOpts.Filters["agent_id"]; ok {
 		t.Fatalf("agent_id leaked into interaction filters: %#v", query.seriesOpts.Filters)

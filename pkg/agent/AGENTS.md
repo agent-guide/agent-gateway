@@ -85,11 +85,11 @@ Important files:
   anywhere in the topology), and fail-closed `limits`
   (`max_concurrent_turns`, `turn_timeout_seconds`).
 - `manager.go`: Agent CRUD, AgentRoute deletion guards, and the in-memory
-  resource-route attribution index. Unified ingress ownership is one-way from
+  exclusive MCP-route attribution index. Unified ingress ownership is one-way from
   `AgentRoute.agent_id`; Agent persistence contains no ACP/builtin ingress ids.
   The manager implements `ResolveAgentID` (the
   `usage.AgentAttributor` seam). The index is derived from the definition
-  generation on every commit, defensively: a `service_id` or `route_id` that
+  generation on every commit, defensively: an MCP `route_id` that
   resolves to more than one agent is dropped from the map (and
   `ResolveAgentID` returns `ok=false`) rather than silently picking a last
   writer.
@@ -124,6 +124,16 @@ Important files:
   mutation/callback locks are released; it must not synchronously re-enter the
   Agent manager. The listener's committed reverse dependency index limits such
   Recommits to records referenced by the current Agent generation.
+
+LLM route references are shared dependencies and do not infer Agent identity.
+Create/update and Bundle validation enforce exclusivity only for MCP routes.
+Admin LLM and MCP route deletion use `DeleteUnreferencedLLMRoute` and
+`DeleteUnreferencedMCPRoute` to hold `writeMu` through both the reference check
+and deletion callback. Gateway bootstrap wires
+resource route existence/kind validation for Create/Update under the same lock;
+validation and deletion callbacks must not reenter Manager mutations.
+The fallback attribution index contains MCP references only. Per-Agent usage
+uses durable identity; only untagged exclusive MCP history may use route fallback.
 
 Agents are a first-class gateway-bundle object (apply/export/validate) and have
 an `agwctl agent` read surface; create/update flow through the bundle.

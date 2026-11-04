@@ -49,14 +49,9 @@ func (a *AgentAttribution) ResolveAgentID(routeID, serviceID, sessionID string) 
 	return box.attr.ResolveAgentID(routeID, serviceID, sessionID)
 }
 
-// AttributionFilter selects events that belong to one agent. Write-time
-// agent_id stamping is the primary signal, but it cannot cover events written
-// before the agent existed, before the agent_id column existed, or while the
-// route/service was bound to a different agent. The filter therefore matches the
-// durable agent_id tag OR a resource route the agent currently references, so
-// per-agent reads retain historical nested LLM/MCP rows. Agent ingress itself
-// is always stamped directly from AgentRoute.agent_id; the removed ACP service
-// identity is never used as an active attribution fallback.
+// AttributionFilter selects durable Agent identity. RouteIDs are an optional
+// fallback for untagged exclusive MCP history only, never shared LLM traffic
+// or events already attributed to another Agent.
 type AttributionFilter struct {
 	AgentID  string
 	RouteIDs []string

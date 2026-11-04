@@ -625,12 +625,36 @@ func (g *AgentGateway) configureAgentManager(ctx context.Context, configStoreBac
 	}
 	manager := agentpkg.NewManager(store)
 	manager.SetRouteLookup(agentRouteLookup{agent: g.agentRouteResolver})
+	manager.SetResourceRouteValidator(g.validateAgentResourceRoutes)
 	if err := manager.Refresh(ctx); err != nil {
 		return fmt.Errorf("load agents: %w", err)
 	}
 	g.agentManager = manager
 	if g.agentRouteResolver != nil {
 		g.agentRouteResolver.SetAgentLookup(manager)
+	}
+	return nil
+}
+
+// validateAgentResourceRoutes runs on Agent writes, under the same Agent lock
+// as guarded LLM and MCP route deletion. It is never called on the request hot path.
+func (g *AgentGateway) validateAgentResourceRoutes(ctx context.Context, routes agentpkg.Routes) error {
+	for _, group := range []struct {
+		ids  []string
+		kind routecore.RouteKind
+	}{
+		{routes.LLMRouteIDs, routecore.RouteKindLLM},
+		{routes.MCPRouteIDs, routecore.RouteKindMCP},
+	} {
+		for _, id := range group.ids {
+			cfg, err := g.routeConfigManager.Get(ctx, id)
+			if err != nil {
+				return fmt.Errorf("validate %s route %q: %w", group.kind, id, err)
+			}
+			if cfg.Kind != group.kind {
+				return fmt.Errorf("route %q has kind %q, want %q", id, cfg.Kind, group.kind)
+			}
+		}
 	}
 	return nil
 }

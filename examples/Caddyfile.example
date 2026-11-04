@@ -5,6 +5,10 @@
 # or gateway bundles. Optional static-provider and OTLP profiles are included
 # below as commented examples.
 #
+# LLM routes may be shared by Agents and direct clients; Agent usage follows
+# execution identity, not ownership of an LLM route. Admin deletion rejects
+# an LLM or MCP route still referenced by any Agent.
+#
 # Caddy module IDs:
 # - agent_gateway
 # - http.handlers.agent_gateway_admin (directive: agent_gateway_admin)

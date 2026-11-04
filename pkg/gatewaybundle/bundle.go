@@ -482,7 +482,7 @@ func (b *GatewayBundle) validate(_ bool) error {
 		checkRefs("virtual_key_id", agent.Resources.VirtualKeyIDs, virtualKeys, "virtualKeys")
 		checkRefs("llm_route_id", agent.Routes.LLMRouteIDs, routeIDs, "llmRoutes")
 		checkRefs("mcp_route_id", agent.Routes.MCPRouteIDs, mcpRouteIDs, "mcpRoutes")
-		for _, routeID := range agentRouteIDs(*agent) {
+		for _, routeID := range agentMCPRouteIDs(*agent) {
 			if owner, exists := agentRouteBindings[routeID]; exists {
 				errs.Append(fmt.Errorf("agents[%q]: route %q is already bound by agent %q", id, routeID, owner))
 			} else {
@@ -519,19 +519,9 @@ func containsFold(values []string, want string) bool {
 	return false
 }
 
-func agentRouteIDs(agent agentpkg.Agent) []string {
+func agentMCPRouteIDs(agent agentpkg.Agent) []string {
 	seen := map[string]struct{}{}
 	var out []string
-	for _, routeID := range agent.Routes.LLMRouteIDs {
-		if routeID == "" {
-			continue
-		}
-		if _, ok := seen[routeID]; ok {
-			continue
-		}
-		seen[routeID] = struct{}{}
-		out = append(out, routeID)
-	}
 	for _, routeID := range agent.Routes.MCPRouteIDs {
 		if routeID == "" {
 			continue

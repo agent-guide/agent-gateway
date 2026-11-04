@@ -264,6 +264,21 @@ routes from the in-memory AgentRoute snapshot. `routes.llm_route_ids` and
 `routes.mcp_route_ids` remain because they describe resources the Agent may use,
 not ingress ownership.
 
+
+LLM routes are shared dependencies: multiple Agents may reference the same
+`routes.llm_route_ids` entry, including Builtin runtime model references. The
+reference does not grant data-plane access or establish a unique owner. Agent
+entry routes continue to target one Agent and retain their VirtualKey policy.
+Builtin inner LLM events carry the executing Agent identity. Direct LLM traffic
+without trusted Agent execution identity remains route-level usage, even when
+only one Agent references that route. Per-Agent queries never recover LLM usage
+from current route references; historical untagged LLM events remain route-level
+history. Exclusive MCP references retain only an untagged MCP history fallback;
+that fallback cannot include events stamped for another Agent. Removing an Agent
+does not remove its shared LLM route. Admin deletion rejects an LLM or MCP route
+still referenced by any Agent and lists the referencing identities. Shared-route
+changes affect all consumers.
+
 AgentRoute management validation always requires the target Agent to exist.
 For `protocol=agent`, it does not require the Agent to be enabled or currently
 executable: disabled Agents and HTTP Agents whose Path B runtime is not ready
@@ -558,16 +573,24 @@ generic `policy` block.
 ### 5.6 Agent Attribution
 
 Usage and interaction events carry a nullable, durable `agent_id`. AgentRoute
-ingress stamps the target Agent directly. Nested LLM and MCP resource traffic
-may resolve an Agent through an immutable resource-route index owned by the
-Agent manager; the hot path never reads the config store.
+ingress stamps the target Agent directly. Nested LLM and MCP resource calls
+preserve their trusted executing Agent identity. LLM routes are shared
+dependencies: direct untagged LLM traffic remains route-level usage, and current
+LLM route references never recover per-Agent history.
 
 Lower protocol packages do not import `pkg/agent`. They consume the neutral
-`AgentAttributor` interface exposed by the observability layer. Attribution is
-written only when ownership is unambiguous. Per-Agent queries prefer the
-durable tag and use owned resource-route ids only to recover historical or
-nested LLM/MCP events. Retained ACP `service_id` columns are protocol history,
-not active ownership keys.
+`AgentAttributor` interface exposed by the observability layer. Only untagged
+MCP traffic may fall back to the Agent manager's immutable exclusive MCP-route
+index; the hot path never reads the config store. Per-Agent queries select the
+durable tag and may use exclusive MCP route ids to recover untagged MCP history.
+Agent Create/Update validate resource route existence and kind. LLM and MCP
+route deletion hold the Agent mutation lock through the reference check and
+deletion; validation of concurrent Agent writes uses that same lock. Updates validate all
+retained references. A route removed outside the Admin API appears as
+`exists=false` in the Agent resources endpoint; an update must remove or replace
+the dangling reference. Resource-route validation does not block Agent deletion.
+Fallback never overrides an existing Agent stamp. Retained ACP `service_id`
+columns are protocol history, not active ownership keys.
 
 Cross-Agent handoff origin belongs to the upper-layer Business Workflow. The
 gateway must not infer it from a gateway-owned graph or trust an unverified id

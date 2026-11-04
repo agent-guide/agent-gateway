@@ -99,8 +99,9 @@ Schema rules:
   enters ADK via the provider → `ToolCallingChatModel` adapter over the
   route's `RoutedProvider`, so credential scheduling, candidate fallback,
   retry classification, and LLM usage events apply unchanged. The referenced
-  route must appear in `routes.llm_route_ids` (route-binding uniqueness then
-  keeps attribution unambiguous, per [agent attribution](agents-control-plane.md#56-agent-attribution)). The
+  route must appear in `routes.llm_route_ids` and may be shared by multiple
+  Agents and direct clients. Usage follows the trusted executing `agent_id`,
+  per [agent attribution](agents-control-plane.md#56-agent-attribution). The
   optional `retry` block (`max_retries`, 1–5) adds node-level ADK retry on
   top: RoutedProvider's fallback advances between candidates within one
   call, and `retry` re-runs the whole call after that fallback is exhausted,

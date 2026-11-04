@@ -192,6 +192,13 @@ or a cross-cutting adapter for it (for example `caddy/admin`,
 
 Cross-cutting invariants:
 
+- LLM routes are shared Agent dependencies; never enforce exclusive Agent ownership.
+  Agent usage follows trusted execution identity, never LLM route references.
+  Direct LLM traffic without that identity remains route-level usage.
+  Admin LLM and MCP route deletion must reject remaining Agent references, holding the
+  Agent mutation lock through deletion. Agent writes validate resource route
+  existence and kind under that lock; write-time route fallback is MCP-only.
+
 - dependency direction: `pkg/agent` composes the LLM/MCP/ACP/metrics surfaces; the lower protocol packages (`pkg/llm`, `pkg/mcp`, `pkg/acp`, `pkg/a2a`) must not depend on `pkg/agent`
 - no config-store reads in per-request hot paths (provider resolution, route matching); manager snapshots are refreshed on mutation
 - factory registration (providers and builtin custom agents) requires blank imports in the binaries that link them; see each subtree file for the exact rule

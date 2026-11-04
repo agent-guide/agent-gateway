@@ -411,7 +411,7 @@ func TestBuiltinRunCorrelationRoundTrip(t *testing.T) {
 	}
 }
 
-func TestAttributionFilterFallback(t *testing.T) {
+func TestSharedLLMAttributionUsesDurableIdentity(t *testing.T) {
 	backend, err := Open(t.Context(), Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
@@ -428,7 +428,7 @@ func TestAttributionFilterFallback(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("insert tagged: %v", err)
 	}
-	// Untagged event on a route the agent owns (pre-P1 / reassignment fallback).
+	// Direct traffic on a shared route has no Agent identity.
 	if err := InsertLLMUsageEvent(db, usage.LLMUsageEvent{
 		InteractionEvent: usage.InteractionEvent{EventID: "untagged-owned", SpanID: "s2", StartedAt: now, FinishedAt: now, RouteID: "r-owned", RouteKind: "llm", Success: true, StatusCode: 200},
 		LLMAPI:           "openai", ProviderID: "p1",
@@ -443,6 +443,13 @@ func TestAttributionFilterFallback(t *testing.T) {
 		t.Fatalf("insert foreign: %v", err)
 	}
 
+	if err := InsertLLMUsageEvent(db, usage.LLMUsageEvent{
+		InteractionEvent: usage.InteractionEvent{EventID: "other-agent", SpanID: "s4", StartedAt: now, FinishedAt: now, RouteID: "r-owned", RouteKind: "llm", Success: true, StatusCode: 200, AgentID: "another-agent"},
+		LLMAPI:           "openai", ProviderID: "p1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	q := NewUsageQueries(db)
 	filter := &usage.AttributionFilter{AgentID: "coding-agent", RouteIDs: []string{"r-owned"}}
 
@@ -454,12 +461,11 @@ func TestAttributionFilterFallback(t *testing.T) {
 	for _, item := range events.Items {
 		got[item["event_id"].(string)] = true
 	}
-	if !got["tagged"] || !got["untagged-owned"] || got["foreign"] || len(got) != 2 {
-		t.Fatalf("attribution fallback events = %#v, want {tagged, untagged-owned}", got)
+	if !got["tagged"] || len(got) != 1 {
+		t.Fatalf("attribution fallback events = %#v, want only tagged", got)
 	}
 
-	// Aggregates must apply the same OR fallback (no double counting; the agent
-	// owns both rows on r-owned and is tagged on one of them).
+	// Every Agent aggregate must exclude direct and other-Agent traffic.
 	breakdown, err := q.LLMBreakdown(usage.BreakdownOptions{GroupBy: "route_id", Attribution: filter, Limit: 10})
 	if err != nil {
 		t.Fatalf("LLMBreakdown() error = %v", err)
@@ -467,8 +473,8 @@ func TestAttributionFilterFallback(t *testing.T) {
 	if len(breakdown.Items) != 1 || breakdown.Items[0]["group_value"] != "r-owned" {
 		t.Fatalf("breakdown = %#v, want a single r-owned group", breakdown.Items)
 	}
-	if rc := breakdown.Items[0]["request_count"]; rc != int64(2) {
-		t.Fatalf("breakdown request_count = %v, want 2", rc)
+	if rc := breakdown.Items[0]["request_count"]; rc != int64(1) {
+		t.Fatalf("breakdown request_count = %v, want 1", rc)
 	}
 	series, err := q.LLMTimeseries(usage.TimeseriesOptions{Bucket: "hour", GroupBy: "route_id", Attribution: filter})
 	if err != nil {
@@ -477,8 +483,8 @@ func TestAttributionFilterFallback(t *testing.T) {
 	if len(series.Items) != 1 || series.Items[0]["group_value"] != "r-owned" {
 		t.Fatalf("timeseries = %#v, want a single r-owned group", series.Items)
 	}
-	if rc := series.Items[0]["request_count"]; rc != int64(2) {
-		t.Fatalf("timeseries request_count = %v, want 2", rc)
+	if rc := series.Items[0]["request_count"]; rc != int64(1) {
+		t.Fatalf("timeseries request_count = %v, want 1", rc)
 	}
 	interactionSeries, err := q.InteractionsTimeseries(usage.TimeseriesOptions{Bucket: "hour", GroupBy: "route_id", Attribution: filter})
 	if err != nil {
@@ -487,8 +493,8 @@ func TestAttributionFilterFallback(t *testing.T) {
 	if len(interactionSeries.Items) != 1 || interactionSeries.Items[0]["group_value"] != "r-owned" {
 		t.Fatalf("interaction timeseries = %#v, want a single r-owned group", interactionSeries.Items)
 	}
-	if rc := interactionSeries.Items[0]["request_count"]; rc != int64(2) {
-		t.Fatalf("interaction timeseries request_count = %v, want 2", rc)
+	if rc := interactionSeries.Items[0]["request_count"]; rc != int64(1) {
+		t.Fatalf("interaction timeseries request_count = %v, want 1", rc)
 	}
 
 	// A filter remains meaningful when it names the same dimension as group_by.
@@ -501,8 +507,8 @@ func TestAttributionFilterFallback(t *testing.T) {
 	if len(filteredBreakdown.Items) != 1 || filteredBreakdown.Items[0]["group_value"] != "r-owned" {
 		t.Fatalf("group-filtered breakdown = %#v, want only r-owned", filteredBreakdown.Items)
 	}
-	if rc := filteredBreakdown.Items[0]["request_count"]; rc != int64(2) {
-		t.Fatalf("group-filtered breakdown request_count = %v, want 2", rc)
+	if rc := filteredBreakdown.Items[0]["request_count"]; rc != int64(3) {
+		t.Fatalf("group-filtered breakdown request_count = %v, want 3", rc)
 	}
 
 	// An empty filter must not silently widen to all rows.
@@ -693,19 +699,19 @@ func (f fakeAttributor) ResolveAgentID(routeID, _, _ string) (string, bool) {
 	return "", false
 }
 
-func TestObserverStampsAgentIDFromAttribution(t *testing.T) {
+func TestObserverStampsMCPAgentIDFromAttribution(t *testing.T) {
 	sink := &usage.InMemorySink{}
 	attribution := usage.NewAgentAttribution()
 	attribution.Set(fakeAttributor{routeID: "r1", agentID: "coding-agent"})
 	obs := usage.NewObserverWithAttribution(sink, attribution)
-	span, _ := obs.Begin(t.Context(), usage.InteractionDimensions{RouteID: "r1", RouteKind: "llm"})
+	span, _ := obs.Begin(t.Context(), usage.InteractionDimensions{RouteID: "r1", RouteKind: "mcp"})
 	span.Finish(usage.InteractionOutcome{Success: true, StatusCode: 200})
 	if len(sink.Events) != 1 {
 		t.Fatalf("events = %d, want 1", len(sink.Events))
 	}
-	ev, ok := sink.Events[0].(usage.LLMUsageEvent)
+	ev, ok := sink.Events[0].(usage.MCPUsageEvent)
 	if !ok {
-		t.Fatalf("event type = %T, want LLMUsageEvent", sink.Events[0])
+		t.Fatalf("event type = %T, want MCPUsageEvent", sink.Events[0])
 	}
 	if ev.AgentID != "coding-agent" {
 		t.Fatalf("AgentID = %q, want coding-agent", ev.AgentID)

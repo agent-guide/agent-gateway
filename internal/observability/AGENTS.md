@@ -24,6 +24,11 @@ operational descriptions in the architecture documentation rather than here.
 - Retention cleanup runs at startup and through the SQLite sink janitor.
   High-volume aggregation belongs in external Prometheus/Grafana systems.
 
+LLM route references never establish Agent identity or historical ownership.
+Shared Builtin model calls use their executing Agent stamp; direct untagged LLM
+traffic remains route-level. Observer write-time route fallback runs only for
+`route_kind=mcp` and cannot override an existing Agent stamp.
+
 ## Tracing and callbacks
 
 - OTLP export reconstructs the existing interaction tree from stored W3C

@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
+	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	"gorm.io/gorm"
@@ -241,8 +243,14 @@ func (h *Handler) handleDeleteLLMRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusNotFound, "llm route not found")
 		return
 	}
-	if err := resolver.DeleteConfig(r.Context(), id); err != nil {
-		if errors.Is(err, routecore.ErrStaticRouteReadOnly) {
+	remove := resolver.DeleteConfig
+	if h.agentManager != nil {
+		remove = func(ctx context.Context, id string) error {
+			return h.agentManager.DeleteUnreferencedLLMRoute(ctx, id, resolver.DeleteConfig)
+		}
+	}
+	if err := remove(r.Context(), id); err != nil {
+		if errors.Is(err, routecore.ErrStaticRouteReadOnly) || errors.Is(err, agentpkg.ErrLLMRouteReferenced) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}

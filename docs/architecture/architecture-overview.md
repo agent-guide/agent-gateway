@@ -601,6 +601,29 @@ Module health uses the same extension manager; shutdown drains/cancels handlers
 before resource closure in reverse dependency order.
 
 
+## Shared LLM dependencies
+
+LLM routes are shared dependencies: multiple Agents may reference the same
+`routes.llm_route_ids` entry, including Builtin runtime model references. The
+reference does not grant data-plane access or establish a unique owner. Agent
+entry routes continue to target one Agent and retain their VirtualKey policy.
+Builtin inner LLM events carry the executing Agent identity. Direct LLM traffic
+without trusted Agent execution identity remains route-level usage, even when
+only one Agent references that route. Per-Agent queries never recover LLM usage
+from current route references; historical untagged LLM events remain route-level
+history. Exclusive MCP references retain only an untagged MCP history fallback;
+that fallback cannot include events stamped for another Agent. Removing an Agent
+does not remove its shared LLM route. Admin deletion checks all Agent references
+and rejects in-use LLM and MCP routes. The reference check and deletion hold the
+Agent manager mutation lock through deletion; Agent Create/Update validate resource
+route existence and kind under that same lock. Write-time route fallback runs
+only for untagged MCP traffic. Shared-route changes affect all consumers.
+
+Agent updates validate all retained resource route references. If a route was
+removed outside the Admin API, the Agent resources endpoint exposes the dangling
+reference with `exists=false`; an update must remove or replace that reference.
+Resource-route validation does not block Agent deletion.
+
 ## Trusted attribution and public events
 
 Both runtime assemblies inject exact `AttributeKeys`, an optional trusted
