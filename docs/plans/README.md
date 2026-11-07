@@ -19,4 +19,5 @@ Lifecycle convention:
   `AGENTS.md`, and release notes) describe the resulting behavior, the plan is
   deleted — git history is the archive
 
-There are currently no active execution plans.
+Active execution plans: none. Completed work is recorded in permanent designs,
+architecture documentation and release notes; Git history retains its plans.

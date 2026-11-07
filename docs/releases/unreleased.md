@@ -1,5 +1,32 @@
 # Unreleased
 
+- Caddy and standalone share credential/scheduler and usage construction, with
+  independent resources per lifecycle. Shutdown retires runtime producers,
+  drains events and closes storage with bounded waits and inspectable errors.
+  ACP/builtin/HTTP adapters now live in a separate runtime assembly package;
+  HTTP native and common ingress share one fenced runtime generation.
+- Request matching reads immutable route tables without copying the complete
+  configuration per request. Typed route targets are isolated from callers;
+  timestamp collisions and late cache builds cannot restore stale targets.
+  Internal Go route names/representations were simplified without changing
+  persisted route kinds, IDs, URLs or VirtualKey allowlists.
+- Usage migrations, writes, historical queries and retention SQL now belong to
+  observability persistence. Configuration and usage retain one SQLite file
+  and connection; failed usage initialization preserves the existing serving
+  fallback without historical queries, Prometheus or OTLP sinks.
+- Selected eino-backed providers share scoped Chat execution plumbing while
+  retaining vendor shaping, stream semantics and native Responses capabilities.
+  Admin adapters share bounded metric parameters and typed response handling;
+  protocol-specific filters and result types are unchanged.
+- Removed unused unimplemented Memory storage/backend/embedder scaffolding.
+  Memory remains Proposed and `/admin/memory/...` returns 501; existing provider
+  embedding support is retained. The historical `cliauth_credentials` physical
+  table is unchanged, preserving credential data.
+- MCP sharing remains explicitly deferred: service-scoped upstream sessions
+  do not prove caller isolation. Route uniqueness and current attribution/query
+  behavior remain. The [Proposed sharing design](../design/mcp-route-sharing.md)
+  records the isolation contract and responsible runtime boundary.
+
 - Unconfirmed Agent and Provider mutations now have resource/operation-specific
   pending state. New execution and conflicting writes fail closed while
   unrelated resources continue. Inspect `GET .../{id}/mutation` and use
