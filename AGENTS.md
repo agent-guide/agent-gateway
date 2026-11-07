@@ -265,6 +265,9 @@ Important current directives:
 - direct-provider targets store only `target_policy.provider_target.provider_id`;
   the removed outer `target_policy.provider_id` is rejected, including empty or
   null values. Convert existing data explicitly with the offline recovery tool.
+- Agent `policy.budget` must be absent or null: non-null budgets are unsupported
+  and rejected on writes and stored loading/Refresh. Agent depth remains a
+  builtin-host check, independent of the process-level dispatcher depth limit.
 
 ## Admin API Notes
 

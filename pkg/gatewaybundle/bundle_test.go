@@ -624,6 +624,29 @@ mcpRoutes:
 	}
 }
 
+func TestBundleRejectsUnsupportedBudgetForDynamicAndStatic(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+agents:
+  - id: budget-agent
+    name: Budget Agent
+    disabled: true
+    runtime:
+      type: http
+      http: {card_url: 'https://example.org/card', protocol: a2a}
+    policy: {budget: {}}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, validate := range []func() error{bundle.ValidateForConfigStore, bundle.ValidateForStaticConfig} {
+		if err := validate(); err == nil || !strings.Contains(err.Error(), "policy.budget is unsupported") {
+			t.Fatalf("validation = %v", err)
+		}
+	}
+}
+
 func TestValidateRejectsConflictingRouteDefaults(t *testing.T) {
 	bundle, err := DecodeYAML([]byte(`
 apiVersion: gateway.agw/v1alpha1

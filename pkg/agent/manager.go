@@ -326,6 +326,10 @@ func (m *Manager) refreshLocked(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		cloned.Normalize()
+		if err := cloned.Validate(); err != nil {
+			return fmt.Errorf("refresh agent %q: %w", cloned.ID, err)
+		}
 		next[cloned.ID] = cloned
 	}
 	m.commitGeneration(ctx, next)

@@ -28,6 +28,9 @@ For offline configuration inspection and explicit repairs without Admin, see
 LLM direct targets use `target_policy.provider_target.provider_id`; the removed
 outer `target_policy.provider_id` must be explicitly converted before loading.
 
+Agent budgets are not enforced. Non-null `policy.budget` values are rejected;
+explicitly remove existing budgets before loading the configuration.
+
 ## Try it without a provider key
 
 The shortest supported evaluation path needs Docker Engine with Compose v2,

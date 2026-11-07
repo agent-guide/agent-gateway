@@ -94,8 +94,8 @@ type Routes struct {
 	MCPRouteIDs []string `json:"mcp_route_ids,omitempty"`
 }
 
-// Resources is a management view of what the agent is allowed to use. It is not
-// enforced inline on the data-plane request path in P0/P1.
+// Resources declares management relationships. MCPServiceIDs also validates
+// builtin tool definitions; it is not a cross-runtime authorization mechanism.
 type Resources struct {
 	ProviderIDs   []string `json:"provider_ids,omitempty"`
 	MCPServiceIDs []string `json:"mcp_service_ids,omitempty"`
@@ -105,8 +105,10 @@ type Resources struct {
 // Policy holds runtime-agnostic governance only. Runtime-specific config
 // belongs under runtime.<type>.
 type Policy struct {
-	MaxAgentDepth int     `json:"max_agent_depth,omitempty"`
-	Budget        *Budget `json:"budget,omitempty"`
+	MaxAgentDepth int `json:"max_agent_depth,omitempty"`
+	// Budget is retained to explicitly reject unsupported configuration,
+	// including an empty object, rather than silently implying enforcement.
+	Budget *Budget `json:"budget,omitempty"`
 }
 
 type Budget struct {
@@ -214,9 +216,7 @@ func (a Agent) Validate() error {
 		return fmt.Errorf("policy.max_agent_depth must be non-negative")
 	}
 	if a.Policy.Budget != nil {
-		if a.Policy.Budget.MaxTurnsPerDay < 0 || a.Policy.Budget.MaxTokensPerDay < 0 {
-			return fmt.Errorf("policy.budget values must be non-negative")
-		}
+		return fmt.Errorf("agent %q policy.budget is unsupported: budgets are not enforced; explicitly remove the field with scripts/repair-architecture-config (docs/guides/architecture-config-recovery.md)", a.ID)
 	}
 	return nil
 }

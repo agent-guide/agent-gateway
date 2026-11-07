@@ -670,6 +670,13 @@ removed outside the Admin API, the Agent resources endpoint exposes the dangling
 reference with `exists=false`; an update must remove or replace that reference.
 Resource-route validation does not block Agent deletion.
 
+Agent Resources describe management relationships. Declared MCP services also
+constrain builtin tool definitions; ProviderIDs and VirtualKeyIDs do not add a
+cross-runtime authorization layer. Daily budgets are unimplemented: non-null
+`policy.budget` is rejected, including empty objects. Agent
+`policy.max_agent_depth` is checked only by the builtin host, independently of
+the process metrics depth guard on incoming dispatcher `X-Agent-Depth`.
+
 ## Trusted attribution and public events
 
 Both runtime assemblies inject exact `AttributeKeys`, an optional trusted

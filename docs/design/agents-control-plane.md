@@ -162,11 +162,7 @@ Stored shape:
     "virtual_key_ids": ["coding-agent-key"]
   },
   "policy": {
-    "max_agent_depth": 3,
-    "budget": {
-      "max_turns_per_day": 500,
-      "max_tokens_per_day": 2000000
-    }
+    "max_agent_depth": 3
   },
   "disabled": false,
   "created_at": "2026-06-20T00:00:00Z",
@@ -233,8 +229,10 @@ contract and the SPI escape hatch.
 Keep `policy` for cross-runtime governance only. Fields whose meaning depends on
 the runtime backend belong under `runtime.<type>`, not under `policy`:
 
-- `policy` holds runtime-agnostic governance: `max_agent_depth`, `budget`, and
-  later schedule enablement, retention, and transcript visibility.
+- `policy.max_agent_depth` is a common definition field currently checked by
+  the builtin host. Non-null `policy.budget` is unsupported and rejected.
+  Budget execution, retention and transcript-visibility policy remain Proposed;
+  schedule policy belongs to the upper-layer workbench.
 - `runtime.acp` owns `agent_type`, cwd/allowed roots, default model, environment,
   config overrides, pool limits, permission mode, and agent-specific adapter
   config.
@@ -339,8 +337,9 @@ and fails pending work closed, so no runtime survives without an owning Agent.
 
 An `Agent` is a management-plane identity, not an automatically trusted
 data-plane principal.
-End-user requests still authenticate with a `VirtualKey` against a route; the
-agent object does not appear in the request path. Therefore:
+End-user requests authenticate with a `VirtualKey` against a route. AgentRoute
+selects an Agent, but resource declarations do not grant data-plane access.
+Therefore:
 
 - `resources` is a *management view* of what the agent is allowed to use,
   assembled and validated at the admin layer. It is not enforced inline on the
@@ -358,6 +357,21 @@ attribution, common policy, and capabilities. That relationship
 does not by itself make all external ACP/HTTP `resources` references enforced
 entitlements; scoped callback identity and resource enforcement remain a
 separate design decision.
+
+Current resource-field inventory:
+
+| Field | Management and definition use | Execution constraint |
+| --- | --- | --- |
+| `resources.provider_ids` | Normalized IDs; Bundle reference checks and Admin resource inventory with existence reporting | No per-request provider authorization; builtin model selection uses its declared LLM route |
+| `resources.mcp_service_ids` | Normalized IDs; Bundle reference checks and Admin inventory; builtin tool definitions, including nested topology/role tools, must reference declared services | Validated builtin definitions constrain their tool selections; no general ACP/HTTP callback entitlement check |
+| `resources.virtual_key_ids` | Normalized IDs; Bundle reference checks and Admin inventory | No automatic key ownership or authorization binding; dispatcher validates the key actually supplied |
+
+Bundle reference checks apply to resource families included in the Bundle;
+partial input may reference already-stored resources. `routes.llm_route_ids`
+and `routes.mcp_route_ids` are separate dependencies, validated for existence and
+kind by Agent writes under the Agent mutation lock. Builtin model definitions
+also require their LLM routes to be declared. Keep these definition checks even
+though Resources is not a unified authorization system.
 
 ### 5.2 Agent Workspace
 
@@ -542,11 +556,20 @@ owner or headless event sink.
 Agent policy is external governance. It should control the resources and
 operator boundaries around the agent, not the internal reasoning algorithm.
 
-Runtime-agnostic policy areas (live under `policy`):
+`policy.max_agent_depth` is checked by the builtin host against trusted
+execution dimensions. It is not currently enforced by the ACP or HTTP backend.
+The independent process-level `metrics.max_agent_depth` limit checks incoming
+`X-Agent-Depth` at the dispatcher across ingress routes. These limits have
+different owners and are not merged or expanded to other runtimes.
 
-- max agent depth
-- budget and quota
-- retention and transcript visibility
+Budget and quota execution, retention, and transcript-visibility policy remain
+Proposed design areas. The gateway does not execute a daily budget. Every
+non-null `policy.budget`, including `{}` or an all-zero object, is rejected by
+Agent validation, stored loading, Refresh, Admin and Bundle/static validation.
+Null or absent budget is accepted. Existing records require explicit offline
+removal through [configuration recovery](../guides/architecture-config-recovery.md);
+they are never silently stripped during startup. Failed Refresh retains the
+previous validated Agent generation.
 
 Schedule policy belongs to the upper-layer workbench and its durable engine.
 

@@ -1,5 +1,12 @@
 # Unreleased
 
+- Non-null Agent `policy.budget` is rejected, including empty and all-zero
+  objects, because budgets are not enforced. Stored records can prevent startup;
+  remove them explicitly through offline recovery. Null/absent values remain
+  accepted. Agent Refresh validates the complete candidate before publication and
+  retains its last valid generation on failure. Resource declarations and the
+  independent builtin/dispatcher depth limits retain their existing scope.
+
 - Direct LLM targets store only `target_policy.provider_target.provider_id`.
   The outer `target_policy.provider_id` field and its normalization aliases have
   been removed. All new input rejects it, including empty/null/equal duplicates.

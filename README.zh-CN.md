@@ -27,6 +27,9 @@ Code 和 MCP 的入口。
 LLM 直连目标仅使用 `target_policy.provider_target.provider_id`；已移除的外层
 `target_policy.provider_id` 必须在加载前显式转换。
 
+Agent 尚未执行预算限制，因此拒绝非 null 的 `policy.budget`；加载配置前必须
+显式移除已有预算配置。
+
 ## 无需模型 Provider Key 即可试用
 
 最短的受支持验证路径只需要安装带 Compose v2 的 Docker Engine、`curl` 和

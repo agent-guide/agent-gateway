@@ -26,6 +26,10 @@ Validation rejects the removed outer `target_policy.provider_id`, including an
 empty or null field; import/export retains no runtime alias. Convert old records
 or static files explicitly through the offline configuration recovery tool.
 
+Agent definitions reject non-null `policy.budget`, including empty or zero-valued
+objects. The gateway has no daily budget executor. Absent/null budget is accepted;
+offline repairs must explicitly remove existing values before loading or apply.
+
 The bundle design is built around these goals:
 
 - provide one declarative file format for configuration-type gateway objects

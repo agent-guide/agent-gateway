@@ -190,6 +190,40 @@ func TestReadOnlyInspectionDoesNotCreateDatabase(t *testing.T) {
 	}
 }
 
+func TestOldBudgetCanBeRepairedAfterStartupRejection(t *testing.T) {
+	ctx := context.Background()
+	path, db := oldDatabase(t)
+	// Isolate the old budget from the other migration hazards.
+	if _, err := db.Exec(`DELETE FROM routes WHERE id='b'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE routes SET config='{"id":"a","kind":"llm","protocol":"openai","match_policy":{"path_prefix":"/api"},"target_policy":{"provider_target":{"provider_id":"p"}}}' WHERE id='a'`); err != nil {
+		t.Fatal(err)
+	}
+	creator, err := configsqlite.Open(ctx, configsqlite.Config{SQLitePath: path}, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := configstore.NewBackend(creator)
+	if err := schema.RegisterDefaultStores(backend); err != nil {
+		t.Fatal(err)
+	}
+	startup := gateway.NewAgentGateway()
+	err = startup.Bootstrap(ctx, gateway.BootstrapOptions{ConfigStoreBackend: backend})
+	startup.Close()
+	if err == nil || !strings.Contains(err.Error(), `agent "agent" policy.budget is unsupported`) || !strings.Contains(err.Error(), "repair-architecture-config") {
+		t.Fatalf("startup error = %v", err)
+	}
+	if err := RepairSQLite(ctx, db, path+".bak", true, nil, []Operation{{Family: "agents", ID: "agent", Action: "remove-budget"}}); err != nil {
+		t.Fatal(err)
+	}
+	restarted := gateway.NewAgentGateway()
+	if err := restarted.Bootstrap(ctx, gateway.BootstrapOptions{ConfigStoreBackend: backend}); err != nil {
+		t.Fatal(err)
+	}
+	restarted.Close()
+}
+
 func TestRepairRollsBackSilentlyIgnoredWrites(t *testing.T) {
 	for _, trigger := range []string{
 		`CREATE TRIGGER ignore_update BEFORE UPDATE ON routes BEGIN SELECT RAISE(IGNORE); END`,

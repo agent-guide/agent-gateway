@@ -13,6 +13,16 @@ managers; those packages must not depend on `pkg/agent`.
 
 Important files:
 
+Agent validation rejects every non-null `policy.budget`, including empty/all-zero
+objects, because there is no budget executor. Stored loading and Refresh must
+apply the same rule before publication; failures identify the Agent and offline
+recovery entry point. Never silently remove old budgets. Resources are management
+declarations; MCPServiceIDs also validates builtin tool definitions and must be
+retained. ProviderIDs and VirtualKeyIDs are not per-request authorization.
+Agent `policy.max_agent_depth` remains a builtin-host check; the independent
+process metrics limit checks incoming `X-Agent-Depth` in the dispatcher. Do not
+merge them or extend the Agent policy to other runtimes in this refactoring.
+
 - `runtime/`: the runtime-neutral, turn-first Agent execution contracts,
   optional capability interfaces, normalized errors, and backend registry.
   It may depend on the `Agent` definition but must not import ACP, LLM, MCP, or

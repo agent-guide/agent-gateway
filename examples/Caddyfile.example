@@ -13,6 +13,7 @@
 # non-overlapping methods. Inspect old conflicts with scripts/repair-architecture-config.
 # Direct targets serialize only target_policy.provider_target.provider_id;
 # existing outer target_policy.provider_id fields require explicit conversion.
+# Agent budgets are unsupported: omit policy.budget or set it to null in Bundles.
 #
 # Caddy module IDs:
 # - agent_gateway
