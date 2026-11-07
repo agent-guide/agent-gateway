@@ -91,7 +91,18 @@ Use managed credentials when you need:
 - `grok` defaults to `https://api.x.ai/v1`
 - `ollama` can be used without an API key
 
-The OpenAI-compatible chat providers (`openai`, `deepseek`, `openrouter`, `zhipu`, `qwen`, `grok`) accept `option compact cc`, which drops the OpenAI-style `metadata` and `user` request fields that Claude Code CLI always sends but some upstreams (e.g. GLM) reject. Providers ignore compact modes they do not support.
+The OpenAI-compatible chat providers (`openai`, `deepseek`, `openrouter`, `zhipu`, `qwen`, `grok`) accept `option compact cc`, which drops the OpenAI-style `metadata` and `user` request fields that Claude Code CLI always sends but some upstreams (e.g. GLM) reject.
+
+`compact` means client compatibility shaping, not context compaction. It is
+independent of route `protocol=cc`, provider `provider_type=codex|claudecode`,
+and Agent `runtime.acp.agent_type=codex`. Inapplicable valid modes can be accepted
+and ignored. Invalid modes produce constructor errors in the six Chat providers,
+Codex and Claude Code; Anthropic, Gemini and Ollama accept and ignore them.
+Check the [complete support matrix](../design/provider-compatibility.md) before
+selecting a mode. For example, `codex` plus `compact=cc` filters unsupported
+Claude Code stateful tools, while `claudecode` plus `compact=codex` translates
+Codex tool names. Neither setting changes the route's client protocol or starts
+an ACP process.
 
 `deepseek` and `zhipu` also accept `option thinking_type <disabled|enabled|none>`. DeepSeek defaults to `disabled` because its thinking-mode tool loops require reasoning replay that the cc/anthropic path does not provide for that provider. Zhipu omits `thinking` by default so current GLM models use their upstream default; request-level `thinking` takes precedence, and `reasoning_content` is preserved across OpenAI Chat, Responses compatibility, and cc/Anthropic tool loops. Zhipu streaming tool requests automatically send `tool_stream=true`. Use an explicit provider option only to force one mode for every request. Zhipu's `option api_profile <auto|standard|coding_plan>` controls endpoint-specific defaults; set `coding_plan` behind custom proxies. Provider-level `context_window`, `max_output_tokens`, `vision`, and `embeddings` options can override those defaults, while per-model differences belong in managed-model `capability_overrides`.
 

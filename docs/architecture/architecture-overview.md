@@ -438,9 +438,11 @@ This allows the request path to resolve a named target provider without hard-cod
 
 Provider config `options.compact` selects compatibility shaping. The parser
 recognizes `cc`, `codex`, and `none`; application and validation depend on the
-provider constructor. For example, Codex applies `cc`, Claude Code applies
-`codex`, and OpenAI validates the option without applying those profiles. This
-setting is distinct from route ingress protocol and ACP runtime type.
+provider constructor. Codex applies `cc`; Claude Code applies `codex`. OpenAI,
+Qwen, DeepSeek, Grok, OpenRouter and Zhipu apply `cc` to Chat construction and
+accept but ignore `codex`. Anthropic, Gemini and Ollama ignore this option without
+strict validation. This setting is distinct from route ingress protocol and ACP
+runtime type; see the [support matrix](../design/provider-compatibility.md).
 
 ## 7. Data Flows
 
