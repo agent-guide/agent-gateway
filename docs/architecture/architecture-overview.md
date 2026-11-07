@@ -296,7 +296,7 @@ The selected eino-backed Chat providers share only execution plumbing in
 `pkg/llm/provider/einochat`; vendor construction and native Responses remain
 local. See [scoped chat execution](../design/provider-chat-execution.md).
 
-### 4.7 `pkg/mcp/`, `pkg/acp/`, `pkg/a2a/`, `pkg/agent/`, `pkg/llm/memory/`
+### 4.7 Protocol Runtimes, Agent Composition And Reserved Memory
 
 Current status:
 
@@ -325,11 +325,11 @@ Current status:
   - A2A Protocol 1.0 Card, JSON-RPC, client, and governed proxy primitives
   - used by the HTTP Agent translating backend and native A2A ingress; see
     [http-agent-architecture.md](http-agent-architecture.md)
-- `pkg/llm/memory/`
-  - interfaces and SQLite/Mem0 backend scaffolding exist
-  - core storage, retrieval, and embedding operations are unimplemented
-  - no wired request-path storage or retrieval subsystem exists; the Admin
-    namespace remains reserved and returns 501
+- Memory
+  - unimplemented storage/backend/embedder scaffolding has been removed
+  - no request-path storage or retrieval subsystem exists; the Admin namespace
+    remains reserved and returns 501
+  - provider embedding APIs are independent of the Proposed Memory capability
 
 Architecturally, MCP and ACP are active native runtime subsystems, and `pkg/agent`
 is the active control plane that composes them. The builtin ADK host owns

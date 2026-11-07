@@ -28,7 +28,7 @@ func init() {
 }
 
 // App is the Caddy app module for the Agent Gateway.
-// It manages providers, MCP clients, memory stores, and configuration.
+// It owns the shared gateway services and their configuration lifecycle.
 type App struct {
 	// Providers lists the configured LLM providers.
 	Providers map[string]provider.ProviderConfig `json:"providers,omitempty"`

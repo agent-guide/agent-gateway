@@ -132,3 +132,9 @@ messages, options), OpenAI finish checks and Zhipu stream diagnostics local.
 Never retry streams, consume them in the helper, add vendor switches, or route
 native Responses through compatibility Chat. Anthropic/Claude Code/Codex/Gemini
 remain outside this helper. See docs/design/provider-chat-execution.md.
+
+Memory backend, storage-interface and embedding scaffolding was removed because
+it had no serving callers or implemented core operations. Memory remains Proposed
+and /admin/memory returns 501. Do not register placeholder backends as working
+extensions. Existing provider EmbeddingProvider behavior is independent and must
+remain intact; the removed memory tree is not a protected extension contract.

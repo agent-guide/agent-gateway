@@ -21,7 +21,14 @@ The current implementation baseline is:
 - LLM route expansion through `pkg/gateway/llmroute/`
 - Admin API in `pkg/admin`
 - `/admin/memory/...` endpoints are currently stubbed (`501 Not Implemented`)
-- an early memory abstraction already exists in `pkg/llm/memory/`
+- no Memory runtime, backend or embedding scaffold is linked or retained;
+  the earlier unimplemented package tree was removed
+- provider EmbeddingProvider support is independent and remains available
+
+The removed scaffolding included dimension defaults, nil Close/Health methods
+and some successful initialization methods. These did not provide working core
+storage, retrieval or embedding operations, and there were no serving callers
+or designated protected surfaces requiring those placeholders.
 
 ## 2. Goals
 
@@ -385,9 +392,11 @@ The store must support version-aware updates so later corrections or changed dec
 
 ## 11. Storage Model
 
-This design extends the existing `pkg/llm/memory/` abstraction rather than creating a parallel top-level memory subsystem.
+Memory has no existing runtime contract to extend. A future implementation must
+choose its package boundaries alongside the shared LLM execution seam. The removed
+scaffolding did not establish a protected SPI or a working storage contract.
 
-Retrieval and extraction storage must evolve `pkg/llm/memory` to support:
+A future retrieval and extraction storage contract must support:
 
 - explicit tenant scope
 - explicit namespace class and namespace ID
@@ -500,14 +509,16 @@ These may be emitted as extension events associated with the parent LLM interact
 
 ## 15. Package Structure
 
-The design extends existing memory runtime code instead of creating a competing package tree.
+The following is a Proposed package sketch, not checked-in runtime code. Package
+placement and exported interfaces must follow the chosen execution seam; no
+removed backend or embedder interface is a compatibility requirement.
 
 ```text
 pkg/gateway/llmroute/
     memory_policy.go          MemoryPolicy and validation
 
-pkg/llm/memory/
-    store.go                  extended core interfaces and entry types
+pkg/llm/memory/              proposed future location
+    store.go                  tenant-scoped storage interfaces and entry types
     namespace.go              namespace config and resolution
     retriever.go              retrieval pipeline
     extractor.go              async extraction pipeline
@@ -519,7 +530,9 @@ pkg/dispatcher/
     llm_executor.go           shared execute seam for LLM requests
 ```
 
-The important architectural point is not the exact filenames. It is that memory extends the existing `pkg/llm/memory` area and integrates into a shared LLM execution seam rather than living as a dispatcher-only patch.
+Memory would integrate into a shared LLM execution seam with explicit identity,
+namespace, capacity and content-policy contracts. The sketch does not authorize
+reintroducing stub implementations or advertising a working capability.
 
 ## 16. Integration Points
 
