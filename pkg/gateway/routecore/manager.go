@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +33,8 @@ type RouteConfigManager struct {
 	guard   configmgr.MutationGuard[RouteConfig]
 
 	mu            sync.RWMutex
+	table         *routeTable
+	invalidators  []func(string)
 	dynamicLoaded bool
 }
 
@@ -79,9 +80,7 @@ func (m *RouteConfigManager) Reset() {
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
 	m.base.Reset()
-	m.mu.Lock()
-	m.dynamicLoaded = false
-	m.mu.Unlock()
+	m.publishTable(false)
 }
 
 func (m *RouteConfigManager) InitStaticRoutes(routes []RouteConfig) error {
@@ -97,6 +96,10 @@ func (m *RouteConfigManager) InitStaticRoutes(routes []RouteConfig) error {
 		return err
 	}
 	m.base.InitStatic(routes)
+	m.mu.RLock()
+	loaded := m.dynamicLoaded
+	m.mu.RUnlock()
+	m.publishTable(loaded)
 	return nil
 }
 
@@ -112,8 +115,10 @@ func (m *RouteConfigManager) Get(ctx context.Context, routeID string) (RouteConf
 	if err := m.ensureDynamicLoaded(ctx); err != nil {
 		return RouteConfig{}, err
 	}
-	if route, ok := m.base.GetCached(routeID); ok {
-		return route, nil
+	if table := m.publishedTable(); table != nil {
+		if route, ok := table.byID[routeID]; ok {
+			return cloneRouteConfig(route), nil
+		}
 	}
 	return RouteConfig{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
 }
@@ -139,9 +144,7 @@ func (m *RouteConfigManager) refreshLocked(ctx context.Context) error {
 	if err := m.base.Refresh(ctx, configmgr.ListQuery{}); err != nil {
 		return err
 	}
-	m.mu.Lock()
-	m.dynamicLoaded = true
-	m.mu.Unlock()
+	m.publishTable(true)
 	return nil
 }
 
@@ -150,8 +153,7 @@ func (m *RouteConfigManager) Match(ctx context.Context, r *http.Request) (RouteC
 	if err := m.ensureDynamicLoaded(ctx); err != nil {
 		return RouteConfig{}, false, err
 	}
-	routes := m.base.Snapshot(configmgr.ListQuery{})
-	return matchRouteConfigs(routes, r)
+	return m.publishedTable().match(r)
 }
 
 func (m *RouteConfigManager) ensureDynamicLoaded(ctx context.Context) error {
@@ -164,58 +166,12 @@ func (m *RouteConfigManager) ensureDynamicLoaded(ctx context.Context) error {
 	return m.Refresh(ctx)
 }
 
-func MatchManagers(ctx context.Context, r *http.Request, managers ...*RouteConfigManager) (RouteConfig, bool, error) {
-	routes := make([]RouteConfig, 0)
-	for _, manager := range managers {
-		if manager == nil {
-			continue
-		}
-		if err := manager.ensureDynamicLoaded(ctx); err != nil {
-			return RouteConfig{}, false, err
-		}
-		routes = append(routes, manager.base.Snapshot(configmgr.ListQuery{})...)
-	}
-
-	return matchRouteConfigs(routes, r)
-}
-
 func MatchRouteConfigs(routes []RouteConfig, r *http.Request) (RouteConfig, bool, error) {
 	return matchRouteConfigs(routes, r)
 }
 
 func matchRouteConfigs(routes []RouteConfig, r *http.Request) (RouteConfig, bool, error) {
-	var (
-		best      RouteConfig
-		bestScore routeMatchScore
-		found     bool
-	)
-	var tied []string
-	for _, route := range routes {
-		// Native A2A owns its exact endpoint's 404/405 behavior. Its validated
-		// GET+POST method declaration must not prevent the dispatcher from
-		// returning protocol-correct transport errors for other methods.
-		match := EffectiveMatch(route)
-		if !routeMatchesRequest(match, r) {
-			continue
-		}
-		score := scoreRouteMatch(route.MatchPolicy)
-		if !found || score.betterThan(bestScore) {
-			best = route
-			bestScore = score
-			found = true
-			tied = nil
-		} else if score == bestScore {
-			if len(tied) == 0 {
-				tied = append(tied, best.ID)
-			}
-			tied = append(tied, route.ID)
-		}
-	}
-	if len(tied) > 1 {
-		sort.Strings(tied)
-		return RouteConfig{}, false, fmt.Errorf("%w: equally matching routes %q", ErrAmbiguousRoute, tied)
-	}
-	return cloneRouteConfig(best), found, nil
+	return compileRouteTable(routes).match(r)
 }
 
 func (m *RouteConfigManager) Create(ctx context.Context, route RouteConfig, tag string) error {
@@ -239,9 +195,7 @@ func (m *RouteConfigManager) create(ctx context.Context, route RouteConfig, tag 
 	if err := m.base.CreatePrepared(ctx, route.ID, storedRouteConfig{route: route, tag: tag}, route); err != nil {
 		return err
 	}
-	m.mu.Lock()
-	m.dynamicLoaded = true
-	m.mu.Unlock()
+	m.publishTable(true)
 	return nil
 }
 
@@ -278,9 +232,7 @@ func (m *RouteConfigManager) update(ctx context.Context, routeID string, route R
 	if err := m.base.Update(ctx, routeID, route); err != nil {
 		return err
 	}
-	m.mu.Lock()
-	m.dynamicLoaded = true
-	m.mu.Unlock()
+	m.publishTable(true)
 	return nil
 }
 
@@ -300,9 +252,7 @@ func (m *RouteConfigManager) delete(ctx context.Context, routeID string) error {
 	if err := m.base.Delete(ctx, routeID); err != nil {
 		return err
 	}
-	m.mu.Lock()
-	m.dynamicLoaded = true
-	m.mu.Unlock()
+	m.publishTable(true)
 	return nil
 }
 

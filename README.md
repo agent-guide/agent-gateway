@@ -121,6 +121,9 @@ providers.
 
 ## Architecture
 
+Both server modes publish validated route generations; request matching reads an
+in-memory table without loading configuration storage.
+
 ![Agent Gateway architecture overview](docs/architecture/assets/agent-gateway-overview.svg)
 
 The gateway exposes two directions of traffic:

@@ -448,7 +448,7 @@ func parseRouteSegment(d *caddyfile.Dispenser, app *App) (routecore.RouteConfig,
 
 	routeID := strings.Trim(args[0], "\"`")
 	route := llmroutepkg.LLMRoute{
-		RouteConfig: routecore.RouteConfig{
+		RouteMetadata: routecore.RouteMetadata{
 			ID:   routeID,
 			Kind: routecore.RouteKindLLM,
 		},

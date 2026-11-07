@@ -22,13 +22,14 @@ const (
 )
 
 type RouteConfig = routecore.RouteConfig
+type RouteMetadata = routecore.RouteMetadata
 type RouteMatch = routecore.RouteMatchPolicy
 type RouteAuthPolicy = routecore.RouteAuthPolicy
 type RouteListOptions = routecore.RouteListOptions
 
 // MCPRoute is the expanded configuration form of an MCP route.
 type MCPRoute struct {
-	RouteConfig
+	RouteMetadata
 	ServiceID string `json:"service_id"`
 }
 
@@ -54,22 +55,10 @@ func (r *MCPRoute) Normalize() {
 	if r == nil {
 		return
 	}
-	r.RouteConfig = normalizeConfigDefaults(r.RouteConfig)
+	r.RouteMetadata = normalizeConfigDefaults(r.RouteMetadata.Config(nil)).Metadata()
 	r.ServiceID = strings.TrimSpace(r.ServiceID)
 	if r.ID == "" && r.ServiceID != "" {
 		r.ID = routecore.GenerateRouteID("mcp", r.ServiceID, r.MatchPolicy.PathPrefix)
-	}
-}
-
-func (r *MCPRoute) NormalizeTimestamps(now time.Time) {
-	if r == nil {
-		return
-	}
-	if r.CreatedAt.IsZero() {
-		r.CreatedAt = now
-	}
-	if r.UpdatedAt.IsZero() {
-		r.UpdatedAt = now
 	}
 }
 
@@ -122,7 +111,7 @@ func (r *MCPRoute) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	r.RouteConfig = normalizeConfigDefaults(RouteConfig{
+	r.RouteMetadata = normalizeConfigDefaults(RouteConfig{
 		ID:          raw.ID,
 		Kind:        raw.Kind,
 		Protocol:    raw.Protocol,
@@ -132,7 +121,7 @@ func (r *MCPRoute) UnmarshalJSON(data []byte) error {
 		MatchPolicy: raw.MatchPolicy,
 		CreatedAt:   raw.CreatedAt,
 		UpdatedAt:   raw.UpdatedAt,
-	})
+	}).Metadata()
 	r.ServiceID = raw.ServiceID
 	r.Normalize()
 	return nil
@@ -152,14 +141,14 @@ func DecodeStoredMCPRoute(data []byte) (any, error) {
 }
 
 func NewMCPRouteFromConfig(cfg RouteConfig) (MCPRoute, error) {
-	cfg = normalizeConfigDefaults(cfg)
+	cfg = normalizeConfigDefaults(cfg.Clone())
 	serviceID, err := decodeServiceID(cfg.TargetPolicy)
 	if err != nil {
 		return MCPRoute{}, fmt.Errorf("route %q decode target policy: %w", cfg.ID, err)
 	}
 	route := MCPRoute{
-		RouteConfig: cfg,
-		ServiceID:   serviceID,
+		RouteMetadata: cfg.Metadata(),
+		ServiceID:     serviceID,
 	}
 	route.Normalize()
 	return route, nil
@@ -174,17 +163,7 @@ func (r MCPRoute) ToConfig() (RouteConfig, error) {
 	if err != nil {
 		return RouteConfig{}, fmt.Errorf("route %q encode target policy: %w", r.ID, err)
 	}
-	cfg := r.RouteConfig
-	cfg.ID = r.ID
-	cfg.Kind = RouteKindMCP
-	cfg.Protocol = RouteProtocolMCP
-	cfg.Description = r.Description
-	cfg.Disabled = r.Disabled
-	cfg.AuthPolicy = r.AuthPolicy
-	cfg.MatchPolicy = r.MatchPolicy
-	cfg.TargetPolicy = targetPolicy
-	cfg.CreatedAt = r.CreatedAt
-	cfg.UpdatedAt = r.UpdatedAt
+	cfg := r.RouteMetadata.Config(targetPolicy)
 	return cfg, nil
 }
 

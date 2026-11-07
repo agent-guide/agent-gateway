@@ -19,7 +19,7 @@ type LLMRouteResolver struct {
 }
 
 func NewLLMRouteResolver(configManager *routecore.RouteConfigManager) *LLMRouteResolver {
-	return &LLMRouteResolver{
+	resolver := &LLMRouteResolver{
 		configManager: configManager,
 		base: runtimecore.NewResolver(
 			runtimecore.FuncSource[routecore.RouteConfig, routecore.RouteListOptions]{
@@ -53,6 +53,10 @@ func NewLLMRouteResolver(configManager *routecore.RouteConfigManager) *LLMRouteR
 			},
 		),
 	}
+	if configManager != nil {
+		configManager.AddInvalidator(resolver.base.Invalidate)
+	}
+	return resolver
 }
 
 func (r *LLMRouteResolver) ConfigManager() *routecore.RouteConfigManager {
@@ -128,6 +132,11 @@ func (r *LLMRouteResolver) Resolve(ctx context.Context, cfg routecore.RouteConfi
 	if route == nil {
 		return nil, fmt.Errorf("route %q is nil", cfg.ID)
 	}
+	copy, err := route.Clone()
+	if err != nil {
+		return nil, err
+	}
+	route = &copy
 	if err := route.ValidateDefinition(); err != nil {
 		return nil, err
 	}

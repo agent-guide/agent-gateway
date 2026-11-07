@@ -44,7 +44,7 @@ func TestApplyAgentRoutesStripsExportedManagedTimestamps(t *testing.T) {
 
 	now := time.Now().UTC()
 	bundle := &gatewaybundle.GatewayBundle{AgentRoutes: []agentroute.AgentRouteConfig{{
-		RouteConfig: agentroute.RouteConfig{
+		RouteMetadata: agentroute.RouteMetadata{
 			ID: "agent:reviewer:review", MatchPolicy: agentroute.RouteMatch{PathPrefix: "/review"},
 			CreatedAt: now, UpdatedAt: now,
 		},

@@ -20,7 +20,7 @@ type MCPRouteResolver struct {
 }
 
 func NewMCPRouteResolver(configManager *routecore.RouteConfigManager) *MCPRouteResolver {
-	return &MCPRouteResolver{
+	resolver := &MCPRouteResolver{
 		configManager: configManager,
 		base: runtimecore.NewResolver(
 			runtimecore.FuncSource[routecore.RouteConfig, RouteListOptions]{
@@ -52,6 +52,10 @@ func NewMCPRouteResolver(configManager *routecore.RouteConfigManager) *MCPRouteR
 			},
 		),
 	}
+	if configManager != nil {
+		configManager.AddInvalidator(resolver.base.Invalidate)
+	}
+	return resolver
 }
 
 func (r *MCPRouteResolver) ConfigManager() *routecore.RouteConfigManager {
@@ -142,6 +146,9 @@ func (r *MCPRouteResolver) Resolve(ctx context.Context, cfg routecore.RouteConfi
 	if route == nil {
 		return nil, fmt.Errorf("route %q is nil", cfg.ID)
 	}
+	copy := *route
+	copy.RouteMetadata = copy.RouteMetadata.Clone()
+	route = &copy
 	return route, nil
 }
 

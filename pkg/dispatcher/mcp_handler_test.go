@@ -144,7 +144,7 @@ func TestCancelRequestCancelsInFlightRequest(t *testing.T) {
 	t.Parallel()
 
 	handler := &Handler{gateway: gateway.NewAgentGateway()}
-	route := &mcproute.MCPRoute{RouteConfig: mcproute.RouteConfig{ID: "route-1"}, ServiceID: "svc-1"}
+	route := &mcproute.MCPRoute{RouteMetadata: mcproute.RouteMetadata{ID: "route-1"}, ServiceID: "svc-1"}
 	msg := transport.Message{
 		JSONRPC: "2.0",
 		ID:      "req-1",
@@ -175,7 +175,7 @@ func TestCancelRequestRejectsInitialize(t *testing.T) {
 	t.Parallel()
 
 	handler := &Handler{gateway: gateway.NewAgentGateway()}
-	route := &mcproute.MCPRoute{RouteConfig: mcproute.RouteConfig{ID: "route-1"}, ServiceID: "svc-1"}
+	route := &mcproute.MCPRoute{RouteMetadata: mcproute.RouteMetadata{ID: "route-1"}, ServiceID: "svc-1"}
 	_, finish := handler.beginRequest(context.Background(), route, transport.Message{
 		JSONRPC: "2.0",
 		ID:      "init-1",
@@ -196,7 +196,7 @@ func TestHandleProgressNotificationStoresState(t *testing.T) {
 	t.Parallel()
 
 	handler := &Handler{gateway: gateway.NewAgentGateway()}
-	route := &mcproute.MCPRoute{RouteConfig: mcproute.RouteConfig{ID: "route-1"}, ServiceID: "svc-1"}
+	route := &mcproute.MCPRoute{RouteMetadata: mcproute.RouteMetadata{ID: "route-1"}, ServiceID: "svc-1"}
 	_, finish := handler.beginRequest(context.Background(), route, transport.Message{
 		JSONRPC: "2.0",
 		ID:      "req-2",
@@ -257,7 +257,7 @@ func TestDispatchJSONRPCUsesGatewayVirtualKeyResolution(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret-key")
 	rec := httptest.NewRecorder()
 	route := &mcproute.MCPRoute{
-		RouteConfig: mcproute.RouteConfig{
+		RouteMetadata: mcproute.RouteMetadata{
 			ID:         "mcp-route",
 			AuthPolicy: mcproute.RouteAuthPolicy{RequireVirtualKey: true},
 		},

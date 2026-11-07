@@ -115,6 +115,8 @@ Claude Code 的使用方式不同：它是专用 `cc` Anthropic Messages 入口 
 
 ## 架构
 
+两种服务模式均发布经过校验的完整路由代际；请求匹配读取内存表，无需加载配置存储。
+
 ![Agent Gateway 架构概览](docs/architecture/assets/agent-gateway-overview.svg)
 
 网关处理两个方向的流量：

@@ -185,8 +185,8 @@ type testRouteStore struct {
 func testAdminRoute(cfg llmroutepkg.RouteConfig, protocol llmroutepkg.RouteProtocol, targetPolicy llmroutepkg.RouteTargetPolicy) llmroutepkg.LLMRoute {
 	cfg.Protocol = protocol
 	return llmroutepkg.LLMRoute{
-		RouteConfig:  cfg,
-		TargetPolicy: targetPolicy,
+		RouteMetadata: cfg.Metadata(),
+		TargetPolicy:  targetPolicy,
 	}
 }
 
@@ -656,7 +656,7 @@ func TestLLMRouteCRUD(t *testing.T) {
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	createBody, err := json.Marshal(llmroutepkg.LLMRoute{
-		RouteConfig: llmroutepkg.RouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
+		RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
 		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
 			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
 		},
@@ -737,7 +737,7 @@ func TestAgentRouteCRUD(t *testing.T) {
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	createBody, err := json.Marshal(agentroute.AgentRouteConfig{
-		RouteConfig: agentroute.RouteConfig{
+		RouteMetadata: agentroute.RouteMetadata{
 			ID:          "assistant",
 			MatchPolicy: agentroute.RouteMatch{PathPrefix: "/agents/assistant"},
 			AuthPolicy:  agentroute.RouteAuthPolicy{RequireVirtualKey: true},
@@ -829,7 +829,7 @@ func TestLLMRouteUpdatePreservesCreatedAt(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{providerStore: providerFixtures("openai", "anthropic"),
 		routeStore: &testRouteStore{items: map[string]*routecore.RouteConfig{
 			"chat-prod": mustRouteConfig(t, llmroutepkg.LLMRoute{
-				RouteConfig: llmroutepkg.RouteConfig{
+				RouteMetadata: llmroutepkg.RouteMetadata{
 					ID:        "chat-prod",
 					Protocol:  llmroutepkg.RouteProtocolOpenAI,
 					CreatedAt: createdAt,
@@ -844,7 +844,7 @@ func TestLLMRouteUpdatePreservesCreatedAt(t *testing.T) {
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	updateBody, err := json.Marshal(llmroutepkg.LLMRoute{
-		RouteConfig: llmroutepkg.RouteConfig{Protocol: llmroutepkg.RouteProtocolOpenAI},
+		RouteMetadata: llmroutepkg.RouteMetadata{Protocol: llmroutepkg.RouteProtocolOpenAI},
 		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
 			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "anthropic"},
 		},
@@ -880,7 +880,7 @@ func TestLLMRouteCreateRejectsClientManagedTimestamps(t *testing.T) {
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body, err := json.Marshal(llmroutepkg.LLMRoute{
-		RouteConfig: llmroutepkg.RouteConfig{
+		RouteMetadata: llmroutepkg.RouteMetadata{
 			ID:        "chat-prod",
 			Protocol:  llmroutepkg.RouteProtocolOpenAI,
 			CreatedAt: time.Now().UTC(),
@@ -916,7 +916,7 @@ func TestMCPRouteAutoIDIsSlashFreeAndAddressable(t *testing.T) {
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	createBody, err := json.Marshal(mcproute.MCPRoute{
-		RouteConfig: mcproute.RouteConfig{
+		RouteMetadata: mcproute.RouteMetadata{
 			MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp/foo"},
 		},
 		ServiceID: "svc-main",
@@ -972,7 +972,7 @@ func TestMCPRouteCreateRejectsSlashID(t *testing.T) {
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	createBody, err := json.Marshal(mcproute.MCPRoute{
-		RouteConfig: mcproute.RouteConfig{
+		RouteMetadata: mcproute.RouteMetadata{
 			ID:          "mcp/with/slash",
 			MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
 		},
@@ -998,7 +998,7 @@ func TestMCPRouteCRUD(t *testing.T) {
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	createBody, err := json.Marshal(mcproute.MCPRoute{
-		RouteConfig: mcproute.RouteConfig{
+		RouteMetadata: mcproute.RouteMetadata{
 			ID:          "mcp-route-1",
 			MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
 		},
@@ -1037,7 +1037,7 @@ func TestListMCPRoutes(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testMCPRouteStore{items: map[string]*routecore.RouteConfig{
 			"mcp-route-1": mustMCPRouteConfig(t, mcproute.MCPRoute{
-				RouteConfig: mcproute.RouteConfig{
+				RouteMetadata: mcproute.RouteMetadata{
 					ID:          "mcp-route-1",
 					MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
 				},
@@ -1070,7 +1070,7 @@ func TestListRoutesExcludesMCPRoutesFromSharedStore(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testRouteStore{items: map[string]*routecore.RouteConfig{
 			"chat-prod": mustRouteConfig(t, llmroutepkg.LLMRoute{
-				RouteConfig: llmroutepkg.RouteConfig{
+				RouteMetadata: llmroutepkg.RouteMetadata{
 					ID:          "chat-prod",
 					Protocol:    llmroutepkg.RouteProtocolOpenAI,
 					MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/v1"},
@@ -1080,7 +1080,7 @@ func TestListRoutesExcludesMCPRoutesFromSharedStore(t *testing.T) {
 				},
 			}),
 			"mcp-route-1": mustMCPRouteConfig(t, mcproute.MCPRoute{
-				RouteConfig: mcproute.RouteConfig{
+				RouteMetadata: mcproute.RouteMetadata{
 					ID:          "mcp-route-1",
 					MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
 				},
@@ -1113,7 +1113,7 @@ func TestListMCPRoutesExcludesLLMRoutesFromSharedStore(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testRouteStore{items: map[string]*routecore.RouteConfig{
 			"chat-prod": mustRouteConfig(t, llmroutepkg.LLMRoute{
-				RouteConfig: llmroutepkg.RouteConfig{
+				RouteMetadata: llmroutepkg.RouteMetadata{
 					ID:          "chat-prod",
 					Protocol:    llmroutepkg.RouteProtocolOpenAI,
 					MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/v1"},
@@ -1123,7 +1123,7 @@ func TestListMCPRoutesExcludesLLMRoutesFromSharedStore(t *testing.T) {
 				},
 			}),
 			"mcp-route-1": mustMCPRouteConfig(t, mcproute.MCPRoute{
-				RouteConfig: mcproute.RouteConfig{
+				RouteMetadata: mcproute.RouteMetadata{
 					ID:          "mcp-route-1",
 					MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
 				},
@@ -1568,7 +1568,7 @@ func TestLLMRouteEnableDisable(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{providerStore: providerFixtures("openai"),
 		routeStore: &testRouteStore{items: map[string]*routecore.RouteConfig{
 			"chat-prod": mustRouteConfig(t, llmroutepkg.LLMRoute{
-				RouteConfig: llmroutepkg.RouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
+				RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
 				TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
 					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
 				},
@@ -2045,7 +2045,7 @@ func TestProviderDeleteRejectsRouteReferences(t *testing.T) {
 	}}
 	routeStore := &testRouteStore{items: map[string]*routecore.RouteConfig{
 		"chat": mustRouteConfig(t, llmroutepkg.LLMRoute{
-			RouteConfig: llmroutepkg.RouteConfig{
+			RouteMetadata: llmroutepkg.RouteMetadata{
 				ID:       "chat",
 				Kind:     routecore.RouteKindLLM,
 				Protocol: routecore.RouteProtocolOpenAI,
@@ -2167,7 +2167,7 @@ func TestLLMRouteGetReadsStaticRouteConfigManager(t *testing.T) {
 	store := &testRouteStore{
 		items: map[string]*routecore.RouteConfig{
 			"chat-dynamic": mustRouteConfig(t, llmroutepkg.LLMRoute{
-				RouteConfig: llmroutepkg.RouteConfig{ID: "chat-dynamic", MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/dynamic"}},
+				RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-dynamic", MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/dynamic"}},
 				TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
 					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
 				},
@@ -2175,7 +2175,7 @@ func TestLLMRouteGetReadsStaticRouteConfigManager(t *testing.T) {
 		},
 	}
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []llmroutepkg.LLMRoute{{
-		RouteConfig: llmroutepkg.RouteConfig{ID: "chat-prod"},
+		RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-prod"},
 		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
 			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "anthropic"},
 		},
@@ -2207,7 +2207,7 @@ func TestLLMRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 	store := &testRouteStore{
 		items: map[string]*routecore.RouteConfig{
 			"chat-dynamic": mustRouteConfig(t, llmroutepkg.LLMRoute{
-				RouteConfig: llmroutepkg.RouteConfig{ID: "chat-dynamic"},
+				RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-dynamic"},
 				TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
 					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
 				},
@@ -2215,7 +2215,7 @@ func TestLLMRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 		},
 	}
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []llmroutepkg.LLMRoute{{
-		RouteConfig: llmroutepkg.RouteConfig{ID: "chat-static", MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/static"}},
+		RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-static", MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/static"}},
 		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
 			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "anthropic"},
 		},

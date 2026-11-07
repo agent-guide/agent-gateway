@@ -14,6 +14,7 @@ type materializedEntry[T any] struct {
 
 type Materializer[T any] struct {
 	mu    sync.RWMutex
+	epoch uint64
 	cache map[string]materializedEntry[T]
 }
 
@@ -36,6 +37,7 @@ func (m *Materializer[T]) Resolve(key string, version string, build BuildFunc[T]
 	}
 
 	m.mu.RLock()
+	epoch := m.epoch
 	cached, ok := m.cache[key]
 	m.mu.RUnlock()
 	if ok && cached.version == version {
@@ -49,6 +51,9 @@ func (m *Materializer[T]) Resolve(key string, version string, build BuildFunc[T]
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.epoch != epoch {
+		return value, nil
+	}
 	if m.cache == nil {
 		m.cache = map[string]materializedEntry[T]{}
 	}
@@ -65,6 +70,7 @@ func (m *Materializer[T]) Invalidate(key string) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.epoch++
 	delete(m.cache, key)
 }
 
@@ -74,5 +80,6 @@ func (m *Materializer[T]) Reset() {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.epoch++
 	m.cache = map[string]materializedEntry[T]{}
 }

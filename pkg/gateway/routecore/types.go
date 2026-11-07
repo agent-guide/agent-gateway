@@ -1,8 +1,9 @@
 package routecore
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
-	"strconv"
 	"time"
 )
 
@@ -50,17 +51,16 @@ type RouteConfig struct {
 	UpdatedAt    time.Time        `json:"updated_at"`
 }
 
-// Fingerprint returns a cheap version string for the route config used as the
-// runtime resolver materializer key. UpdatedAt is bumped on every Create/Update,
-// so it changes whenever the stored config changes. This is a secondary cache
-// signal only: the route resolvers also explicitly Invalidate on every mutation,
-// so the fingerprint exists to self-heal any resolver that missed invalidation.
-// Avoid marshaling the whole config here; this runs on every matched request.
+// Fingerprint identifies all persisted fields, including target changes whose
+// timestamps collide in custom stores. Hash the whole value because callers may
+// mutate a detached config without updating its timestamp.
 func (c RouteConfig) Fingerprint() string {
-	return strconv.FormatInt(c.UpdatedAt.UnixNano(), 10)
+	data, _ := json.Marshal(c)
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:])
 }
 
-// RouteMatchPolicy contains transport-facing match fields for binding requests to a route.
+// RouteMatchPolicy contains transport-facing match fields.
 type RouteMatchPolicy struct {
 	Host       string   `json:"host,omitempty"`
 	PathPrefix string   `json:"path_prefix,omitempty"`

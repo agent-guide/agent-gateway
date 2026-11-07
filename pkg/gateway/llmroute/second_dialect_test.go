@@ -235,7 +235,7 @@ func TestSecondDialectUsesGenericProtocolExtensionPoints(t *testing.T) {
 			t.Fatal(err)
 		}
 		route := LLMRoute{
-			RouteConfig: RouteConfig{ID: "fixture-route"},
+			RouteMetadata: RouteMetadata{ID: "fixture-route"},
 			TargetPolicy: &RouteLogicalModelTargetPolicy{DefaultModel: "fixture", ModelTargets: []RouteModelTarget{{
 				Name: "fixture", Candidates: []RouteModelCandidate{
 					{ProviderID: "generic", UpstreamModel: "model", Priority: 1, Weight: 1},

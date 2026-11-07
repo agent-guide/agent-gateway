@@ -27,6 +27,7 @@ const (
 )
 
 type RouteConfig = routecore.RouteConfig
+type RouteMetadata = routecore.RouteMetadata
 type RouteMatchPolicy = routecore.RouteMatchPolicy
 type RouteAuthPolicy = routecore.RouteAuthPolicy
 
@@ -115,7 +116,7 @@ func DecodeStoredRoute(data []byte) (any, error) {
 
 // LLMRoute is the expanded configuration form of an LLM route.
 type LLMRoute struct {
-	RouteConfig
+	RouteMetadata
 	TargetPolicy RouteTargetPolicy
 }
 
@@ -141,18 +142,6 @@ type DirectProviderTarget struct {
 type RouteFallbackPolicy struct {
 	Enabled bool `json:"enabled,omitempty"`
 	MaxNum  int  `json:"max_num,omitempty"`
-}
-
-func (r *LLMRoute) NormalizeTimestamps(now time.Time) {
-	if r == nil {
-		return
-	}
-	if r.CreatedAt.IsZero() {
-		r.CreatedAt = now
-	}
-	if r.UpdatedAt.IsZero() {
-		r.UpdatedAt = now
-	}
 }
 
 func (r LLMRoute) MarshalJSON() ([]byte, error) {
@@ -208,7 +197,7 @@ func (r *LLMRoute) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	r.RouteConfig = RouteConfig{
+	r.RouteMetadata = RouteMetadata{
 		ID:          raw.ID,
 		Kind:        raw.Kind,
 		Protocol:    raw.Protocol,
@@ -224,14 +213,14 @@ func (r *LLMRoute) UnmarshalJSON(data []byte) error {
 }
 
 func NewLLMRouteFromConfig(cfg RouteConfig) (LLMRoute, error) {
-	cfg = normalizeConfigDefaults(cfg)
+	cfg = normalizeConfigDefaults(cfg.Clone())
 	targetPolicy, err := unmarshalRouteTargetPolicy(cfg.TargetPolicy)
 	if err != nil {
 		return LLMRoute{}, fmt.Errorf("route %q decode target policy: %w", cfg.ID, err)
 	}
 	return LLMRoute{
-		RouteConfig:  cfg,
-		TargetPolicy: targetPolicy,
+		RouteMetadata: cfg.Metadata(),
+		TargetPolicy:  targetPolicy,
 	}, nil
 }
 
@@ -241,17 +230,8 @@ func (r LLMRoute) ToConfig() (RouteConfig, error) {
 	if err != nil {
 		return RouteConfig{}, fmt.Errorf("route %q encode target policy: %w", r.ID, err)
 	}
-	cfg := r.RouteConfig
-	cfg.ID = strings.TrimSpace(r.ID)
+	cfg := r.RouteMetadata.Config(targetPolicy)
 	cfg.Kind = RouteKindLLM
-	cfg.Protocol = normalizeRouteProtocol(cfg.Protocol)
-	cfg.Description = strings.TrimSpace(r.Description)
-	cfg.Disabled = r.Disabled
-	cfg.AuthPolicy = r.AuthPolicy
-	cfg.MatchPolicy = r.MatchPolicy
-	cfg.TargetPolicy = targetPolicy
-	cfg.CreatedAt = r.CreatedAt
-	cfg.UpdatedAt = r.UpdatedAt
 	return cfg, nil
 }
 
@@ -375,7 +355,7 @@ func (r *LLMRoute) Normalize() {
 	if r == nil {
 		return
 	}
-	r.RouteConfig = normalizeConfigDefaults(r.RouteConfig)
+	r.RouteMetadata = normalizeConfigDefaults(r.RouteMetadata.Config(nil)).Metadata()
 	if r.TargetPolicy != nil {
 		r.TargetPolicy.Normalize()
 	}

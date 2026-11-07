@@ -302,7 +302,7 @@ func TestEncodeYAMLOmitsServerManagedTimestamps(t *testing.T) {
 		APIVersion: APIVersionV1Alpha1,
 		Kind:       KindGatewayBundle,
 		AgentRoutes: []agentroute.AgentRouteConfig{{
-			RouteConfig: agentroute.RouteConfig{
+			RouteMetadata: agentroute.RouteMetadata{
 				ID: "agent:a:a", MatchPolicy: agentroute.RouteMatch{PathPrefix: "/a"},
 				CreatedAt: now, UpdatedAt: now,
 			},

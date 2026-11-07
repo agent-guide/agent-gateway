@@ -50,7 +50,7 @@ func (r *AgentRouteResolver) SetA2AProxyLookup(lookup A2AProxyLookup) {
 }
 
 func NewAgentRouteResolver(configManager *routecore.RouteConfigManager) *AgentRouteResolver {
-	return &AgentRouteResolver{
+	resolver := &AgentRouteResolver{
 		configManager: configManager,
 		base: runtimecore.NewResolver(
 			runtimecore.FuncSource[routecore.RouteConfig, RouteListOptions]{
@@ -82,6 +82,10 @@ func NewAgentRouteResolver(configManager *routecore.RouteConfigManager) *AgentRo
 			},
 		),
 	}
+	if configManager != nil {
+		configManager.AddInvalidator(resolver.base.Invalidate)
+	}
+	return resolver
 }
 
 // SetAgentLookup wires the optional target-existence check used by
@@ -241,6 +245,9 @@ func (r *AgentRouteResolver) Resolve(ctx context.Context, cfg routecore.RouteCon
 	if route == nil {
 		return nil, fmt.Errorf("route %q is nil", cfg.ID)
 	}
+	copy := *route
+	copy.RouteMetadata = copy.RouteMetadata.Clone()
+	route = &copy
 	return route, nil
 }
 

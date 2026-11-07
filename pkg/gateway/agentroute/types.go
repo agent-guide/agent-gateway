@@ -28,13 +28,14 @@ const (
 )
 
 type RouteConfig = routecore.RouteConfig
+type RouteMetadata = routecore.RouteMetadata
 type RouteMatch = routecore.RouteMatchPolicy
 type RouteAuthPolicy = routecore.RouteAuthPolicy
 type RouteListOptions = routecore.RouteListOptions
 
 // AgentRouteConfig is the expanded config form with direct agent_id access.
 type AgentRouteConfig struct {
-	RouteConfig
+	RouteMetadata
 	AgentID string `json:"agent_id"`
 }
 
@@ -63,22 +64,10 @@ func (r *AgentRouteConfig) Normalize() {
 	if r == nil {
 		return
 	}
-	r.RouteConfig = normalizeConfigDefaults(r.RouteConfig)
+	r.RouteMetadata = normalizeConfigDefaults(r.RouteMetadata.Config(nil)).Metadata()
 	r.AgentID = strings.TrimSpace(r.AgentID)
 	if r.ID == "" && r.AgentID != "" {
 		r.ID = routecore.GenerateRouteID("agent", r.AgentID, r.MatchPolicy.PathPrefix)
-	}
-}
-
-func (r *AgentRouteConfig) NormalizeTimestamps(now time.Time) {
-	if r == nil {
-		return
-	}
-	if r.CreatedAt.IsZero() {
-		r.CreatedAt = now
-	}
-	if r.UpdatedAt.IsZero() {
-		r.UpdatedAt = now
 	}
 }
 
@@ -120,7 +109,7 @@ func (r *AgentRouteConfig) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	r.RouteConfig = normalizeConfigDefaults(RouteConfig{
+	r.RouteMetadata = normalizeConfigDefaults(RouteConfig{
 		ID:          raw.ID,
 		Kind:        raw.Kind,
 		Protocol:    raw.Protocol,
@@ -130,7 +119,7 @@ func (r *AgentRouteConfig) UnmarshalJSON(data []byte) error {
 		MatchPolicy: raw.MatchPolicy,
 		CreatedAt:   raw.CreatedAt,
 		UpdatedAt:   raw.UpdatedAt,
-	})
+	}).Metadata()
 	r.AgentID = raw.AgentID
 	r.Normalize()
 	return nil
@@ -150,14 +139,14 @@ func DecodeStoredAgentRoute(data []byte) (any, error) {
 }
 
 func NewAgentRouteFromConfig(cfg RouteConfig) (AgentRouteConfig, error) {
-	cfg = normalizeConfigDefaults(cfg)
+	cfg = normalizeConfigDefaults(cfg.Clone())
 	agentID, err := decodeAgentID(cfg.TargetPolicy)
 	if err != nil {
 		return AgentRouteConfig{}, fmt.Errorf("route %q decode target policy: %w", cfg.ID, err)
 	}
 	route := AgentRouteConfig{
-		RouteConfig: cfg,
-		AgentID:     agentID,
+		RouteMetadata: cfg.Metadata(),
+		AgentID:       agentID,
 	}
 	route.Normalize()
 	return route, nil
@@ -172,17 +161,7 @@ func (r AgentRouteConfig) ToConfig() (RouteConfig, error) {
 	if err != nil {
 		return RouteConfig{}, fmt.Errorf("route %q encode target policy: %w", r.ID, err)
 	}
-	cfg := r.RouteConfig
-	cfg.ID = r.ID
-	cfg.Kind = RouteKindAgent
-	cfg.Protocol = r.Protocol
-	cfg.Description = r.Description
-	cfg.Disabled = r.Disabled
-	cfg.AuthPolicy = r.AuthPolicy
-	cfg.MatchPolicy = r.MatchPolicy
-	cfg.TargetPolicy = targetPolicy
-	cfg.CreatedAt = r.CreatedAt
-	cfg.UpdatedAt = r.UpdatedAt
+	cfg := r.RouteMetadata.Config(targetPolicy)
 	return cfg, nil
 }
 

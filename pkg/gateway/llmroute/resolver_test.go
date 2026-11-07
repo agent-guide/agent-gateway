@@ -1,6 +1,7 @@
 package llmroute
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -20,8 +21,8 @@ type testManagedRouteStore struct {
 func testLLMRoute(cfg RouteConfig, protocol RouteProtocol, targetPolicy RouteTargetPolicy) LLMRoute {
 	cfg.Protocol = protocol
 	return LLMRoute{
-		RouteConfig:  cfg,
-		TargetPolicy: targetPolicy,
+		RouteMetadata: cfg.Metadata(),
+		TargetPolicy:  targetPolicy,
 	}
 }
 
@@ -157,8 +158,8 @@ func TestLLMRouteResolverResolveCachesByFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Resolve returned error: %v", err)
 	}
-	if first != second {
-		t.Fatal("unchanged config did not reuse the cached route instance")
+	if first == second || first.ID != second.ID {
+		t.Fatal("resolved requests must own separate copies of the same generation")
 	}
 
 	// A changed UpdatedAt must rebuild even without an explicit Invalidate, so a
@@ -208,7 +209,7 @@ func TestRouteConfigManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	resolver := NewLLMRouteResolver(manager)
 
 	createCfg := mustConfigFromRoute(t, LLMRoute{
-		RouteConfig: RouteConfig{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
+		RouteMetadata: RouteMetadata{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
 		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "openai"},
 		},
@@ -235,7 +236,7 @@ func TestRouteConfigManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	firstUpdatedAt := got.UpdatedAt
 
 	updateCfg := mustConfigFromRoute(t, LLMRoute{
-		RouteConfig: RouteConfig{Description: "updated", Protocol: RouteProtocolOpenAI},
+		RouteMetadata: RouteMetadata{Description: "updated", Protocol: RouteProtocolOpenAI},
 		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "anthropic"},
 		},
@@ -292,7 +293,7 @@ func TestLLMRouteResolverValidateAcceptsDirectProviderRoute(t *testing.T) {
 		items: map[string]*routecore.RouteConfig{
 			"chat-prod": func() *routecore.RouteConfig {
 				cfg := mustConfigFromRoute(t, LLMRoute{
-					RouteConfig: RouteConfig{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
+					RouteMetadata: RouteMetadata{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
 					TargetPolicy: &RouteDirectProviderPolicy{
 						ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
 					},
@@ -316,7 +317,7 @@ func TestLLMRouteResolverValidateChecksAllReferencedProviderIDs(t *testing.T) {
 		items: map[string]*routecore.RouteConfig{
 			"chat-prod": func() *routecore.RouteConfig {
 				cfg := mustConfigFromRoute(t, LLMRoute{
-					RouteConfig: RouteConfig{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
+					RouteMetadata: RouteMetadata{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
 					TargetPolicy: &RouteLogicalModelTargetPolicy{
 						ModelTargets: []RouteModelTarget{{
 							Name: "chat-fast",
@@ -338,5 +339,39 @@ func TestLLMRouteResolverValidateChecksAllReferencedProviderIDs(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("Validate returned nil error, want missing provider rejection")
+	}
+}
+
+func TestResolvedRouteOwnsTargetsAndSameTimestampChanges(t *testing.T) {
+	resolver := NewLLMRouteResolver(routecore.NewRouteConfigManager(nil))
+	cfg := mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "route", Protocol: RouteProtocolOpenAI}, RouteProtocolOpenAI, &RouteLogicalModelTargetPolicy{ModelTargets: []RouteModelTarget{{Name: "model", Candidates: []RouteModelCandidate{{ProviderID: "p", UpstreamModel: "original"}}}}}))
+	first, err := resolver.Resolve(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.TargetPolicy.(*RouteLogicalModelTargetPolicy).ModelTargets[0].Candidates[0].UpstreamModel = "caller-mutated"
+	first.MatchPolicy.Methods = append(first.MatchPolicy.Methods, "DELETE")
+	second, err := resolver.Resolve(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.TargetPolicy.(*RouteLogicalModelTargetPolicy).ModelTargets[0].Candidates[0].UpstreamModel != "original" || len(second.MatchPolicy.Methods) != 0 {
+		t.Fatal("caller mutated cached generation")
+	}
+	changed := cfg
+	changed.TargetPolicy = bytes.ReplaceAll(cfg.TargetPolicy, []byte("original"), []byte("new-model"))
+	third, err := resolver.Resolve(t.Context(), changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.TargetPolicy.(*RouteLogicalModelTargetPolicy).ModelTargets[0].Candidates[0].UpstreamModel != "new-model" {
+		t.Fatal("timestamp collision reused stale target")
+	}
+	fourth, err := resolver.Resolve(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fourth.TargetPolicy.(*RouteLogicalModelTargetPolicy).ModelTargets[0].Candidates[0].UpstreamModel != "original" {
+		t.Fatal("detached generation poisoned original target")
 	}
 }

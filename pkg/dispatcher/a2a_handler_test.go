@@ -90,7 +90,7 @@ func TestDispatchA2APathAEndToEnd(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	route := agentroute.AgentRouteConfig{RouteConfig: agentroute.RouteConfig{
+	route := agentroute.AgentRouteConfig{RouteMetadata: agentroute.RouteMetadata{
 		Protocol:    agentroute.RouteProtocolA2A,
 		MatchPolicy: agentroute.RouteMatch{Host: "gateway.example", PathPrefix: "/agents/remote", Methods: []string{"GET", "POST"}},
 		AuthPolicy:  agentroute.RouteAuthPolicy{RequireVirtualKey: true},

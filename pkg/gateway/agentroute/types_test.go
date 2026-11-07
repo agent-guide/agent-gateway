@@ -26,8 +26,8 @@ func TestNormalizeGeneratesDeterministicID(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := AgentRouteConfig{
-				RouteConfig: RouteConfig{MatchPolicy: RouteMatch{PathPrefix: tc.pathPrefix}},
-				AgentID:     tc.agentID,
+				RouteMetadata: RouteMetadata{MatchPolicy: RouteMatch{PathPrefix: tc.pathPrefix}},
+				AgentID:       tc.agentID,
 			}
 			cfg.Normalize()
 			if cfg.ID != tc.wantID {
@@ -42,7 +42,7 @@ func TestNormalizeGeneratesDeterministicID(t *testing.T) {
 
 func TestNormalizeKeepsExplicitIDAndTrims(t *testing.T) {
 	cfg := AgentRouteConfig{
-		RouteConfig: RouteConfig{
+		RouteMetadata: RouteMetadata{
 			ID:          "  my-route  ",
 			Kind:        routecore.RouteKindLLM,
 			Protocol:    routecore.RouteProtocolOpenAI,
@@ -66,7 +66,7 @@ func TestNormalizeKeepsExplicitIDAndTrims(t *testing.T) {
 
 func TestConfigRoundTripThroughPersistedShape(t *testing.T) {
 	cfg := AgentRouteConfig{
-		RouteConfig: RouteConfig{
+		RouteMetadata: RouteMetadata{
 			Description: "reviewer ingress",
 			MatchPolicy: RouteMatch{PathPrefix: "/agents/reviewer", Methods: []string{"POST", "GET"}},
 			AuthPolicy:  RouteAuthPolicy{RequireVirtualKey: true},
@@ -305,8 +305,8 @@ func TestResolverValidatesTarget(t *testing.T) {
 
 	build := func(agentID, prefix string) routecore.RouteConfig {
 		cfg := AgentRouteConfig{
-			RouteConfig: RouteConfig{MatchPolicy: RouteMatch{PathPrefix: prefix}},
-			AgentID:     agentID,
+			RouteMetadata: RouteMetadata{MatchPolicy: RouteMatch{PathPrefix: prefix}},
+			AgentID:       agentID,
 		}
 		cfg.Normalize()
 		stored, err := cfg.ToConfig()
@@ -356,7 +356,7 @@ func TestResolverValidatesA2AProtocolTargetAndMethods(t *testing.T) {
 	resolver.SetAgentLookup(staticAgentLookup{"remote": true})
 	resolver.SetA2AProxyLookup(staticProxyLookup{"remote": nil})
 	build := func(host string, methods []string) routecore.RouteConfig {
-		cfg := AgentRouteConfig{RouteConfig: RouteConfig{
+		cfg := AgentRouteConfig{RouteMetadata: RouteMetadata{
 			Protocol: RouteProtocolA2A, MatchPolicy: RouteMatch{Host: host, PathPrefix: "/remote", Methods: methods},
 		}, AgentID: "remote"}
 		cfg.Normalize()

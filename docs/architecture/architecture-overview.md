@@ -400,7 +400,10 @@ and timestamps. The JSON fields are `auth_policy`, `match_policy`, and
 Typed decoding produces `llmroute.LLMRoute`, `mcproute.MCPRoute`,
 or `agentroute.AgentRouteConfig`; these same strongly typed values serve Admin
 and runtime resolution. No separate empty runtime State or forwarding Config
-object remains. LLM targets select a direct provider or
+object remains. Each typed value embeds target-free `RouteMetadata`, so raw JSON
+and writable decoded targets cannot coexist. The manager publishes an immutable
+matching table, and kind resolvers privately cache compiled targets by full content
+fingerprint and return defensive copies. See [route generations](../design/route-generations.md). LLM targets select a direct provider or
 logical-model candidates. MCP targets select a service; Agent targets select
 an Agent whose runtime definition chooses ACP, builtin, or HTTP execution.
 

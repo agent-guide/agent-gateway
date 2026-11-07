@@ -34,7 +34,7 @@ agree but never inspects message extras to derive stronger requirements.
 Candidate filtering returns typed `RequirementGap` values and is generic set
 inclusion over registered feature IDs.
 
-Runtime route matching uses the in-memory manager snapshot. Bootstrap and
+Runtime route matching uses the immutable manager match table. Bootstrap and
 route manager create/update/delete/refresh keep that snapshot populated; do not
 reintroduce per-request config-store `List` calls for matching.
 
@@ -321,6 +321,14 @@ in CloseContext; Reset/Close remain convenience calls that discard errors.
 Concrete ACP, builtin and HTTP adapters and HTTPRuntimeManager live in
 `runtimebackend/`, which must not depend on this root package. Read its nested
 AGENTS before changes, including cross-cutting Admin/dispatcher adapters.
+
+Typed LLMRoute, MCPRoute and AgentRouteConfig embed target-free RouteMetadata;
+never reintroduce raw JSON plus writable expanded target fields. Get/Match read
+one published table. Kind resolver caches use full-content fingerprints and
+return defensive metadata/target copies before normalization. Manager mutations
+invalidate affected caches even when bypassing resolver CRUD wrappers. Match-table
+publication and invalidators are bounded in-memory work; invalidators must not
+perform I/O or reenter mutations. Materializer epochs fence late cache builds.
 
 Gateway exposes the single common RouteConfigManager; route-kind resolvers
 share that manager rather than retaining duplicate per-kind manager getters.

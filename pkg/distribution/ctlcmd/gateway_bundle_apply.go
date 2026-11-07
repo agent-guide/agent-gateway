@@ -3,11 +3,12 @@ package ctlcmd
 import (
 	"context"
 	"fmt"
-	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"reflect"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/agent-guide/agent-gateway/pkg/extension"
 
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
@@ -622,7 +623,6 @@ func normalizeComparableAgentRoute(cfg agentroute.AgentRouteConfig) agentroute.A
 	cfg.Normalize()
 	cfg.CreatedAt = time.Time{}
 	cfg.UpdatedAt = time.Time{}
-	cfg.TargetPolicy = nil
 	return cfg
 }
 
@@ -637,7 +637,6 @@ func normalizeComparableMCPRoute(cfg mcproute.MCPRoute) mcproute.MCPRoute {
 	cfg.Normalize()
 	cfg.CreatedAt = time.Time{}
 	cfg.UpdatedAt = time.Time{}
-	cfg.TargetPolicy = nil
 	return cfg
 }
 

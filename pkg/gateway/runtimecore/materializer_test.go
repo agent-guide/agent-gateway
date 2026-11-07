@@ -2,6 +2,7 @@ package runtimecore
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -127,5 +128,35 @@ func TestMaterializerResolveDoesNotCacheErrors(t *testing.T) {
 	}
 	if value == nil || *value != 2 {
 		t.Fatalf("value = %#v, want 2", value)
+	}
+}
+
+func TestMaterializerLateBuildCannotUndoEviction(t *testing.T) {
+	for _, reset := range []bool{false, true} {
+		t.Run(fmt.Sprint(reset), func(t *testing.T) {
+			cache := NewMaterializer[string]()
+			entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			go func() {
+				defer close(done)
+				_, _ = cache.Resolve("route", "old", func() (string, error) { close(entered); <-release; return "old", nil })
+			}()
+			<-entered
+			if reset {
+				cache.Reset()
+			} else {
+				cache.Invalidate("route")
+			}
+			current, err := cache.Resolve("route", "new", func() (string, error) { return "new", nil })
+			if err != nil || current != "new" {
+				t.Fatal("current build failed")
+			}
+			close(release)
+			<-done
+			rebuilt := false
+			current, err = cache.Resolve("route", "new", func() (string, error) { rebuilt = true; return "unexpected", nil })
+			if err != nil || current != "new" || rebuilt {
+				t.Fatal("late retired build overwrote current cache")
+			}
+		})
 	}
 }

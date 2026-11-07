@@ -83,7 +83,7 @@ func TestHandlerRequiresVirtualKeyBeforeLLMApiMatch(t *testing.T) {
 	gw := gateway.NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
-			RouteConfig: llmroutepkg.RouteConfig{
+			RouteMetadata: llmroutepkg.RouteMetadata{
 				ID:          "broad-route",
 				Protocol:    llmroutepkg.RouteProtocol("stub"),
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
@@ -119,7 +119,7 @@ func TestHandlerLocalExecutionSkipsRoutedProvider(t *testing.T) {
 	gw := gateway.NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
-			RouteConfig:  llmroutepkg.RouteConfig{ID: "local-route", Protocol: llmroutepkg.RouteProtocol("local-stub"), MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"}},
+			RouteMetadata: llmroutepkg.RouteMetadata{ID: "local-route", Protocol: llmroutepkg.RouteProtocol("local-stub"), MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"}},
 			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "must-not-resolve"}},
 		}}),
 	}); err != nil {
@@ -156,7 +156,7 @@ func TestHandlerRateLimitsBeforeLLMApiMatchAndRecordsOutcome(t *testing.T) {
 			},
 		}},
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
-			RouteConfig: llmroutepkg.RouteConfig{
+			RouteMetadata: llmroutepkg.RouteMetadata{
 				ID:          "broad-route",
 				Protocol:    llmroutepkg.RouteProtocol("stub"),
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
@@ -230,7 +230,7 @@ func TestHandlerRateLimitsStreamingRequestConsumesOneToken(t *testing.T) {
 			},
 		}},
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
-			RouteConfig: llmroutepkg.RouteConfig{
+			RouteMetadata: llmroutepkg.RouteMetadata{
 				ID:          "broad-route",
 				Protocol:    llmroutepkg.RouteProtocol("stub"),
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
@@ -291,7 +291,7 @@ func TestHandlerRateLimit429WrittenThroughResponseRecorder(t *testing.T) {
 			},
 		}},
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
-			RouteConfig: llmroutepkg.RouteConfig{
+			RouteMetadata: llmroutepkg.RouteMetadata{
 				ID:          "broad-route",
 				Protocol:    llmroutepkg.RouteProtocol("stub"),
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
@@ -370,7 +370,7 @@ func TestHandlerRateLimitConsumesTokenOnServeNextOrNotFound(t *testing.T) {
 			},
 		}},
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
-			RouteConfig: llmroutepkg.RouteConfig{
+			RouteMetadata: llmroutepkg.RouteMetadata{
 				ID:          "broad-route",
 				Protocol:    llmroutepkg.RouteProtocol("stub"),
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
@@ -432,7 +432,7 @@ func TestHandlerRejectsAgentDepthOverConfiguredLimit(t *testing.T) {
 	gw := gateway.NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
-			RouteConfig: llmroutepkg.RouteConfig{
+			RouteMetadata: llmroutepkg.RouteMetadata{
 				ID:          "chat",
 				Protocol:    llmroutepkg.RouteProtocol("stub"),
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},

@@ -1,3 +1,4 @@
+# Routes publish as validated generations; matching uses the in-memory table.
 # Caddy Agent Gateway
 #
 # This is the consolidated Caddyfile reference. It runs as-is with the shared
