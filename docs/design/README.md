@@ -30,6 +30,7 @@ Current design pages:
 - [virtual-key-rate-limiting.md](virtual-key-rate-limiting.md)
 - [gateway-bundle-yaml.md](gateway-bundle-yaml.md)
 - [mcp-tool-policy.md](mcp-tool-policy.md)
+- [mcp-route-sharing.md](mcp-route-sharing.md) — Proposed handoff pending caller-scoped stateful MCP sessions
 - [memory.md](memory.md)
 - [observability.md](observability.md)
 - [external-agent-observability-correlation.md](external-agent-observability-correlation.md)

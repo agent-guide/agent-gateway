@@ -154,3 +154,13 @@ unified interaction queries, Prometheus counters, and optional OTLP export.
   general mutation API for arbitrary session state.
 - Route-level tool filtering, aliasing, rewriting, and synthetic tools are not
   part of the current runtime.
+
+## Session sharing boundary
+
+The service manager currently caches discovery and execution transport sessions
+by service ID; caller/Agent/VirtualKey isolation is not a property of that cache.
+MCP route declarations remain exclusive for attribution. This rule does not prove
+isolation between different routes pointing to the same service. Removing it is
+handed off until a neutral trusted execution scope partitions stateful sessions;
+see the [Proposed sharing contract](../design/mcp-route-sharing.md). Current
+attribution fallbacks and historical queries remain unchanged.

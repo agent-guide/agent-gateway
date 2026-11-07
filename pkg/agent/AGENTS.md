@@ -171,3 +171,8 @@ execution admission. Recover rereads facts without another write; failed
 attempts back off 1–30 seconds. Successful full Refresh also clears pending
 state. Recommit does not clear an unverified write. Restart reconstructs facts
 from persistence. Do not publish pre-storage metadata or replay failed writes.
+
+MCP sharing remains an explicit Proposed handoff: current service-scoped upstream
+sessions do not establish caller isolation. Preserve uniqueness and existing
+attribution/query behavior until docs/design/mcp-route-sharing.md is implemented;
+resource references alone never prove the caller's trusted Agent identity.
