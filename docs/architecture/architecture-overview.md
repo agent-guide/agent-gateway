@@ -292,6 +292,10 @@ The runtime storage API is schema-bound. `ConfigStoreBackend.Register(name, sche
 
 The config store is important for one reason beyond persistence: it allows some route and provider updates to take effect dynamically without rewriting the entire Caddy config.
 
+The selected eino-backed Chat providers share only execution plumbing in
+`pkg/llm/provider/einochat`; vendor construction and native Responses remain
+local. See [scoped chat execution](../design/provider-chat-execution.md).
+
 ### 4.7 `pkg/mcp/`, `pkg/acp/`, `pkg/a2a/`, `pkg/agent/`, `pkg/llm/memory/`
 
 Current status:

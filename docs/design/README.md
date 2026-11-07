@@ -25,6 +25,7 @@ Current design pages:
 - [route-generations.md](route-generations.md) — immutable matching generations and isolated typed targets
 - [server-assembly.md](server-assembly.md) — shared service construction, runtime ownership and bounded shutdown
 - [provider-type-startup-policy.md](provider-type-startup-policy.md)
+- [provider-chat-execution.md](provider-chat-execution.md) — scoped eino chat execution with vendor/native boundaries preserved
 - [provider-compatibility.md](provider-compatibility.md) — ingress, upstream provider, compatibility shaping and ACP dimensions with the implemented option-support matrix
 - [virtual-key-rate-limiting.md](virtual-key-rate-limiting.md)
 - [gateway-bundle-yaml.md](gateway-bundle-yaml.md)

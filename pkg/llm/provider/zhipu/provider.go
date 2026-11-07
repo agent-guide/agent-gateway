@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider/einochat"
+
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
@@ -66,20 +68,16 @@ func (p *Provider) Chat(ctx context.Context, req *provider.ChatRequest) (*provid
 		zap.String("model", req.Model),
 		zap.Int("message_count", len(req.Messages)),
 	)
-	resp, err := provider.RetryProviderCall(p.ProviderConfig.Network, func() (*provider.ChatResponse, error) {
+	resp, err := einochat.Generate(ctx, p.ProviderConfig.Network, func() (einomodel.ToolCallingChatModel, []*schema.Message, []einomodel.Option, error) {
 		chatModel, messages, opts, err := p.newChatModel(ctx, req, false)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 		zap.L().Info("zhipu: calling upstream generate",
 			zap.String("model", req.Model),
 			zap.String("base_url", p.ProviderConfig.BaseURL),
 		)
-		msg, err := chatModel.Generate(ctx, messages, opts...)
-		if err != nil {
-			return nil, statuserr.Wrap(openaibase.NormalizeError(err), 502)
-		}
-		return provider.ChatResponseFromEinoMessage(msg), nil
+		return chatModel, messages, opts, nil
 	})
 	if err != nil {
 		zap.L().Info("zhipu: chat failed", zap.String("model", req.Model), zap.Error(err))

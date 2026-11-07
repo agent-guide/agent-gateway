@@ -122,3 +122,13 @@ Signed reasoning is opaque upstream state, not a portable gateway token. Routes
 that replay it across tool turns must keep the same upstream provider and model;
 candidate switching requires a route/session-level affinity design before the
 signature can be forwarded safely.
+
+## Scoped execution helper
+
+`provider/einochat` shares Generate/non-stream retries/error conversion/response
+wrapping for OpenAI, Qwen, DeepSeek, Grok, OpenRouter, Ollama and Zhipu. The first
+six also share one-shot stream opening. Keep vendor builders explicit (model,
+messages, options), OpenAI finish checks and Zhipu stream diagnostics local.
+Never retry streams, consume them in the helper, add vendor switches, or route
+native Responses through compatibility Chat. Anthropic/Claude Code/Codex/Gemini
+remain outside this helper. See docs/design/provider-chat-execution.md.

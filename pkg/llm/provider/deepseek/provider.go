@@ -6,11 +6,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider/einochat"
+
 	einodeepseek "github.com/cloudwego/eino-ext/components/model/deepseek"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	"github.com/agent-guide/agent-gateway/pkg/httpclient"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider/openaibase"
@@ -40,30 +41,16 @@ func New(config provider.ProviderConfig) (provider.Provider, error) {
 
 func (p *Provider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
 	p.ensureBase()
-	return provider.RetryProviderCall(p.ProviderConfig.Network, func() (*provider.ChatResponse, error) {
-		chatModel, messages, opts, err := p.newChatModel(ctx, req)
-		if err != nil {
-			return nil, err
-		}
-		msg, err := chatModel.Generate(ctx, messages, opts...)
-		if err != nil {
-			return nil, statuserr.Wrap(openaibase.NormalizeError(err), 502)
-		}
-		return provider.ChatResponseFromEinoMessage(msg), nil
+	return einochat.Generate(ctx, p.ProviderConfig.Network, func() (einomodel.ToolCallingChatModel, []*schema.Message, []einomodel.Option, error) {
+		return p.newChatModel(ctx, req)
 	})
 }
 
 func (p *Provider) StreamChat(ctx context.Context, req *provider.ChatRequest) (*schema.StreamReader[*schema.Message], error) {
 	p.ensureBase()
-	chatModel, messages, opts, err := p.newChatModel(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	stream, err := chatModel.Stream(ctx, messages, opts...)
-	if err != nil {
-		return nil, statuserr.Wrap(openaibase.NormalizeError(err), 502)
-	}
-	return stream, nil
+	return einochat.Stream(ctx, func() (einomodel.ToolCallingChatModel, []*schema.Message, []einomodel.Option, error) {
+		return p.newChatModel(ctx, req)
+	})
 }
 
 func (p *Provider) CreateResponses(ctx context.Context, req *provider.ResponsesRequest) (*provider.ResponsesResponse, error) {
