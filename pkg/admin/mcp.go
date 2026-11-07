@@ -413,6 +413,9 @@ func (h *Handler) handleDeleteMCPRoute(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := remove(r.Context(), id); err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		if errors.Is(err, mcproute.ErrStaticRouteReadOnly) || errors.Is(err, routecore.ErrAmbiguousRoute) || errors.Is(err, agentpkg.ErrMCPRouteReferenced) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return

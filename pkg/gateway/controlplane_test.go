@@ -1,12 +1,14 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
 	"testing"
 
 	"github.com/agent-guide/agent-gateway/pkg/agent"
+	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	configsqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
@@ -16,6 +18,34 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
 )
+
+type uncertainProviderTransaction struct {
+	configstore.ConfigStoreBackend
+	uncertain   bool
+	rollback    bool
+	afterCommit func()
+}
+
+func (b *uncertainProviderTransaction) Transaction(ctx context.Context, names []string, apply func(map[string]configstore.ConfigStore) error) error {
+	err := b.ConfigStoreBackend.(configstore.TransactionalBackend).Transaction(ctx, names, func(stores map[string]configstore.ConfigStore) error {
+		if err := apply(stores); err != nil {
+			return err
+		}
+		if b.rollback {
+			return errors.New("injected uncertain rollback")
+		}
+		return nil
+	})
+	if err == nil {
+		if b.afterCommit != nil {
+			b.afterCommit()
+		}
+		if b.uncertain {
+			return errors.New("injected uncertain commit")
+		}
+	}
+	return err
+}
 
 func controlPlaneGateway(t *testing.T) (*AgentGateway, *configstore.Backend, *configsqlite.SQLiteConfigStoreCreator) {
 	t.Helper()
@@ -255,5 +285,225 @@ func TestAgentDeletionSerializesAgentRouteCreation(t *testing.T) {
 				t.Fatal("AgentRoute targets deleted Agent")
 			}
 		}
+	}
+}
+
+func TestProviderUncertainCommitAndPublicationFailureRequireRecovery(t *testing.T) {
+	for _, phase := range []string{"commit", "publication"} {
+		t.Run(phase, func(t *testing.T) {
+			g, backend, _ := controlPlaneGateway(t)
+			if err := g.ProviderManager().CreateConfig(t.Context(), provider.ProviderConfig{Id: "p", ProviderType: "openai"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := g.ModelCatalog().CreateManagedModel(t.Context(), modelcatalog.ManagedModel{ProviderID: "p", UpstreamModel: "model"}); err != nil {
+				t.Fatal(err)
+			}
+			fault := &uncertainProviderTransaction{ConfigStoreBackend: backend, uncertain: phase == "commit"}
+			configs := g.ProviderManager().configs
+			if phase == "publication" {
+				fault.afterCommit = func() { g.ProviderManager().configs = nil }
+			}
+			g.control.backend = fault
+			if err := g.ProviderManager().DeleteConfig(t.Context(), "p"); !errors.Is(err, configmgr.ErrMutationPending) {
+				t.Fatalf("delete = %v", err)
+			}
+			g.ProviderManager().configs = configs
+			state := g.ProviderManager().PendingMutation("p")
+			if state == nil || state.OperationID == "" {
+				t.Fatal("committed deletion has no observable operation identity")
+			}
+			if _, err := g.ProviderManager().GetConfig(t.Context(), "p"); !errors.Is(err, configmgr.ErrMutationPending) {
+				t.Fatal("unconfirmed Provider served stale config")
+			}
+			if _, err := g.ProviderManager().ResolveProvider(t.Context(), "p"); !errors.Is(err, configmgr.ErrMutationPending) {
+				t.Fatal("unconfirmed Provider remained executable")
+			}
+			if err := g.ProviderManager().DeleteConfig(t.Context(), "p"); !errors.Is(err, configmgr.ErrMutationPending) {
+				t.Fatal("retry issued another delete")
+			}
+			if err := g.AgentRouteConfigManager().Create(t.Context(), providerRoute("pending", "p"), ""); !errors.Is(err, configmgr.ErrMutationPending) {
+				t.Fatal("new reference bypassed recovery gate")
+			}
+			fault.uncertain, fault.afterCommit = false, nil
+			if err := g.ProviderManager().CreateConfig(t.Context(), provider.ProviderConfig{Id: "q", ProviderType: "openai"}); err != nil {
+				t.Fatalf("unrelated Provider blocked: %v", err)
+			}
+			if err := g.ProviderManager().Recover(t.Context(), "p"); err != nil {
+				t.Fatal(err)
+			}
+			if g.ProviderManager().PendingMutation("p") != nil {
+				t.Fatal("recovery retained pending state")
+			}
+			if _, err := g.ProviderManager().GetConfig(t.Context(), "p"); !errors.Is(err, ErrProviderNotConfigured) {
+				t.Fatalf("committed deletion was not recovered: %v", err)
+			}
+			if err := g.ProviderManager().Recover(t.Context(), "p"); err != nil {
+				t.Fatal("recovery was not idempotent")
+			}
+		})
+	}
+}
+
+func TestProviderCreateAndUpdateUncertainOutcomesRequireRecovery(t *testing.T) {
+	for _, action := range []configmgr.MutationAction{configmgr.MutationCreate, configmgr.MutationUpdate} {
+		for _, rollback := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/rollback=%t", action, rollback), func(t *testing.T) {
+				g, backend, _ := controlPlaneGateway(t)
+				manager := g.ProviderManager()
+				if action == configmgr.MutationUpdate {
+					if err := manager.CreateConfig(t.Context(), provider.ProviderConfig{Id: "p", ProviderType: "openai", DefaultModel: "before"}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				fault := &uncertainProviderTransaction{ConfigStoreBackend: backend, uncertain: !rollback, rollback: rollback}
+				g.control.backend = fault
+				cfg := provider.ProviderConfig{Id: "p", ProviderType: "openai", DefaultModel: "after"}
+				write := func() error {
+					if action == configmgr.MutationCreate {
+						return manager.CreateConfig(t.Context(), cfg)
+					}
+					return manager.UpdateConfig(t.Context(), "p", cfg)
+				}
+				if err := write(); !errors.Is(err, configmgr.ErrMutationPending) {
+					t.Fatalf("uncertain write = %v", err)
+				}
+				pending := manager.PendingMutation("p")
+				if pending == nil || pending.Action != action {
+					t.Fatalf("pending = %+v", pending)
+				}
+				if _, err := manager.GetConfig(t.Context(), "p"); !errors.Is(err, configmgr.ErrMutationPending) {
+					t.Fatal("unconfirmed config remained readable")
+				}
+				if _, err := manager.ResolveProvider(t.Context(), "p"); !errors.Is(err, configmgr.ErrMutationPending) {
+					t.Fatal("unconfirmed config remained executable")
+				}
+				if err := write(); !errors.Is(err, configmgr.ErrMutationPending) || manager.PendingMutation("p").OperationID != pending.OperationID {
+					t.Fatal("retry bypassed pending write")
+				}
+				fault.uncertain, fault.rollback = false, false
+				if err := manager.CreateConfig(t.Context(), provider.ProviderConfig{Id: "q", ProviderType: "openai"}); err != nil {
+					t.Fatalf("unrelated write blocked: %v", err)
+				}
+				if err := manager.Recover(t.Context(), "p"); err != nil {
+					t.Fatal(err)
+				}
+				got, err := manager.GetConfig(t.Context(), "p")
+				if rollback && action == configmgr.MutationCreate {
+					if !errors.Is(err, ErrProviderNotConfigured) {
+						t.Fatalf("rolled back create was replayed: %v", err)
+					}
+				} else {
+					want := "after"
+					if rollback {
+						want = "before"
+					}
+					if err != nil || got.DefaultModel != want {
+						t.Fatalf("recovered config = %+v, %v; want %s", got, err, want)
+					}
+				}
+				if manager.PendingMutation("p") != nil {
+					t.Fatal("recovery did not clear pending")
+				}
+			})
+		}
+	}
+}
+
+type uncertainProviderStore struct{ configstore.ConfigStore }
+
+func (s uncertainProviderStore) Create(ctx context.Context, item any) error {
+	if err := s.ConfigStore.Create(ctx, item); err != nil {
+		return err
+	}
+	return errors.New("injected error after create committed")
+}
+func (s uncertainProviderStore) Update(ctx context.Context, item any) error {
+	if err := s.ConfigStore.Update(ctx, item); err != nil {
+		return err
+	}
+	return errors.New("injected error after update committed")
+}
+
+func TestProviderNontransactionalWriteErrorsRequireRecovery(t *testing.T) {
+	for _, update := range []bool{false, true} {
+		t.Run(fmt.Sprintf("update=%t", update), func(t *testing.T) {
+			g, backend, _ := controlPlaneGateway(t)
+			manager := g.ProviderManager()
+			cfg := provider.ProviderConfig{Id: "p", ProviderType: "openai", DefaultModel: "before"}
+			if update {
+				if err := manager.CreateConfig(t.Context(), cfg); err != nil {
+					t.Fatal(err)
+				}
+			}
+			g.control.backend = struct{ configstore.ConfigStoreBackend }{backend}
+			manager.store = uncertainProviderStore{manager.store}
+			cfg.DefaultModel = "after"
+			var err error
+			if update {
+				err = manager.UpdateConfig(t.Context(), "p", cfg)
+			} else {
+				err = manager.CreateConfig(t.Context(), cfg)
+			}
+			if !errors.Is(err, configmgr.ErrMutationPending) {
+				t.Fatalf("unconfirmed store write = %v", err)
+			}
+			if err := manager.Recover(t.Context(), "p"); err != nil {
+				t.Fatal(err)
+			}
+			got, err := manager.GetConfig(t.Context(), "p")
+			if err != nil || got.DefaultModel != "after" {
+				t.Fatalf("recovered config = %+v, %v", got, err)
+			}
+		})
+	}
+}
+
+func TestPendingProviderDeletionBlocksManagedModelDeletion(t *testing.T) {
+	g, backend, _ := controlPlaneGateway(t)
+	if err := g.ProviderManager().CreateConfig(t.Context(), provider.ProviderConfig{Id: "p", ProviderType: "openai"}); err != nil {
+		t.Fatal(err)
+	}
+	model := modelcatalog.ManagedModel{ProviderID: "p", UpstreamModel: "model", Enabled: true}
+	if err := g.ModelCatalog().CreateManagedModel(t.Context(), model); err != nil {
+		t.Fatal(err)
+	}
+	g.control.backend = &uncertainProviderTransaction{ConfigStoreBackend: backend, rollback: true}
+	if err := g.ProviderManager().DeleteConfig(t.Context(), "p"); !errors.Is(err, configmgr.ErrMutationPending) {
+		t.Fatalf("uncertain deletion = %v", err)
+	}
+	if err := g.ModelCatalog().DeleteManagedModel(t.Context(), "p", "model"); !errors.Is(err, configmgr.ErrMutationPending) {
+		t.Fatalf("model deletion bypassed pending Provider: %v", err)
+	}
+	if err := g.ProviderManager().Recover(t.Context(), "p"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := g.ModelCatalog().GetManagedModel(t.Context(), "p", "model"); err != nil || !ok {
+		t.Fatalf("overlay lost during recovery: exists=%t, %v", ok, err)
+	}
+	if err := g.ModelCatalog().DeleteManagedModel(t.Context(), "p", "model"); err != nil {
+		t.Fatalf("model deletion remained blocked after recovery: %v", err)
+	}
+}
+
+type unsupportedProviderTransaction struct{ configstore.ConfigStoreBackend }
+
+func (unsupportedProviderTransaction) Transaction(context.Context, []string, func(map[string]configstore.ConfigStore) error) error {
+	return configstore.ErrTransactionsUnsupported
+}
+
+func TestProviderWritesSupportBackendsWithoutTransactions(t *testing.T) {
+	g, backend, _ := controlPlaneGateway(t)
+	g.control.backend = unsupportedProviderTransaction{backend}
+	cfg := provider.ProviderConfig{Id: "p", ProviderType: "openai", DefaultModel: "before"}
+	if err := g.ProviderManager().CreateConfig(t.Context(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.DefaultModel = "after"
+	if err := g.ProviderManager().UpdateConfig(t.Context(), "p", cfg); err != nil {
+		t.Fatal(err)
+	}
+	got, err := g.ProviderManager().GetConfig(t.Context(), "p")
+	if err != nil || got.DefaultModel != "after" {
+		t.Fatalf("nontransactional write = %+v, %v", got, err)
 	}
 }

@@ -56,6 +56,10 @@ type CredentialLifecycleListener interface {
 
 type Manager struct {
 	store configstore.ConfigStore
+	// Ownership writes exclude token rotation, which retains a read lease and
+	// never enters application coordination. This avoids reentrant coordination
+	// during Agent retirement cleanup and prevents refresh reviving a revoked key.
+	ownershipMu sync.RWMutex
 
 	mu              sync.RWMutex
 	refreshLocksMu  sync.Mutex
@@ -162,7 +166,11 @@ func (m *Manager) ReloadFromStore(ctx context.Context) error {
 	if m == nil || m.store == nil {
 		return nil
 	}
-	return configmgr.GuardMutation(m.mutationGuard(), ctx, configmgr.MutationRefresh, "", nil, m.reloadFromStore)
+	return configmgr.GuardMutation(m.mutationGuard(), ctx, configmgr.MutationRefresh, "", nil, func(ctx context.Context) error {
+		m.ownershipMu.Lock()
+		defer m.ownershipMu.Unlock()
+		return m.reloadFromStore(ctx)
+	})
 }
 
 func (m *Manager) reloadFromStore(ctx context.Context) error {
@@ -199,7 +207,11 @@ func (m *Manager) RegisterCredential(ctx context.Context, cred *Credential) erro
 	if cred == nil {
 		return fmt.Errorf("credential manager: credential is nil")
 	}
-	return configmgr.GuardMutation(m.mutationGuard(), ctx, configmgr.MutationCreate, cred.ID, cred, func(ctx context.Context) error { return m.registerCredential(ctx, cred) })
+	return configmgr.GuardMutation(m.mutationGuard(), ctx, configmgr.MutationCreate, cred.ID, cred, func(ctx context.Context) error {
+		m.ownershipMu.Lock()
+		defer m.ownershipMu.Unlock()
+		return m.registerCredential(ctx, cred)
+	})
 }
 
 func (m *Manager) registerCredential(ctx context.Context, cred *Credential) error {
@@ -246,7 +258,11 @@ func (m *Manager) UpdateCredential(ctx context.Context, cred *Credential) error 
 	if cred == nil {
 		return fmt.Errorf("credential manager: credential is nil")
 	}
-	return configmgr.GuardMutation(m.mutationGuard(), ctx, configmgr.MutationUpdate, cred.ID, cred, func(ctx context.Context) error { return m.updateCredential(ctx, cred) })
+	return configmgr.GuardMutation(m.mutationGuard(), ctx, configmgr.MutationUpdate, cred.ID, cred, func(ctx context.Context) error {
+		m.ownershipMu.Lock()
+		defer m.ownershipMu.Unlock()
+		return m.updateCredential(ctx, cred)
+	})
 }
 
 func (m *Manager) updateCredential(ctx context.Context, cred *Credential) error {
@@ -277,7 +293,11 @@ func (m *Manager) DeregisterCredential(ctx context.Context, id string) error {
 	if m == nil {
 		return nil
 	}
-	return configmgr.GuardMutation(m.mutationGuard(), ctx, configmgr.MutationDelete, id, nil, func(ctx context.Context) error { return m.deregisterCredential(ctx, id) })
+	return configmgr.GuardMutation(m.mutationGuard(), ctx, configmgr.MutationDelete, id, nil, func(ctx context.Context) error {
+		m.ownershipMu.Lock()
+		defer m.ownershipMu.Unlock()
+		return m.deregisterCredential(ctx, id)
+	})
 }
 
 func (m *Manager) deregisterCredential(ctx context.Context, id string) error {
@@ -361,6 +381,8 @@ func (m *Manager) RefreshCredentialIfNeeded(ctx context.Context, credID string) 
 	if m == nil {
 		return nil, &Error{Code: "manager_nil", Message: "credential manager not initialized"}
 	}
+	m.ownershipMu.RLock()
+	defer m.ownershipMu.RUnlock()
 	credID = strings.TrimSpace(credID)
 	if credID == "" {
 		return nil, &Error{Code: "credential_id_empty", Message: "credential id is empty"}
@@ -433,7 +455,7 @@ func (m *Manager) RefreshCredentialIfNeeded(ctx context.Context, credID string) 
 		updated.Label = current.Label
 	}
 	updated.Metadata = mergeCredentialMetadata(current.Metadata, updated.Metadata)
-	if err := m.UpdateCredential(refreshCtx, updated); err != nil {
+	if err := m.updateCredential(refreshCtx, updated); err != nil {
 		m.cacheRefreshFailure(credID, err)
 		return nil, err
 	}

@@ -47,6 +47,7 @@ type acpAgentConfig struct {
 // ACPBackend is the permanent Agent runtime adapter over the native ACP
 // manager.
 type ACPBackend struct {
+	checkExecution func(agentpkg.Agent) error
 	clientScopes   acpClientScopes
 	runtime        ACPTurnServer
 	runs           *agentruntime.RunRegistry
@@ -270,15 +271,17 @@ func (b *ACPBackend) storeACPContinuation(token string, continuation acpPermissi
 }
 
 type RuntimeControls struct {
-	Runs        *agentruntime.RunRegistry
-	Permissions *agentruntime.PermissionBroker
-	Logger      *zap.Logger
+	CheckExecution func(agentpkg.Agent) error
+	Runs           *agentruntime.RunRegistry
+	Permissions    *agentruntime.PermissionBroker
+	Logger         *zap.Logger
 }
 
 func NewACPBackend(runtime ACPTurnServer, controls ...RuntimeControls) *ACPBackend {
 	b := &ACPBackend{runtime: runtime, continuations: map[string]acpPermissionContinuation{}, configs: map[string]acpAgentConfig{}}
 	if len(controls) > 0 {
 		b.runs, b.permissions, b.logger = controls[0].Runs, controls[0].Permissions, controls[0].Logger
+		b.checkExecution = controls[0].CheckExecution
 	}
 	return b
 }
@@ -310,6 +313,11 @@ func (b *ACPBackend) Capabilities(ctx context.Context, a agentpkg.Agent) (agentr
 }
 
 func (b *ACPBackend) ServeTurn(ctx context.Context, a agentpkg.Agent, req agentruntime.TurnRequest, emit agentruntime.EventSink) error {
+	if b != nil && b.checkExecution != nil {
+		if err := b.checkExecution(a); err != nil {
+			return agentruntime.NewError(agentruntime.ErrorBackendUnavailable, err.Error())
+		}
+	}
 	if err := validateBackendAgent(a, agentpkg.RuntimeTypeACP); err != nil {
 		return err
 	}
@@ -617,6 +625,7 @@ func (b *ACPBackend) runtimeConfig(_ context.Context, a agentpkg.Agent) (hostcon
 // BuiltinBackend is the permanent Agent runtime adapter over the in-process
 // ADK Host. Cursor state lives beside the Host's process-lifetime checkpoint.
 type BuiltinBackend struct {
+	checkExecution func(agentpkg.Agent) error
 	host           builtinTurnServer
 	runs           *agentruntime.RunRegistry
 	permissions    *agentruntime.PermissionBroker
@@ -723,6 +732,7 @@ func NewBuiltinBackend(host builtinTurnServer, controls ...RuntimeControls) *Bui
 	b := &BuiltinBackend{host: host, continuations: map[string]builtinPermissionContinuation{}, decided: map[string]decidedPermission{}}
 	if len(controls) > 0 {
 		b.runs, b.permissions = controls[0].Runs, controls[0].Permissions
+		b.checkExecution = controls[0].CheckExecution
 	}
 	return b
 }
@@ -746,6 +756,11 @@ func (b *BuiltinBackend) Capabilities(_ context.Context, a agentpkg.Agent) (agen
 }
 
 func (b *BuiltinBackend) ServeTurn(ctx context.Context, a agentpkg.Agent, req agentruntime.TurnRequest, emit agentruntime.EventSink) error {
+	if b != nil && b.checkExecution != nil {
+		if err := b.checkExecution(a); err != nil {
+			return agentruntime.NewError(agentruntime.ErrorBackendUnavailable, err.Error())
+		}
+	}
 	if err := validateBackendAgent(a, agentpkg.RuntimeTypeBuiltin); err != nil {
 		return err
 	}

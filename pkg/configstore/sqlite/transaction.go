@@ -25,3 +25,10 @@ func (s *SQLiteConfigStoreCreator) Transaction(ctx context.Context, schemas []co
 }
 
 var _ configstore.TransactionalCreator = (*SQLiteConfigStoreCreator)(nil)
+
+func (s *JSONConfigStore) Transaction(ctx context.Context, apply func(configstore.ConfigStore) error) error {
+	if apply == nil {
+		return fmt.Errorf("transaction callback is required")
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error { return apply(&JSONConfigStore{db: tx, schema: s.schema}) })
+}

@@ -256,6 +256,9 @@ func (h *Handler) handleDeleteLLMRoute(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := remove(r.Context(), id); err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		if errors.Is(err, routecore.ErrStaticRouteReadOnly) || errors.Is(err, routecore.ErrAmbiguousRoute) || errors.Is(err, agentpkg.ErrLLMRouteReferenced) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return

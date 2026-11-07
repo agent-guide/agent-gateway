@@ -108,7 +108,7 @@ merge them or extend the Agent policy to other runtimes in this refactoring.
   current generation and never touch the config store — they are the required
   lookups for per-request
   dispatch. Create/Update/Delete build and validate a complete prospective
-  generation before the store write, then commit the infallible swap after
+  generation before the store write, then commit the snapshot swap after
   the store operation succeeds; `Refresh` decodes and deep-clones the complete
   store result before its swap and is serialized with CRUD across the complete
   List-to-commit window. `Recommit` republishes the loaded generation without a
@@ -137,6 +137,8 @@ merge them or extend the Agent policy to other runtimes in this refactoring.
 
 LLM route references are shared dependencies and do not infer Agent identity.
 Create/update and Bundle validation enforce exclusivity only for MCP routes.
+Manager uniqueness checks reserve references from both persistence and the
+published snapshot until pending mutations are recovered.
 Admin LLM and MCP route deletion use `DeleteUnreferencedLLMRoute` and
 `DeleteUnreferencedMCPRoute` to hold `writeMu` through both the reference check
 and deletion callback. Gateway bootstrap wires
@@ -157,7 +159,15 @@ See `docs/design/agents-control-plane.md` for the cross-runtime direction and
 `docs/design/builtin-agent-runtime.md` for the builtin runtime decisions and
 invariants.
 
-Create/Update publish timestamps read back from the persisted store. If that
-verification read fails after a successful write, the mutation has an unknown
-outcome to the caller and the prior generation remains published; Refresh
-recovers the stored generation. Do not publish unverified pre-storage metadata.
+Create/Update publish authoritative timestamps read back from the store. SQLite
+uses `TransactionalStore` to verify inside the transaction and roll back known
+failures. Uncertain commits, nontransactional write/readback errors, and
+failed listener preparation/commit produce a pending operation with a stable
+ID. Snapshot inspection retains the last validated generation; new execution
+must call CheckExecution and conflicting writes must fail until recovery.
+Listener preparation/commit panics are contained without leaving the snapshot mutex locked; swap
+occurs only after bounded listener commits finish. GetSnapshot alone is not new
+execution admission. Recover rereads facts without another write; failed
+attempts back off 1–30 seconds. Successful full Refresh also clears pending
+state. Recommit does not clear an unverified write. Restart reconstructs facts
+from persistence. Do not publish pre-storage metadata or replay failed writes.

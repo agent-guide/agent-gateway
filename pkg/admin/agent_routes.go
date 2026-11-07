@@ -167,6 +167,9 @@ func (h *Handler) handleDeleteAgentRoute(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := resolver.DeleteConfig(r.Context(), id); err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}

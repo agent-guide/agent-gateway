@@ -44,6 +44,9 @@ func (h *Handler) handleRefreshProviderModels(w http.ResponseWriter, r *http.Req
 	}
 	providerID := strings.TrimSpace(r.PathValue("provider_id"))
 	if err := h.modelCatalog.RefreshProvider(r.Context(), providerID); err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		_ = httpjson.Error(w, http.StatusBadGateway, err.Error())
 		return
 	}
@@ -113,6 +116,9 @@ func (h *Handler) handleCreateManagedModel(w http.ResponseWriter, r *http.Reques
 	}
 	item.Normalize()
 	if err := h.modelCatalog.CreateManagedModel(r.Context(), item); err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -147,6 +153,9 @@ func (h *Handler) handleUpdateManagedModel(w http.ResponseWriter, r *http.Reques
 	item.UpstreamModel = r.PathValue("upstream_model")
 	item.Normalize()
 	if err := h.modelCatalog.UpdateManagedModel(r.Context(), item); err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		if errors.Is(err, configstore.ErrNotFound) {
 			_ = httpjson.Error(w, http.StatusNotFound, "managed model not found")
 			return
@@ -177,6 +186,9 @@ func (h *Handler) handleDeleteManagedModel(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := h.modelCatalog.DeleteManagedModel(r.Context(), r.PathValue("provider_id"), r.PathValue("upstream_model")); err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}

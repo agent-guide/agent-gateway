@@ -45,6 +45,12 @@ func (c *controlPlane) providerMutation(ctx context.Context, action configmgr.Mu
 	if id == "" {
 		return fmt.Errorf("provider id is required")
 	}
+	if action == configmgr.MutationRefresh {
+		return c.recoverProvider(ctx, id)
+	}
+	if err := c.providers.checkPending(id); err != nil {
+		return err
+	}
 	if c.providers.IsStatic(id) {
 		return fmt.Errorf("%w: %q", ErrStaticProviderReadOnly, id)
 	}
@@ -57,11 +63,16 @@ func (c *controlPlane) providerMutation(ctx context.Context, action configmgr.Mu
 			return fmt.Errorf("%w: provider %q: %s", ErrResourceReferenced, id, strings.Join(refs, ", "))
 		}
 		if c.modelStore == nil {
+			c.providers.beginDeletion(id)
 			err := apply(ctx)
-			if err == nil {
-				modelcatalog.InvalidateProvider(c.models, id)
+			if err != nil {
+				return c.providers.pendingFailure(id, err)
 			}
-			return err
+			if err := c.publishProviderDeletion(id); err != nil {
+				return c.providers.pendingFailure(id, err)
+			}
+			c.providers.clearPending(id)
+			return nil
 		}
 		return c.deleteProvider(ctx, id)
 	}
@@ -76,11 +87,7 @@ func (c *controlPlane) providerMutation(ctx context.Context, action configmgr.Mu
 			}
 		}
 	}
-	err := apply(ctx)
-	if err == nil {
-		modelcatalog.InvalidateProvider(c.models, id)
-	}
-	return err
+	return c.writeProvider(ctx, action, id, next)
 }
 
 func (c *controlPlane) providerReferences(ctx context.Context, id string) ([]string, error) {
@@ -154,7 +161,11 @@ func (c *controlPlane) deleteProvider(ctx context.Context, id string) error {
 	if !ok {
 		return configstore.ErrTransactionsUnsupported
 	}
-	err := tx.Transaction(ctx, []string{schema.StoreProviders, schema.StoreManagedModels}, func(stores map[string]configstore.ConfigStore) error {
+	c.providers.beginDeletion(id)
+	written := false
+	var callbackErr error
+	err := tx.Transaction(ctx, []string{schema.StoreProviders, schema.StoreManagedModels}, func(stores map[string]configstore.ConfigStore) (err error) {
+		defer func() { callbackErr = err }()
 		providers, models := stores[schema.StoreProviders], stores[schema.StoreManagedModels]
 		if _, err := providers.Get(ctx, id); err != nil {
 			if errors.Is(err, configstore.ErrNotFound) {
@@ -169,6 +180,7 @@ func (c *controlPlane) deleteProvider(ctx context.Context, id string) error {
 		if err := providers.Delete(ctx, id); err != nil {
 			return err
 		}
+		written = true
 		for _, item := range items {
 			model, ok := item.(*modelcatalog.ManagedModel)
 			if !ok || model == nil {
@@ -199,11 +211,16 @@ func (c *controlPlane) deleteProvider(ctx context.Context, id string) error {
 		return nil
 	})
 	if err != nil {
-		return err
+		if callbackErr != nil || !written {
+			c.providers.clearPending(id)
+			return err
+		}
+		return c.providers.pendingFailure(id, err)
 	}
-	c.providers.configs.Evict(id)
-	c.providers.deleteDynamicCache(id)
-	modelcatalog.InvalidateProvider(c.models, id)
+	if err := c.publishProviderDeletion(id); err != nil {
+		return c.providers.pendingFailure(id, err)
+	}
+	c.providers.clearPending(id)
 	return nil
 }
 
@@ -251,6 +268,11 @@ func (c *controlPlane) routeMutation(ctx context.Context, action configmgr.Mutat
 			if err != nil {
 				return err
 			}
+			if c.agents != nil {
+				if err := c.agents.CheckExecutionID(agentID); err != nil {
+					return err
+				}
+			}
 			if c.agents == nil || !c.agents.HasAgent(agentID) {
 				return fmt.Errorf("%w: route %q targets unknown agent %q", ErrDependencyNotConfigured, id, agentID)
 			}
@@ -262,6 +284,9 @@ func (c *controlPlane) routeMutation(ctx context.Context, action configmgr.Mutat
 func (c *controlPlane) modelMutation(ctx context.Context, action configmgr.MutationAction, id string, next *modelcatalog.ManagedModel, apply func(context.Context) error) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.providers.checkPending(id); err != nil {
+		return err
+	}
 	if next != nil {
 		if _, err := c.providers.GetConfig(ctx, strings.TrimSpace(next.ProviderID)); err != nil {
 			return fmt.Errorf("%w: %w", ErrDependencyNotConfigured, err)
@@ -276,6 +301,40 @@ func (c *controlPlane) agentMutation(ctx context.Context, action configmgr.Mutat
 	return apply(ctx)
 }
 
+// Credentials normalize their ProviderID to lowercase, while Provider IDs retain
+// case. Resolve that ownership key without changing Provider lookup semantics.
+func (c *controlPlane) credentialProvider(ctx context.Context, id string) (provider.ProviderConfig, error) {
+	configs, err := c.providers.ListConfigs(ctx, ProviderListOptions{})
+	if err != nil {
+		return provider.ProviderConfig{}, err
+	}
+	configs = append(configs, c.providers.configs.Snapshot(configmgr.ListQuery{})...)
+	ids := map[string]bool{}
+	for _, cfg := range configs {
+		ids[cfg.Id] = true
+	}
+	// A pending deletion may already be absent from persistence and cache.
+	c.providers.mu.RLock()
+	for pendingID := range c.providers.pending {
+		ids[pendingID] = true
+	}
+	c.providers.mu.RUnlock()
+	canonical := ""
+	for candidate := range ids {
+		if !strings.EqualFold(candidate, strings.TrimSpace(id)) {
+			continue
+		}
+		if canonical != "" {
+			return provider.ProviderConfig{}, fmt.Errorf("credential provider_id %q matches multiple Provider IDs", id)
+		}
+		canonical = candidate
+	}
+	if canonical == "" {
+		return provider.ProviderConfig{}, fmt.Errorf("%w: %q", ErrProviderNotConfigured, id)
+	}
+	return c.providers.GetConfig(ctx, canonical)
+}
+
 func (c *controlPlane) credentialMutation(ctx context.Context, action configmgr.MutationAction, id string, next *credential.Credential, apply func(context.Context) error) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -283,7 +342,7 @@ func (c *controlPlane) credentialMutation(ctx context.Context, action configmgr.
 		if credential.IsHTTPAgentCredentialScope(cred.ScopeValue()) {
 			return nil
 		}
-		cfg, err := c.providers.GetConfig(ctx, strings.TrimSpace(cred.ProviderID))
+		cfg, err := c.credentialProvider(ctx, cred.ProviderID)
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrDependencyNotConfigured, err)
 		}

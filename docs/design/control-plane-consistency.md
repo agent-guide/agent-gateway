@@ -1,9 +1,7 @@
 # Control-plane reference consistency
 
-Capability status: **Implemented** for reference coordination and transactional
-Provider/ManagedModel deletion. The pending-recovery behavior specified under
-"Pending generation recovery" remains **Proposed** until its implementation
-and fault-injection gates land.
+Capability status: **Implemented** for reference coordination, transactional
+Provider/ManagedModel deletion and pending generation recovery described here.
 
 ## References and deletion
 
@@ -75,17 +73,18 @@ Do not implement rollback by compensating writes after commit.
 
 ## Pending generation recovery
 
-The following behavior remains Proposed. It is not supplied by the transaction
-or coordination implementation above.
-
-Agent authoritative timestamp readback should run inside the persistence
+Agent authoritative timestamp readback runs inside a single-family persistence
 transaction when supported. A committed write and runtime publication are
 distinct facts. A post-commit readback/preparation/publication failure records
 an operation/resource-specific pending recovery state and returns an identifiable
 error. It retains the previous validated generation but blocks new execution
 and conflicting writes for the affected resource. Unrelated resources continue.
 Expose only operation identity, resource identity, action and bounded recovery
-state; never configuration, secrets or raw listener diagnostics.
+state; never configuration, secrets or raw listener diagnostics. A verification
+gate is installed before persistence. Provider GetConfig/ResolveProvider and
+shipping Agent turn adapters reject pending state; Agent admission also rejects
+old definition versions after replacement. Both HTTP Agent paths consult the
+same manager gate. Validated snapshots remain available for inspection.
 
 Recovery rereads persisted facts, validates and prepares a complete generation,
 then publishes through normal listener commit/cleanup. Controlled Refresh/retry
@@ -94,6 +93,21 @@ recover its committed outcome before creating another write. Existing runs keep
 their established cancellation/retirement lifecycle; the gate applies to new
 execution, including callers holding a previously resolved definition.
 
+`GET /admin/agents/{id}/mutation` and
+`GET /admin/llm/providers/{id}/mutation` expose pending metadata even after
+deletion. Corresponding `POST .../{id}/recover` operations reverify and publish
+without another resource write. Failed recovery attempts retain the operation
+identity and back off exponentially from one to thirty seconds, with
+`Retry-After`. There is no recovery worker or automatic mutation replay.
+Expected HTTP Card/readiness failures still publish a non-ready Agent entry;
+they are distinct from failed authoritative verification/publication.
+
+Credential ownership writes acquire coordination before an exclusive ownership
+lease. Token rotation holds a shared ownership lease plus its per-credential
+refresh lock and updates only immutable-owner secret state, without reentering
+coordination. This permits refresh during Agent retirement cleanup while
+preventing rotation from resurrecting a concurrently revoked credential.
+
 Restart reconstructs published generations from SQLite and rejects invalid
 configuration through offline recovery guidance. An in-memory pending registry
 does not imply durable business workflow or multiprocess coordination. Two
@@ -101,9 +115,8 @@ processes modifying one SQLite file remain outside the consistency guarantee.
 
 ## Acceptance evidence
 
-Implementation must cover concurrent deletion/reference creation, complete
+Tests cover concurrent deletion/reference creation, complete
 rollback after any cleanup failure, transaction readback failure, committed
 publication failure, observable pending state, blocked stale execution, caller
 retry and restart. Existing Agent reference, credential revocation, session,
-permission and cancellation behavior suites remain required. Documentation-only
-agreement with this contract is not implemented consistency.
+permission and cancellation behavior suites remain required.

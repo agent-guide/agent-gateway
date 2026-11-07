@@ -1,5 +1,15 @@
 # Unreleased
 
+- Unconfirmed Agent and Provider mutations now have resource/operation-specific
+  pending state. New execution and conflicting writes fail closed while
+  unrelated resources continue. Inspect `GET .../{id}/mutation` and use
+  `POST .../{id}/recover` under `/admin/agents` or `/admin/llm/providers` to
+  verify persisted facts without another write. Recovery retries back off
+  1–30 seconds. SQLite Agent readback is transactional; known failures roll back.
+  Listener preparation/commit panics no longer leave the snapshot lock held.
+  Token-only refresh avoids reentrant configuration coordination and cannot
+  resurrect a concurrently revoked credential.
+
 - Provider deletion and ManagedModel cleanup now commit together in SQLite.
   All composed-manager write entry points, including direct calls and Bundle,
   enforce Provider/Route/model references. Provider credentials also block their

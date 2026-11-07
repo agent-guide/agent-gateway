@@ -38,6 +38,11 @@ migrations. Callback failure rolls back all writes. Publish runtime snapshots
 only after commit, never retain transaction stores, and never substitute
 sequential writes when transactions are unsupported.
 
+`TransactionalStore` supplies the corresponding single-family callback for
+authoritative write/readback (notably Agents). A successful callback and a
+successful transaction return are separate facts; consumers treat uncertain
+commit errors as pending recovery rather than blindly replaying writes.
+
 `internal/configrepair` and `scripts/repair-architecture-config` provide offline
 raw-record inspection and repair without schema registration or data-plane
 startup. Repairs require stopped services, back up committed SQLite contents,

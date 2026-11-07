@@ -102,6 +102,9 @@ func (h *Handler) handleCreateCredential(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := h.credentialManager.RegisterCredential(r.Context(), cred); err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -138,6 +141,9 @@ func (h *Handler) handleUpdateCredential(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := h.credentialManager.UpdateCredential(r.Context(), updated); err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -310,6 +316,9 @@ func (h *Handler) buildCredentialForUpdate(existing *credential.ManagedCredentia
 
 func (h *Handler) writeCredentialBuildError(w http.ResponseWriter, err error) {
 	if err == nil {
+		return
+	}
+	if writeControlPlaneError(w, err) {
 		return
 	}
 	msg := err.Error()

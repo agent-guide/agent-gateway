@@ -293,6 +293,10 @@ Implemented families:
 - ACP: `/admin/acp/runtime/...` (native diagnostics keyed by `agent_id`)
 - builtin: `/admin/builtin/runtime/...`
 - agents: `/admin/agents/...` plus unified route CRUD under `/admin/agents/routes`
+- Agent and Provider mutation inspection/recovery: `GET /admin/agents/{id}/mutation`,
+  `POST /admin/agents/{id}/recover`, `GET /admin/llm/providers/{id}/mutation`, and
+  `POST /admin/llm/providers/{id}/recover`. Unconfirmed outcomes block new
+  execution and conflicting writes until verified; recovery never replays writes.
 - metrics: summaries (with combined drop/failure, rejected-event and public sink health counters), per-protocol LLM/MCP/ACP timeseries and breakdowns, unified interaction summary/timeseries across all typed event tables, recent interaction events, and the Prometheus exposition endpoint `GET /admin/metrics/prometheus`
 
 Stubbed families currently return `501 Not Implemented`:

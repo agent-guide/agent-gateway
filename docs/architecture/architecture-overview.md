@@ -511,7 +511,14 @@ removes the Provider plus all of its ManagedModels in one SQLite transaction.
 Readback precedes commit; cache retirement follows commit and fences in-flight
 model discovery. Backends without transactions cannot perform this atomic
 deletion. Persistence and runtime snapshot publication remain separate facts;
-the Agent post-write readback recovery behavior still has its own contract.
+Agent write/readback uses a single-family SQLite transaction. Uncertain commit
+or publication outcomes record process-local pending operations, retain the
+validated snapshot and block new execution/conflicting writes for that resource.
+The mutation status/recover endpoints reverify persisted facts without replaying
+writes; failed recovery backs off 1–30 seconds. Shipping Agent adapters also
+reject previously captured definition versions after replacement. Both HTTP
+paths use the same pending gate. See
+[mutation recovery](../guides/configuration-mutation-recovery.md).
 
 Offline recovery is separate from serving: `internal/configrepair`, exposed
 through `scripts/repair-architecture-config`, inspects raw SQLite records and

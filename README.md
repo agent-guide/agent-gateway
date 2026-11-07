@@ -34,6 +34,9 @@ explicitly remove existing budgets before loading the configuration.
 Provider deletion requires detaching LLM routes and removing/rebinding its
 credentials. Its ManagedModels are cleaned up in the same SQLite transaction.
 
+For unconfirmed online writes, inspect `GET .../{id}/mutation` and use
+`POST .../{id}/recover`; see [mutation recovery](docs/guides/configuration-mutation-recovery.md).
+
 ## Try it without a provider key
 
 The shortest supported evaluation path needs Docker Engine with Compose v2,

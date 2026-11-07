@@ -147,8 +147,9 @@ func (m *Manager) ensureSnapshotLoadedLocked(ctx context.Context) error {
 // commitGeneration prepares listener state without excluding readers,
 // atomically swaps the definition snapshot and derived attribution index with
 // bounded listener commits, then performs external cleanup after readers are
-// admitted to the new generation. The swap itself cannot fail.
-func (m *Manager) commitGeneration(ctx context.Context, agents map[string]Agent) {
+// admitted to the new generation. A listener panic is contained and reported;
+// the definition swap occurs only after all bounded commits have completed.
+func (m *Manager) commitGeneration(ctx context.Context, agents map[string]Agent) error {
 	byRoute := buildAttributionIndex(agents)
 	m.snapMu.RLock()
 	listeners := append([]DefinitionListener(nil), m.listeners...)
@@ -156,35 +157,57 @@ func (m *Manager) commitGeneration(ctx context.Context, agents map[string]Agent)
 	commits := make([]DefinitionCommit, 0, len(listeners))
 	for _, listener := range listeners {
 		prepareCtx, cancelPrepare := context.WithTimeout(context.WithoutCancel(ctx), definitionPrepareTimeout)
-		if commit := listener(prepareCtx, cloneAgentList(agents)); commit != nil {
+		commit, err := prepareDefinition(listener, prepareCtx, cloneAgentList(agents))
+		cancelPrepare()
+		if err != nil {
+			return err
+		}
+		if commit != nil {
 			commits = append(commits, commit)
 		}
-		cancelPrepare()
 	}
 
-	m.snapMu.Lock()
-	m.snapshot = agents
-	m.snapshotLoaded = true
-	m.generation++
-	m.mu.Lock()
-	m.byRoute = byRoute
-	m.mu.Unlock()
 	cleanups := make([]DefinitionCleanup, 0, len(commits))
-	for _, commit := range commits {
-		if cleanup := commit(); cleanup != nil {
-			cleanups = append(cleanups, cleanup)
+	err := func() (err error) {
+		m.snapMu.Lock()
+		defer m.snapMu.Unlock()
+		defer func() {
+			if recover() != nil {
+				err = fmt.Errorf("definition listener commit failed")
+			}
+		}()
+		for _, commit := range commits {
+			if cleanup := commit(); cleanup != nil {
+				cleanups = append(cleanups, cleanup)
+			}
 		}
-	}
-	m.snapMu.Unlock()
+		m.snapshot = agents
+		m.snapshotLoaded = true
+		m.generation++
+		m.mu.Lock()
+		m.byRoute = byRoute
+		m.mu.Unlock()
+		return nil
+	}()
 
 	if len(cleanups) == 0 {
-		return
+		return err
 	}
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), definitionCleanupTimeout)
 	defer cancel()
 	for _, cleanup := range cleanups {
 		cleanup(cleanupCtx)
 	}
+	return err
+}
+
+func prepareDefinition(listener DefinitionListener, ctx context.Context, agents []Agent) (commit DefinitionCommit, err error) {
+	defer func() {
+		if recover() != nil {
+			err = fmt.Errorf("definition listener preparation failed")
+		}
+	}()
+	return listener(ctx, agents), nil
 }
 
 // buildAttributionIndex derives the MCP-route -> Agent map defensively: a

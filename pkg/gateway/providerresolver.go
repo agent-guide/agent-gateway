@@ -40,7 +40,9 @@ func (o ProviderListOptions) listQuery() configmgr.ListQuery {
 }
 
 type ProviderManager struct {
-	mu sync.RWMutex
+	mu            sync.RWMutex
+	pending       map[string]configmgr.PendingMutation
+	recoveryClock func() time.Time
 
 	configs         *configmgr.BaseConfigManager[provider.ProviderConfig]
 	staticProviders map[string]provider.Provider
@@ -111,6 +113,7 @@ func (m *ProviderManager) Reset() {
 	defer m.mu.Unlock()
 
 	m.staticProviders = map[string]provider.Provider{}
+	m.pending = nil
 	m.resolver = newDynamicProviderRuntimeResolver(m)
 }
 
@@ -143,6 +146,9 @@ func (m *ProviderManager) IsStatic(providerID string) bool {
 }
 
 func (m *ProviderManager) GetConfig(ctx context.Context, providerID string) (provider.ProviderConfig, error) {
+	if err := m.checkPending(providerID); err != nil {
+		return provider.ProviderConfig{}, err
+	}
 	if providerID == "" {
 		return provider.ProviderConfig{}, fmt.Errorf("provider id is required")
 	}
@@ -213,6 +219,9 @@ func (m *ProviderManager) deleteConfig(ctx context.Context, providerID string) e
 // manager's CreateConfig/UpdateConfig/DeleteConfig paths. This keeps config
 // store reads out of the request hot path while preserving Admin API updates.
 func (m *ProviderManager) ResolveProvider(ctx context.Context, providerID string) (provider.Provider, error) {
+	if err := m.checkPending(providerID); err != nil {
+		return nil, err
+	}
 	if providerID == "" {
 		return nil, fmt.Errorf("provider id is required")
 	}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
+	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	dispatcherpkg "github.com/agent-guide/agent-gateway/pkg/dispatcher"
@@ -28,8 +29,9 @@ type VirtualKeyView struct {
 
 type ProviderView struct {
 	provider.ProviderConfig
-	Source   string `json:"source"`
-	ReadOnly bool   `json:"read_only"`
+	PendingMutation *configmgr.PendingMutation `json:"pending_mutation,omitempty"`
+	Source          string                     `json:"source"`
+	ReadOnly        bool                       `json:"read_only"`
 }
 
 type ProviderTypeView struct {
@@ -73,6 +75,8 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodPost, Path: "/admin/llm/providers/{id}/enable", Handler: h.handleEnableProvider},
 		{Method: http.MethodPost, Path: "/admin/llm/providers/{id}/disable", Handler: h.handleDisableProvider},
 		{Method: http.MethodDelete, Path: "/admin/llm/providers/{id}", Handler: h.handleDeleteProvider},
+		{Method: http.MethodGet, Path: "/admin/llm/providers/{id}/mutation", Handler: h.handleProviderMutationStatus},
+		{Method: http.MethodPost, Path: "/admin/llm/providers/{id}/recover", Handler: h.handleRecoverProvider},
 		{Method: http.MethodGet, Path: "/admin/llm/models/providers/{provider_id}/discovered", Handler: h.handleListDiscoveredModels},
 		{Method: http.MethodPost, Path: "/admin/llm/models/providers/{provider_id}/refresh", Handler: h.handleRefreshProviderModels},
 		{Method: http.MethodGet, Path: "/admin/llm/models/managed", Handler: h.handleListManagedModels},
@@ -146,6 +150,8 @@ func (h *Handler) Routes() []Route {
 		{Method: http.MethodGet, Path: "/admin/agents/{id}", Handler: h.handleGetAgent},
 		{Method: http.MethodPut, Path: "/admin/agents/{id}", Handler: h.handleUpdateAgent},
 		{Method: http.MethodDelete, Path: "/admin/agents/{id}", Handler: h.handleDeleteAgent},
+		{Method: http.MethodGet, Path: "/admin/agents/{id}/mutation", Handler: h.handleAgentMutationStatus},
+		{Method: http.MethodPost, Path: "/admin/agents/{id}/recover", Handler: h.handleRecoverAgent},
 		{Method: http.MethodGet, Path: "/admin/agents/routes", Handler: h.handleListAgentRoutes},
 		{Method: http.MethodPost, Path: "/admin/agents/routes", Handler: h.handleCreateAgentRoute},
 		{Method: http.MethodGet, Path: "/admin/agents/routes/{id}", Handler: h.handleGetAgentRoute},
@@ -261,6 +267,9 @@ func (h *Handler) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := manager.CreateConfig(r.Context(), cfg); err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -282,6 +291,9 @@ func (h *Handler) handleGetProvider(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	cfg, err := manager.GetConfig(r.Context(), id)
 	if err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		if errors.Is(err, gateway.ErrProviderNotConfigured) {
 			_ = httpjson.Error(w, http.StatusNotFound, "provider not found")
 			return
@@ -383,6 +395,9 @@ func (h *Handler) handleSetProviderDisabled(w http.ResponseWriter, r *http.Reque
 	id := r.PathValue("id")
 	cfg, err := manager.GetConfig(r.Context(), id)
 	if err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		if errors.Is(err, gateway.ErrProviderNotConfigured) {
 			_ = httpjson.Error(w, http.StatusNotFound, "provider not found")
 			return
@@ -1206,6 +1221,9 @@ func providerViewFromConfig(manager *gateway.ProviderManager, cfg provider.Provi
 		ProviderConfig: cfg,
 		Source:         "store",
 		ReadOnly:       false,
+	}
+	if manager != nil {
+		view.PendingMutation = manager.PendingMutation(cfg.Id)
 	}
 	if manager != nil && manager.IsStatic(cfg.Id) {
 		view.Source = "caddyfile"

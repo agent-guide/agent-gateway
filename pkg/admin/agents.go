@@ -14,6 +14,7 @@ import (
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	builtinpkg "github.com/agent-guide/agent-gateway/pkg/agent/builtin"
 	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	agentroute "github.com/agent-guide/agent-gateway/pkg/gateway/agentroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
@@ -22,17 +23,51 @@ import (
 
 type AgentView struct {
 	agentpkg.Agent
-	Source        string                       `json:"source"`
-	RuntimeStatus *agentruntime.RuntimeSummary `json:"runtime_status,omitempty"`
-	Capabilities  *agentruntime.Capabilities   `json:"capabilities,omitempty"`
+	PendingMutation *configmgr.PendingMutation   `json:"pending_mutation,omitempty"`
+	Source          string                       `json:"source"`
+	RuntimeStatus   *agentruntime.RuntimeSummary `json:"runtime_status,omitempty"`
+	Capabilities    *agentruntime.Capabilities   `json:"capabilities,omitempty"`
 }
 
 func (h *Handler) agentView(ctx context.Context, a agentpkg.Agent, source string) AgentView {
 	view := AgentView{Agent: a, Source: source}
+	if h.agentManager != nil {
+		view.PendingMutation = h.agentManager.PendingMutation(a.ID)
+	}
+	if view.PendingMutation != nil {
+		return view
+	}
 	if summary, caps, err := h.agentRuntimeRead(ctx, a); err == nil {
 		view.RuntimeStatus, view.Capabilities = summary, caps
 	}
 	return view
+}
+
+func (h *Handler) handleAgentMutationStatus(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.agentManagerOrError()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	_ = httpjson.Write(w, http.StatusOK, map[string]any{"id": id, "pending_mutation": manager.PendingMutation(id)})
+}
+
+func (h *Handler) handleRecoverAgent(w http.ResponseWriter, r *http.Request) {
+	manager, err := h.agentManagerOrError()
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if err := manager.Recover(r.Context(), id); err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
+		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = httpjson.Write(w, http.StatusOK, map[string]string{"id": id, "status": "recovered"})
 }
 
 func (h *Handler) agentManagerOrError() (*agentpkg.Manager, error) {
@@ -73,6 +108,9 @@ func (h *Handler) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	a.Normalize()
 	if err := manager.Create(r.Context(), a); err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -116,6 +154,9 @@ func (h *Handler) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := manager.Update(r.Context(), id, a); err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		if errors.Is(err, agentpkg.ErrAgentNotConfigured) || errors.Is(err, configstore.ErrNotFound) {
 			_ = httpjson.Error(w, http.StatusNotFound, "agent not found")
 			return
@@ -149,6 +190,9 @@ func (h *Handler) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	current, getErr := manager.Get(r.Context(), id)
 	if err := manager.Delete(r.Context(), id); err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		if errors.Is(err, agentpkg.ErrAgentNotConfigured) || errors.Is(err, configstore.ErrNotFound) {
 			_ = httpjson.Error(w, http.StatusNotFound, "agent not found")
 			return
@@ -635,6 +679,9 @@ func (h *Handler) handleUpdateAgentResources(w http.ResponseWriter, r *http.Requ
 	a.Resources = req.Resources
 	a.Routes = req.Routes
 	if err := manager.Update(r.Context(), a.ID, a); err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}

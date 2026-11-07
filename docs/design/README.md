@@ -15,7 +15,7 @@ lives in [`../releases/`](../releases/README.md).
 Current design pages:
 
 - [agents-control-plane.md](agents-control-plane.md)
-- [control-plane-consistency.md](control-plane-consistency.md) — Proposed reference strengths, deletion policies, coordination and recovery boundaries
+- [control-plane-consistency.md](control-plane-consistency.md) — implemented reference strengths, atomic deletion, mutation coordination and pending recovery
 - [builtin-agent-runtime.md](builtin-agent-runtime.md)
 - [http-agent-runtime.md](http-agent-runtime.md) — `runtime.type = "http"` design: A2A Protocol 1.0 JSON-RPC, shared `pkg/a2a`, Path B translating backend then Path A governed proxy
 - [guardrails.md](guardrails.md) — Community Guardrails Core: policy/check SPI, typed inspection, safe rewriting, enforcement, and decision events

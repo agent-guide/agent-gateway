@@ -44,6 +44,8 @@ type Manager struct {
 	snapshotLoaded bool
 	generation     uint64
 	listeners      []DefinitionListener
+	pending        map[string]configmgr.PendingMutation
+	recoveryClock  func() time.Time
 
 	mu      sync.RWMutex
 	byRoute map[string]string // exclusive MCP route id -> agent id
@@ -164,6 +166,9 @@ func (m *Manager) Create(ctx context.Context, a Agent) error {
 
 func (m *Manager) createLocked(ctx context.Context, a Agent) error {
 	a.Normalize()
+	if err := m.ensureWritableDefinition(a.ID); err != nil {
+		return err
+	}
 	if err := a.Validate(); err != nil {
 		return err
 	}
@@ -186,17 +191,15 @@ func (m *Manager) createLocked(ctx context.Context, a Agent) error {
 	if err != nil {
 		return err
 	}
-	if err := m.store.Create(ctx, storedAgent{cfg: &a, tag: a.Runtime.Type}); err != nil {
-		return err
-	}
-	// The store owns persisted timestamps. Publish the same facts returned by
-	// Admin reads, so execution stamps survive a restart without changing.
-	persisted, err := m.Get(ctx, a.ID)
+	persisted, err := m.persistVerified(ctx, a, configmgr.MutationCreate)
 	if err != nil {
 		return err
 	}
 	prospective[a.ID] = persisted
-	m.commitGeneration(ctx, prospective)
+	if err := m.commitGeneration(ctx, prospective); err != nil {
+		return m.pendingFailure(a.ID, err)
+	}
+	m.clearPending(a.ID)
 	return nil
 }
 
@@ -213,6 +216,9 @@ func (m *Manager) Update(ctx context.Context, id string, a Agent) error {
 }
 
 func (m *Manager) updateLocked(ctx context.Context, id string, a Agent) error {
+	if err := m.ensureWritableDefinition(id); err != nil {
+		return err
+	}
 	current, err := m.Get(ctx, id)
 	if err != nil {
 		return err
@@ -242,17 +248,15 @@ func (m *Manager) updateLocked(ctx context.Context, id string, a Agent) error {
 	if err != nil {
 		return err
 	}
-	if err := m.store.Update(ctx, storedAgent{cfg: &a, tag: a.Runtime.Type}); err != nil {
-		return err
-	}
-	// The store owns persisted timestamps. Publish the same facts returned by
-	// Admin reads, so execution stamps survive a restart without changing.
-	persisted, err := m.Get(ctx, a.ID)
+	persisted, err := m.persistVerified(ctx, a, configmgr.MutationUpdate)
 	if err != nil {
 		return err
 	}
 	prospective[a.ID] = persisted
-	m.commitGeneration(ctx, prospective)
+	if err := m.commitGeneration(ctx, prospective); err != nil {
+		return m.pendingFailure(a.ID, err)
+	}
+	m.clearPending(a.ID)
 	return nil
 }
 
@@ -269,6 +273,9 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 }
 
 func (m *Manager) deleteLocked(ctx context.Context, id string) error {
+	if err := m.ensureWritableDefinition(id); err != nil {
+		return err
+	}
 	if m.routeLookup != nil {
 		routeIDs, err := m.routeLookup.AgentRouteIDsForAgent(ctx, id)
 		if err != nil {
@@ -284,10 +291,13 @@ func (m *Manager) deleteLocked(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := m.store.Delete(ctx, id); err != nil {
+	if _, err := m.persistVerified(ctx, Agent{ID: id}, configmgr.MutationDelete); err != nil {
 		return err
 	}
-	m.commitGeneration(ctx, prospective)
+	if err := m.commitGeneration(ctx, prospective); err != nil {
+		return m.pendingFailure(id, err)
+	}
+	m.clearPending(id)
 	return nil
 }
 
@@ -302,6 +312,9 @@ func (m *Manager) checkMCPRouteUniqueness(ctx context.Context, a Agent, excludeI
 	if err != nil {
 		return err
 	}
+	// A pending write can release a stored reference before its published
+	// generation retires. Reserve both views until recovery completes.
+	existing = append(existing, m.Snapshot()...)
 	for _, other := range existing {
 		if other.ID == excludeID || other.ID == a.ID {
 			continue
@@ -347,7 +360,12 @@ func (m *Manager) refreshLocked(ctx context.Context) error {
 		}
 		next[cloned.ID] = cloned
 	}
-	m.commitGeneration(ctx, next)
+	if err := m.commitGeneration(ctx, next); err != nil {
+		return m.publicationFailure(next, err)
+	}
+	m.snapMu.Lock()
+	m.pending = nil
+	m.snapMu.Unlock()
 	return nil
 }
 
@@ -378,8 +396,7 @@ func (m *Manager) recommitLocked(ctx context.Context) error {
 		next[id] = a
 	}
 	m.snapMu.RUnlock()
-	m.commitGeneration(ctx, next)
-	return nil
+	return m.commitGeneration(ctx, next)
 }
 
 // ResolveAgentID maps an originating MCP route back to a single agent for

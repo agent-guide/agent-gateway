@@ -16,9 +16,20 @@ repeat the existing type, but must reject attempts to convert a credential.
 Composed-manager ownership writes use the gateway's application mutation guard.
 Provider credentials require an existing matching Provider and block Provider
 deletion until explicitly removed/rebound; credentials are never cascade-deleted.
+Credential ownership keys normalize Provider IDs to lowercase. Coordination
+resolves them to one canonical Provider ID, retaining its pending gate; multiple
+Provider IDs differing only by case make credential ownership ambiguous and are
+rejected by credential writes/reloads.
 Persist credential deletion before removing its runtime entry or notifying
 listeners. Failed deletion must leave both selection state and listener state
 intact. HTTP Agent credential deletion remains an allowed revocation.
+
+Ownership changes take an exclusive ownership lease inside application
+coordination. Request-time rotation takes a shared lease plus its existing
+per-credential refresh lock and calls the private secret update path only after
+pinning all owner/type/scope/disabled fields to their current values. It must
+not reacquire coordination: rotation can run during Agent retirement cleanup.
+Deletion/replacement waits for rotation, preventing revoked-key resurrection.
 
 HTTP Agent execution reuses this store rather than creating a second secret
 model. Its P0 upstream credentials use the dedicated non-provider scope

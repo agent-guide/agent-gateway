@@ -15,6 +15,12 @@ type TransactionalBackend interface {
 	Transaction(context.Context, []string, func(map[string]ConfigStore) error) error
 }
 
+// TransactionalStore supports authoritative write/readback within one family.
+// Runtime publication still happens only after this callback commits.
+type TransactionalStore interface {
+	Transaction(context.Context, func(ConfigStore) error) error
+}
+
 // TransactionalCreator binds already registered schemas to one transaction.
 // It leaves schema registration and domain rules with their existing owners.
 type TransactionalCreator interface {

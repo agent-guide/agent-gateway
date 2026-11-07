@@ -65,9 +65,15 @@ func (h *Handler) dispatchAgent(w http.ResponseWriter, r *http.Request, next Nex
 	if agentManager == nil {
 		return WriteDispatchError(h.logger, string(route.Protocol), route.ID, "", http.StatusServiceUnavailable, w, rewritten, "dispatch agent request", "agent manager is not configured", fmt.Errorf("agent manager is not configured"))
 	}
+	if err := agentManager.CheckExecutionID(route.AgentID); err != nil {
+		return writeRuntimePreStreamError(w, rewritten, agentruntime.NewError(agentruntime.ErrorBackendUnavailable, err.Error()))
+	}
 	a, ok := agentManager.GetSnapshot(route.AgentID)
 	if !ok {
 		return writeRuntimePreStreamError(w, rewritten, agentruntime.NewError(agentruntime.ErrorAgentNotFound, "agent not found"))
+	}
+	if err := agentManager.CheckExecution(a); err != nil {
+		return writeRuntimePreStreamError(w, rewritten, agentruntime.NewError(agentruntime.ErrorBackendUnavailable, err.Error()))
 	}
 	// Record the typed operation identity as soon as the target Agent is known,
 	// but do not declare success until the selected operation completes.

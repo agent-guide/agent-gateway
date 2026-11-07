@@ -16,6 +16,8 @@
 # Agent budgets are unsupported: omit policy.budget or set it to null in Bundles.
 # Provider deletion requires detaching LLM routes and removing/rebinding its
 # credentials. ManagedModels are cleaned up atomically; secrets never cascade.
+# Unconfirmed Agent/Provider writes expose GET .../{id}/mutation and
+# POST .../{id}/recover under their Admin family; recovery does not replay writes.
 #
 # Caddy module IDs:
 # - agent_gateway

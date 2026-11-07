@@ -197,6 +197,9 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	}
 	var backends []agentruntime.Backend
 	controls := RuntimeControls{Runs: g.runRegistry, Permissions: g.permissionBroker, Logger: opts.Logger}
+	if g.agentManager != nil {
+		controls.CheckExecution = g.agentManager.CheckExecution
+	}
 	var acpBackend *ACPBackend
 	if g.acpRuntimeManager != nil {
 		turnServer := ACPTurnServer(g.acpRuntimeManager)

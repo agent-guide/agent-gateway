@@ -37,6 +37,17 @@ generation. Secret values never appear in these envelope responses.
 
 - `GET /admin/health`
 
+## Configuration mutation recovery
+
+Agent and Provider mutation status endpoints return `id` and optional
+`pending_mutation` metadata: operation/resource identity, action, state,
+start time, and recovery retry timing. `verifying` or `pending_recovery` blocks
+new execution and conflicting writes with 503. Corresponding recovery POSTs
+return `id` and `status: recovered` after verifying persisted facts; they never
+repeat resource writes. Failed recovery backs off 1–30 seconds and supplies
+`Retry-After`. Operation metadata is process-local. See the
+[recovery guide](../guides/configuration-mutation-recovery.md).
+
 ## Providers
 
 - `GET /admin/llm/provider_types`
@@ -48,6 +59,8 @@ generation. Secret values never appear in these envelope responses.
 - `POST /admin/llm/providers/{id}/enable`
 - `POST /admin/llm/providers/{id}/disable`
 - `DELETE /admin/llm/providers/{id}`
+- `GET /admin/llm/providers/{id}/mutation`
+- `POST /admin/llm/providers/{id}/recover`
 
 Create a provider:
 
@@ -235,6 +248,8 @@ Implemented MCP admin families include:
 
 - `GET|POST /admin/agents`
 - `GET|PUT|DELETE /admin/agents/{id}`
+- `GET /admin/agents/{id}/mutation`
+- `POST /admin/agents/{id}/recover`
 - `GET|POST /admin/agents/routes`
 - `GET|PUT|DELETE /admin/agents/routes/{id}`
 - `GET /admin/agents/{id}/workspace`
@@ -355,6 +370,8 @@ startup and by a periodic background janitor.
 - `GET /admin/agents/{id}`
 - `PUT /admin/agents/{id}`
 - `DELETE /admin/agents/{id}`
+- `GET /admin/agents/{id}/mutation`
+- `POST /admin/agents/{id}/recover`
 - `GET /admin/agents/{id}/workspace`
 - `GET /admin/agents/{id}/activity`
 - `GET /admin/agents/{id}/usage`

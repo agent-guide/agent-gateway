@@ -480,6 +480,11 @@ func (m *HTTPRuntimeManager) ResolveExecution(agentID string) (*HTTPExecution, e
 	if m == nil {
 		return nil, fmt.Errorf("HTTP runtime manager is unavailable")
 	}
+	if m.agents != nil {
+		if err := m.agents.CheckExecutionID(agentID); err != nil {
+			return nil, err
+		}
+	}
 	m.mu.RLock()
 	entry, ok := m.entries[strings.TrimSpace(agentID)]
 	m.mu.RUnlock()
@@ -512,6 +517,11 @@ type HTTPProxyTarget struct {
 func (m *HTTPRuntimeManager) ResolveProxyTarget(agentID string) (*HTTPProxyTarget, error) {
 	if m == nil {
 		return nil, fmt.Errorf("HTTP runtime manager is unavailable")
+	}
+	if m.agents != nil {
+		if err := m.agents.CheckExecutionID(agentID); err != nil {
+			return nil, err
+		}
 	}
 	m.mu.RLock()
 	entry, ok := m.entries[strings.TrimSpace(agentID)]

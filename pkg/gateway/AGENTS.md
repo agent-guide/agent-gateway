@@ -49,6 +49,15 @@ transaction with readback before cache retirement. Unsupported transactions
 fail explicitly. Agent Resources declarations are retained as management links;
 HTTP credential revocation remains allowed and fails closed at live lookup.
 
+Provider unconfirmed commits/cache publication failures record a pending
+operation. GetConfig, ResolveProvider and conflicting mutations fail closed;
+Recover rereads authoritative Provider/model facts and verifies the stored
+Provider ID matches the requested key before clearing it. Shipping
+Agent backends receive `RuntimeControls.CheckExecution`; preserve this gate when
+extracting adapters. It rejects pending Agent writes and old captured definition
+versions. HTTPRuntimeManager applies the same pending gate to native proxy and
+translated execution. No gate reads ConfigStore on a request path.
+
 `routecore.ValidateRouteConfigs` rejects equal-score intersections across all
 kinds and static/dynamic routes. Disabled routes reserve space. A2A's effective
 match accepts all methods while scoring uses declared methods. Route mutations

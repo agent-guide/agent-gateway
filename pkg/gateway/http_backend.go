@@ -316,14 +316,16 @@ func (b *httpSessionBindings) count() int {
 
 // HTTPBackend translates the common Agent turn contract to A2A 1.0 JSON-RPC.
 type HTTPBackend struct {
-	manager *HTTPRuntimeManager
-	runs    *agentruntime.RunRegistry
+	checkExecution func(agentpkg.Agent) error
+	manager        *HTTPRuntimeManager
+	runs           *agentruntime.RunRegistry
 }
 
 func NewHTTPBackend(manager *HTTPRuntimeManager, controls ...RuntimeControls) *HTTPBackend {
 	backend := &HTTPBackend{manager: manager}
 	if len(controls) > 0 {
 		backend.runs = controls[0].Runs
+		backend.checkExecution = controls[0].CheckExecution
 	}
 	return backend
 }
@@ -351,6 +353,11 @@ func (b *HTTPBackend) Capabilities(_ context.Context, agent agentpkg.Agent) (age
 }
 
 func (b *HTTPBackend) ServeTurn(ctx context.Context, agent agentpkg.Agent, req agentruntime.TurnRequest, emit agentruntime.EventSink) (returnErr error) {
+	if b != nil && b.checkExecution != nil {
+		if err := b.checkExecution(agent); err != nil {
+			return agentruntime.NewError(agentruntime.ErrorBackendUnavailable, err.Error())
+		}
+	}
 	if err := validateBackendAgent(agent, agentpkg.RuntimeTypeHTTP); err != nil {
 		return err
 	}

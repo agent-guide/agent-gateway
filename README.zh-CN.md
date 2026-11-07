@@ -33,6 +33,9 @@ Agent 尚未执行预算限制，因此拒绝非 null 的 `policy.budget`；加�
 删除 Provider 前必须移除其 LLM 路由引用，并删除或重新绑定其凭证；所属
 ManagedModel 会在同一个 SQLite 事务中清理。
 
+在线写入结果未确认时，通过 `GET .../{id}/mutation` 检查，并使用
+`POST .../{id}/recover` 恢复，参见[写入恢复指南](docs/guides/configuration-mutation-recovery.md)。
+
 ## 无需模型 Provider Key 即可试用
 
 最短的受支持验证路径只需要安装带 Compose v2 的 Docker Engine、`curl` 和
