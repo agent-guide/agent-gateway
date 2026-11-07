@@ -4,13 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"sync"
+
 	"github.com/agent-guide/agent-gateway/internal/extensionstore"
 	"github.com/agent-guide/agent-gateway/pkg/attribution"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"github.com/agent-guide/agent-gateway/pkg/event"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
-	"net/http"
-	"sync"
+	runtimebackend "github.com/agent-guide/agent-gateway/pkg/gateway/runtimebackend"
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
@@ -57,7 +59,7 @@ type BootstrapOptions struct {
 	// backend drives. Nil uses the process-pool runtime manager. Tests inject
 	// a fake to exercise Agent-dispatched ACP execution without spawning
 	// processes.
-	ACPRuntime ACPTurnServer
+	ACPRuntime runtimebackend.ACPTurnServer
 	// HTTPBackend overrides the registered HTTP Agent adapter in focused tests.
 	// Nil registers the production Path B backend over HTTPRuntimeManager.
 	HTTPBackend agentruntime.Backend
@@ -75,7 +77,6 @@ type AgentGateway struct {
 	llmRouteResolver    *llmroutepkg.LLMRouteResolver
 	mcpRouteResolver    *mcproutepkg.MCPRouteResolver
 	agentRouteResolver  *agentroutepkg.AgentRouteResolver
-	builtinHost         *builtinpkg.Host
 	virtualKeyManager   *virtualkeypkg.VirtualKeyManager
 	providerManager     *ProviderManager
 	credentialManager   *credential.Manager
@@ -83,9 +84,8 @@ type AgentGateway struct {
 	modelCatalog        modelcatalog.Service
 	mcpServiceManager   *mcpservice.Manager
 	mcpRuntimeRegistry  *mcpruntime.Registry
-	acpRuntimeManager   *acphost.Manager
 	agentManager        *agentpkg.Manager
-	httpRuntimeManager  *HTTPRuntimeManager
+	backends            *runtimebackend.Set
 	runtimeRegistry     *agentruntime.Registry
 	runRegistry         *agentruntime.RunRegistry
 	permissionBroker    *agentruntime.PermissionBroker
@@ -149,7 +149,6 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	if err := g.configureMCPServiceManager(opts.ConfigStoreBackend); err != nil {
 		return err
 	}
-	g.acpRuntimeManager = acphost.NewManager()
 	if err := g.configureAgentManager(ctx, opts.ConfigStoreBackend); err != nil {
 		return err
 	}
@@ -178,65 +177,23 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	g.usagePrometheus = opts.UsagePrometheus
 	g.usageConfig = opts.UsageConfig.Normalized()
 	g.logger = opts.Logger
-	g.httpRuntimeManager = NewHTTPRuntimeManager(g.agentManager, g.credentialManager, nil, opts.Logger)
-	if g.agentRouteResolver != nil {
-		g.agentRouteResolver.SetA2AProxyLookup(g.httpRuntimeManager)
-	}
 	if err := g.configureModelCatalog(ctx, opts.ConfigStoreBackend, opts.Logger); err != nil {
 		return err
 	}
-	// The builtin host is constructed last: it consumes the agent manager, the
-	// LLM route layer (through the RoutedProvider -> eino chat model adapter),
-	// the MCP service manager, and the usage observer configured above.
-	if g.agentManager != nil {
-		g.builtinHost = builtinpkg.NewHost(builtinpkg.Config{
-			Agents:   g.agentManager,
-			Models:   routedChatModelResolver{gateway: g},
-			Tools:    g.mcpServiceManager,
-			Observer: g.usageObserver,
-		})
+	// Concrete runtime assembly consumes only explicitly injected capabilities.
+	backends, err := runtimebackend.Assemble(ctx, runtimebackend.AssemblyOptions{
+		Agents: g.agentManager, Credentials: g.credentialManager,
+		Builtin:    builtinpkg.Config{Models: routedChatModelResolver{gateway: g}, Tools: g.mcpServiceManager, Observer: g.usageObserver},
+		Registry:   g.runtimeRegistry,
+		Controls:   runtimebackend.RuntimeControls{Runs: g.runRegistry, Permissions: g.permissionBroker, Logger: opts.Logger},
+		ACPRuntime: opts.ACPRuntime, HTTPBackend: opts.HTTPBackend,
+	})
+	if err != nil {
+		return err
 	}
-	var backends []agentruntime.Backend
-	controls := RuntimeControls{Runs: g.runRegistry, Permissions: g.permissionBroker, Logger: opts.Logger}
-	if g.agentManager != nil {
-		controls.CheckExecution = g.agentManager.CheckExecution
-	}
-	var acpBackend *ACPBackend
-	if g.acpRuntimeManager != nil {
-		turnServer := ACPTurnServer(g.acpRuntimeManager)
-		if opts.ACPRuntime != nil {
-			turnServer = opts.ACPRuntime
-		}
-		acpBackend = NewACPBackend(turnServer, controls)
-		backends = append(backends, acpBackend)
-	}
-	if g.builtinHost != nil {
-		backends = append(backends, NewBuiltinBackend(g.builtinHost, controls))
-	}
-	if g.httpRuntimeManager != nil {
-		httpBackend := agentruntime.Backend(NewHTTPBackend(g.httpRuntimeManager, controls))
-		if opts.HTTPBackend != nil {
-			httpBackend = opts.HTTPBackend
-		}
-		backends = append(backends, httpBackend)
-	}
-	if err := g.runtimeRegistry.RegisterAll(backends...); err != nil {
-		return fmt.Errorf("register agent runtime backends: %w", err)
-	}
-	// The canonical ACP runtime-config snapshot follows the Agent definition
-	// generation: it preloads at bootstrap and rebuilds (with fingerprint
-	// retirement) on every definition commit, so turn dispatch never reads the
-	// config store (docs/design/agents-control-plane.md).
-	if acpBackend != nil && g.agentManager != nil {
-		g.agentManager.AddDefinitionListener(acpBackend.PrepareRuntimeConfigs)
-		acpBackend.RefreshRuntimeConfigs(ctx, g.agentManager.Snapshot())
-	}
-	if g.httpRuntimeManager != nil && g.agentManager != nil {
-		g.agentManager.AddDefinitionListener(g.httpRuntimeManager.PrepareRuntimeConfigs)
-		g.httpRuntimeManager.RefreshRuntimeConfigs(ctx, g.agentManager.Snapshot())
-		if g.credentialManager != nil {
-			g.credentialManager.AddListener(g.httpRuntimeManager)
-		}
+	g.backends = backends
+	if g.agentRouteResolver != nil {
+		g.agentRouteResolver.SetA2AProxyLookup(backends.HTTP)
 	}
 	if extensionManager != nil {
 		g.extensions = extensionManager
@@ -287,7 +244,6 @@ func (g *AgentGateway) CloseContext(ctx context.Context) (result error) {
 	g.llmRouteResolver = nil
 	g.mcpRouteResolver = nil
 	g.agentRouteResolver = nil
-	g.builtinHost = nil
 	g.virtualKeyManager = nil
 	g.providerManager = nil
 	g.credentialManager = nil
@@ -295,16 +251,9 @@ func (g *AgentGateway) CloseContext(ctx context.Context) (result error) {
 	g.modelCatalog = nil
 	g.mcpServiceManager = nil
 	g.mcpRuntimeRegistry = mcpruntime.NewRegistry()
-	if g.acpRuntimeManager != nil {
-		g.acpRuntimeManager.Close()
-	}
-	g.acpRuntimeManager = nil
+	result = errors.Join(result, g.backends.CloseContext(shutdown))
+	g.backends = nil
 	g.agentManager = nil
-	if g.httpRuntimeManager != nil {
-		g.httpRuntimeManager.RefreshRuntimeConfigs(context.Background(), nil)
-		g.httpRuntimeManager.Close()
-	}
-	g.httpRuntimeManager = nil
 	g.runtimeRegistry = agentruntime.NewRegistry()
 	g.runRegistry = agentruntime.NewRunRegistry()
 	g.permissionBroker = agentruntime.NewPermissionBroker()
@@ -375,7 +324,10 @@ func (g *AgentGateway) AgentRouteResolver() *agentroutepkg.AgentRouteResolver {
 func (g *AgentGateway) BuiltinHost() *builtinpkg.Host {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	return g.builtinHost
+	if g.backends == nil {
+		return nil
+	}
+	return g.backends.Builtin
 }
 
 func (g *AgentGateway) VirtualKeyManager() *virtualkeypkg.VirtualKeyManager {
@@ -411,7 +363,10 @@ func (g *AgentGateway) MCPRuntimeRegistry() *mcpruntime.Registry {
 func (g *AgentGateway) ACPRuntimeManager() *acphost.Manager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	return g.acpRuntimeManager
+	if g.backends == nil {
+		return nil
+	}
+	return g.backends.ACP
 }
 
 func (g *AgentGateway) AgentManager() *agentpkg.Manager {
@@ -420,10 +375,13 @@ func (g *AgentGateway) AgentManager() *agentpkg.Manager {
 	return g.agentManager
 }
 
-func (g *AgentGateway) HTTPRuntimeManager() *HTTPRuntimeManager {
+func (g *AgentGateway) HTTPRuntimeManager() *runtimebackend.HTTPRuntimeManager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	return g.httpRuntimeManager
+	if g.backends == nil {
+		return nil
+	}
+	return g.backends.HTTP
 }
 
 // RuntimeRegistry returns the runtime-neutral Agent backend registry. Runtime

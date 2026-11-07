@@ -1,4 +1,4 @@
-package gateway
+package runtimebackend
 
 import (
 	"context"
@@ -660,20 +660,23 @@ func TestHTTPRuntimeManagerFailedCardRecoversInBackground(t *testing.T) {
 	if err := configschema.RegisterDefaultStores(store); err != nil {
 		t.Fatal(err)
 	}
-	gateway := NewAgentGateway()
-	if err := gateway.Bootstrap(t.Context(), BootstrapOptions{ConfigStoreBackend: store}); err != nil {
+	agentStore, err := store.Get(configschema.StoreAgents)
+	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(gateway.Close)
-	if err := gateway.AgentManager().Create(t.Context(), testHTTPAgent("remote", server.URL+"/card", "")); err != nil {
+	agents := agentpkg.NewManager(agentStore)
+	runtime := NewHTTPRuntimeManager(agents, nil, nil, nil)
+	agents.AddDefinitionListener(runtime.PrepareRuntimeConfigs)
+	t.Cleanup(runtime.Close)
+	if err := agents.Create(t.Context(), testHTTPAgent("remote", server.URL+"/card", "")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := gateway.HTTPRuntimeManager().ResolveExecution("remote"); err == nil {
+	if _, err := runtime.ResolveExecution("remote"); err == nil {
 		t.Fatal("failed Card unexpectedly produced a ready execution")
 	}
 	disabled := testHTTPAgent("disabled", server.URL+"/disabled-card", "")
 	disabled.Disabled = true
-	if err := gateway.AgentManager().Create(t.Context(), disabled); err != nil {
+	if err := agents.Create(t.Context(), disabled); err != nil {
 		t.Fatal(err)
 	}
 	if requests.Load() != 1 {
@@ -682,7 +685,7 @@ func TestHTTPRuntimeManagerFailedCardRecoversInBackground(t *testing.T) {
 	ready.Store(true)
 	deadline := time.Now().Add(4 * time.Second)
 	for {
-		if _, err := gateway.HTTPRuntimeManager().ResolveExecution("remote"); err == nil {
+		if _, err := runtime.ResolveExecution("remote"); err == nil {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -703,16 +706,19 @@ func TestHTTPRuntimeManagerQueuesRecommitArrivingInFlight(t *testing.T) {
 	if err := configschema.RegisterDefaultStores(store); err != nil {
 		t.Fatal(err)
 	}
-	gateway := NewAgentGateway()
-	if err := gateway.Bootstrap(t.Context(), BootstrapOptions{ConfigStoreBackend: store}); err != nil {
+	agentStore, err := store.Get(configschema.StoreAgents)
+	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(gateway.Close)
+	agents := agentpkg.NewManager(agentStore)
+	runtime := NewHTTPRuntimeManager(agents, nil, nil, nil)
+	agents.AddDefinitionListener(runtime.PrepareRuntimeConfigs)
+	t.Cleanup(runtime.Close)
 
 	firstStarted := make(chan struct{})
 	releaseFirst := make(chan struct{})
 	var calls atomic.Int64
-	gateway.AgentManager().AddDefinitionListener(func(ctx context.Context, _ []agentpkg.Agent) agentpkg.DefinitionCommit {
+	agents.AddDefinitionListener(func(ctx context.Context, _ []agentpkg.Agent) agentpkg.DefinitionCommit {
 		if calls.Add(1) == 1 {
 			close(firstStarted)
 			select {
@@ -722,7 +728,7 @@ func TestHTTPRuntimeManagerQueuesRecommitArrivingInFlight(t *testing.T) {
 		}
 		return nil
 	})
-	manager := gateway.HTTPRuntimeManager()
+	manager := runtime
 	manager.requestRecommit()
 	<-firstStarted
 	manager.requestRecommit()
@@ -742,5 +748,40 @@ func testHTTPAgent(id, cardURL, authRef string) agentpkg.Agent {
 		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{
 			CardURL: cardURL, Protocol: "a2a", AuthRef: authRef,
 		}},
+	}
+}
+
+func TestHTTPRuntimeCloseFencesPreparedGeneration(t *testing.T) {
+	var requests atomic.Int64
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		writeTestAgentCard(w, server.URL+"/a2a", false)
+	}))
+	defer server.Close()
+	manager := NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+	a := testHTTPAgent("remote", server.URL+"/card", "")
+	commit := manager.PrepareRuntimeConfigs(t.Context(), []agentpkg.Agent{a})
+	if commit == nil {
+		t.Fatal("preparation did not produce a candidate")
+	}
+	if err := manager.CloseContext(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if cleanup := commit(); cleanup != nil {
+		cleanup(t.Context())
+	}
+	if _, err := manager.ResolveExecution(a.ID); err == nil {
+		t.Fatal("late commit revived common execution")
+	}
+	if _, err := manager.ResolveProxyTarget(a.ID); err == nil {
+		t.Fatal("late commit revived native proxy")
+	}
+	before := requests.Load()
+	if commit := manager.PrepareRuntimeConfigs(t.Context(), []agentpkg.Agent{a}); commit != nil {
+		t.Fatal("closed manager accepted preparation")
+	}
+	if requests.Load() != before {
+		t.Fatal("closed manager fetched another Card")
 	}
 }

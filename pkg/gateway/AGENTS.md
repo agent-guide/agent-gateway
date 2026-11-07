@@ -319,3 +319,7 @@ Both hosts construct credential/scheduler and usage handles through
 `internal/runtimeassembly`. Its lifecycle calls Gateway.CloseContext before
 draining usage and closing storage. Preserve bounded extension teardown errors
 in CloseContext; Reset/Close remain convenience calls that discard errors.
+
+Concrete ACP, builtin and HTTP adapters and HTTPRuntimeManager live in
+`runtimebackend/`, which must not depend on this root package. Read its nested
+AGENTS before changes, including cross-cutting Admin/dispatcher adapters.

@@ -1,4 +1,4 @@
-package gateway
+package runtimebackend
 
 import (
 	"context"
@@ -493,14 +493,10 @@ func TestBuiltinPermissionDeliveryFailureRollsBackBothStores(t *testing.T) {
 	}
 }
 
-func TestAgentGatewayResetDrainsPendingAndDecidedPermissions(t *testing.T) {
-	g := NewAgentGateway()
-	oldBroker := g.permissionBroker
+func TestBuiltinShutdownDrainsPendingAndDecidedPermissions(t *testing.T) {
+	oldBroker := agentruntime.NewPermissionBroker()
 	host := &checkpointBuiltinHost{t: t}
 	backend := NewBuiltinBackend(host, RuntimeControls{Permissions: oldBroker})
-	if err := g.runtimeRegistry.Register(backend); err != nil {
-		t.Fatal(err)
-	}
 	runID := "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	backend.storeBuiltinContinuation("cont-pending", builtinPermissionContinuation{agentID: "a1", runID: runID, requestID: "perm-pending"})
 	if _, err := oldBroker.Register(agentruntime.PendingPermission{RequestID: "perm-pending", AgentID: "a1", RuntimeType: agent.RuntimeTypeBuiltin, RunID: runID, ExpiresAt: time.Now().Add(time.Hour)}, "cont-pending", backend); err != nil {
@@ -508,7 +504,8 @@ func TestAgentGatewayResetDrainsPendingAndDecidedPermissions(t *testing.T) {
 	}
 	backend.decided["perm-decided"] = decidedPermission{agentID: "a1", runID: runID, decision: agentruntime.PermissionDecision{RequestID: "perm-decided"}, expiresAt: time.Now().Add(time.Hour)}
 
-	g.Reset()
+	oldBroker.Close(agentruntime.WithPermissionSource(context.Background(), "process_shutdown"))
+	backend.DiscardAllContinuations()
 	if len(host.expired) != 2 || len(oldBroker.List("a1")) != 0 {
 		t.Fatalf("reset cleanup: expired=%v pending=%v", host.expired, oldBroker.List("a1"))
 	}
@@ -519,10 +516,6 @@ func TestAgentGatewayResetDrainsPendingAndDecidedPermissions(t *testing.T) {
 	if len(audits) != 1 || audits[0].Source != "process_shutdown" || audits[0].Result != "cancelled" {
 		t.Fatalf("reset audits = %+v", audits)
 	}
-	if g.permissionBroker == oldBroker {
-		t.Fatal("reset did not install a fresh broker")
-	}
-	g.Close()
 }
 
 func builtinBackendTestContext(ctx context.Context, agentID, runID string) context.Context {

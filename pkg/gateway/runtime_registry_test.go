@@ -1,8 +1,11 @@
 package gateway
 
 import (
+	"context"
 	"errors"
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/agent"
 	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
@@ -57,5 +60,46 @@ func TestAgentGatewayResetReplacesRuntimeRegistry(t *testing.T) {
 	}
 	if _, err := current.Resolve("fake"); !errors.Is(err, agentruntime.ErrRuntimeNotExecutable) {
 		t.Fatalf("Resolve(fake) after Reset error = %v", err)
+	}
+}
+
+// Gateway owns orchestration; concrete backend continuation storage is covered
+// inside runtimebackend without introducing a reverse dependency on this package.
+type shutdownBackend struct {
+	*runtimetest.Backend
+	order []string
+}
+
+func (b *shutdownBackend) DiscardAllContinuations() { b.order = append(b.order, "discard") }
+func (*shutdownBackend) ValidateContinuationDecision(string, agentruntime.PendingPermission, agentruntime.PermissionDecision) error {
+	return nil
+}
+func (*shutdownBackend) ResolveContinuation(context.Context, string, agentruntime.PermissionDecision, time.Time) error {
+	return nil
+}
+func (b *shutdownBackend) ExpireContinuation(context.Context, string) error {
+	b.order = append(b.order, "expire")
+	return nil
+}
+
+func TestAgentGatewayResetDrainsBeforeBackendDiscard(t *testing.T) {
+	g := NewAgentGateway()
+	old := g.PermissionBroker()
+	backend := &shutdownBackend{Backend: runtimetest.NewBackend(agent.RuntimeTypeBuiltin)}
+	if err := g.RuntimeRegistry().Register(backend); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.Register(agentruntime.PendingPermission{RequestID: "permission", AgentID: "a", RuntimeType: agent.RuntimeTypeBuiltin, RunID: "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ExpiresAt: time.Now().Add(time.Hour)}, "continuation", backend); err != nil {
+		t.Fatal(err)
+	}
+	g.Reset()
+	if !reflect.DeepEqual(backend.order, []string{"expire", "discard"}) {
+		t.Fatalf("shutdown order: %v", backend.order)
+	}
+	if g.PermissionBroker() == old || len(old.List("a")) != 0 {
+		t.Fatal("broker ownership was not retired")
+	}
+	if _, err := old.Register(agentruntime.PendingPermission{RequestID: "late", AgentID: "a", RuntimeType: agent.RuntimeTypeBuiltin, RunID: "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ExpiresAt: time.Now().Add(time.Hour)}, "late", backend); !errors.Is(err, agentruntime.ErrBackendUnavailable) {
+		t.Fatalf("old broker admitted continuation: %v", err)
 	}
 }

@@ -159,7 +159,7 @@ pkg/a2a/
   fingerprint per 30 seconds. The shared fetch has an independent 10-second
   context; one caller's cancellation stops only its wait and is never cached as
   runtime unhealthiness.
-- `pkg/gateway.HTTPRuntimeManager`, not this protocol package or
+- `pkg/gateway/runtimebackend.HTTPRuntimeManager`, not this protocol package or
   `HTTPBackend`, owns the immutable Card-derived snapshot shared by Path A and
   Path B. Path A resolves a ready proxy target through `AgentGateway` and
   never performs a config-store/Card fetch or reaches into the backend in the

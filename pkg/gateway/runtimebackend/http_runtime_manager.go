@@ -1,4 +1,4 @@
-package gateway
+package runtimebackend
 
 import (
 	"context"
@@ -118,6 +118,12 @@ func (m *HTTPRuntimeManager) PrepareRuntimeConfigs(ctx context.Context, agents [
 	if m == nil {
 		return nil
 	}
+	m.retryMu.Lock()
+	closed := m.closed
+	m.retryMu.Unlock()
+	if closed {
+		return nil
+	}
 	m.mu.RLock()
 	previous := make(map[string]httpRuntimeEntry, len(m.entries))
 	for id, entry := range m.entries {
@@ -165,11 +171,17 @@ func (m *HTTPRuntimeManager) PrepareRuntimeConfigs(ctx context.Context, agents [
 	wg.Wait()
 
 	return func() agentpkg.DefinitionCleanup {
+		m.retryMu.Lock()
+		var discarded map[string]httpRuntimeEntry
+		if m.closed {
+			discarded, next = next, map[string]httpRuntimeEntry{}
+		}
 		m.mu.Lock()
 		old := m.entries
 		m.entries = next
 		m.reverse = buildHTTPReverseIndex(next)
 		m.mu.Unlock()
+		m.retryMu.Unlock()
 		m.pruneHealth(next)
 		m.syncCardRetries(next)
 		var retired []*HTTPExecution
@@ -179,17 +191,17 @@ func (m *HTTPRuntimeManager) PrepareRuntimeConfigs(ctx context.Context, agents [
 				retired = append(retired, oldEntry.execution)
 			}
 		}
-		return func(cleanupCtx context.Context) {
-			for _, execution := range retired {
-				execution.runs.retire(cleanupCtx, execution)
-				if execution.Client != nil {
-					_ = execution.Client.Close()
-				}
-				if execution.transport != nil {
-					execution.transport.CloseIdleConnections()
-				}
+		seen := map[*HTTPExecution]bool{}
+		for _, execution := range retired {
+			seen[execution] = true
+		}
+		for _, entry := range discarded {
+			if entry.execution != nil && !seen[entry.execution] {
+				retired = append(retired, entry.execution)
+				seen[entry.execution] = true
 			}
 		}
+		return func(cleanupCtx context.Context) { retireHTTPExecutions(cleanupCtx, retired) }
 	}
 }
 
@@ -672,18 +684,51 @@ func (m *HTTPRuntimeManager) ensureCardRetriesScheduled() {
 }
 
 func (m *HTTPRuntimeManager) Close() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = m.CloseContext(ctx)
+}
+
+// CloseContext stops retries, withdraws both ingress views and retires transports.
+// A prepared generation that finishes later observes closed at its commit fence.
+func (m *HTTPRuntimeManager) CloseContext(ctx context.Context) error {
 	if m == nil {
-		return
+		return nil
 	}
 	m.retryMu.Lock()
 	m.closed = true
-	for agentID, retry := range m.retries {
+	for id, retry := range m.retries {
 		if retry.timer != nil {
 			retry.timer.Stop()
 		}
-		delete(m.retries, agentID)
+		delete(m.retries, id)
 	}
+	m.mu.Lock()
+	old := m.entries
+	m.entries = map[string]httpRuntimeEntry{}
+	m.reverse = map[string][]string{}
+	m.mu.Unlock()
 	m.retryMu.Unlock()
+	var retired []*HTTPExecution
+	for _, entry := range old {
+		if entry.execution != nil {
+			retired = append(retired, entry.execution)
+		}
+	}
+	retireHTTPExecutions(ctx, retired)
+	return ctx.Err()
+}
+
+func retireHTTPExecutions(ctx context.Context, executions []*HTTPExecution) {
+	for _, execution := range executions {
+		execution.runs.retire(ctx, execution)
+		if execution.Client != nil {
+			_ = execution.Client.Close()
+		}
+		if execution.transport != nil {
+			execution.transport.CloseIdleConnections()
+		}
+	}
 }
 
 func (m *HTTPRuntimeManager) OnCredentialRegistered(_ context.Context, cred *credential.ManagedCredential) {

@@ -1,11 +1,12 @@
-package gateway
+package runtimebackend
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
 	"sync"
+
+	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
 )
 
 func acpClientThread(scope, thread string) string {
@@ -17,6 +18,9 @@ func acpClientThread(scope, thread string) string {
 	return "client:" + hex.EncodeToString(digest[:])
 }
 
+// Keep native ownership capacity independent from HTTP execution occupancy.
+const acpSessionOwnerCap = 1024
+
 type acpScopeKey struct{ agent, id string }
 type acpSessionOwner struct {
 	scope  string
@@ -25,8 +29,8 @@ type acpSessionOwner struct {
 
 // Bind native identifiers to the authenticated dispatcher identity. Ownership
 // is process-local; an identifier alone cannot restore it after restart or LRU
-// eviction. Reuse HTTP's existing bounded client-binding budget, without adding
-// a separate expiry policy or replacing native session listing/pagination.
+// eviction. The native ownership proof has its own bounded capacity and no
+// expiry policy; it does not replace native session listing/pagination.
 type acpClientScopes struct {
 	mu          sync.Mutex
 	sessions    map[acpScopeKey]acpSessionOwner
@@ -47,7 +51,7 @@ func (s *acpClientScopes) rememberSession(agent, id, scope string) error {
 	if old, ok := s.sessions[key]; ok && old.scope != scope {
 		return agentruntime.NewError(agentruntime.ErrorSessionNotFound, "session is not available to this client")
 	}
-	if _, exists := s.sessions[key]; !exists && len(s.sessions) >= httpBindingCap {
+	if _, exists := s.sessions[key]; !exists && len(s.sessions) >= acpSessionOwnerCap {
 		var oldest acpScopeKey
 		var access uint64
 		first := true

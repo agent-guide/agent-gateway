@@ -11,7 +11,7 @@ the protected distribution command signatures do not expose internal handles.
 | Configuration connection | Storage adapter, one handle per host lifecycle | Lifecycle closes last |
 | Credential Manager and Scheduler | Shared constructor; host loads after static provisioning | Referenced only by that gateway lifecycle; no scheduler worker |
 | Usage service and sinks | Shared constructor; fresh public sink factory calls per lifecycle | Lifecycle drains after runtime producers stop |
-| Gateway and Agent runtime resources | Host creates Gateway; Bootstrap currently composes backends | Lifecycle calls Gateway.CloseContext first |
+| Gateway and Agent runtime resources | Gateway Bootstrap delegates to runtimebackend.Assemble | Lifecycle calls Gateway.CloseContext first; its owned runtimebackend.Set retires concrete managers |
 | Eino callbacks | Process-wide guarded registration | Stateless span tap registered once; exporter pointer replacement is fenced on exporter close |
 
 The shared refresh-command normalization trims the executable, copies arguments,
@@ -44,3 +44,20 @@ The host owns the storage Close hook because Caddy child-module cleanup ordering
 must not close the shared database before its parent drains usage. The Caddy
 storage adapter forwards optional transaction capabilities as well as store lookup.
 No second database or changes to persisted schema names are introduced.
+
+Concrete adapter ownership is separate from common control ownership. Gateway
+creates one RunRegistry, PermissionBroker and runtime Registry and injects them
+into `runtimebackend.Assemble`. That assembly creates the ACP process manager,
+builtin host, and HTTPRuntimeManager; registers the adapters; and attaches each
+ACP/HTTP definition listener once. It reclaims managers if registration fails.
+The builtin host receives explicit model, tool and usage capabilities, without a
+reverse import of Gateway. HTTP's single manager also receives credential changes
+and serves both native proxy lookup and common turns.
+
+Gateway retirement first drains pending permissions and discards decided builtin
+continuations, then closes extensions and the owned runtime Set. HTTP closure stops
+Card retry timers and withdraws its published execution/proxy generation. A late
+prepared commit observes the closure fence, retires unused clients and cannot
+republish ready execution. Trusted client scopes include the runtime definition;
+ACP owner proof retains independent LRU capacity and HTTP context/task claims
+retain occupancy and expiration. Neither becomes a generic session store.

@@ -1,4 +1,4 @@
-package gateway
+package runtimebackend
 
 import (
 	"context"
@@ -135,7 +135,7 @@ func TestACPScopedSessionListingRetainsPaginationAndMetadata(t *testing.T) {
 }
 func TestACPSessionOwnershipEvictionDoesNotGrantForeignAccess(t *testing.T) {
 	scopes := acpClientScopes{}
-	for i := 0; i <= httpBindingCap; i++ {
+	for i := 0; i <= acpSessionOwnerCap; i++ {
 		if err := scopes.rememberSession("agent", fmt.Sprint(i), "owner"); err != nil {
 			t.Fatal(err)
 		}
@@ -143,10 +143,10 @@ func TestACPSessionOwnershipEvictionDoesNotGrantForeignAccess(t *testing.T) {
 	if scopes.ownsSession("agent", "0", "owner") || scopes.ownsSession("agent", "0", "foreign") {
 		t.Fatal("evicted ownership became authority")
 	}
-	if !scopes.ownsSession("agent", fmt.Sprint(httpBindingCap), "owner") {
+	if !scopes.ownsSession("agent", fmt.Sprint(acpSessionOwnerCap), "owner") {
 		t.Fatal("lost current owner")
 	}
-	if len(scopes.sessions) > httpBindingCap {
+	if len(scopes.sessions) > acpSessionOwnerCap {
 		t.Fatal("unbounded ownership")
 	}
 }

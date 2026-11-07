@@ -10,13 +10,14 @@ import (
 	"net/http"
 	"strings"
 
+	runtimebackend "github.com/agent-guide/agent-gateway/pkg/gateway/runtimebackend"
+
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	a2acard "github.com/agent-guide/agent-gateway/pkg/a2a/card"
 	a2ajsonrpc "github.com/agent-guide/agent-gateway/pkg/a2a/jsonrpc"
 	a2aproxy "github.com/agent-guide/agent-gateway/pkg/a2a/proxy"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
-	"github.com/agent-guide/agent-gateway/pkg/gateway"
 	agentroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/agentroute"
 )
 
@@ -172,7 +173,7 @@ func replaceA2AHeaders(dst, source http.Header) {
 	}
 }
 
-func (h *Handler) resolveA2ATarget(route *agentroutepkg.AgentRoute) (agentpkg.Agent, *gateway.HTTPProxyTarget, int) {
+func (h *Handler) resolveA2ATarget(route *agentroutepkg.AgentRoute) (agentpkg.Agent, *runtimebackend.HTTPProxyTarget, int) {
 	if route == nil || h.gateway.AgentManager() == nil {
 		return agentpkg.Agent{}, nil, http.StatusNotFound
 	}

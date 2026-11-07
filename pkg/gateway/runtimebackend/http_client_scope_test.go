@@ -1,17 +1,18 @@
-package gateway
+package runtimebackend
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/agent-guide/agent-gateway/internal/observability/usage"
-	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
-	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
+
+	"github.com/agent-guide/agent-gateway/internal/observability/usage"
+	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
+	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
 )
 
 func TestHTTPForeignKeyCannotResumeSession(t *testing.T) {

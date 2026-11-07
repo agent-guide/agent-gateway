@@ -81,6 +81,13 @@ authoritative runtime design.
 
 ## 4. Main Components
 
+Concrete ACP, builtin and HTTP adapters, including the single HTTPRuntimeManager,
+live in `pkg/gateway/runtimebackend`. This package depends on Agent contracts and
+lower runtimes and has no dependency on the Gateway root. Its `Assemble` function
+creates one owned runtime Set from explicit application capabilities and shared
+run/permission controls; Gateway Bootstrap delegates registration to that assembly. Trusted client identity
+rules are shared there; ACP ownership and HTTP execution claims remain distinct.
+
 ### 4.1 `caddy/gateway/`, `standalone/server/`, And `pkg/gateway/`: Runtime Assembly And Backbone
 
 The `caddy/gateway.App` type is the root Caddy app module with module ID `agent_gateway`. The standalone daemon in `standalone/server/` assembles the same core runtime services without depending on a Caddy app lifecycle.

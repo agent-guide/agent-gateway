@@ -263,7 +263,7 @@ header is a protocol requirement, not credential material.
 
 ### 5.5 Shared HTTP runtime snapshots
 
-`pkg/gateway.HTTPRuntimeManager` is the single owner of immutable, Card-derived
+`pkg/gateway/runtimebackend.HTTPRuntimeManager` is the single owner of immutable, Card-derived
 HTTP execution state. The implemented manager owns both Path A and Path B views
 and is registered exactly once as an Agent definition listener; `HTTPBackend`
 composes it rather than owning a second snapshot map. It imports `pkg/a2a/card`,
@@ -910,7 +910,7 @@ replaced by the `-32006` envelope before downstream commit.
 
 Path B makes `runtime.type = "http"` executable for existing
 `protocol agent` routes: an `HTTPBackend` registered in the
-`agentruntime.Registry` (`pkg/gateway/runtime_backends.go`, wired in
+`agentruntime.Registry` (`pkg/gateway/runtimebackend/runtime_backends.go`, wired in
 `agentgateway.go` alongside `ACPBackend`/`BuiltinBackend`). The backend
 consumes the shared manager's typed execution handle; that manager imports
 `pkg/a2a/client` and `pkg/a2a/card`. Together they speak A2A v1.0 JSON-RPC

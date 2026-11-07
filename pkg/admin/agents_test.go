@@ -12,11 +12,12 @@ import (
 	"testing"
 	"time"
 
+	runtimebackend "github.com/agent-guide/agent-gateway/pkg/gateway/runtimebackend"
+
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
-	"github.com/agent-guide/agent-gateway/pkg/gateway"
 )
 
 func TestAgentViewExposesNonExecutableRuntime(t *testing.T) {
@@ -51,9 +52,9 @@ func TestAgentViewExposesHTTPRuntimeReadiness(t *testing.T) {
 		Type: agentpkg.RuntimeTypeHTTP,
 		HTTP: &agentpkg.HTTPRuntime{CardURL: server.URL + "/card", Protocol: "a2a"},
 	}}
-	manager := gateway.NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+	manager := runtimebackend.NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
 	manager.RefreshRuntimeConfigs(t.Context(), []agentpkg.Agent{agent})
-	backend := gateway.NewHTTPBackend(manager)
+	backend := runtimebackend.NewHTTPBackend(manager)
 	registry := agentruntime.NewRegistry()
 	if err := registry.Register(backend); err != nil {
 		t.Fatal(err)
@@ -76,9 +77,9 @@ func TestAgentViewRetainsNotReadyHTTPRuntimeStatus(t *testing.T) {
 		Type: agentpkg.RuntimeTypeHTTP,
 		HTTP: &agentpkg.HTTPRuntime{CardURL: server.URL, Protocol: "a2a"},
 	}}
-	manager := gateway.NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
+	manager := runtimebackend.NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
 	manager.RefreshRuntimeConfigs(t.Context(), []agentpkg.Agent{agent})
-	backend := gateway.NewHTTPBackend(manager)
+	backend := runtimebackend.NewHTTPBackend(manager)
 	registry := agentruntime.NewRegistry()
 	if err := registry.Register(backend); err != nil {
 		t.Fatal(err)

@@ -129,7 +129,7 @@ LLM protocol handler. The runtime `RoutedProvider` selects and, when required,
 refreshes an OAuth-backed credential before provider execution. With `mcp` or
 `agent` enabled the dispatcher also
 resolves those route kinds and dispatches to `pkg/mcp/service` or the
-registered `pkg/agent/runtime` ACP/builtin adapters, tracks in-flight turns, and
+registered `pkg/gateway/runtimebackend` ACP/builtin adapters, tracks in-flight turns, and
 stamps Agent identity on the interaction span. Subsystem detail:
 `pkg/gateway/AGENTS.md`, `pkg/acp/AGENTS.md`, `pkg/agent/AGENTS.md`.
 

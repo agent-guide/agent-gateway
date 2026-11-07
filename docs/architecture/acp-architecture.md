@@ -18,7 +18,7 @@ helper.
   in-memory definition snapshot.
 - `pkg/gateway/agentroute` owns unified ingress matching and `agent_id`
   targeting.
-- `pkg/gateway.ACPBackend` adapts common Agent execution to the native ACP
+- `pkg/gateway/runtimebackend.ACPBackend` adapts common Agent execution to the native ACP
   runtime and maintains the canonical `agent_id -> hostconfig.Config` snapshot.
 - `pkg/acp/host.Manager` owns process pools, native sessions, permissions,
   transcripts, and exact-run cancellation.
