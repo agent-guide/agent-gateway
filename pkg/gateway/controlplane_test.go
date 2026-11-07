@@ -282,7 +282,7 @@ func TestAgentDeletionSerializesAgentRouteCreation(t *testing.T) {
 				t.Fatal(deleteErr)
 			}
 			if _, err := routes.Get(t.Context(), id); !errors.Is(err, configstore.ErrNotFound) {
-				t.Fatal("AgentRoute targets deleted Agent")
+				t.Fatal("AgentRouteConfig targets deleted Agent")
 			}
 		}
 	}

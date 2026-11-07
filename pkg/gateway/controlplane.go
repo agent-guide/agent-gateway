@@ -101,7 +101,7 @@ func (c *controlPlane) providerReferences(ctx context.Context, id string) ([]str
 			if cfg.Kind != routecore.RouteKindLLM {
 				continue
 			}
-			r, err := llmroute.NewLLMRouteConfigFromConfig(cfg)
+			r, err := llmroute.NewLLMRouteFromConfig(cfg)
 			if err != nil {
 				return nil, err
 			}
@@ -251,7 +251,7 @@ func (c *controlPlane) routeMutation(ctx context.Context, action configmgr.Mutat
 	if next != nil {
 		switch next.Kind {
 		case routecore.RouteKindLLM:
-			r, err := llmroute.NewLLMRouteConfigFromConfig(*next)
+			r, err := llmroute.NewLLMRouteFromConfig(*next)
 			if err != nil {
 				return err
 			}

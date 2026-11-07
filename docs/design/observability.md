@@ -35,7 +35,7 @@ The current implementation baseline is:
 - `Handler.Dispatch` resolves and validates the VirtualKey before dispatching by `routecore.RouteKind`
 - LLM dispatch resolves `pkg/gateway/llmroute.LLMRoute` and calls the selected LLM API handler
 - MCP dispatch resolves `pkg/gateway/mcproute.MCPRoute` and calls `pkg/mcp/service`
-- Agent dispatch resolves `pkg/gateway/agentroute.AgentRoute`, stamps the
+- Agent dispatch resolves `pkg/gateway/agentroute.AgentRouteConfig`, stamps the
   target Agent directly, and selects ACP, builtin, HTTP, or native A2A event
   handling from the route protocol and resolved `runtime.type`
 - MCP runtime inspection uses the in-memory registry in `pkg/mcp/runtime/registry.go`

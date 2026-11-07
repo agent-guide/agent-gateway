@@ -60,7 +60,7 @@ func NewManager(store configstore.ConfigStore, guards ...configmgr.MutationGuard
 	}
 }
 
-// SetRouteLookup wires the optional unified AgentRoute reference lookup.
+// SetRouteLookup wires the optional unified AgentRouteConfig reference lookup.
 func (m *Manager) SetRouteLookup(lookup AgentRouteLookup) {
 	if m == nil {
 		return

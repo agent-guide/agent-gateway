@@ -40,7 +40,7 @@ type GatewayBundle struct {
 	LLMRoutes     []routecore.RouteConfig       `json:"llmRoutes,omitempty"`
 	VirtualKeys   []BundleVirtualKey            `json:"virtualKeys,omitempty"`
 	MCPServices   []mcpservice.MCPServiceConfig `json:"mcpServices,omitempty"`
-	MCPRoutes     []mcproute.MCPRouteConfig     `json:"mcpRoutes,omitempty"`
+	MCPRoutes     []mcproute.MCPRoute     `json:"mcpRoutes,omitempty"`
 	AgentRoutes   []agentroute.AgentRouteConfig `json:"agentRoutes,omitempty"`
 	Agents        []agentpkg.Agent              `json:"agents,omitempty"`
 }
@@ -195,7 +195,7 @@ func (b *GatewayBundle) validateStatic() error {
 		return fmt.Errorf("managedModels are not supported in static config; create managed models through the Admin API or agwctl apply")
 	}
 	for i := range b.LLMRoutes {
-		route, err := llmroutepkg.NewLLMRouteConfigFromConfig(b.LLMRoutes[i])
+		route, err := llmroutepkg.NewLLMRouteFromConfig(b.LLMRoutes[i])
 		if err != nil {
 			return fmt.Errorf("llmRoutes[%q]: %w", strings.TrimSpace(b.LLMRoutes[i].ID), err)
 		}
@@ -294,7 +294,7 @@ func (b *GatewayBundle) validate(_ bool) error {
 		} else {
 			routeIDs[routeID] = struct{}{}
 		}
-		route, err := llmroutepkg.NewLLMRouteConfigFromConfig(b.LLMRoutes[i])
+		route, err := llmroutepkg.NewLLMRouteFromConfig(b.LLMRoutes[i])
 		if err != nil {
 			errs.Append(fmt.Errorf("llmRoutes[%q]: %v", routeID, err))
 			continue

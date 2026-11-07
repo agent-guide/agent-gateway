@@ -228,7 +228,7 @@ func skipA2AVirtualKeyAdmission(cfg routecore.RouteConfig, r *http.Request) bool
 	return r.Method != http.MethodPost || rewritten.URL.Path != "/"
 }
 
-// routeInteractionDimensions resolves the stable AgentRoute target and the
+// routeInteractionDimensions resolves the stable AgentRouteConfig target and the
 // selected runtime from immutable in-memory snapshots before the span opens.
 // Agent ingress therefore never relies on the historical route/service
 // attribution index, including authentication and other pre-dispatch errors.

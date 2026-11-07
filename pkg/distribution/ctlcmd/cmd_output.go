@@ -512,7 +512,7 @@ func formatTimestamp(ts time.Time) string {
 }
 
 func extractLLMRouteTargetID(item adminclient.LLMRoute) string {
-	routeCfg, err := item.LLMRouteConfig()
+	routeCfg, err := item.LLMRoute()
 	if err != nil {
 		return ""
 	}

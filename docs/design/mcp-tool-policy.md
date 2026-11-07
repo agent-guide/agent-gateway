@@ -90,7 +90,7 @@ Policy ownership is route-level. The dispatcher always carries the selected `MCP
 
 ### 6.1 Configuration Shape
 
-`tool_policy` is a field on `MCPRouteConfig`. It is absent by default, which means all upstream tools are passed through unchanged.
+`tool_policy` is a field on `MCPRoute`. It is absent by default, which means all upstream tools are passed through unchanged.
 
 ```json
 {
@@ -476,7 +476,7 @@ For bundle workflows, the `tool_policy` field participates in the bundle schema,
 ```
 pkg/gateway/mcproute/
     tool_policy.go   ToolPolicy, ToolOverride types
-    types.go         tool_policy field added to MCPRouteConfig and MCPRoute
+    types.go         tool_policy field added to MCPRoute and MCPRoute
 
 pkg/mcp/service/
     tool_policy.go   route-aware filter, alias resolution, and override helpers
@@ -499,7 +499,7 @@ pkg/mcp/service/
 - later synthetic-tool phase: resolve presented tool names to forwarded, wrapped, or synthetic executors via a synthetic tool registry
 
 `pkg/gateway/mcproute/types.go`:
-- add `ToolPolicy *ToolPolicy` field to `MCPRouteConfig` and `MCPRoute`
+- add `ToolPolicy *ToolPolicy` field to `MCPRoute` and `MCPRoute`
 - `ToolPolicy` is marshaled/unmarshaled as part of the route JSON stored in the config store
 
 

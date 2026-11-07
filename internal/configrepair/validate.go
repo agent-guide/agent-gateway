@@ -64,18 +64,18 @@ func Validate(records []Record) error {
 					staticBundle.LLMRoutes = append(staticBundle.LLMRoutes, cfg)
 				}
 			case routecore.RouteKindMCP:
-				var v mcproute.MCPRouteConfig
+				var v mcproute.MCPRoute
 				if cfg.Protocol != routecore.RouteProtocolMCP {
 					return fmt.Errorf("route %q: expected MCP protocol", cfg.ID)
 				}
-				v, err = mcproute.NewMCPRouteConfigFromConfig(cfg)
+				v, err = mcproute.NewMCPRouteFromConfig(cfg)
 				b.MCPRoutes = append(b.MCPRoutes, v)
 				if r.StaticInput {
 					staticBundle.MCPRoutes = append(staticBundle.MCPRoutes, v)
 				}
 			case routecore.RouteKindAgent:
 				var v agentroute.AgentRouteConfig
-				v, err = agentroute.NewAgentRouteConfigFromConfig(cfg)
+				v, err = agentroute.NewAgentRouteFromConfig(cfg)
 				b.AgentRoutes = append(b.AgentRoutes, v)
 				if r.StaticInput {
 					staticBundle.AgentRoutes = append(staticBundle.AgentRoutes, v)
@@ -159,7 +159,7 @@ func Validate(records []Record) error {
 		return nil
 	}
 	for _, cfg := range b.LLMRoutes {
-		r, err := llmroute.NewLLMRouteConfigFromConfig(cfg)
+		r, err := llmroute.NewLLMRouteFromConfig(cfg)
 		if err != nil {
 			return err
 		}

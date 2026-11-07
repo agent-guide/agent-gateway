@@ -9,7 +9,7 @@ import (
 func TestMCPRouteConfigToConfigRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	route := MCPRouteConfig{
+	route := MCPRoute{
 		RouteConfig: RouteConfig{
 			ID:          "mcp-route-1",
 			Description: " test route ",
@@ -35,9 +35,9 @@ func TestMCPRouteConfigToConfigRoundTrip(t *testing.T) {
 		t.Fatalf("Protocol = %q, want %q", cfg.Protocol, RouteProtocolMCP)
 	}
 
-	decoded, err := NewMCPRouteConfigFromConfig(cfg)
+	decoded, err := NewMCPRouteFromConfig(cfg)
 	if err != nil {
-		t.Fatalf("NewMCPRouteConfigFromConfig() error = %v", err)
+		t.Fatalf("NewMCPRouteFromConfig() error = %v", err)
 	}
 	if decoded.ServiceID != "svc-main" {
 		t.Fatalf("ServiceID = %q, want svc-main", decoded.ServiceID)
@@ -59,7 +59,7 @@ func TestMCPRouteConfigToConfigRoundTrip(t *testing.T) {
 func TestNewMCPRouteFromConfigCreatesRuntimeRoute(t *testing.T) {
 	t.Parallel()
 
-	routeCfg := MCPRouteConfig{
+	routeCfg := MCPRoute{
 		RouteConfig: RouteConfig{
 			ID:          "mcp-route-1",
 			Kind:        routecore.RouteKindMCP,
@@ -80,11 +80,8 @@ func TestNewMCPRouteFromConfigCreatesRuntimeRoute(t *testing.T) {
 	if route.ServiceID != "svc-main" {
 		t.Fatalf("ServiceID = %q, want svc-main", route.ServiceID)
 	}
-	if route.State != (MCPRouteState{}) {
-		t.Fatalf("State = %#v, want zero MCPRouteState", route.State)
-	}
 
-	cfgView := route.Config()
+	cfgView := route
 	if cfgView.ServiceID != "svc-main" {
 		t.Fatalf("Config().ServiceID = %q, want svc-main", cfgView.ServiceID)
 	}

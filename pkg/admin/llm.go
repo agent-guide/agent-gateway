@@ -32,8 +32,8 @@ type LLMRouteView struct {
 	ReadOnly     bool                         `json:"read_only"`
 }
 
-func (v LLMRouteView) LLMRouteConfig() (llmroutepkg.LLMRouteConfig, error) {
-	return llmroutepkg.NewLLMRouteConfigFromConfig(llmroutepkg.RouteConfig{
+func (v LLMRouteView) LLMRoute() (llmroutepkg.LLMRoute, error) {
+	return llmroutepkg.NewLLMRouteFromConfig(llmroutepkg.RouteConfig{
 		ID:           v.ID,
 		Kind:         v.Kind,
 		Protocol:     v.Protocol,
@@ -82,7 +82,7 @@ func (h *Handler) handleCreateLLMRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var llmRoute llmroutepkg.LLMRouteConfig
+	var llmRoute llmroutepkg.LLMRoute
 	if err := httpjson.Decode(r, &llmRoute); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
@@ -162,7 +162,7 @@ func (h *Handler) handleUpdateLLMRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var llmRoute llmroutepkg.LLMRouteConfig
+	var llmRoute llmroutepkg.LLMRoute
 	if err := httpjson.Decode(r, &llmRoute); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
@@ -337,9 +337,9 @@ func (h *Handler) llmRouteResolver() *llmroutepkg.LLMRouteResolver {
 }
 
 func llmRouteViewFromRoute(manager *routecore.RouteConfigManager, llmRoute *llmroutepkg.LLMRoute) LLMRouteView {
-	var item llmroutepkg.LLMRouteConfig
+	var item llmroutepkg.LLMRoute
 	if llmRoute != nil {
-		item = llmRoute.Config()
+		item = *llmRoute
 	}
 	view := newLLMRouteView(item, "store", false)
 	if llmRoute != nil && manager != nil && manager.IsStatic(llmRoute.ID) {
@@ -350,7 +350,7 @@ func llmRouteViewFromRoute(manager *routecore.RouteConfigManager, llmRoute *llmr
 }
 
 func llmRouteViewFromConfig(manager *routecore.RouteConfigManager, cfg routecore.RouteConfig) LLMRouteView {
-	item, _ := llmroutepkg.NewLLMRouteConfigFromConfig(cfg)
+	item, _ := llmroutepkg.NewLLMRouteFromConfig(cfg)
 	view := newLLMRouteView(item, "store", false)
 	if manager != nil && manager.IsStatic(cfg.ID) {
 		view.Source = "caddyfile"
@@ -359,7 +359,7 @@ func llmRouteViewFromConfig(manager *routecore.RouteConfigManager, cfg routecore
 	return view
 }
 
-func newLLMRouteView(item llmroutepkg.LLMRouteConfig, source string, readOnly bool) LLMRouteView {
+func newLLMRouteView(item llmroutepkg.LLMRoute, source string, readOnly bool) LLMRouteView {
 	cfg, _ := item.ToConfig()
 	return LLMRouteView{
 		ID:           cfg.ID,

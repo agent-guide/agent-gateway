@@ -144,7 +144,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 	}
 	h.mux = http.NewServeMux()
 	h.agentRoutesMux = http.NewServeMux()
-	// Keep AgentRoute patterns separate: Go's ServeMux considers
+	// Keep AgentRouteConfig patterns separate: Go's ServeMux considers
 	// /admin/agents/routes/{id} and /admin/agents/{id}/workspace conflicting
 	// wildcard patterns and panics if both are registered on one mux.
 	// The Admin API does not authenticate requests itself; protect the mount

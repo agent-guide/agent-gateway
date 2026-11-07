@@ -14,7 +14,7 @@ import (
 
 type MCPServiceConfig = mcpservice.MCPServiceConfig
 type MCPServiceView = adminapi.MCPServiceView
-type MCPRouteConfig = mcproute.MCPRouteConfig
+type MCPRoute = mcproute.MCPRoute
 type MCPRouteView = adminapi.MCPRouteView
 type MCPRuntimeView = adminapi.MCPDispatcherRuntimeView
 type MCPRuntimeInFlightRequest = mcpruntime.InFlightRequest
@@ -163,7 +163,7 @@ func (c *Client) GetMCPRoute(ctx context.Context, id string) (*MCPRouteView, err
 	return &resp, nil
 }
 
-func (c *Client) CreateMCPRoute(ctx context.Context, cfg MCPRouteConfig) (*MCPRouteView, error) {
+func (c *Client) CreateMCPRoute(ctx context.Context, cfg MCPRoute) (*MCPRouteView, error) {
 	body, err := withoutManagedTimestamps(cfg)
 	if err != nil {
 		return nil, err
@@ -175,7 +175,7 @@ func (c *Client) CreateMCPRoute(ctx context.Context, cfg MCPRouteConfig) (*MCPRo
 	return &resp, nil
 }
 
-func (c *Client) UpdateMCPRoute(ctx context.Context, id string, cfg MCPRouteConfig) (*MCPRouteView, error) {
+func (c *Client) UpdateMCPRoute(ctx context.Context, id string, cfg MCPRoute) (*MCPRouteView, error) {
 	body, err := withoutManagedTimestamps(cfg)
 	if err != nil {
 		return nil, err

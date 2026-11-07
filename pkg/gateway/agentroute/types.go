@@ -1,5 +1,5 @@
 // Package agentroute defines the unified Agent ingress route model described by
-// docs/design/agents-control-plane.md. An AgentRoute targets a stable
+// docs/design/agents-control-plane.md. An AgentRouteConfig targets a stable
 // agent_id; the resolved Agent's runtime.type selects the execution backend,
 // so changing an Agent's runtime never changes its route, URL, or VirtualKey
 // allowlist. Admin, CLI, bundle, Caddy, and dispatcher surfaces share this model.
@@ -34,12 +34,6 @@ type RouteListOptions = routecore.RouteListOptions
 
 // AgentRouteConfig is the expanded config form with direct agent_id access.
 type AgentRouteConfig struct {
-	RouteConfig
-	AgentID string `json:"agent_id"`
-}
-
-// AgentRoute is the runtime route object used by dispatcher/runtime code.
-type AgentRoute struct {
 	RouteConfig
 	AgentID string `json:"agent_id"`
 }
@@ -121,15 +115,6 @@ func (r AgentRouteConfig) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (r *AgentRoute) UnmarshalJSON(data []byte) error {
-	var cfg AgentRouteConfig
-	if err := cfg.UnmarshalJSON(data); err != nil {
-		return err
-	}
-	*r = NewRuntimeAgentRoute(cfg)
-	return nil
-}
-
 func (r *AgentRouteConfig) UnmarshalJSON(data []byte) error {
 	var raw agentRouteJSON
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -156,7 +141,7 @@ func DecodeStoredAgentRoute(data []byte) (any, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("decode agent route config: %w", err)
 	}
-	route, err := NewAgentRouteConfigFromConfig(cfg)
+	route, err := NewAgentRouteFromConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +149,7 @@ func DecodeStoredAgentRoute(data []byte) (any, error) {
 	return &route, nil
 }
 
-func NewAgentRouteConfigFromConfig(cfg RouteConfig) (AgentRouteConfig, error) {
+func NewAgentRouteFromConfig(cfg RouteConfig) (AgentRouteConfig, error) {
 	cfg = normalizeConfigDefaults(cfg)
 	agentID, err := decodeAgentID(cfg.TargetPolicy)
 	if err != nil {
@@ -176,21 +161,6 @@ func NewAgentRouteConfigFromConfig(cfg RouteConfig) (AgentRouteConfig, error) {
 	}
 	route.Normalize()
 	return route, nil
-}
-
-func NewAgentRouteFromConfig(cfg RouteConfig) (AgentRoute, error) {
-	routeCfg, err := NewAgentRouteConfigFromConfig(cfg)
-	if err != nil {
-		return AgentRoute{}, err
-	}
-	return NewRuntimeAgentRoute(routeCfg), nil
-}
-
-func NewRuntimeAgentRoute(cfg AgentRouteConfig) AgentRoute {
-	return AgentRoute{
-		RouteConfig: cfg.RouteConfig,
-		AgentID:     cfg.AgentID,
-	}
 }
 
 func (r AgentRouteConfig) ToConfig() (RouteConfig, error) {
@@ -214,21 +184,6 @@ func (r AgentRouteConfig) ToConfig() (RouteConfig, error) {
 	cfg.CreatedAt = r.CreatedAt
 	cfg.UpdatedAt = r.UpdatedAt
 	return cfg, nil
-}
-
-func (r AgentRoute) Config() AgentRouteConfig {
-	return AgentRouteConfig{
-		RouteConfig: r.RouteConfig,
-		AgentID:     r.AgentID,
-	}
-}
-
-func (r AgentRoute) MarshalJSON() ([]byte, error) {
-	return r.Config().MarshalJSON()
-}
-
-func (r AgentRoute) ToConfig() (RouteConfig, error) {
-	return r.Config().ToConfig()
 }
 
 // DecodeTargetAgentID extracts the agent id from a persisted agent route

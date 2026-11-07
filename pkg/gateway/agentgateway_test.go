@@ -279,7 +279,7 @@ func mustLLMRouteConfigs(t *testing.T, routes ...llmroutepkg.LLMRoute) []routeco
 }
 
 func TestBootstrapInitializesStaticMCPRoutes(t *testing.T) {
-	staticRoute, err := (mcproutepkg.MCPRouteConfig{
+	staticRoute, err := (mcproutepkg.MCPRoute{
 		RouteConfig: mcproutepkg.RouteConfig{
 			ID:          "mcp-route",
 			MatchPolicy: mcproutepkg.RouteMatch{PathPrefix: "/mcp"},
@@ -298,9 +298,9 @@ func TestBootstrapInitializesStaticMCPRoutes(t *testing.T) {
 		t.Fatalf("Bootstrap returned error: %v", err)
 	}
 
-	manager := gw.MCPRouteConfigManager()
+	manager := gw.RouteConfigManager()
 	if manager == nil {
-		t.Fatal("MCPRouteConfigManager() = nil")
+		t.Fatal("RouteConfigManager() = nil")
 	}
 	if !manager.IsStatic("mcp-route") {
 		t.Fatal("expected mcp-route to be initialized as static")

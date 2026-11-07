@@ -43,11 +43,11 @@ func NewLLMRouteResolver(configManager *routecore.RouteConfigManager) *LLMRouteR
 				return cfg.Fingerprint(), nil
 			},
 			func(cfg routecore.RouteConfig) (*LLMRoute, error) {
-				routeCfg, err := NewLLMRouteConfigFromConfig(cfg)
+				routeCfg, err := NewLLMRouteFromConfig(cfg)
 				if err != nil {
 					return nil, err
 				}
-				route := NewRuntimeLLMRoute(routeCfg)
+				route := routeCfg
 				route.Normalize()
 				return &route, nil
 			},

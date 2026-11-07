@@ -66,7 +66,7 @@ func (m *Manager) GetSnapshot(id string) (Agent, bool) {
 }
 
 // HasAgent reports definition existence from the current generation. It backs
-// AgentRoute target validation; disabled Agents still exist.
+// AgentRouteConfig target validation; disabled Agents still exist.
 func (m *Manager) HasAgent(id string) bool {
 	if m == nil || id == "" {
 		return false

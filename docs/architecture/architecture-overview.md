@@ -392,15 +392,15 @@ That is one of the core architectural decisions in the project.
 
 ### 6.1 Route Object
 
-The generic persisted envelope is `routecore.RouteConfig`, despite its
-name covering every route kind. It contains `ID`, `Kind`, `Protocol`,
+The generic persisted envelope is `routecore.RouteConfig` for every route kind. It contains `ID`, `Kind`, `Protocol`,
 `Description`, `Disabled`, `AuthPolicy`, `MatchPolicy`, raw JSON `TargetPolicy`,
 and timestamps. The JSON fields are `auth_policy`, `match_policy`, and
 `target_policy`; there is no generic route-level `Policy` field.
 
-Typed decoding produces `llmroute.LLMRouteConfig`, `mcproute.MCPRouteConfig`,
-or `agentroute.AgentRouteConfig`; runtime resolution produces the corresponding
-`LLMRoute`, `MCPRoute`, or `AgentRoute`. LLM targets select a direct provider or
+Typed decoding produces `llmroute.LLMRoute`, `mcproute.MCPRoute`,
+or `agentroute.AgentRouteConfig`; these same strongly typed values serve Admin
+and runtime resolution. No separate empty runtime State or forwarding Config
+object remains. LLM targets select a direct provider or
 logical-model candidates. MCP targets select a service; Agent targets select
 an Agent whose runtime definition chooses ACP, builtin, or HTTP execution.
 

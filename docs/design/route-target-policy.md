@@ -6,7 +6,7 @@ contracts are [Proposed](enterprise-extension-contract.md#121-model-high-availab
 
 ## Ownership and representation
 
-`pkg/gateway/llmroute` owns `LLMRouteConfig`, `LLMRoute` and the
+`pkg/gateway/llmroute` owns `LLMRoute`, `LLMRoute` and the
 `RouteTargetPolicy` Go interface. Its current concrete implementations are
 `RouteDirectProviderPolicy` and `RouteLogicalModelTargetPolicy`. Common credential
 settings live in `RouteTargetPolicyCommon`. `pkg/gateway.RoutedProvider` owns

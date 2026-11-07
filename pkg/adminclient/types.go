@@ -5,7 +5,6 @@ import (
 
 	adminapi "github.com/agent-guide/agent-gateway/pkg/admin"
 	"github.com/agent-guide/agent-gateway/pkg/credential"
-	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
@@ -21,7 +20,6 @@ type ManagedModel = adminapi.ManagedConcreteModelView
 type DiscoveredModel = modelcatalog.ProviderModelSnapshot
 
 type ProviderConfig = provider.ProviderConfig
-type LLMRouteConfig = llmroutepkg.LLMRouteConfig
 type ManagedCredential = credential.ManagedCredential
 
 type VirtualKeyConfig struct {

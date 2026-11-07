@@ -447,7 +447,7 @@ func parseRouteSegment(d *caddyfile.Dispenser, app *App) (routecore.RouteConfig,
 	}
 
 	routeID := strings.Trim(args[0], "\"`")
-	route := llmroutepkg.LLMRouteConfig{
+	route := llmroutepkg.LLMRoute{
 		RouteConfig: routecore.RouteConfig{
 			ID:   routeID,
 			Kind: routecore.RouteKindLLM,
@@ -541,7 +541,7 @@ func parseRouteSegment(d *caddyfile.Dispenser, app *App) (routecore.RouteConfig,
 	return route.ToConfig()
 }
 
-func parseRouteTargetPolicy(seg *caddyfile.Dispenser, route *llmroutepkg.LLMRouteConfig, kind string, logicalTargetPolicy *bool) error {
+func parseRouteTargetPolicy(seg *caddyfile.Dispenser, route *llmroutepkg.LLMRoute, kind string, logicalTargetPolicy *bool) error {
 	var directPolicy *llmroutepkg.RouteDirectProviderPolicy
 	switch llmroutepkg.RouteTargetPolicyKind(kind) {
 	case llmroutepkg.RouteTargetPolicyKindDirectProvider:

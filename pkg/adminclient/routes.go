@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+
+	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 )
 
 func (c *Client) ListLLMRoutes(ctx context.Context, opts LLMRouteListOptions) ([]LLMRoute, error) {
@@ -29,24 +31,24 @@ func (c *Client) GetLLMRoute(ctx context.Context, id string) (*LLMRoute, error) 
 	return &resp, nil
 }
 
-func (c *Client) CreateLLMRoute(ctx context.Context, route LLMRouteConfig) (*LLMRouteConfig, error) {
+func (c *Client) CreateLLMRoute(ctx context.Context, route llmroutepkg.LLMRoute) (*LLMRoute, error) {
 	body, err := withoutManagedTimestamps(route)
 	if err != nil {
 		return nil, err
 	}
-	var resp LLMRouteConfig
+	var resp LLMRoute
 	if err := c.do(ctx, http.MethodPost, "/admin/llm/routes", body, &resp, true, http.StatusCreated); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-func (c *Client) UpdateLLMRoute(ctx context.Context, id string, route LLMRouteConfig) (*LLMRouteConfig, error) {
+func (c *Client) UpdateLLMRoute(ctx context.Context, id string, route llmroutepkg.LLMRoute) (*LLMRoute, error) {
 	body, err := withoutManagedTimestamps(route)
 	if err != nil {
 		return nil, err
 	}
-	var resp LLMRouteConfig
+	var resp LLMRoute
 	if err := c.do(ctx, http.MethodPut, "/admin/llm/routes/"+url.PathEscape(id), body, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}

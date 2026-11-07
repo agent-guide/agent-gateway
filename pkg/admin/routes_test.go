@@ -290,7 +290,7 @@ func mustRouteConfig(t *testing.T, route llmroutepkg.LLMRoute) *routecore.RouteC
 	return &cfg
 }
 
-func mustMCPRouteConfig(t *testing.T, route mcproute.MCPRouteConfig) *routecore.RouteConfig {
+func mustMCPRouteConfig(t *testing.T, route mcproute.MCPRoute) *routecore.RouteConfig {
 	t.Helper()
 	cfg, err := route.ToConfig()
 	if err != nil {
@@ -702,7 +702,7 @@ func TestLLMRouteCRUD(t *testing.T) {
 	if got.ID != "chat-prod" {
 		t.Fatalf("unexpected route id: got %q want %q", got.ID, "chat-prod")
 	}
-	gotCfg, err := got.LLMRouteConfig()
+	gotCfg, err := got.LLMRoute()
 	if err != nil {
 		t.Fatalf("decode route config: %v", err)
 	}
@@ -752,14 +752,14 @@ func TestAgentRouteCRUD(t *testing.T) {
 	createRec := httptest.NewRecorder()
 	handler.ServeHTTP(createRec, createReq)
 	if createRec.Code != http.StatusCreated {
-		t.Fatalf("create AgentRoute: status=%d body=%s", createRec.Code, createRec.Body.String())
+		t.Fatalf("create AgentRouteConfig: status=%d body=%s", createRec.Code, createRec.Body.String())
 	}
 	var created AgentRouteView
 	if err := json.NewDecoder(createRec.Body).Decode(&created); err != nil {
 		t.Fatal(err)
 	}
 	if created.Kind != agentroute.RouteKindAgent || created.Protocol != agentroute.RouteProtocolAgent || created.AgentID != "assistant" {
-		t.Fatalf("created AgentRoute = %#v", created)
+		t.Fatalf("created AgentRouteConfig = %#v", created)
 	}
 
 	getReq := httptest.NewRequest(http.MethodGet, "/admin/agents/routes/assistant", nil)
@@ -767,7 +767,7 @@ func TestAgentRouteCRUD(t *testing.T) {
 	getRec := httptest.NewRecorder()
 	handler.ServeHTTP(getRec, getReq)
 	if getRec.Code != http.StatusOK {
-		t.Fatalf("get AgentRoute: status=%d body=%s", getRec.Code, getRec.Body.String())
+		t.Fatalf("get AgentRouteConfig: status=%d body=%s", getRec.Code, getRec.Body.String())
 	}
 
 	deleteReq := httptest.NewRequest(http.MethodDelete, "/admin/agents/routes/assistant", nil)
@@ -775,7 +775,7 @@ func TestAgentRouteCRUD(t *testing.T) {
 	deleteRec := httptest.NewRecorder()
 	handler.ServeHTTP(deleteRec, deleteReq)
 	if deleteRec.Code != http.StatusOK {
-		t.Fatalf("delete AgentRoute: status=%d body=%s", deleteRec.Code, deleteRec.Body.String())
+		t.Fatalf("delete AgentRouteConfig: status=%d body=%s", deleteRec.Code, deleteRec.Body.String())
 	}
 }
 
@@ -915,7 +915,7 @@ func TestMCPRouteAutoIDIsSlashFreeAndAddressable(t *testing.T) {
 	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	createBody, err := json.Marshal(mcproute.MCPRouteConfig{
+	createBody, err := json.Marshal(mcproute.MCPRoute{
 		RouteConfig: mcproute.RouteConfig{
 			MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp/foo"},
 		},
@@ -971,7 +971,7 @@ func TestMCPRouteCreateRejectsSlashID(t *testing.T) {
 	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	createBody, err := json.Marshal(mcproute.MCPRouteConfig{
+	createBody, err := json.Marshal(mcproute.MCPRoute{
 		RouteConfig: mcproute.RouteConfig{
 			ID:          "mcp/with/slash",
 			MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
@@ -997,7 +997,7 @@ func TestMCPRouteCRUD(t *testing.T) {
 	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	createBody, err := json.Marshal(mcproute.MCPRouteConfig{
+	createBody, err := json.Marshal(mcproute.MCPRoute{
 		RouteConfig: mcproute.RouteConfig{
 			ID:          "mcp-route-1",
 			MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
@@ -1036,7 +1036,7 @@ func TestMCPRouteCRUD(t *testing.T) {
 func TestListMCPRoutes(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		routeStore: &testMCPRouteStore{items: map[string]*routecore.RouteConfig{
-			"mcp-route-1": mustMCPRouteConfig(t, mcproute.MCPRouteConfig{
+			"mcp-route-1": mustMCPRouteConfig(t, mcproute.MCPRoute{
 				RouteConfig: mcproute.RouteConfig{
 					ID:          "mcp-route-1",
 					MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
@@ -1079,7 +1079,7 @@ func TestListRoutesExcludesMCPRoutesFromSharedStore(t *testing.T) {
 					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
 				},
 			}),
-			"mcp-route-1": mustMCPRouteConfig(t, mcproute.MCPRouteConfig{
+			"mcp-route-1": mustMCPRouteConfig(t, mcproute.MCPRoute{
 				RouteConfig: mcproute.RouteConfig{
 					ID:          "mcp-route-1",
 					MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
@@ -1122,7 +1122,7 @@ func TestListMCPRoutesExcludesLLMRoutesFromSharedStore(t *testing.T) {
 					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
 				},
 			}),
-			"mcp-route-1": mustMCPRouteConfig(t, mcproute.MCPRouteConfig{
+			"mcp-route-1": mustMCPRouteConfig(t, mcproute.MCPRoute{
 				RouteConfig: mcproute.RouteConfig{
 					ID:          "mcp-route-1",
 					MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},

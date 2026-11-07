@@ -179,7 +179,7 @@ func TestDispatchHTTPAgentPathBTurn(t *testing.T) {
 	}
 }
 
-// TestDispatchAgentRouteEndToEnd covers the M4 AgentRoute acceptance surface:
+// TestDispatchAgentRouteEndToEnd covers the M4 AgentRouteConfig acceptance surface:
 // one kind=agent route executes a builtin Agent through the common envelope,
 // keeps its route id/URL/VirtualKey when the Agent's runtime type changes,
 // fails closed for disabled and non-executable targets without invoking a
@@ -236,7 +236,7 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 		t.Fatalf("create agent: %v", err)
 	}
 
-	// AgentRoute target validation: an unknown agent is rejected, the existing
+	// AgentRouteConfig target validation: an unknown agent is rejected, the existing
 	// one is accepted.
 	ghostCfg := agentroute.AgentRouteConfig{
 		RouteConfig: agentroute.RouteConfig{MatchPolicy: agentroute.RouteMatch{PathPrefix: "/agents/ghost"}},
@@ -245,7 +245,7 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 	ghostCfg.Normalize()
 	storedGhost, _ := ghostCfg.ToConfig()
 	if err := gw.AgentRouteResolver().CreateConfig(ctx, storedGhost, "test"); err == nil {
-		t.Fatal("AgentRoute create accepted an unknown target agent")
+		t.Fatal("AgentRouteConfig create accepted an unknown target agent")
 	}
 	routeID := createAgentRoute(t, gw, "unified", "/agents/unified", true)
 	if routeID != "agent:unified:agents-unified" {
@@ -289,7 +289,7 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 			t.Fatalf("SSE body missing %q:\n%s", marker, body)
 		}
 	}
-	// The AgentRoute wire is the common envelope: agent_id, run_id, sequence.
+	// The AgentRouteConfig wire is the common envelope: agent_id, run_id, sequence.
 	var envelope struct {
 		AgentID  string `json:"agent_id"`
 		RunID    string `json:"run_id"`
@@ -415,7 +415,7 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 		t.Fatalf("disabled turn status = %d, want 400 agent_disabled", rec.Code)
 	}
 
-	// An Agent targeted by an AgentRoute cannot be deleted.
+	// An Agent targeted by an AgentRouteConfig cannot be deleted.
 	if err := gw.AgentManager().Delete(ctx, "unified"); err == nil {
 		t.Fatal("delete targeted agent succeeded, want conflict")
 	}
@@ -464,7 +464,7 @@ func (r *agentRouteACPRuntime) RetireOwnerDeferred(ownerID, keep string) (int, f
 	return 0, func() {}
 }
 
-// TestDispatchAgentRouteACPTurnSuccess proves the same AgentRoute schema that
+// TestDispatchAgentRouteACPTurnSuccess proves the same AgentRouteConfig schema that
 // executes a builtin Agent also executes an ACP Agent: dispatch resolves the
 // Agent from the definition snapshot, the ACP backend translates the
 // canonical agent-keyed runtime config snapshot (the per-request service-store

@@ -177,7 +177,7 @@ func (h *Handler) handleDeleteAgentRoute(w http.ResponseWriter, r *http.Request)
 }
 
 func agentRouteViewFromConfig(resolver *agentroute.AgentRouteResolver, cfg agentroute.RouteConfig) AgentRouteView {
-	item, _ := agentroute.NewAgentRouteConfigFromConfig(cfg)
+	item, _ := agentroute.NewAgentRouteFromConfig(cfg)
 	view := AgentRouteView{AgentRouteConfig: item, Source: "store"}
 	if resolver != nil && resolver.ConfigManager() != nil && resolver.ConfigManager().IsStatic(cfg.ID) {
 		view.Source, view.ReadOnly = "caddyfile", true

@@ -300,12 +300,6 @@ func (g *AgentGateway) LLMRouteResolver() *llmroutepkg.LLMRouteResolver {
 	return g.llmRouteResolver
 }
 
-func (g *AgentGateway) MCPRouteConfigManager() *routecore.RouteConfigManager {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	return g.routeConfigManager
-}
-
 func (g *AgentGateway) MCPRouteResolver() *mcproutepkg.MCPRouteResolver {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
@@ -635,7 +629,7 @@ func (g *AgentGateway) validateAgentResourceRoutes(ctx context.Context, routes a
 	return nil
 }
 
-// agentRouteLookup adapts the unified AgentRoute resolver to the Agent
+// agentRouteLookup adapts the unified AgentRouteConfig resolver to the Agent
 // manager's deletion-guard lookup without reversing package dependencies.
 type agentRouteLookup struct {
 	agent *agentroutepkg.AgentRouteResolver

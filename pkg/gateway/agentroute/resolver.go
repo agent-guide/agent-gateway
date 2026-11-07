@@ -33,7 +33,7 @@ type A2AProxyLookup interface {
 
 type AgentRouteResolver struct {
 	configManager *routecore.RouteConfigManager
-	base          *runtimecore.Resolver[routecore.RouteConfig, *AgentRoute, RouteListOptions]
+	base          *runtimecore.Resolver[routecore.RouteConfig, *AgentRouteConfig, RouteListOptions]
 
 	mu          sync.RWMutex
 	agentLookup AgentLookup
@@ -73,7 +73,7 @@ func NewAgentRouteResolver(configManager *routecore.RouteConfigManager) *AgentRo
 			func(cfg routecore.RouteConfig) (string, error) {
 				return cfg.Fingerprint(), nil
 			},
-			func(cfg routecore.RouteConfig) (*AgentRoute, error) {
+			func(cfg routecore.RouteConfig) (*AgentRouteConfig, error) {
 				route, err := NewAgentRouteFromConfig(cfg)
 				if err != nil {
 					return nil, err
@@ -104,7 +104,7 @@ func (r *AgentRouteResolver) lookups() (AgentLookup, A2AProxyLookup) {
 	return r.agentLookup, r.proxyLookup
 }
 
-// validateTarget enforces that a persisted AgentRoute names an existing Agent.
+// validateTarget enforces that a persisted AgentRouteConfig names an existing Agent.
 // Protocol-agent routes may target disabled or currently non-executable Agents
 // and report their normalized runtime error at dispatch. Protocol-a2a routes
 // instead require a ready Path A proxy target at create/update time.
@@ -227,7 +227,7 @@ func (r *AgentRouteResolver) DeleteConfig(ctx context.Context, routeID string) e
 	return nil
 }
 
-func (r *AgentRouteResolver) Resolve(ctx context.Context, cfg routecore.RouteConfig) (*AgentRoute, error) {
+func (r *AgentRouteResolver) Resolve(ctx context.Context, cfg routecore.RouteConfig) (*AgentRouteConfig, error) {
 	if r == nil {
 		return nil, fmt.Errorf("route config manager is not configured")
 	}
@@ -244,7 +244,7 @@ func (r *AgentRouteResolver) Resolve(ctx context.Context, cfg routecore.RouteCon
 	return route, nil
 }
 
-func (r *AgentRouteResolver) ResolveByID(ctx context.Context, routeID string) (*AgentRoute, error) {
+func (r *AgentRouteResolver) ResolveByID(ctx context.Context, routeID string) (*AgentRouteConfig, error) {
 	cfg, err := r.GetConfig(ctx, routeID)
 	if err != nil {
 		return nil, err

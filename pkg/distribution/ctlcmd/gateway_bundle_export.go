@@ -63,7 +63,7 @@ func (s *commandState) runGatewayExport(ctx context.Context, path string) error 
 		bundle.ManagedModels = append(bundle.ManagedModels, item.ManagedModel)
 	}
 	for _, item := range llmRoutes {
-		routeCfg, err := item.LLMRouteConfig()
+		routeCfg, err := item.LLMRoute()
 		if err != nil {
 			return fmt.Errorf("decode llm route %q: %w", item.ID, err)
 		}
@@ -80,7 +80,7 @@ func (s *commandState) runGatewayExport(ctx context.Context, path string) error 
 		bundle.MCPServices = append(bundle.MCPServices, item.MCPServiceConfig)
 	}
 	for _, item := range mcpRoutes {
-		bundle.MCPRoutes = append(bundle.MCPRoutes, item.MCPRouteConfig)
+		bundle.MCPRoutes = append(bundle.MCPRoutes, item.MCPRoute)
 	}
 	for _, item := range agentRoutes {
 		bundle.AgentRoutes = append(bundle.AgentRoutes, item.AgentRouteConfig)

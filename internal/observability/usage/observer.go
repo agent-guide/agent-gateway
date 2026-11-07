@@ -260,7 +260,7 @@ func (s *eventSpan) Finish(outcome InteractionOutcome) {
 	case "builtin":
 		sink.Enqueue(builtinEvent(base, builtin))
 	case "agent":
-		// AgentRoute deliberately hides the selected backend in its route kind.
+		// AgentRouteConfig deliberately hides the selected backend in its route kind.
 		// Keep the unified route dimensions on the common event while selecting
 		// the existing typed store from the bounded runtime_type extension.
 		switch base.RuntimeType {

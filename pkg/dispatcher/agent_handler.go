@@ -18,7 +18,7 @@ import (
 )
 
 // dispatchAgent serves the unified kind=agent ingress
-// (docs/design/agents-control-plane.md): resolve the AgentRoute,
+// (docs/design/agents-control-plane.md): resolve the AgentRouteConfig,
 // resolve the target Agent from the manager's definition snapshot (never the
 // config store), reject disabled Agents before any stream starts, match the
 // endpoint operation, resolve the backend by runtime.type, check the backend
@@ -155,7 +155,7 @@ func (h *Handler) serveAgentTurn(w http.ResponseWriter, r *http.Request, backend
 	if r.Body != nil {
 		r.Body = http.MaxBytesReader(w, r.Body, MaxACPRequestBodyBytes)
 	}
-	// The AgentRoute wire accepts only the common fields plus the versioned
+	// The AgentRouteConfig wire accepts only the common fields plus the versioned
 	// options envelope; unknown top-level, envelope, or selected-runtime
 	// fields fail with unsupported_option instead of being ignored (§6.5).
 	req, err := agentruntime.DecodeTurnRequest(r.Body)

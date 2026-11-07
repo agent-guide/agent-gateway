@@ -90,7 +90,7 @@ Defines the route model used by static config, the Admin API, and runtime resolu
 
 Important types:
 
-- `LLMRouteConfig` and `LLMRoute`
+- `LLMRoute`
 - `RouteMatchPolicy` and `RouteAuthPolicy`
 - `RouteTargetPolicy`
 - `DirectProviderTarget`
@@ -134,7 +134,6 @@ Defines the MCP route config expansion and runtime route model.
 
 Important types:
 
-- `MCPRouteConfig`
 - `MCPRoute`
 - `RouteMatch`
 - `RouteAuthPolicy`
@@ -142,8 +141,7 @@ Important types:
 Current shape:
 
 - persisted/static MCP routes use `routecore.RouteConfig`
-- `MCPRouteConfig` is the expanded config form used by admin and config-adjacent layers that need direct `service_id` access
-- `MCPRoute` is the runtime object created by `MCPRouteResolver` and used by dispatcher/runtime code
+- `MCPRoute` is the single typed form for Admin and runtime, with direct `service_id` access
 - prefer `*MCPRoute` at runtime rather than copying `MCPRoute` values
 - route ids follow the shared convention above with the `mcp:<service_id>:<path-slug>` shape
 
@@ -323,3 +321,6 @@ in CloseContext; Reset/Close remain convenience calls that discard errors.
 Concrete ACP, builtin and HTTP adapters and HTTPRuntimeManager live in
 `runtimebackend/`, which must not depend on this root package. Read its nested
 AGENTS before changes, including cross-cutting Admin/dispatcher adapters.
+
+Gateway exposes the single common RouteConfigManager; route-kind resolvers
+share that manager rather than retaining duplicate per-kind manager getters.

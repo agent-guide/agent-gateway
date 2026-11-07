@@ -2,10 +2,11 @@ package adminclient
 
 import (
 	"context"
-	"github.com/agent-guide/agent-gateway/pkg/distribution"
-	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"net/http"
 	"net/url"
+
+	"github.com/agent-guide/agent-gateway/pkg/distribution"
+	"github.com/agent-guide/agent-gateway/pkg/extension"
 )
 
 func (c *Client) Manifest(ctx context.Context) (*distribution.Assembly, error) {

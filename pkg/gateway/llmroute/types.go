@@ -104,7 +104,7 @@ func DecodeStoredRoute(data []byte) (any, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("decode route config: %w", err)
 	}
-	route, err := NewLLMRouteConfigFromConfig(cfg)
+	route, err := NewLLMRouteFromConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -113,20 +113,10 @@ func DecodeStoredRoute(data []byte) (any, error) {
 	return &route, nil
 }
 
-// LLMRouteState holds runtime-only state for a resolved route.
-type LLMRouteState struct{}
-
-// LLMRouteConfig is the expanded configuration form of an LLM route.
-type LLMRouteConfig struct {
-	RouteConfig
-	TargetPolicy RouteTargetPolicy
-}
-
-// LLMRoute is the runtime gateway route instance used by dispatch and resolution.
+// LLMRoute is the expanded configuration form of an LLM route.
 type LLMRoute struct {
 	RouteConfig
 	TargetPolicy RouteTargetPolicy
-	State        LLMRouteState
 }
 
 type RouteModelTarget struct {
@@ -153,7 +143,7 @@ type RouteFallbackPolicy struct {
 	MaxNum  int  `json:"max_num,omitempty"`
 }
 
-func (r *LLMRouteConfig) NormalizeTimestamps(now time.Time) {
+func (r *LLMRoute) NormalizeTimestamps(now time.Time) {
 	if r == nil {
 		return
 	}
@@ -165,7 +155,7 @@ func (r *LLMRouteConfig) NormalizeTimestamps(now time.Time) {
 	}
 }
 
-func (r LLMRouteConfig) MarshalJSON() ([]byte, error) {
+func (r LLMRoute) MarshalJSON() ([]byte, error) {
 	type llmRouteJSON struct {
 		ID           string            `json:"id"`
 		Kind         RouteKind         `json:"kind,omitempty"`
@@ -198,17 +188,6 @@ func (r LLMRouteConfig) MarshalJSON() ([]byte, error) {
 }
 
 func (r *LLMRoute) UnmarshalJSON(data []byte) error {
-	var cfg LLMRouteConfig
-	if err := cfg.UnmarshalJSON(data); err != nil {
-		return err
-	}
-	r.RouteConfig = cfg.RouteConfig
-	r.TargetPolicy = cfg.TargetPolicy
-	r.State = LLMRouteState{}
-	return nil
-}
-
-func (r *LLMRouteConfig) UnmarshalJSON(data []byte) error {
 	type llmRouteJSON struct {
 		ID           string           `json:"id"`
 		Kind         RouteKind        `json:"kind,omitempty"`
@@ -244,35 +223,19 @@ func (r *LLMRouteConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func NewLLMRouteConfigFromConfig(cfg RouteConfig) (LLMRouteConfig, error) {
+func NewLLMRouteFromConfig(cfg RouteConfig) (LLMRoute, error) {
 	cfg = normalizeConfigDefaults(cfg)
 	targetPolicy, err := unmarshalRouteTargetPolicy(cfg.TargetPolicy)
 	if err != nil {
-		return LLMRouteConfig{}, fmt.Errorf("route %q decode target policy: %w", cfg.ID, err)
+		return LLMRoute{}, fmt.Errorf("route %q decode target policy: %w", cfg.ID, err)
 	}
-	return LLMRouteConfig{
+	return LLMRoute{
 		RouteConfig:  cfg,
 		TargetPolicy: targetPolicy,
 	}, nil
 }
 
-func NewLLMRouteFromConfig(cfg RouteConfig) (LLMRoute, error) {
-	routeCfg, err := NewLLMRouteConfigFromConfig(cfg)
-	if err != nil {
-		return LLMRoute{}, err
-	}
-	return NewRuntimeLLMRoute(routeCfg), nil
-}
-
-func NewRuntimeLLMRoute(cfg LLMRouteConfig) LLMRoute {
-	return LLMRoute{
-		RouteConfig:  cfg.RouteConfig,
-		TargetPolicy: cfg.TargetPolicy,
-		State:        LLMRouteState{},
-	}
-}
-
-func (r LLMRouteConfig) ToConfig() (RouteConfig, error) {
+func (r LLMRoute) ToConfig() (RouteConfig, error) {
 	r.Normalize()
 	targetPolicy, err := json.Marshal(r.TargetPolicy)
 	if err != nil {
@@ -290,10 +253,6 @@ func (r LLMRouteConfig) ToConfig() (RouteConfig, error) {
 	cfg.CreatedAt = r.CreatedAt
 	cfg.UpdatedAt = r.UpdatedAt
 	return cfg, nil
-}
-
-func (r LLMRoute) ToConfig() (RouteConfig, error) {
-	return r.Config().ToConfig()
 }
 
 func normalizeConfigDefaults(cfg RouteConfig) RouteConfig {
@@ -412,7 +371,7 @@ func (p *RouteDirectProviderPolicy) UnmarshalJSON(data []byte) error {
 }
 
 // Normalize fills defaults on a route config value before it is used.
-func (r *LLMRouteConfig) Normalize() {
+func (r *LLMRoute) Normalize() {
 	if r == nil {
 		return
 	}
@@ -422,40 +381,6 @@ func (r *LLMRouteConfig) Normalize() {
 	}
 }
 
-func (r LLMRouteConfig) UsesLogicalModel() bool {
-	return r.TargetPolicy != nil && r.TargetPolicy.PolicyKind() == RouteTargetPolicyKindLogicalModel
-}
-
-func (r LLMRoute) Config() LLMRouteConfig {
-	return LLMRouteConfig{
-		RouteConfig:  r.RouteConfig,
-		TargetPolicy: r.TargetPolicy,
-	}
-}
-
-func (r *LLMRoute) Normalize() {
-	if r == nil {
-		return
-	}
-	cfg := r.Config()
-	cfg.Normalize()
-	r.RouteConfig = cfg.RouteConfig
-	r.TargetPolicy = cfg.TargetPolicy
-}
-
-func (r *LLMRoute) NormalizeTimestamps(now time.Time) {
-	if r == nil {
-		return
-	}
-	cfg := r.Config()
-	cfg.NormalizeTimestamps(now)
-	r.RouteConfig = cfg.RouteConfig
-}
-
-func (r LLMRoute) MarshalJSON() ([]byte, error) {
-	return r.Config().MarshalJSON()
-}
-
 func (r LLMRoute) UsesLogicalModel() bool {
-	return r.Config().UsesLogicalModel()
+	return r.TargetPolicy != nil && r.TargetPolicy.PolicyKind() == RouteTargetPolicyKindLogicalModel
 }

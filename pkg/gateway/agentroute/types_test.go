@@ -92,9 +92,9 @@ func TestConfigRoundTripThroughPersistedShape(t *testing.T) {
 		t.Fatalf("target policy = %+v", target)
 	}
 
-	decoded, err := NewAgentRouteConfigFromConfig(stored)
+	decoded, err := NewAgentRouteFromConfig(stored)
 	if err != nil {
-		t.Fatalf("NewAgentRouteConfigFromConfig: %v", err)
+		t.Fatalf("NewAgentRouteFromConfig: %v", err)
 	}
 	if decoded.ID != cfg.ID || decoded.AgentID != "reviewer" || decoded.Description != "reviewer ingress" {
 		t.Fatalf("round trip = %+v, want %+v", decoded, cfg)

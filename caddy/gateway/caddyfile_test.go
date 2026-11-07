@@ -138,9 +138,9 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	if !routeCfg.AuthPolicy.RequireVirtualKey {
 		t.Fatal("expected route require_virtual_key to be true")
 	}
-	route, err := llmroutepkg.NewLLMRouteConfigFromConfig(routeCfg)
+	route, err := llmroutepkg.NewLLMRouteFromConfig(routeCfg)
 	if err != nil {
-		t.Fatalf("NewLLMRouteConfigFromConfig() error = %v", err)
+		t.Fatalf("NewLLMRouteFromConfig() error = %v", err)
 	}
 	directPolicy, ok := llmroutepkg.DirectProviderPolicyOf(route.TargetPolicy)
 	if !ok || directPolicy.ProviderTarget.ProviderID != "local-ollama" {

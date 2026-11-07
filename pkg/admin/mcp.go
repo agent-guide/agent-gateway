@@ -19,20 +19,20 @@ import (
 )
 
 type MCPRouteView struct {
-	mcproute.MCPRouteConfig
+	mcproute.MCPRoute
 	Source   string `json:"source"`
 	ReadOnly bool   `json:"read_only"`
 }
 
 // MarshalJSON merges the view fields into the embedded config JSON. Without
-// this the embedded MCPRouteConfig.MarshalJSON is promoted and silently drops
+// this the embedded MCPRoute.MarshalJSON is promoted and silently drops
 // source and read_only from admin responses.
 func (v MCPRouteView) MarshalJSON() ([]byte, error) {
-	return marshalRouteView(v.MCPRouteConfig, v.Source, v.ReadOnly)
+	return marshalRouteView(v.MCPRoute, v.Source, v.ReadOnly)
 }
 
 func (v *MCPRouteView) UnmarshalJSON(data []byte) error {
-	if err := json.Unmarshal(data, &v.MCPRouteConfig); err != nil {
+	if err := json.Unmarshal(data, &v.MCPRoute); err != nil {
 		return err
 	}
 	return unmarshalRouteViewExtras(data, &v.Source, &v.ReadOnly)
@@ -249,7 +249,7 @@ func (h *Handler) handleCreateMCPRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
-	var route mcproute.MCPRouteConfig
+	var route mcproute.MCPRoute
 	if err := httpjson.Decode(r, &route); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
@@ -319,7 +319,7 @@ func (h *Handler) handleUpdateMCPRoute(w http.ResponseWriter, r *http.Request) {
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
-	var route mcproute.MCPRouteConfig
+	var route mcproute.MCPRoute
 	if err := httpjson.Decode(r, &route); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
@@ -651,9 +651,9 @@ func (h *Handler) handleListMCPServiceSessions(w http.ResponseWriter, r *http.Re
 }
 
 func mcpRouteViewFromConfig(resolver *mcproute.MCPRouteResolver, cfg mcproute.RouteConfig) MCPRouteView {
-	item, _ := mcproute.NewMCPRouteConfigFromConfig(cfg)
+	item, _ := mcproute.NewMCPRouteFromConfig(cfg)
 	view := MCPRouteView{
-		MCPRouteConfig: item,
+		MCPRoute: item,
 		Source:         "store",
 		ReadOnly:       false,
 	}

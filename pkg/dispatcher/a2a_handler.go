@@ -23,7 +23,7 @@ import (
 
 const a2aCardPath = "/.well-known/agent-card.json"
 
-func (h *Handler) dispatchA2A(w http.ResponseWriter, r *http.Request, route *agentroutepkg.AgentRoute) error {
+func (h *Handler) dispatchA2A(w http.ResponseWriter, r *http.Request, route *agentroutepkg.AgentRouteConfig) error {
 	switch r.URL.Path {
 	case a2aCardPath:
 		if r.Method != http.MethodGet {
@@ -42,7 +42,7 @@ func (h *Handler) dispatchA2A(w http.ResponseWriter, r *http.Request, route *age
 	}
 }
 
-func (h *Handler) serveA2ACard(w http.ResponseWriter, r *http.Request, route *agentroutepkg.AgentRoute) error {
+func (h *Handler) serveA2ACard(w http.ResponseWriter, r *http.Request, route *agentroutepkg.AgentRouteConfig) error {
 	a, target, status := h.resolveA2ATarget(route)
 	if status != 0 {
 		message := "agent route not found"
@@ -61,7 +61,7 @@ func (h *Handler) serveA2ACard(w http.ResponseWriter, r *http.Request, route *ag
 	return httpjson.Write(w, http.StatusOK, card)
 }
 
-func (h *Handler) serveA2ARequest(w http.ResponseWriter, r *http.Request, route *agentroutepkg.AgentRoute) error {
+func (h *Handler) serveA2ARequest(w http.ResponseWriter, r *http.Request, route *agentroutepkg.AgentRouteConfig) error {
 	if err := validateA2AContentType(r.Header.Get("Content-Type")); err != nil {
 		return httpjson.Error(w, http.StatusUnsupportedMediaType, "unsupported media type")
 	}
@@ -173,7 +173,7 @@ func replaceA2AHeaders(dst, source http.Header) {
 	}
 }
 
-func (h *Handler) resolveA2ATarget(route *agentroutepkg.AgentRoute) (agentpkg.Agent, *runtimebackend.HTTPProxyTarget, int) {
+func (h *Handler) resolveA2ATarget(route *agentroutepkg.AgentRouteConfig) (agentpkg.Agent, *runtimebackend.HTTPProxyTarget, int) {
 	if route == nil || h.gateway.AgentManager() == nil {
 		return agentpkg.Agent{}, nil, http.StatusNotFound
 	}
@@ -195,7 +195,7 @@ func (h *Handler) resolveA2ATarget(route *agentroutepkg.AgentRoute) (agentpkg.Ag
 	return a, target, 0
 }
 
-func a2aPublicRouteURL(r *http.Request, route *agentroutepkg.AgentRoute) string {
+func a2aPublicRouteURL(r *http.Request, route *agentroutepkg.AgentRouteConfig) string {
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"

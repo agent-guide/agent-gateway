@@ -103,7 +103,7 @@ func adminRoutesOverlap(a, b AdminRoute) bool {
 
 // AdminRoutes returns copies of the complete, validated declaration set. The
 // literal module namespace makes contributions disjoint from all Community
-// route families, including the separate AgentRoute mux and envelope roots.
+// route families, including the separate AgentRouteConfig mux and envelope roots.
 func (r *Registry) AdminRoutes() []OwnedAdminRoute {
 	var out []OwnedAdminRoute
 	if r != nil {

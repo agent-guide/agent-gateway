@@ -240,7 +240,7 @@ func applyLLMRoutes(ctx context.Context, client *adminclient.Client, bundle *gat
 		current[item.ID] = item
 	}
 	for _, desired := range bundle.LLMRoutes {
-		desiredConfig, err := llmroutepkg.NewLLMRouteConfigFromConfig(desired)
+		desiredConfig, err := llmroutepkg.NewLLMRouteFromConfig(desired)
 		if err != nil {
 			record("llm_route", desired.ID, "error", fmt.Errorf("llm route %q decode: %w", desired.ID, err))
 			continue
@@ -255,7 +255,7 @@ func applyLLMRoutes(ctx context.Context, client *adminclient.Client, bundle *gat
 			}
 			continue
 		}
-		currentLLMRoute, err := item.LLMRouteConfig()
+		currentLLMRoute, err := item.LLMRoute()
 		if err != nil {
 			record("llm_route", desired.ID, "error", fmt.Errorf("llm route %q decode current config: %w", desired.ID, err))
 			continue
@@ -336,7 +336,7 @@ func providerConfigsEqual(a, b provider.ProviderConfig) bool {
 	return reflect.DeepEqual(a, b)
 }
 
-func normalizeComparableLLMRoute(route llmroutepkg.LLMRouteConfig) llmroutepkg.LLMRouteConfig {
+func normalizeComparableLLMRoute(route llmroutepkg.LLMRoute) llmroutepkg.LLMRoute {
 	route.Normalize()
 	route.CreatedAt = time.Time{}
 	route.UpdatedAt = time.Time{}
@@ -436,7 +436,7 @@ func applyMCPRoutes(ctx context.Context, client *adminclient.Client, bundle *gat
 			record("mcp_route", id, "error", fmt.Errorf("mcp_route %q is read-only", id))
 			continue
 		}
-		currentNorm := normalizeComparableMCPRoute(item.MCPRouteConfig)
+		currentNorm := normalizeComparableMCPRoute(item.MCPRoute)
 		desiredNorm := normalizeComparableMCPRoute(desired)
 		if reflect.DeepEqual(currentNorm, desiredNorm) {
 			record("mcp_route", id, "skip", nil)
@@ -633,7 +633,7 @@ func normalizeComparableMCPService(cfg mcpservice.MCPServiceConfig) mcpservice.M
 	return cfg
 }
 
-func normalizeComparableMCPRoute(cfg mcproute.MCPRouteConfig) mcproute.MCPRouteConfig {
+func normalizeComparableMCPRoute(cfg mcproute.MCPRoute) mcproute.MCPRoute {
 	cfg.Normalize()
 	cfg.CreatedAt = time.Time{}
 	cfg.UpdatedAt = time.Time{}

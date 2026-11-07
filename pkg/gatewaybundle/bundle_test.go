@@ -77,9 +77,9 @@ virtualKeys:
 	if len(bundle.LLMRoutes) != 1 {
 		t.Fatalf("len(LLMRoutes) = %d, want 1", len(bundle.LLMRoutes))
 	}
-	route, err := llmroutepkg.NewLLMRouteConfigFromConfig(bundle.LLMRoutes[0])
+	route, err := llmroutepkg.NewLLMRouteFromConfig(bundle.LLMRoutes[0])
 	if err != nil {
-		t.Fatalf("NewLLMRouteConfigFromConfig() error = %v", err)
+		t.Fatalf("NewLLMRouteFromConfig() error = %v", err)
 	}
 	directPolicy, ok := llmroutepkg.DirectProviderPolicyOf(route.TargetPolicy)
 	if !ok || directPolicy.ProviderTarget.ProviderID != "openai-main" {

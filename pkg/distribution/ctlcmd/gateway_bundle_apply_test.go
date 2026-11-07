@@ -59,7 +59,7 @@ func TestApplyAgentRoutesStripsExportedManagedTimestamps(t *testing.T) {
 		t.Fatal(applyErr)
 	}
 	if !created {
-		t.Fatal("AgentRoute create was not called")
+		t.Fatal("AgentRouteConfig create was not called")
 	}
 }
 
