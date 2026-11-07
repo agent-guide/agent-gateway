@@ -2141,11 +2141,11 @@ func TestListVirtualKeysFiltersByTag(t *testing.T) {
 	}
 }
 
-func TestLLMRouteGetPrefersStaticRouteConfigManager(t *testing.T) {
+func TestLLMRouteGetReadsStaticRouteConfigManager(t *testing.T) {
 	store := &testRouteStore{
 		items: map[string]*routecore.AgentRouteConfig{
-			"chat-prod": mustRouteConfig(t, llmroutepkg.LLMRoute{
-				AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-prod"},
+			"chat-dynamic": mustRouteConfig(t, llmroutepkg.LLMRoute{
+				AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-dynamic", MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/dynamic"}},
 				TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
 					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
 				},
@@ -2193,7 +2193,7 @@ func TestLLMRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 		},
 	}
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []llmroutepkg.LLMRoute{{
-		AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-static"},
+		AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-static", MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/static"}},
 		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
 			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "anthropic"},
 		},
@@ -2446,8 +2446,8 @@ func TestDeleteSharedLLMRouteChecksAllAgentReferences(t *testing.T) {
 
 func TestAgentResourceRouteValidationAndDeletedReferences(t *testing.T) {
 	store := &testRouteStore{items: map[string]*routecore.AgentRouteConfig{
-		"chat":  {ID: "chat", Kind: routecore.RouteKindLLM, Protocol: "openai"},
-		"tools": {ID: "tools", Kind: routecore.RouteKindMCP, Protocol: "mcp"},
+		"chat":  {ID: "chat", Kind: routecore.RouteKindLLM, Protocol: "openai", MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/chat"}},
+		"tools": {ID: "tools", Kind: routecore.RouteKindMCP, Protocol: "mcp", MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/tools"}},
 	}}
 	gw := newTestAgentGateway(&testConfigStore{routeStore: store, agentStore: newAgentConfigStore()}, nil, nil, nil, nil)
 	h := NewHandler(gw, nil)

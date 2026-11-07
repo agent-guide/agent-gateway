@@ -136,8 +136,8 @@ func TestLLMRouteResolverGetCachesDecodedRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Get returned error: %v", err)
 	}
-	if store.getCalls != 1 {
-		t.Fatalf("store get calls = %d, want 1", store.getCalls)
+	if store.getCalls != 0 {
+		t.Fatalf("store get calls = %d, want 0 (validated snapshot)", store.getCalls)
 	}
 }
 
@@ -174,7 +174,7 @@ func TestLLMRouteResolverResolveCachesByFingerprint(t *testing.T) {
 	}
 }
 
-func TestLLMRouteResolverGetPrefersStaticRoute(t *testing.T) {
+func TestLLMRouteResolverGetRejectsStaticDynamicCollision(t *testing.T) {
 	store := &testManagedRouteStore{
 		items: map[string]*routecore.AgentRouteConfig{
 			"chat-prod": func() *routecore.AgentRouteConfig {
@@ -193,12 +193,9 @@ func TestLLMRouteResolverGetPrefersStaticRoute(t *testing.T) {
 	})
 	resolver := NewLLMRouteResolver(manager)
 
-	got, err := resolver.ResolveByID(context.Background(), "chat-prod")
-	if err != nil {
-		t.Fatalf("Get returned error: %v", err)
-	}
-	if got.TargetPolicy.(*RouteDirectProviderPolicy).ProviderTarget.ProviderID != "static-provider" {
-		t.Fatalf("provider = %q, want static-provider", got.TargetPolicy.(*RouteDirectProviderPolicy).ProviderTarget.ProviderID)
+	_, err := resolver.ResolveByID(context.Background(), "chat-prod")
+	if err == nil {
+		t.Fatal("static/dynamic collision was accepted")
 	}
 	if store.getCalls != 0 {
 		t.Fatalf("store get calls = %d, want 0", store.getCalls)

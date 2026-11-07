@@ -38,6 +38,16 @@ Runtime route matching uses the in-memory manager snapshot. Bootstrap and
 route manager create/update/delete/refresh keep that snapshot populated; do not
 reintroduce per-request config-store `List` calls for matching.
 
+`routecore.ValidateRouteConfigs` rejects equal-score intersections across all
+kinds and static/dynamic routes. Disabled routes reserve space. A2A's effective
+match accepts all methods while scoring uses declared methods. Route mutations
+serialize validation, persistence and publication; Refresh validates a complete
+candidate before replacing its snapshot. Admin List reads do not publish partial
+generations, and Get reads only published cached state after initial loading.
+Runtime ties return `ErrAmbiguousRoute` with stable diagnostics; never resolve
+them by ID sorting. Startup errors direct operators to offline configuration
+recovery. `InitStaticRoutes` callers must handle its error.
+
 ## Route id convention (`llmroute`, `mcproute`, `agentroute`)
 
 Route ids must be slash-free so they are addressable as a single Admin API path

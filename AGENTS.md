@@ -207,6 +207,11 @@ Cross-cutting invariants:
 
 - dependency direction: `pkg/agent` composes the LLM/MCP/ACP/metrics surfaces; the lower protocol packages (`pkg/llm`, `pkg/mcp`, `pkg/acp`, `pkg/a2a`) must not depend on `pkg/agent`
 - no config-store reads in per-request hot paths (provider resolution, route matching); manager snapshots are refreshed on mutation
+- route publication rejects equal-score intersecting matches across all kinds
+  and static/dynamic sources, including disabled routes; native A2A ignores
+  methods for effective matching but retains declared-method specificity.
+  Refresh retains the last validated generation on failure. Existing conflicts
+  require explicit offline repair, never ID sorting or static precedence.
 - factory registration (providers and builtin custom agents) requires blank imports in the binaries that link them; see each subtree file for the exact rule
 - gateway request pipelines never add an `agent` step, durable execution/event store,
   scheduler, human-task model, or Temporal dependency to lower runtime packages

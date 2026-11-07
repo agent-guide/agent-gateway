@@ -504,6 +504,24 @@ func (b *GatewayBundle) validate(_ bool) error {
 		}
 	}
 
+	// Matching is shared across all route kinds, including disabled entries.
+	// Compile the complete bundle view before any apply entry point can publish.
+	allRoutes := append([]routecore.AgentRouteConfig(nil), b.LLMRoutes...)
+	for _, route := range b.MCPRoutes {
+		cfg, err := route.ToConfig()
+		if err == nil {
+			allRoutes = append(allRoutes, cfg)
+		}
+	}
+	for _, route := range b.AgentRoutes {
+		cfg, err := route.ToConfig()
+		if err == nil {
+			allRoutes = append(allRoutes, cfg)
+		}
+	}
+	if err := routecore.ValidateRouteConfigs(allRoutes); err != nil {
+		errs.Append(err)
+	}
 	if errs.HasErrors() {
 		return errs
 	}

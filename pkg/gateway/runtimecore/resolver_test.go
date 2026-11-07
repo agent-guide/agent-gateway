@@ -125,8 +125,8 @@ func TestResolverGetCachesDecodedRoute(t *testing.T) {
 	if first != second {
 		t.Fatalf("cached route mismatch: first=%p second=%p", first, second)
 	}
-	if store.getCalls != 1 {
-		t.Fatalf("store get calls = %d, want 1", store.getCalls)
+	if store.getCalls != 0 {
+		t.Fatalf("store get calls = %d, want 0 (validated snapshot)", store.getCalls)
 	}
 	if decodeCalls != 1 {
 		t.Fatalf("decode calls = %d, want 1", decodeCalls)

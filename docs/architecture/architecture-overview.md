@@ -410,6 +410,16 @@ VirtualKeys own route access and per-kind rate-limit policies, enforced through
 the configured admission backend. Logical-model fallback belongs to the LLM
 target policy, not a generic HTTP route policy.
 
+Matching prefers longer path prefixes, then a declared host, then declared
+methods. Configuration publication rejects intersecting matches with identical
+scores across every kind and static/dynamic source. Disabled routes participate
+and reserve their space: matching one returns the disabled error rather than
+falling back to a broader route. Native A2A ignores methods when matching so its
+endpoint can return protocol-specific errors, while its declared methods still
+affect specificity. Runtime ties return a deterministic error. Route mutations
+serialize validation, persistence and publication; a failed Refresh keeps the
+previous complete generation, and initial startup requires a valid generation.
+
 ### 6.2 Selection and Resolution
 
 At startup, the runtime assembly layer builds:

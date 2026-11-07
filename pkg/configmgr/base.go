@@ -24,6 +24,12 @@ type Definition[T any] struct {
 
 	ShouldIncludeStatic func(ListQuery) bool
 	MatchesListQuery    func(T, ListQuery) bool
+	// DisableListCache keeps administrative reads from publishing a partial
+	// generation when a domain requires full-snapshot validation on Refresh.
+	DisableListCache bool
+	// ValidateSnapshot runs before Refresh publishes a complete static/dynamic
+	// generation. Failure retains the previously published dynamic snapshot.
+	ValidateSnapshot func([]T) error
 
 	NotConfiguredErr func(id string) error
 	ReadOnlyErr      func(id string) error
@@ -80,6 +86,21 @@ func (m *BaseConfigManager[T]) IsStatic(id string) bool {
 
 	_, ok := m.static[id]
 	return ok
+}
+
+// GetCached reads only the published manager state. Domains that validate full
+// generations use it to avoid loading an unvalidated record on a cache miss.
+func (m *BaseConfigManager[T]) GetCached(id string) (T, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	item, ok := m.static[id]
+	if !ok {
+		item, ok = m.dynamic[id]
+	}
+	if ok && m.def.Clone != nil {
+		item = m.def.Clone(item)
+	}
+	return item, ok
 }
 
 func (m *BaseConfigManager[T]) Get(ctx context.Context, id string) (T, error) {
@@ -196,7 +217,9 @@ func (m *BaseConfigManager[T]) List(ctx context.Context, query ListQuery) ([]T, 
 			out[id] = item
 		}
 	}
-	m.cacheMany(cached)
+	if !m.def.DisableListCache {
+		m.cacheMany(cached)
+	}
 	return mapValues(out), nil
 }
 
@@ -261,6 +284,19 @@ func (m *BaseConfigManager[T]) Refresh(ctx context.Context, query ListQuery) err
 	}
 
 	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.def.ValidateSnapshot != nil {
+		candidate := make([]T, 0, len(m.static)+len(cached))
+		for _, item := range m.static {
+			candidate = append(candidate, item)
+		}
+		for _, item := range cached {
+			candidate = append(candidate, item)
+		}
+		if err := m.def.ValidateSnapshot(candidate); err != nil {
+			return err
+		}
+	}
 	m.dynamic = map[string]T{}
 	for id, item := range cached {
 		if m.def.Clone != nil {
@@ -268,7 +304,6 @@ func (m *BaseConfigManager[T]) Refresh(ctx context.Context, query ListQuery) err
 		}
 		m.dynamic[id] = item
 	}
-	m.mu.Unlock()
 	return nil
 }
 

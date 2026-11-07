@@ -23,6 +23,21 @@ LLM routes match on:
 
 The dispatcher removes the matched `path_prefix` before handing the request to the selected protocol adapter.
 
+Matching prefers a longer path prefix, then a declared host, then declared
+methods. Routes with equal scores must not match the same request. For example,
+two `/api` routes with methods `[GET, POST]` and `[POST]` conflict. Use disjoint
+hosts, paths or methods, or explicitly replace/delete a conflicting route.
+The check includes every route kind, static and dynamic entries, and disabled
+routes. Static entries do not win ties. A disabled route reserves its match
+space and returns a disabled error instead of falling back to a broader route.
+Native A2A routes reserve all methods at their match conditions so their own
+endpoint can return transport errors.
+
+Ambiguous persisted configuration prevents startup. Use the
+[offline recovery guide](architecture-config-recovery.md) to inspect and repair
+it without Admin. A Refresh failure in a running process retains the last valid
+configuration. Admin route mutations that would introduce a tie return 409.
+
 ## Route Protocol
 
 Current LLM route protocols are:

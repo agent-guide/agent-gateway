@@ -15,6 +15,12 @@ The bundle format is intentionally scoped to gateway object configuration. It do
 
 ## 2. Design Goals
 
+All Bundle route families share one match space. Validation and runtime
+publication reject equal-score intersecting matches, including disabled routes
+and static/dynamic ties. A partial Bundle must also pass the manager's complete
+generation checks when applied against existing configuration; validating the
+file alone cannot prove that it has no conflicts with stored or static routes.
+
 The bundle design is built around these goals:
 
 - provide one declarative file format for configuration-type gateway objects

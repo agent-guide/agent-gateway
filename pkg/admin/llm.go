@@ -112,7 +112,7 @@ func (h *Handler) handleCreateLLMRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := resolver.CreateConfig(r.Context(), cfg, tag); err != nil {
-		if errors.Is(err, routecore.ErrStaticRouteReadOnly) {
+		if errors.Is(err, routecore.ErrStaticRouteReadOnly) || errors.Is(err, routecore.ErrAmbiguousRoute) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -201,7 +201,7 @@ func (h *Handler) handleUpdateLLMRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := resolver.UpdateConfig(r.Context(), id, cfg); err != nil {
-		if errors.Is(err, routecore.ErrStaticRouteReadOnly) {
+		if errors.Is(err, routecore.ErrStaticRouteReadOnly) || errors.Is(err, routecore.ErrAmbiguousRoute) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -250,7 +250,7 @@ func (h *Handler) handleDeleteLLMRoute(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := remove(r.Context(), id); err != nil {
-		if errors.Is(err, routecore.ErrStaticRouteReadOnly) || errors.Is(err, agentpkg.ErrLLMRouteReferenced) {
+		if errors.Is(err, routecore.ErrStaticRouteReadOnly) || errors.Is(err, routecore.ErrAmbiguousRoute) || errors.Is(err, agentpkg.ErrLLMRouteReferenced) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -293,7 +293,7 @@ func (h *Handler) handleSetLLMRouteDisabled(w http.ResponseWriter, r *http.Reque
 	item.Disabled = disabled
 	cfg := item
 	if err := resolver.UpdateConfig(r.Context(), id, cfg); err != nil {
-		if errors.Is(err, routecore.ErrStaticRouteReadOnly) {
+		if errors.Is(err, routecore.ErrStaticRouteReadOnly) || errors.Is(err, routecore.ErrAmbiguousRoute) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}

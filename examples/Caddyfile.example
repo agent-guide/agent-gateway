@@ -8,6 +8,9 @@
 # LLM routes may be shared by Agents and direct clients; Agent usage follows
 # execution identity, not ownership of an LLM route. Admin deletion rejects
 # an LLM or MCP route still referenced by any Agent.
+# Static and dynamic routes share one match space. Equal-score intersecting
+# matches are rejected, including disabled routes; use distinct paths/hosts or
+# non-overlapping methods. Inspect old conflicts with scripts/repair-architecture-config.
 #
 # Caddy module IDs:
 # - agent_gateway

@@ -9,6 +9,7 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/agentroute"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 )
 
 type AgentRouteView struct {
@@ -68,6 +69,10 @@ func (h *Handler) handleCreateAgentRoute(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := resolver.CreateConfig(r.Context(), cfg, ""); err != nil {
+		if errors.Is(err, routecore.ErrAmbiguousRoute) {
+			_ = httpjson.Error(w, http.StatusConflict, err.Error())
+			return
+		}
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -128,6 +133,10 @@ func (h *Handler) handleUpdateAgentRoute(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := resolver.UpdateConfig(r.Context(), id, cfg); err != nil {
+		if errors.Is(err, routecore.ErrAmbiguousRoute) {
+			_ = httpjson.Error(w, http.StatusConflict, err.Error())
+			return
+		}
 		if errors.Is(err, configstore.ErrNotFound) {
 			_ = httpjson.Error(w, http.StatusNotFound, "agent route not found")
 			return

@@ -598,6 +598,32 @@ managedModels:
 	}
 }
 
+func TestValidateRejectsCrossKindMatchTies(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+llmRoutes:
+  - id: chat
+    kind: llm
+    protocol: openai
+    match_policy: {path_prefix: /api, methods: [GET, POST]}
+    target_policy: {provider_target: {provider_id: p}}
+mcpRoutes:
+  - id: tools
+    kind: mcp
+    disabled: true
+    service_id: s
+    match_policy: {path_prefix: /api, methods: [POST]}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = bundle.Validate()
+	if err == nil || !strings.Contains(err.Error(), `ambiguous routes "chat" and "tools"`) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestValidateRejectsConflictingRouteDefaults(t *testing.T) {
 	bundle, err := DecodeYAML([]byte(`
 apiVersion: gateway.agw/v1alpha1

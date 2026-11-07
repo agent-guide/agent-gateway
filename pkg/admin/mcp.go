@@ -13,6 +13,7 @@ import (
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
 	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 )
@@ -268,7 +269,7 @@ func (h *Handler) handleCreateMCPRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := resolver.CreateConfig(r.Context(), cfg, ""); err != nil {
-		if errors.Is(err, mcproute.ErrStaticRouteReadOnly) {
+		if errors.Is(err, mcproute.ErrStaticRouteReadOnly) || errors.Is(err, routecore.ErrAmbiguousRoute) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -356,7 +357,7 @@ func (h *Handler) handleUpdateMCPRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := resolver.UpdateConfig(r.Context(), id, cfg); err != nil {
-		if errors.Is(err, mcproute.ErrStaticRouteReadOnly) {
+		if errors.Is(err, mcproute.ErrStaticRouteReadOnly) || errors.Is(err, routecore.ErrAmbiguousRoute) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -406,7 +407,7 @@ func (h *Handler) handleDeleteMCPRoute(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := remove(r.Context(), id); err != nil {
-		if errors.Is(err, mcproute.ErrStaticRouteReadOnly) || errors.Is(err, agentpkg.ErrMCPRouteReferenced) {
+		if errors.Is(err, mcproute.ErrStaticRouteReadOnly) || errors.Is(err, routecore.ErrAmbiguousRoute) || errors.Is(err, agentpkg.ErrMCPRouteReferenced) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
 		}

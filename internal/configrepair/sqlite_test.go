@@ -12,6 +12,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	configsqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
+	"github.com/agent-guide/agent-gateway/pkg/gateway"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
 	"go.uber.org/zap"
@@ -40,7 +41,7 @@ func oldDatabase(t *testing.T) (string, *sql.DB) {
 		{Family: "providers", ID: "p", Data: json.RawMessage(`{"id":"p","provider_type":"openai"}`)},
 		{Family: "routes", ID: "a", Data: json.RawMessage(`{"id":"a","kind":"llm","protocol":"openai","match_policy":{"path_prefix":"/api"},"target_policy":{"provider_id":"p"}}`)},
 		{Family: "routes", ID: "b", Data: json.RawMessage(`{"id":"b","kind":"llm","protocol":"openai","disabled":true,"match_policy":{"path_prefix":"/api"},"target_policy":{"provider_id":"p","provider_target":{"provider_id":"q"}}}`)},
-		{Family: "agents", ID: "agent", Data: json.RawMessage(`{"id":"agent","name":"Agent","runtime":{"type":"http","http":{"card_url":"https://example.org/card","protocol":"a2a"}},"policy":{"budget":{}}}`)},
+		{Family: "agents", ID: "agent", Data: json.RawMessage(`{"id":"agent","name":"Agent","disabled":true,"runtime":{"type":"http","http":{"card_url":"https://example.org/card","protocol":"a2a"}},"policy":{"budget":{}}}`)},
 	}
 	for _, r := range rows {
 		if _, err := db.Exec(`INSERT INTO `+r.Family+` (id,tag,config) VALUES (?,?,?)`, r.ID, "", string(r.Data)); err != nil {
@@ -69,6 +70,19 @@ func TestOfflineSQLiteRepairAndRestart(t *testing.T) {
 	if len(Inspect(before)) != 4 {
 		t.Fatalf("issues = %+v", Inspect(before))
 	}
+	creator, err := configsqlite.Open(ctx, configsqlite.Config{SQLitePath: path}, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := configstore.NewBackend(creator)
+	if err := schema.RegisterDefaultStores(backend); err != nil {
+		t.Fatal(err)
+	}
+	startup := gateway.NewAgentGateway()
+	if err := startup.Bootstrap(ctx, gateway.BootstrapOptions{ConfigStoreBackend: backend}); err == nil || !strings.Contains(err.Error(), "repair-architecture-config") {
+		t.Fatalf("invalid startup was not rejected with recovery guidance: %v", err)
+	}
+	startup.Close()
 	if err := RepairSQLite(ctx, db, path+".bak", false, nil, repairOperations()); err == nil {
 		t.Fatal("repair did not require stopped service")
 	}
@@ -95,14 +109,6 @@ func TestOfflineSQLiteRepairAndRestart(t *testing.T) {
 	}
 	// Normal schema registration and decoding work after offline repair. No
 	// listener, Admin endpoint, Card fetch or data-plane startup was required.
-	creator, err := configsqlite.Open(ctx, configsqlite.Config{SQLitePath: path}, zap.NewNop())
-	if err != nil {
-		t.Fatal(err)
-	}
-	backend := configstore.NewBackend(creator)
-	if err := schema.RegisterDefaultStores(backend); err != nil {
-		t.Fatal(err)
-	}
 	store, err := backend.Get(schema.StoreRoutes)
 	if err != nil {
 		t.Fatal(err)
@@ -125,6 +131,11 @@ func TestOfflineSQLiteRepairAndRestart(t *testing.T) {
 	if err := Validate(final); err != nil {
 		t.Fatal(err)
 	}
+	restarted := gateway.NewAgentGateway()
+	if err := restarted.Bootstrap(ctx, gateway.BootstrapOptions{ConfigStoreBackend: backend}); err != nil {
+		t.Fatalf("restart after offline repair: %v", err)
+	}
+	restarted.Close()
 }
 
 func TestRepairRollbackAndReferenceProtection(t *testing.T) {

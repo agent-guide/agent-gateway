@@ -199,7 +199,10 @@ func TestMatcherPriorityAcrossRouteFamilies(t *testing.T) {
 	}
 	for _, tc := range cases {
 		r := httptest.NewRequest("POST", tc.path, nil)
-		matched, ok := routecore.MatchRouteConfigs(routes, r)
+		matched, ok, err := routecore.MatchRouteConfigs(routes, r)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if !ok || matched.ID != tc.want {
 			t.Fatalf("match %q = %q (ok=%v), want %q", tc.path, matched.ID, ok, tc.want)
 		}

@@ -25,6 +25,15 @@ for the complete dynamic configuration workflow.
 
 ## Resolution
 
+Route matching uses path-prefix length, host specificity, then method
+specificity. Equal-score intersecting matches are rejected across all route
+kinds and configuration sources, including disabled routes. Static entries do
+not override tied dynamic entries. Disabled routes reserve their space. Native
+A2A matches all methods but scores its original method declaration. The shared
+route manager serializes checking and publication; failed Refresh retains the
+last valid generation. Runtime ties fail deterministically. Existing conflicts
+require [offline repair](../guides/architecture-config-recovery.md).
+
 Direct-provider policies select one provider. The request model is the upstream
 model, with the provider default used when it is empty. Atomic protocol
 requirements are checked against provider-type capabilities. This path does not

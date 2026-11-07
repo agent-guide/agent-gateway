@@ -1,10 +1,35 @@
 package routecore
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 )
+
+var ErrAmbiguousRoute = errors.New("ambiguous route configuration")
+
+// ValidateRouteConfigs is shared by startup, mutations, Bundle validation and
+// recovery. Diagnostics are stable; publication must serialize with this check.
+func ValidateRouteConfigs(routes []AgentRouteConfig) error {
+	errs := RouteConflicts(routes)
+	ids := map[string]bool{}
+	var duplicates []string
+	for _, r := range routes {
+		if ids[r.ID] {
+			duplicates = append(duplicates, r.ID)
+		}
+		ids[r.ID] = true
+	}
+	sort.Strings(duplicates)
+	for _, id := range duplicates {
+		errs = append(errs, fmt.Errorf("duplicate route ID %q across configuration sources", id))
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: %v; inspect and explicitly repair with scripts/repair-architecture-config (docs/guides/architecture-config-recovery.md)", ErrAmbiguousRoute, errors.Join(errs...))
+}
 
 // EffectiveMatch preserves native A2A endpoint ownership for every HTTP method.
 // Scoring still uses the original declaration, including its method specificity.
