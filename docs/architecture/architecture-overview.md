@@ -177,6 +177,10 @@ This separation is deliberate:
 ### 4.3 `caddy/admin/` And `pkg/admin/`: Operational Control Surface
 
 The `caddy/admin/` package registers `agent_gateway_admin` with module ID `http.handlers.agent_gateway_admin`, and delegates request handling to the reusable `pkg/admin` runtime package.
+Its endpoint registry delegates to Provider, VirtualKey, Agent, credential, route
+and metrics adapters. Metric parsers share bounded limits and allowlist extraction;
+each protocol keeps its own filter dimensions, concrete query and result DTO.
+Reference protection and atomic business operations belong to application managers.
 
 Today it exposes working endpoints for:
 
