@@ -392,7 +392,7 @@ That is one of the core architectural decisions in the project.
 
 ### 6.1 Route Object
 
-The generic persisted envelope is `routecore.AgentRouteConfig`, despite its
+The generic persisted envelope is `routecore.RouteConfig`, despite its
 name covering every route kind. It contains `ID`, `Kind`, `Protocol`,
 `Description`, `Disabled`, `AuthPolicy`, `MatchPolicy`, raw JSON `TargetPolicy`,
 and timestamps. The JSON fields are `auth_policy`, `match_policy`, and

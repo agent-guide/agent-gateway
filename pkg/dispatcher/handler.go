@@ -220,7 +220,7 @@ func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request, next NextHand
 // Path A validates path and method before protocol admission. Only the exact
 // JSON-RPC POST endpoint uses ordinary VirtualKey/rate-limit admission; public
 // Card discovery and transport-level 404/405 rejections bypass it.
-func skipA2AVirtualKeyAdmission(cfg routecore.AgentRouteConfig, r *http.Request) bool {
+func skipA2AVirtualKeyAdmission(cfg routecore.RouteConfig, r *http.Request) bool {
 	if cfg.Kind != routecore.RouteKindAgent || cfg.Protocol != routecore.RouteProtocolA2A || r == nil {
 		return false
 	}
@@ -232,7 +232,7 @@ func skipA2AVirtualKeyAdmission(cfg routecore.AgentRouteConfig, r *http.Request)
 // selected runtime from immutable in-memory snapshots before the span opens.
 // Agent ingress therefore never relies on the historical route/service
 // attribution index, including authentication and other pre-dispatch errors.
-func (h *Handler) routeInteractionDimensions(cfg routecore.AgentRouteConfig, traceCtx traceContext, virtualKeyID string) usage.InteractionDimensions {
+func (h *Handler) routeInteractionDimensions(cfg routecore.RouteConfig, traceCtx traceContext, virtualKeyID string) usage.InteractionDimensions {
 	dims := usage.InteractionDimensions{
 		TraceID: traceCtx.TraceID, SpanID: traceCtx.SpanID, ParentSpanID: traceCtx.ParentSpanID,
 		TraceState: traceCtx.TraceState, TraceFlags: traceCtx.TraceFlags, AgentDepth: traceCtx.AgentDepth,
@@ -281,7 +281,7 @@ func rateLimitDimension(kind routecore.RouteKind) (virtualkeypkg.RateLimitDimens
 	}
 }
 
-func (h *Handler) dispatchLLM(w http.ResponseWriter, r *http.Request, next NextHandler, cfg routecore.AgentRouteConfig) error {
+func (h *Handler) dispatchLLM(w http.ResponseWriter, r *http.Request, next NextHandler, cfg routecore.RouteConfig) error {
 	routeResolver := h.gateway.LLMRouteResolver()
 	if routeResolver == nil {
 		return WriteDispatchError(h.logger, string(cfg.Protocol), cfg.ID, "", http.StatusServiceUnavailable, w, r, "resolve llm route", "llm route resolver is not configured", fmt.Errorf("llm route resolver is not configured"))

@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-func TestAgentRouteConfigManagerMatchPrefersMoreSpecificPath(t *testing.T) {
-	manager := NewAgentRouteConfigManager(&testRouteStore{
-		items: map[string]*AgentRouteConfig{
+func TestRouteConfigManagerMatchPrefersMoreSpecificPath(t *testing.T) {
+	manager := NewRouteConfigManager(&testRouteStore{
+		items: map[string]*RouteConfig{
 			"root": {
 				ID:          "root",
 				MatchPolicy: RouteMatchPolicy{PathPrefix: "/"},
@@ -34,9 +34,9 @@ func TestAgentRouteConfigManagerMatchPrefersMoreSpecificPath(t *testing.T) {
 	}
 }
 
-func TestAgentRouteConfigManagerMatchRejectsMethod(t *testing.T) {
-	manager := NewAgentRouteConfigManager(nil)
-	manager.InitStaticRoutes([]AgentRouteConfig{{
+func TestRouteConfigManagerMatchRejectsMethod(t *testing.T) {
+	manager := NewRouteConfigManager(nil)
+	manager.InitStaticRoutes([]RouteConfig{{
 		ID:          "post-only",
 		MatchPolicy: RouteMatchPolicy{PathPrefix: "/v1", Methods: []string{http.MethodPost}},
 	}})
@@ -49,9 +49,9 @@ func TestAgentRouteConfigManagerMatchRejectsMethod(t *testing.T) {
 	}
 }
 
-func TestAgentRouteConfigManagerLetsA2ADispatcherOwnMethodRejection(t *testing.T) {
-	manager := NewAgentRouteConfigManager(nil)
-	manager.InitStaticRoutes([]AgentRouteConfig{{
+func TestRouteConfigManagerLetsA2ADispatcherOwnMethodRejection(t *testing.T) {
+	manager := NewRouteConfigManager(nil)
+	manager.InitStaticRoutes([]RouteConfig{{
 		ID: "native-a2a", Kind: RouteKindAgent, Protocol: RouteProtocolA2A,
 		MatchPolicy: RouteMatchPolicy{Host: "gateway.example", PathPrefix: "/agent", Methods: []string{http.MethodGet, http.MethodPost}},
 	}})
@@ -62,9 +62,9 @@ func TestAgentRouteConfigManagerLetsA2ADispatcherOwnMethodRejection(t *testing.T
 	}
 }
 
-func TestAgentRouteConfigManagerMatchReturnsDisabledRoute(t *testing.T) {
-	manager := NewAgentRouteConfigManager(nil)
-	manager.InitStaticRoutes([]AgentRouteConfig{{
+func TestRouteConfigManagerMatchReturnsDisabledRoute(t *testing.T) {
+	manager := NewRouteConfigManager(nil)
+	manager.InitStaticRoutes([]RouteConfig{{
 		ID:          "disabled",
 		Disabled:    true,
 		MatchPolicy: RouteMatchPolicy{PathPrefix: "/v1"},
@@ -84,7 +84,7 @@ func TestAgentRouteConfigManagerMatchReturnsDisabledRoute(t *testing.T) {
 }
 
 type testRouteStore struct {
-	items map[string]*AgentRouteConfig
+	items map[string]*RouteConfig
 }
 
 func (s *testRouteStore) List(_ context.Context) ([]any, error) {

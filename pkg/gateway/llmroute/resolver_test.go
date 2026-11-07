@@ -13,15 +13,15 @@ import (
 )
 
 type testManagedRouteStore struct {
-	items    map[string]*routecore.AgentRouteConfig
+	items    map[string]*routecore.RouteConfig
 	getCalls int
 }
 
-func testLLMRoute(cfg AgentRouteConfig, protocol RouteProtocol, targetPolicy RouteTargetPolicy) LLMRoute {
+func testLLMRoute(cfg RouteConfig, protocol RouteProtocol, targetPolicy RouteTargetPolicy) LLMRoute {
 	cfg.Protocol = protocol
 	return LLMRoute{
-		AgentRouteConfig: cfg,
-		TargetPolicy:     targetPolicy,
+		RouteConfig:  cfg,
+		TargetPolicy: targetPolicy,
 	}
 }
 
@@ -57,12 +57,12 @@ func (s *testManagedRouteStore) Create(_ context.Context, obj any) error {
 	if unwrapper, ok := obj.(interface{ ConfigStoreObject() any }); ok {
 		obj = unwrapper.ConfigStoreObject()
 	}
-	cfg, ok := obj.(*routecore.AgentRouteConfig)
+	cfg, ok := obj.(*routecore.RouteConfig)
 	if !ok || cfg == nil {
 		return errors.New("unexpected type")
 	}
 	if s.items == nil {
-		s.items = map[string]*routecore.AgentRouteConfig{}
+		s.items = map[string]*routecore.RouteConfig{}
 	}
 	cloned := *cfg
 	s.items[cloned.ID] = &cloned
@@ -73,7 +73,7 @@ func (s *testManagedRouteStore) Update(_ context.Context, obj any) error {
 	if unwrapper, ok := obj.(interface{ ConfigStoreObject() any }); ok {
 		obj = unwrapper.ConfigStoreObject()
 	}
-	cfg, ok := obj.(*routecore.AgentRouteConfig)
+	cfg, ok := obj.(*routecore.RouteConfig)
 	if !ok || cfg == nil {
 		return errors.New("unexpected type")
 	}
@@ -104,7 +104,7 @@ func (s *testManagedRouteStore) GetByIndex(context.Context, string, any) (any, e
 	return nil, configstore.ErrNotFound
 }
 
-func mustConfigFromRoute(t *testing.T, route LLMRoute) routecore.AgentRouteConfig {
+func mustConfigFromRoute(t *testing.T, route LLMRoute) routecore.RouteConfig {
 	t.Helper()
 	cfg, err := route.ToConfig()
 	if err != nil {
@@ -115,16 +115,16 @@ func mustConfigFromRoute(t *testing.T, route LLMRoute) routecore.AgentRouteConfi
 
 func TestLLMRouteResolverGetCachesDecodedRoute(t *testing.T) {
 	store := &testManagedRouteStore{
-		items: map[string]*routecore.AgentRouteConfig{
-			"chat-prod": func() *routecore.AgentRouteConfig {
-				cfg := mustConfigFromRoute(t, testLLMRoute(AgentRouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteDirectProviderPolicy{
+		items: map[string]*routecore.RouteConfig{
+			"chat-prod": func() *routecore.RouteConfig {
+				cfg := mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteDirectProviderPolicy{
 					ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
 				}))
 				return &cfg
 			}(),
 		},
 	}
-	manager := routecore.NewAgentRouteConfigManager(store)
+	manager := routecore.NewRouteConfigManager(store)
 	resolver := NewLLMRouteResolver(manager)
 
 	_, err := resolver.ResolveByID(context.Background(), "chat-prod")
@@ -142,9 +142,9 @@ func TestLLMRouteResolverGetCachesDecodedRoute(t *testing.T) {
 }
 
 func TestLLMRouteResolverResolveCachesByFingerprint(t *testing.T) {
-	resolver := NewLLMRouteResolver(routecore.NewAgentRouteConfigManager(nil))
+	resolver := NewLLMRouteResolver(routecore.NewRouteConfigManager(nil))
 
-	base := mustConfigFromRoute(t, testLLMRoute(AgentRouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteDirectProviderPolicy{
+	base := mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteDirectProviderPolicy{
 		ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
 	}))
 	base.UpdatedAt = time.Unix(1000, 0).UTC()
@@ -176,18 +176,18 @@ func TestLLMRouteResolverResolveCachesByFingerprint(t *testing.T) {
 
 func TestLLMRouteResolverGetRejectsStaticDynamicCollision(t *testing.T) {
 	store := &testManagedRouteStore{
-		items: map[string]*routecore.AgentRouteConfig{
-			"chat-prod": func() *routecore.AgentRouteConfig {
-				cfg := mustConfigFromRoute(t, testLLMRoute(AgentRouteConfig{ID: "chat-prod"}, RouteProtocolAnthropic, &RouteDirectProviderPolicy{
+		items: map[string]*routecore.RouteConfig{
+			"chat-prod": func() *routecore.RouteConfig {
+				cfg := mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolAnthropic, &RouteDirectProviderPolicy{
 					ProviderTarget: DirectProviderTarget{ProviderID: "dynamic-provider"},
 				}))
 				return &cfg
 			}(),
 		},
 	}
-	manager := routecore.NewAgentRouteConfigManager(store)
-	manager.InitStaticRoutes([]routecore.AgentRouteConfig{
-		mustConfigFromRoute(t, testLLMRoute(AgentRouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteDirectProviderPolicy{
+	manager := routecore.NewRouteConfigManager(store)
+	manager.InitStaticRoutes([]routecore.RouteConfig{
+		mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "static-provider"},
 		})),
 	})
@@ -202,13 +202,13 @@ func TestLLMRouteResolverGetRejectsStaticDynamicCollision(t *testing.T) {
 	}
 }
 
-func TestAgentRouteConfigManagerCreateUpdateDeleteManageCache(t *testing.T) {
-	store := &testManagedRouteStore{items: map[string]*routecore.AgentRouteConfig{}}
-	manager := routecore.NewAgentRouteConfigManager(store)
+func TestRouteConfigManagerCreateUpdateDeleteManageCache(t *testing.T) {
+	store := &testManagedRouteStore{items: map[string]*routecore.RouteConfig{}}
+	manager := routecore.NewRouteConfigManager(store)
 	resolver := NewLLMRouteResolver(manager)
 
 	createCfg := mustConfigFromRoute(t, LLMRoute{
-		AgentRouteConfig: AgentRouteConfig{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
+		RouteConfig: RouteConfig{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
 		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "openai"},
 		},
@@ -235,7 +235,7 @@ func TestAgentRouteConfigManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	firstUpdatedAt := got.UpdatedAt
 
 	updateCfg := mustConfigFromRoute(t, LLMRoute{
-		AgentRouteConfig: AgentRouteConfig{Description: "updated", Protocol: RouteProtocolOpenAI},
+		RouteConfig: RouteConfig{Description: "updated", Protocol: RouteProtocolOpenAI},
 		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "anthropic"},
 		},
@@ -268,15 +268,15 @@ func TestAgentRouteConfigManagerCreateUpdateDeleteManageCache(t *testing.T) {
 	}
 }
 
-func TestAgentRouteConfigManagerRejectsStaticRouteMutation(t *testing.T) {
-	manager := routecore.NewAgentRouteConfigManager(&testManagedRouteStore{items: map[string]*routecore.AgentRouteConfig{}})
-	manager.InitStaticRoutes([]routecore.AgentRouteConfig{
-		mustConfigFromRoute(t, testLLMRoute(AgentRouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteDirectProviderPolicy{
+func TestRouteConfigManagerRejectsStaticRouteMutation(t *testing.T) {
+	manager := routecore.NewRouteConfigManager(&testManagedRouteStore{items: map[string]*routecore.RouteConfig{}})
+	manager.InitStaticRoutes([]routecore.RouteConfig{
+		mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
 		})),
 	})
 
-	cfg := mustConfigFromRoute(t, testLLMRoute(AgentRouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteDirectProviderPolicy{
+	cfg := mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteDirectProviderPolicy{
 		ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
 	}))
 	if err := manager.Update(context.Background(), "chat-prod", cfg); !errors.Is(err, routecore.ErrStaticRouteReadOnly) {
@@ -289,10 +289,10 @@ func TestAgentRouteConfigManagerRejectsStaticRouteMutation(t *testing.T) {
 
 func TestLLMRouteResolverValidateAcceptsDirectProviderRoute(t *testing.T) {
 	store := &testManagedRouteStore{
-		items: map[string]*routecore.AgentRouteConfig{
-			"chat-prod": func() *routecore.AgentRouteConfig {
+		items: map[string]*routecore.RouteConfig{
+			"chat-prod": func() *routecore.RouteConfig {
 				cfg := mustConfigFromRoute(t, LLMRoute{
-					AgentRouteConfig: AgentRouteConfig{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
+					RouteConfig: RouteConfig{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
 					TargetPolicy: &RouteDirectProviderPolicy{
 						ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
 					},
@@ -301,7 +301,7 @@ func TestLLMRouteResolverValidateAcceptsDirectProviderRoute(t *testing.T) {
 			}(),
 		},
 	}
-	resolver := NewLLMRouteResolver(routecore.NewAgentRouteConfigManager(store))
+	resolver := NewLLMRouteResolver(routecore.NewRouteConfigManager(store))
 
 	err := resolver.Validate(context.Background(), "chat-prod", testRouteProviderResolver{
 		configured: map[string]bool{"openai-main": true},
@@ -313,10 +313,10 @@ func TestLLMRouteResolverValidateAcceptsDirectProviderRoute(t *testing.T) {
 
 func TestLLMRouteResolverValidateChecksAllReferencedProviderIDs(t *testing.T) {
 	store := &testManagedRouteStore{
-		items: map[string]*routecore.AgentRouteConfig{
-			"chat-prod": func() *routecore.AgentRouteConfig {
+		items: map[string]*routecore.RouteConfig{
+			"chat-prod": func() *routecore.RouteConfig {
 				cfg := mustConfigFromRoute(t, LLMRoute{
-					AgentRouteConfig: AgentRouteConfig{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
+					RouteConfig: RouteConfig{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
 					TargetPolicy: &RouteLogicalModelTargetPolicy{
 						ModelTargets: []RouteModelTarget{{
 							Name: "chat-fast",
@@ -331,7 +331,7 @@ func TestLLMRouteResolverValidateChecksAllReferencedProviderIDs(t *testing.T) {
 			}(),
 		},
 	}
-	resolver := NewLLMRouteResolver(routecore.NewAgentRouteConfigManager(store))
+	resolver := NewLLMRouteResolver(routecore.NewRouteConfigManager(store))
 
 	err := resolver.Validate(context.Background(), "chat-prod", testRouteProviderResolver{
 		configured: map[string]bool{"openai-main": true},

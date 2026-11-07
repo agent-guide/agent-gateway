@@ -225,6 +225,10 @@ Cross-cutting invariants:
 - gateway request pipelines never add an `agent` step, durable execution/event store,
   scheduler, human-task model, or Temporal dependency to lower runtime packages
 
+The common persisted route envelope and manager are `routecore.RouteConfig`
+and `RouteConfigManager`; `agentroute.AgentRouteConfig` is specific to Agent
+ingress. This Go naming does not change route kinds, IDs or URLs.
+
 ## Runtime Request Flow
 
 ```text

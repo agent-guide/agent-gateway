@@ -435,20 +435,20 @@ func parseRoute(d *caddyfile.Dispenser, app *App) error {
 
 // ParseRouteSegment parses a route declaration from the current directive or subdirective.
 // The dispenser must already be positioned on the route directive token.
-func parseRouteSegment(d *caddyfile.Dispenser, app *App) (routecore.AgentRouteConfig, error) {
+func parseRouteSegment(d *caddyfile.Dispenser, app *App) (routecore.RouteConfig, error) {
 	seg := d.NewFromNextSegment()
 	if !seg.Next() {
-		return routecore.AgentRouteConfig{}, d.Err("expected route directive")
+		return routecore.RouteConfig{}, d.Err("expected route directive")
 	}
 
 	args := seg.RemainingArgsRaw()
 	if len(args) != 1 {
-		return routecore.AgentRouteConfig{}, seg.ArgErr()
+		return routecore.RouteConfig{}, seg.ArgErr()
 	}
 
 	routeID := strings.Trim(args[0], "\"`")
 	route := llmroutepkg.LLMRouteConfig{
-		AgentRouteConfig: routecore.AgentRouteConfig{
+		RouteConfig: routecore.RouteConfig{
 			ID:   routeID,
 			Kind: routecore.RouteKindLLM,
 		},
@@ -461,22 +461,22 @@ func parseRouteSegment(d *caddyfile.Dispenser, app *App) (routecore.AgentRouteCo
 		switch name {
 		case "protocol":
 			if len(args) != 1 {
-				return routecore.AgentRouteConfig{}, seg.ArgErr()
+				return routecore.RouteConfig{}, seg.ArgErr()
 			}
 			route.Protocol = routecore.RouteProtocol(strings.Trim(args[0], "\"`"))
 		case "host":
 			if len(args) != 1 {
-				return routecore.AgentRouteConfig{}, seg.ArgErr()
+				return routecore.RouteConfig{}, seg.ArgErr()
 			}
 			route.MatchPolicy.Host = strings.Trim(args[0], "\"`")
 		case "path_prefix":
 			if len(args) != 1 {
-				return routecore.AgentRouteConfig{}, seg.ArgErr()
+				return routecore.RouteConfig{}, seg.ArgErr()
 			}
 			route.MatchPolicy.PathPrefix = strings.Trim(args[0], "\"`")
 		case "method":
 			if len(args) == 0 {
-				return routecore.AgentRouteConfig{}, seg.ArgErr()
+				return routecore.RouteConfig{}, seg.ArgErr()
 			}
 			for _, arg := range args {
 				route.MatchPolicy.Methods = append(route.MatchPolicy.Methods, strings.Trim(arg, "\"`"))
@@ -487,56 +487,56 @@ func parseRouteSegment(d *caddyfile.Dispenser, app *App) (routecore.AgentRouteCo
 				continue
 			}
 			if len(args) != 1 {
-				return routecore.AgentRouteConfig{}, seg.ArgErr()
+				return routecore.RouteConfig{}, seg.ArgErr()
 			}
 			v, err := strconv.ParseBool(strings.Trim(args[0], "\"`"))
 			if err != nil {
-				return routecore.AgentRouteConfig{}, seg.Errf("invalid require_virtual_key value: %s", args[0])
+				return routecore.RouteConfig{}, seg.Errf("invalid require_virtual_key value: %s", args[0])
 			}
 			route.AuthPolicy.RequireVirtualKey = v
 		case "target":
 			if len(args) < 2 {
-				return routecore.AgentRouteConfig{}, seg.ArgErr()
+				return routecore.RouteConfig{}, seg.ArgErr()
 			}
 			switch strings.Trim(args[0], "\"`") {
 			case "provider":
 				if len(args) != 2 {
-					return routecore.AgentRouteConfig{}, seg.ArgErr()
+					return routecore.RouteConfig{}, seg.ArgErr()
 				}
 				if logicalTargetPolicy {
-					return routecore.AgentRouteConfig{}, seg.Err("target provider cannot be mixed with model targets")
+					return routecore.RouteConfig{}, seg.Err("target provider cannot be mixed with model targets")
 				}
 				directPolicy, ok := llmroutepkg.DirectProviderPolicyOf(route.TargetPolicy)
 				if route.TargetPolicy != nil && !ok {
-					return routecore.AgentRouteConfig{}, seg.Err("target provider cannot be mixed with model targets")
+					return routecore.RouteConfig{}, seg.Err("target provider cannot be mixed with model targets")
 				}
 				if !ok {
 					directPolicy = &llmroutepkg.RouteDirectProviderPolicy{}
 					route.TargetPolicy = directPolicy
 				}
 				if directPolicy.ProviderTarget.ProviderID != "" {
-					return routecore.AgentRouteConfig{}, seg.Err("target provider may appear at most once")
+					return routecore.RouteConfig{}, seg.Err("target provider may appear at most once")
 				}
 				directPolicy.ProviderTarget = llmroutepkg.DirectProviderTarget{ProviderID: strings.Trim(args[1], "\"`")}
 			case "model":
-				return routecore.AgentRouteConfig{}, seg.Err("target model is no longer supported in the Caddyfile; static routes must use a direct-provider target")
+				return routecore.RouteConfig{}, seg.Err("target model is no longer supported in the Caddyfile; static routes must use a direct-provider target")
 			default:
-				return routecore.AgentRouteConfig{}, seg.ArgErr()
+				return routecore.RouteConfig{}, seg.ArgErr()
 			}
 		case "target_policy":
 			if len(args) != 1 {
-				return routecore.AgentRouteConfig{}, seg.ArgErr()
+				return routecore.RouteConfig{}, seg.ArgErr()
 			}
 			if err := parseRouteTargetPolicy(seg, &route, strings.Trim(args[0], "\"`"), &logicalTargetPolicy); err != nil {
-				return routecore.AgentRouteConfig{}, err
+				return routecore.RouteConfig{}, err
 			}
 		default:
-			return routecore.AgentRouteConfig{}, seg.Errf("unknown subdirective: %s", name)
+			return routecore.RouteConfig{}, seg.Errf("unknown subdirective: %s", name)
 		}
 	}
 
 	if err := route.ValidateStaticDefinition(); err != nil {
-		return routecore.AgentRouteConfig{}, err
+		return routecore.RouteConfig{}, err
 	}
 	return route.ToConfig()
 }

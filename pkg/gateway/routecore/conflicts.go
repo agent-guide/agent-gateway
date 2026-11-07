@@ -11,7 +11,7 @@ var ErrAmbiguousRoute = errors.New("ambiguous route configuration")
 
 // ValidateRouteConfigs is shared by startup, mutations, Bundle validation and
 // recovery. Diagnostics are stable; publication must serialize with this check.
-func ValidateRouteConfigs(routes []AgentRouteConfig) error {
+func ValidateRouteConfigs(routes []RouteConfig) error {
 	errs := RouteConflicts(routes)
 	ids := map[string]bool{}
 	var duplicates []string
@@ -43,7 +43,7 @@ func ValidateRouteConfigs(routes []AgentRouteConfig) error {
 
 // EffectiveMatch preserves native A2A endpoint ownership for every HTTP method.
 // Scoring still uses the original declaration, including its method specificity.
-func EffectiveMatch(route AgentRouteConfig) RouteMatchPolicy {
+func EffectiveMatch(route RouteConfig) RouteMatchPolicy {
 	match := route.MatchPolicy
 	if route.Kind == RouteKindAgent && route.Protocol == RouteProtocolA2A {
 		match.Methods = nil
@@ -54,8 +54,8 @@ func EffectiveMatch(route AgentRouteConfig) RouteMatchPolicy {
 // RouteConflicts reports every equal-score intersection in stable ID order.
 // Disabled routes reserve their match space and therefore participate.
 // This function does not choose a winner or modify the supplied generation.
-func RouteConflicts(routes []AgentRouteConfig) []error {
-	ordered := append([]AgentRouteConfig(nil), routes...)
+func RouteConflicts(routes []RouteConfig) []error {
+	ordered := append([]RouteConfig(nil), routes...)
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].ID < ordered[j].ID })
 	var conflicts []error
 	for i, a := range ordered {

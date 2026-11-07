@@ -79,7 +79,7 @@ func (p testProvider) Config() provider.ProviderConfig {
 func TestRoutedProviderLogsProtocolRequirements(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	routed := &RoutedProvider{
-		route:  &llmroutepkg.LLMRoute{AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "claude-route"}},
+		route:  &llmroutepkg.LLMRoute{RouteConfig: llmroutepkg.RouteConfig{ID: "claude-route"}},
 		logger: zap.New(core),
 	}
 	protocolRequirements, err := provider.NewProtocolRequirementSet(map[provider.ProtocolFeature][]provider.RequirementReason{
@@ -177,7 +177,7 @@ func (r testGatewayProviderConfigResolver) GetConfig(_ context.Context, provider
 
 func TestNewRoutedProviderModelTargetRewritesDuringExecution(t *testing.T) {
 	route := llmroutepkg.LLMRoute{
-		AgentRouteConfig: llmroutepkg.AgentRouteConfig{
+		RouteConfig: llmroutepkg.RouteConfig{
 			ID:          "chat-prod",
 			Protocol:    llmroutepkg.RouteProtocolOpenAI,
 			MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/v1"},
@@ -240,7 +240,7 @@ func TestResolveRejectsDisabledRoute(t *testing.T) {
 	gw := NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
 		StaticLLMRoutes: mustLLMRouteConfigs(t, llmroutepkg.LLMRoute{
-			AgentRouteConfig: llmroutepkg.AgentRouteConfig{
+			RouteConfig: llmroutepkg.RouteConfig{
 				ID:          "chat-prod",
 				Protocol:    llmroutepkg.RouteProtocolOpenAI,
 				Disabled:    true,
@@ -264,10 +264,10 @@ func TestResolveRejectsDisabledRoute(t *testing.T) {
 	}
 }
 
-func mustLLMRouteConfigs(t *testing.T, routes ...llmroutepkg.LLMRoute) []routecore.AgentRouteConfig {
+func mustLLMRouteConfigs(t *testing.T, routes ...llmroutepkg.LLMRoute) []routecore.RouteConfig {
 	t.Helper()
 
-	out := make([]routecore.AgentRouteConfig, 0, len(routes))
+	out := make([]routecore.RouteConfig, 0, len(routes))
 	for _, route := range routes {
 		cfg, err := route.ToConfig()
 		if err != nil {
@@ -280,7 +280,7 @@ func mustLLMRouteConfigs(t *testing.T, routes ...llmroutepkg.LLMRoute) []routeco
 
 func TestBootstrapInitializesStaticMCPRoutes(t *testing.T) {
 	staticRoute, err := (mcproutepkg.MCPRouteConfig{
-		AgentRouteConfig: mcproutepkg.AgentRouteConfig{
+		RouteConfig: mcproutepkg.RouteConfig{
 			ID:          "mcp-route",
 			MatchPolicy: mcproutepkg.RouteMatch{PathPrefix: "/mcp"},
 			AuthPolicy:  mcproutepkg.RouteAuthPolicy{RequireVirtualKey: true},
@@ -293,7 +293,7 @@ func TestBootstrapInitializesStaticMCPRoutes(t *testing.T) {
 
 	gw := NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
-		StaticMCPRoutes: []routecore.AgentRouteConfig{staticRoute},
+		StaticMCPRoutes: []routecore.RouteConfig{staticRoute},
 	}); err != nil {
 		t.Fatalf("Bootstrap returned error: %v", err)
 	}
@@ -526,7 +526,7 @@ func TestDirectProviderFallsBackToProviderConfigAPIKey(t *testing.T) {
 	}
 	routedProvider := &RoutedProvider{
 		route: &llmroutepkg.LLMRoute{
-			AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
+			RouteConfig: llmroutepkg.RouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
 			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
 				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
 			},
@@ -580,7 +580,7 @@ func TestRoutedProviderInjectsExplicitCredentialValuesIntoContext(t *testing.T) 
 	}
 	routedProvider := &RoutedProvider{
 		route: &llmroutepkg.LLMRoute{
-			AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
+			RouteConfig: llmroutepkg.RouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
 			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
 				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
 			},
@@ -636,7 +636,7 @@ func TestRoutedProviderReportsCredentialRefreshFailure(t *testing.T) {
 
 	routedProvider := &RoutedProvider{
 		route: &llmroutepkg.LLMRoute{
-			AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
+			RouteConfig: llmroutepkg.RouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
 			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
 				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
 			},
@@ -705,7 +705,7 @@ func TestRoutedProviderCoolsCredentialAfterRefreshFailure(t *testing.T) {
 
 	routedProvider := &RoutedProvider{
 		route: &llmroutepkg.LLMRoute{
-			AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
+			RouteConfig: llmroutepkg.RouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
 			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
 				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
 			},
@@ -780,7 +780,7 @@ func TestRoutedProviderRetriesAnotherCredentialBeforeModelFallback(t *testing.T)
 	}
 	routedProvider := &RoutedProvider{
 		route: &llmroutepkg.LLMRoute{
-			AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
+			RouteConfig: llmroutepkg.RouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
 			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
 				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
 			},
@@ -857,7 +857,7 @@ func TestRoutedProviderFallsBackToAnotherModelAfterCandidateCredentialsExhausted
 	}
 	routedProvider := &RoutedProvider{
 		route: &llmroutepkg.LLMRoute{
-			AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
+			RouteConfig: llmroutepkg.RouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
 			TargetPolicy: &llmroutepkg.RouteLogicalModelTargetPolicy{
 				DefaultModel:          "chat-fast",
 				ModelSelectorStrategy: llmroutepkg.RouteSelectionStrategyPriority,

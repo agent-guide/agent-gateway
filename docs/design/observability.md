@@ -31,7 +31,7 @@ The current implementation baseline is:
 
 - the Caddy middleware module is `http.handlers.agent_route_dispatcher` in `caddy/dispatcher/`
 - runtime dispatch is in `pkg/dispatcher/handler.go`
-- all protocols first resolve a shared `routecore.AgentRouteConfig` through `AgentGateway.Match`
+- all protocols first resolve a shared `routecore.RouteConfig` through `AgentGateway.Match`
 - `Handler.Dispatch` resolves and validates the VirtualKey before dispatching by `routecore.RouteKind`
 - LLM dispatch resolves `pkg/gateway/llmroute.LLMRoute` and calls the selected LLM API handler
 - MCP dispatch resolves `pkg/gateway/mcproute.MCPRoute` and calls `pkg/mcp/service`

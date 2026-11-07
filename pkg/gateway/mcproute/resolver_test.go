@@ -8,7 +8,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 )
 
-func mustConfigFromMCPRoute(t *testing.T, route MCPRouteConfig) routecore.AgentRouteConfig {
+func mustConfigFromMCPRoute(t *testing.T, route MCPRouteConfig) routecore.RouteConfig {
 	t.Helper()
 	cfg, err := route.ToConfig()
 	if err != nil {
@@ -22,7 +22,7 @@ func mustConfigFromMCPRoute(t *testing.T, route MCPRouteConfig) routecore.AgentR
 // before touching the config store, symmetric to CreateConfig.
 func TestUpdateConfigRejectsSlashRouteID(t *testing.T) {
 	r := &MCPRouteResolver{}
-	err := r.UpdateConfig(context.Background(), "mcp:svc:/mcp", routecore.AgentRouteConfig{})
+	err := r.UpdateConfig(context.Background(), "mcp:svc:/mcp", routecore.RouteConfig{})
 	if !errors.Is(err, ErrInvalidRouteID) {
 		t.Fatalf("UpdateConfig() error = %v, want ErrInvalidRouteID", err)
 	}

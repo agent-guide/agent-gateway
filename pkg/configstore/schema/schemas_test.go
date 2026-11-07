@@ -56,7 +56,7 @@ func TestManagedModelSchemaPrimaryKey(t *testing.T) {
 }
 
 func TestRouteSchemaTagDefaultsEmpty(t *testing.T) {
-	obj := &llmroutepkg.AgentRouteConfig{ID: "route-1"}
+	obj := &llmroutepkg.RouteConfig{ID: "route-1"}
 
 	tag, ok, err := RouteSchema.Metadata.Tag(obj)
 	if err != nil {

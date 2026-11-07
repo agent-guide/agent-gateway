@@ -95,7 +95,7 @@ llmRoutes:
 	if gw.ProviderManager() == nil || !gw.ProviderManager().IsStatic("openai-main") {
 		t.Fatal("expected static provider openai-main")
 	}
-	if gw.AgentRouteConfigManager() == nil || !gw.AgentRouteConfigManager().IsStatic("chat-prod") {
+	if gw.RouteConfigManager() == nil || !gw.RouteConfigManager().IsStatic("chat-prod") {
 		t.Fatal("expected static route chat-prod")
 	}
 }

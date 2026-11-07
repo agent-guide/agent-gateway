@@ -99,7 +99,7 @@ func (b *agentHandlerCapabilityBackend) LoadTranscript(_ context.Context, _ agen
 func createAgentRoute(t *testing.T, gw *gateway.AgentGateway, agentID, pathPrefix string, requireVirtualKey bool) string {
 	t.Helper()
 	cfg := agentroute.AgentRouteConfig{
-		AgentRouteBaseConfig: agentroute.AgentRouteBaseConfig{
+		RouteConfig: agentroute.RouteConfig{
 			MatchPolicy: agentroute.RouteMatch{PathPrefix: pathPrefix},
 			AuthPolicy:  agentroute.RouteAuthPolicy{RequireVirtualKey: requireVirtualKey},
 		},
@@ -195,7 +195,7 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 	}
 
 	llmRoute := llmroutepkg.LLMRoute{
-		AgentRouteConfig: llmroutepkg.AgentRouteConfig{
+		RouteConfig: llmroutepkg.RouteConfig{
 			ID:          "chat-main",
 			Kind:        routecore.RouteKindLLM,
 			Protocol:    llmroutepkg.RouteProtocolOpenAI,
@@ -213,7 +213,7 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 	sink := &builtinCaptureSink{}
 	gw := gateway.NewAgentGateway()
 	if err := gw.Bootstrap(ctx, gateway.BootstrapOptions{
-		StaticLLMRoutes:    []routecore.AgentRouteConfig{llmRouteCfg},
+		StaticLLMRoutes:    []routecore.RouteConfig{llmRouteCfg},
 		StaticProviders:    map[string]provider.Provider{"fake": builtinFakeProvider{}},
 		ConfigStoreBackend: backend,
 		UsageObserver:      usage.NewObserver(sink),
@@ -239,8 +239,8 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 	// AgentRoute target validation: an unknown agent is rejected, the existing
 	// one is accepted.
 	ghostCfg := agentroute.AgentRouteConfig{
-		AgentRouteBaseConfig: agentroute.AgentRouteBaseConfig{MatchPolicy: agentroute.RouteMatch{PathPrefix: "/agents/ghost"}},
-		AgentID:              "ghost",
+		RouteConfig: agentroute.RouteConfig{MatchPolicy: agentroute.RouteMatch{PathPrefix: "/agents/ghost"}},
+		AgentID:     "ghost",
 	}
 	ghostCfg.Normalize()
 	storedGhost, _ := ghostCfg.ToConfig()

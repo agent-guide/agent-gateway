@@ -32,8 +32,8 @@ type A2AProxyLookup interface {
 }
 
 type AgentRouteResolver struct {
-	configManager *routecore.AgentRouteConfigManager
-	base          *runtimecore.Resolver[routecore.AgentRouteConfig, *AgentRoute, RouteListOptions]
+	configManager *routecore.RouteConfigManager
+	base          *runtimecore.Resolver[routecore.RouteConfig, *AgentRoute, RouteListOptions]
 
 	mu          sync.RWMutex
 	agentLookup AgentLookup
@@ -49,31 +49,31 @@ func (r *AgentRouteResolver) SetA2AProxyLookup(lookup A2AProxyLookup) {
 	r.mu.Unlock()
 }
 
-func NewAgentRouteResolver(configManager *routecore.AgentRouteConfigManager) *AgentRouteResolver {
+func NewAgentRouteResolver(configManager *routecore.RouteConfigManager) *AgentRouteResolver {
 	return &AgentRouteResolver{
 		configManager: configManager,
 		base: runtimecore.NewResolver(
-			runtimecore.FuncSource[routecore.AgentRouteConfig, RouteListOptions]{
-				GetFunc: func(ctx context.Context, routeID string) (routecore.AgentRouteConfig, error) {
+			runtimecore.FuncSource[routecore.RouteConfig, RouteListOptions]{
+				GetFunc: func(ctx context.Context, routeID string) (routecore.RouteConfig, error) {
 					if configManager == nil {
-						return routecore.AgentRouteConfig{}, fmt.Errorf("route config manager is not configured")
+						return routecore.RouteConfig{}, fmt.Errorf("route config manager is not configured")
 					}
 					return configManager.Get(ctx, routeID)
 				},
-				ListFunc: func(ctx context.Context, opts RouteListOptions) ([]routecore.AgentRouteConfig, error) {
+				ListFunc: func(ctx context.Context, opts RouteListOptions) ([]routecore.RouteConfig, error) {
 					if configManager == nil {
 						return nil, fmt.Errorf("route config manager is not configured")
 					}
 					return configManager.List(ctx, routecore.RouteListOptions(opts))
 				},
 			},
-			func(cfg routecore.AgentRouteConfig) string {
+			func(cfg routecore.RouteConfig) string {
 				return cfg.ID
 			},
-			func(cfg routecore.AgentRouteConfig) (string, error) {
+			func(cfg routecore.RouteConfig) (string, error) {
 				return cfg.Fingerprint(), nil
 			},
-			func(cfg routecore.AgentRouteConfig) (*AgentRoute, error) {
+			func(cfg routecore.RouteConfig) (*AgentRoute, error) {
 				route, err := NewAgentRouteFromConfig(cfg)
 				if err != nil {
 					return nil, err
@@ -108,7 +108,7 @@ func (r *AgentRouteResolver) lookups() (AgentLookup, A2AProxyLookup) {
 // Protocol-agent routes may target disabled or currently non-executable Agents
 // and report their normalized runtime error at dispatch. Protocol-a2a routes
 // instead require a ready Path A proxy target at create/update time.
-func (r *AgentRouteResolver) validateTarget(route routecore.AgentRouteConfig) error {
+func (r *AgentRouteResolver) validateTarget(route routecore.RouteConfig) error {
 	if route.Kind != routecore.RouteKindAgent {
 		return fmt.Errorf("route %q kind must be %q", route.ID, routecore.RouteKindAgent)
 	}
@@ -147,22 +147,22 @@ func containsMethod(methods []string, method string) bool {
 	return slices.ContainsFunc(methods, func(candidate string) bool { return strings.EqualFold(strings.TrimSpace(candidate), method) })
 }
 
-func (r *AgentRouteResolver) ConfigManager() *routecore.AgentRouteConfigManager {
+func (r *AgentRouteResolver) ConfigManager() *routecore.RouteConfigManager {
 	if r == nil {
 		return nil
 	}
 	return r.configManager
 }
 
-func (r *AgentRouteResolver) GetConfig(ctx context.Context, routeID string) (routecore.AgentRouteConfig, error) {
+func (r *AgentRouteResolver) GetConfig(ctx context.Context, routeID string) (routecore.RouteConfig, error) {
 	manager := r.ConfigManager()
 	if manager == nil {
-		return routecore.AgentRouteConfig{}, fmt.Errorf("route config manager is not configured")
+		return routecore.RouteConfig{}, fmt.Errorf("route config manager is not configured")
 	}
 	return manager.Get(ctx, routeID)
 }
 
-func (r *AgentRouteResolver) ListConfigs(ctx context.Context, opts RouteListOptions) ([]routecore.AgentRouteConfig, error) {
+func (r *AgentRouteResolver) ListConfigs(ctx context.Context, opts RouteListOptions) ([]routecore.RouteConfig, error) {
 	manager := r.ConfigManager()
 	if manager == nil {
 		return nil, fmt.Errorf("route config manager is not configured")
@@ -170,7 +170,7 @@ func (r *AgentRouteResolver) ListConfigs(ctx context.Context, opts RouteListOpti
 	return manager.List(ctx, routecore.RouteListOptions(opts))
 }
 
-func (r *AgentRouteResolver) CreateConfig(ctx context.Context, route routecore.AgentRouteConfig, tag string) error {
+func (r *AgentRouteResolver) CreateConfig(ctx context.Context, route routecore.RouteConfig, tag string) error {
 	if route.ID == "" {
 		return fmt.Errorf("route id is required")
 	}
@@ -191,7 +191,7 @@ func (r *AgentRouteResolver) CreateConfig(ctx context.Context, route routecore.A
 	return nil
 }
 
-func (r *AgentRouteResolver) UpdateConfig(ctx context.Context, routeID string, route routecore.AgentRouteConfig) error {
+func (r *AgentRouteResolver) UpdateConfig(ctx context.Context, routeID string, route routecore.RouteConfig) error {
 	if routeID == "" {
 		return fmt.Errorf("route id is required")
 	}
@@ -227,7 +227,7 @@ func (r *AgentRouteResolver) DeleteConfig(ctx context.Context, routeID string) e
 	return nil
 }
 
-func (r *AgentRouteResolver) Resolve(ctx context.Context, cfg routecore.AgentRouteConfig) (*AgentRoute, error) {
+func (r *AgentRouteResolver) Resolve(ctx context.Context, cfg routecore.RouteConfig) (*AgentRoute, error) {
 	if r == nil {
 		return nil, fmt.Errorf("route config manager is not configured")
 	}

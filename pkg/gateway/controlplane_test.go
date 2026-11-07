@@ -75,8 +75,8 @@ func controlPlaneGateway(t *testing.T) (*AgentGateway, *configstore.Backend, *co
 	return g, backend, creator
 }
 
-func providerRoute(id, providerID string) routecore.AgentRouteConfig {
-	return routecore.AgentRouteConfig{ID: id, Kind: routecore.RouteKindLLM, Protocol: routecore.RouteProtocolOpenAI,
+func providerRoute(id, providerID string) routecore.RouteConfig {
+	return routecore.RouteConfig{ID: id, Kind: routecore.RouteKindLLM, Protocol: routecore.RouteProtocolOpenAI,
 		MatchPolicy:  routecore.RouteMatchPolicy{PathPrefix: "/" + id + "/"},
 		TargetPolicy: []byte(fmt.Sprintf(`{"type":"direct-provider","provider_target":{"provider_id":%q}}`, providerID))}
 }
@@ -96,7 +96,7 @@ func TestProviderDeletionAndRouteCreationAreSerializable(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			createErr = g.AgentRouteConfigManager().Create(t.Context(), providerRoute(routeID, id), "")
+			createErr = g.RouteConfigManager().Create(t.Context(), providerRoute(routeID, id), "")
 		}()
 		go func() { defer wg.Done(); deleteErr = g.ProviderManager().DeleteConfig(t.Context(), id) }()
 		wg.Wait()
@@ -204,14 +204,14 @@ func TestDirectRouteDeletionCannotBypassAgentReferences(t *testing.T) {
 	if err := g.ProviderManager().CreateConfig(t.Context(), provider.ProviderConfig{Id: "p", ProviderType: "openai"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := g.AgentRouteConfigManager().Create(t.Context(), providerRoute("r", "p"), ""); err != nil {
+	if err := g.RouteConfigManager().Create(t.Context(), providerRoute("r", "p"), ""); err != nil {
 		t.Fatal(err)
 	}
 	a := agent.Agent{ID: "a", Name: "a", Disabled: true, Runtime: agent.Runtime{Type: agent.RuntimeTypeHTTP, HTTP: &agent.HTTPRuntime{CardURL: "https://example.org/card", Protocol: "a2a"}}, Routes: agent.Routes{LLMRouteIDs: []string{"r"}}}
 	if err := g.AgentManager().Create(t.Context(), a); err != nil {
 		t.Fatal(err)
 	}
-	if err := g.AgentRouteConfigManager().Delete(t.Context(), "r"); !errors.Is(err, ErrResourceReferenced) {
+	if err := g.RouteConfigManager().Delete(t.Context(), "r"); !errors.Is(err, ErrResourceReferenced) {
 		t.Fatalf("direct delete bypassed references: %v", err)
 	}
 }
@@ -266,11 +266,11 @@ func TestAgentDeletionSerializesAgentRouteCreation(t *testing.T) {
 		if err := g.AgentManager().Create(t.Context(), a); err != nil {
 			t.Fatal(err)
 		}
-		cfg := routecore.AgentRouteConfig{ID: id, Kind: routecore.RouteKindAgent, Protocol: routecore.RouteProtocolAgent, MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/" + id + "/"}, TargetPolicy: []byte(fmt.Sprintf(`{"agent_id":%q}`, id))}
+		cfg := routecore.RouteConfig{ID: id, Kind: routecore.RouteKindAgent, Protocol: routecore.RouteProtocolAgent, MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/" + id + "/"}, TargetPolicy: []byte(fmt.Sprintf(`{"agent_id":%q}`, id))}
 		var createErr, deleteErr error
 		var wg sync.WaitGroup
 		wg.Add(2)
-		go func() { defer wg.Done(); createErr = g.AgentRouteConfigManager().Create(t.Context(), cfg, "") }()
+		go func() { defer wg.Done(); createErr = g.RouteConfigManager().Create(t.Context(), cfg, "") }()
 		go func() { defer wg.Done(); deleteErr = g.AgentManager().Delete(t.Context(), id) }()
 		wg.Wait()
 		if createErr == nil {
@@ -321,7 +321,7 @@ func TestProviderUncertainCommitAndPublicationFailureRequireRecovery(t *testing.
 			if err := g.ProviderManager().DeleteConfig(t.Context(), "p"); !errors.Is(err, configmgr.ErrMutationPending) {
 				t.Fatal("retry issued another delete")
 			}
-			if err := g.AgentRouteConfigManager().Create(t.Context(), providerRoute("pending", "p"), ""); !errors.Is(err, configmgr.ErrMutationPending) {
+			if err := g.RouteConfigManager().Create(t.Context(), providerRoute("pending", "p"), ""); !errors.Is(err, configmgr.ErrMutationPending) {
 				t.Fatal("new reference bypassed recovery gate")
 			}
 			fault.uncertain, fault.afterCommit = false, nil

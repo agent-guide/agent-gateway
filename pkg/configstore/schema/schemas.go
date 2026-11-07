@@ -89,7 +89,7 @@ var RouteSchema = configstore.StoreSchema{
 	Timestamped:       true,
 	Codec: typedJSONCodec{
 		kind:     "route",
-		decode:   routecore.DecodeStoredAgentRouteConfig,
+		decode:   routecore.DecodeStoredRouteConfig,
 		validate: validateRouteObject,
 	},
 	Metadata: configstore.MetadataFuncs{
@@ -254,11 +254,11 @@ func validateCredentialObject(obj any) error {
 }
 
 func validateRouteObject(obj any) error {
-	var cfg *routecore.AgentRouteConfig
+	var cfg *routecore.RouteConfig
 	switch value := unwrapConfigObject(obj).(type) {
-	case routecore.AgentRouteConfig:
+	case routecore.RouteConfig:
 		cfg = &value
-	case *routecore.AgentRouteConfig:
+	case *routecore.RouteConfig:
 		cfg = value
 	default:
 		return fmt.Errorf("route object has unexpected type %T", obj)

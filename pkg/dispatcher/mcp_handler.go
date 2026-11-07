@@ -19,7 +19,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func (h *Handler) dispatchMCP(w http.ResponseWriter, r *http.Request, next NextHandler, cfg routecore.AgentRouteConfig) error {
+func (h *Handler) dispatchMCP(w http.ResponseWriter, r *http.Request, next NextHandler, cfg routecore.RouteConfig) error {
 	if !h.mcpEnabled {
 		return serveNextOrNotFound(next, w, r)
 	}

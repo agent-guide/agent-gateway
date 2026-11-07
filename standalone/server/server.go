@@ -239,7 +239,7 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (_ 
 
 type staticConfig struct {
 	Providers map[string]provider.Provider
-	LLMRoutes []routecore.AgentRouteConfig
+	LLMRoutes []routecore.RouteConfig
 }
 
 func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) {
@@ -262,7 +262,7 @@ func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) 
 		return nil, err
 	}
 	cfg.Providers = providers
-	cfg.LLMRoutes = append([]routecore.AgentRouteConfig(nil), bundle.LLMRoutes...)
+	cfg.LLMRoutes = append([]routecore.RouteConfig(nil), bundle.LLMRoutes...)
 	return cfg, nil
 }
 

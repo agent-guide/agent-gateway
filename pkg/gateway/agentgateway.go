@@ -42,9 +42,9 @@ type BootstrapOptions struct {
 	EventPublisher      event.Publisher
 	ExtensionRegistry   *extension.Registry
 	Distribution        distribution.Assembly
-	StaticLLMRoutes     []routecore.AgentRouteConfig
-	StaticMCPRoutes     []routecore.AgentRouteConfig
-	StaticAgentRoutes   []routecore.AgentRouteConfig
+	StaticLLMRoutes     []routecore.RouteConfig
+	StaticMCPRoutes     []routecore.RouteConfig
+	StaticAgentRoutes   []routecore.RouteConfig
 	StaticProviders     map[string]provider.Provider
 	ConfigStoreBackend  configstore.ConfigStoreBackend
 	CredentialManager   *credential.Manager
@@ -73,7 +73,7 @@ type AgentGateway struct {
 	distribution        distribution.Assembly
 	configured          bool
 	configStoreBackend  configstore.ConfigStoreBackend
-	routeConfigManager  *routecore.AgentRouteConfigManager
+	routeConfigManager  *routecore.RouteConfigManager
 	llmRouteResolver    *llmroutepkg.LLMRouteResolver
 	mcpRouteResolver    *mcproutepkg.MCPRouteResolver
 	agentRouteResolver  *agentroutepkg.AgentRouteResolver
@@ -139,7 +139,7 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 		}()
 	}
 	g.configureConfigStoreBackend(opts.ConfigStoreBackend)
-	staticRoutes := make([]routecore.AgentRouteConfig, 0, len(opts.StaticLLMRoutes)+len(opts.StaticMCPRoutes)+len(opts.StaticAgentRoutes))
+	staticRoutes := make([]routecore.RouteConfig, 0, len(opts.StaticLLMRoutes)+len(opts.StaticMCPRoutes)+len(opts.StaticAgentRoutes))
 	staticRoutes = append(staticRoutes, opts.StaticLLMRoutes...)
 	staticRoutes = append(staticRoutes, opts.StaticMCPRoutes...)
 	staticRoutes = append(staticRoutes, opts.StaticAgentRoutes...)
@@ -288,7 +288,7 @@ func (g *AgentGateway) CredentialScheduler() credentialscheduler.CredentialSched
 	return g.credentialScheduler
 }
 
-func (g *AgentGateway) AgentRouteConfigManager() *routecore.AgentRouteConfigManager {
+func (g *AgentGateway) RouteConfigManager() *routecore.RouteConfigManager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.routeConfigManager
@@ -300,7 +300,7 @@ func (g *AgentGateway) LLMRouteResolver() *llmroutepkg.LLMRouteResolver {
 	return g.llmRouteResolver
 }
 
-func (g *AgentGateway) MCPRouteConfigManager() *routecore.AgentRouteConfigManager {
+func (g *AgentGateway) MCPRouteConfigManager() *routecore.RouteConfigManager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.routeConfigManager
@@ -438,21 +438,21 @@ func (g *AgentGateway) UsageConfig() usage.Config {
 	return g.usageConfig.Normalized()
 }
 
-func (g *AgentGateway) Match(ctx context.Context, r *http.Request) (routecore.AgentRouteConfig, error) {
+func (g *AgentGateway) Match(ctx context.Context, r *http.Request) (routecore.RouteConfig, error) {
 	g.mu.RLock()
 	manager := g.routeConfigManager
 	g.mu.RUnlock()
 
 	if manager == nil {
-		return routecore.AgentRouteConfig{}, statuserr.New(http.StatusServiceUnavailable, "llm route config manager is not configured")
+		return routecore.RouteConfig{}, statuserr.New(http.StatusServiceUnavailable, "llm route config manager is not configured")
 	}
 
 	route, ok, err := manager.Match(ctx, r)
 	if err != nil {
-		return routecore.AgentRouteConfig{}, statuserr.New(http.StatusInternalServerError, fmt.Sprintf("match route: %v", err))
+		return routecore.RouteConfig{}, statuserr.New(http.StatusInternalServerError, fmt.Sprintf("match route: %v", err))
 	}
 	if !ok {
-		return routecore.AgentRouteConfig{}, nil
+		return routecore.RouteConfig{}, nil
 	}
 	return route, nil
 }
@@ -497,7 +497,7 @@ func (g *AgentGateway) NewRoutedProvider(route *llmroutepkg.LLMRoute, requestReq
 	}, nil
 }
 
-func (g *AgentGateway) ResolveVirtualKey(ctx context.Context, httpReq *http.Request, r routecore.AgentRouteConfig) (*virtualkeypkg.VirtualKey, error) {
+func (g *AgentGateway) ResolveVirtualKey(ctx context.Context, httpReq *http.Request, r routecore.RouteConfig) (*virtualkeypkg.VirtualKey, error) {
 	if !r.AuthPolicy.RequireVirtualKey {
 		return nil, nil
 	}
@@ -543,7 +543,7 @@ func (g *AgentGateway) configureConfigStoreBackend(configStoreBackend configstor
 	g.configStoreBackend = configStoreBackend
 }
 
-func (g *AgentGateway) configureRouteResolver(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend, staticRoutes []routecore.AgentRouteConfig) error {
+func (g *AgentGateway) configureRouteResolver(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend, staticRoutes []routecore.RouteConfig) error {
 	_ = ctx
 	if g.routeConfigManager != nil || g.llmRouteResolver != nil || g.mcpRouteResolver != nil || g.agentRouteResolver != nil {
 		return fmt.Errorf("route config manager and resolvers are already configured")
@@ -557,7 +557,7 @@ func (g *AgentGateway) configureRouteResolver(ctx context.Context, configStoreBa
 			return fmt.Errorf("get llm route store: %w", err)
 		}
 	}
-	g.routeConfigManager = routecore.NewAgentRouteConfigManager(routeStore, g.control.routeMutation)
+	g.routeConfigManager = routecore.NewRouteConfigManager(routeStore, g.control.routeMutation)
 	g.control.routes = g.routeConfigManager
 	if err := g.routeConfigManager.InitStaticRoutes(staticRoutes); err != nil {
 		return fmt.Errorf("load static route configs: %w", err)

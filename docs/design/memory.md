@@ -430,7 +430,7 @@ Required design rule:
 - MCP routes ignore the field
 - LLM route CRUD must round-trip the field losslessly
 
-Whether that is implemented by adding `MemoryPolicy` directly to `routecore.AgentRouteConfig` or by introducing a route extension payload is an implementation detail. The architecture requirement is that shared route persistence owns the field, while LLM route validation owns its semantics.
+Whether that is implemented by adding `MemoryPolicy` directly to `routecore.RouteConfig` or by introducing a route extension payload is an implementation detail. The architecture requirement is that shared route persistence owns the field, while LLM route validation owns its semantics.
 
 ## 13. Admin API
 

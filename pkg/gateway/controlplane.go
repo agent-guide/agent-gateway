@@ -32,7 +32,7 @@ type controlPlane struct {
 	mu          sync.Mutex
 	backend     configstore.ConfigStoreBackend
 	providers   *ProviderManager
-	routes      *routecore.AgentRouteConfigManager
+	routes      *routecore.RouteConfigManager
 	agents      *agent.Manager
 	credentials *credential.Manager
 	models      modelcatalog.Service
@@ -224,7 +224,7 @@ func (c *controlPlane) deleteProvider(ctx context.Context, id string) error {
 	return nil
 }
 
-func (c *controlPlane) routeMutation(ctx context.Context, action configmgr.MutationAction, id string, next *routecore.AgentRouteConfig, apply func(context.Context) error) error {
+func (c *controlPlane) routeMutation(ctx context.Context, action configmgr.MutationAction, id string, next *routecore.RouteConfig, apply func(context.Context) error) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.agents != nil {

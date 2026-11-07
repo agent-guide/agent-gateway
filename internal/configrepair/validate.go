@@ -46,7 +46,7 @@ func Validate(records []Record) error {
 		var err error
 		switch r.Family {
 		case "routes":
-			var cfg routecore.AgentRouteConfig
+			var cfg routecore.RouteConfig
 			if err = json.Unmarshal(r.Data, &cfg); err != nil {
 				break
 			}

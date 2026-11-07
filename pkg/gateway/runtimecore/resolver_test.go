@@ -10,11 +10,11 @@ import (
 )
 
 type testRuntimeRoute struct {
-	Config routecore.AgentRouteConfig
+	Config routecore.RouteConfig
 }
 
 type testRuntimeRouteStore struct {
-	items    map[string]*routecore.AgentRouteConfig
+	items    map[string]*routecore.RouteConfig
 	getCalls int
 }
 
@@ -39,12 +39,12 @@ func (s *testRuntimeRouteStore) Create(_ context.Context, obj any) error {
 	if unwrapper, ok := obj.(interface{ ConfigStoreObject() any }); ok {
 		obj = unwrapper.ConfigStoreObject()
 	}
-	cfg, ok := obj.(*routecore.AgentRouteConfig)
+	cfg, ok := obj.(*routecore.RouteConfig)
 	if !ok || cfg == nil {
 		return errors.New("unexpected type")
 	}
 	if s.items == nil {
-		s.items = map[string]*routecore.AgentRouteConfig{}
+		s.items = map[string]*routecore.RouteConfig{}
 	}
 	cloned := *cfg
 	s.items[cloned.ID] = &cloned
@@ -55,7 +55,7 @@ func (s *testRuntimeRouteStore) Update(_ context.Context, obj any) error {
 	if unwrapper, ok := obj.(interface{ ConfigStoreObject() any }); ok {
 		obj = unwrapper.ConfigStoreObject()
 	}
-	cfg, ok := obj.(*routecore.AgentRouteConfig)
+	cfg, ok := obj.(*routecore.RouteConfig)
 	if !ok || cfg == nil {
 		return errors.New("unexpected type")
 	}
@@ -90,24 +90,24 @@ func (s *testRuntimeRouteStore) GetByIndex(context.Context, string, any) (any, e
 
 func TestResolverGetCachesDecodedRoute(t *testing.T) {
 	store := &testRuntimeRouteStore{
-		items: map[string]*routecore.AgentRouteConfig{
+		items: map[string]*routecore.RouteConfig{
 			"route-1": {ID: "route-1", Protocol: "openai"},
 		},
 	}
-	manager := routecore.NewAgentRouteConfigManager(store)
+	manager := routecore.NewRouteConfigManager(store)
 	decodeCalls := 0
 	resolver := NewResolver(
-		FuncSource[routecore.AgentRouteConfig, routecore.RouteListOptions]{
+		FuncSource[routecore.RouteConfig, routecore.RouteListOptions]{
 			GetFunc:  manager.Get,
 			ListFunc: manager.List,
 		},
-		func(cfg routecore.AgentRouteConfig) string {
+		func(cfg routecore.RouteConfig) string {
 			return cfg.ID
 		},
-		func(cfg routecore.AgentRouteConfig) (string, error) {
+		func(cfg routecore.RouteConfig) (string, error) {
 			return FingerprintJSON(cfg.ID, "route config", cfg)
 		},
-		func(cfg routecore.AgentRouteConfig) (*testRuntimeRoute, error) {
+		func(cfg routecore.RouteConfig) (*testRuntimeRoute, error) {
 			decodeCalls++
 			return &testRuntimeRoute{Config: cfg}, nil
 		},
@@ -135,24 +135,24 @@ func TestResolverGetCachesDecodedRoute(t *testing.T) {
 
 func TestResolverGetRebuildsWhenConfigChanges(t *testing.T) {
 	store := &testRuntimeRouteStore{
-		items: map[string]*routecore.AgentRouteConfig{
+		items: map[string]*routecore.RouteConfig{
 			"route-1": {ID: "route-1", Protocol: "openai"},
 		},
 	}
-	manager := routecore.NewAgentRouteConfigManager(store)
+	manager := routecore.NewRouteConfigManager(store)
 	decodeCalls := 0
 	resolver := NewResolver(
-		FuncSource[routecore.AgentRouteConfig, routecore.RouteListOptions]{
+		FuncSource[routecore.RouteConfig, routecore.RouteListOptions]{
 			GetFunc:  manager.Get,
 			ListFunc: manager.List,
 		},
-		func(cfg routecore.AgentRouteConfig) string {
+		func(cfg routecore.RouteConfig) string {
 			return cfg.ID
 		},
-		func(cfg routecore.AgentRouteConfig) (string, error) {
+		func(cfg routecore.RouteConfig) (string, error) {
 			return FingerprintJSON(cfg.ID, "route config", cfg)
 		},
-		func(cfg routecore.AgentRouteConfig) (*testRuntimeRoute, error) {
+		func(cfg routecore.RouteConfig) (*testRuntimeRoute, error) {
 			decodeCalls++
 			return &testRuntimeRoute{Config: cfg}, nil
 		},
@@ -163,7 +163,7 @@ func TestResolverGetRebuildsWhenConfigChanges(t *testing.T) {
 		t.Fatalf("first Get() error = %v", err)
 	}
 
-	store.items["route-1"] = &routecore.AgentRouteConfig{ID: "route-1", Protocol: "anthropic"}
+	store.items["route-1"] = &routecore.RouteConfig{ID: "route-1", Protocol: "anthropic"}
 	manager.Reset()
 
 	second, err := resolver.Get(context.Background(), "route-1")
@@ -184,24 +184,24 @@ func TestResolverGetRebuildsWhenConfigChanges(t *testing.T) {
 
 func TestResolverInvalidateForcesRebuild(t *testing.T) {
 	store := &testRuntimeRouteStore{
-		items: map[string]*routecore.AgentRouteConfig{
+		items: map[string]*routecore.RouteConfig{
 			"route-1": {ID: "route-1", Protocol: "openai"},
 		},
 	}
-	manager := routecore.NewAgentRouteConfigManager(store)
+	manager := routecore.NewRouteConfigManager(store)
 	decodeCalls := 0
 	resolver := NewResolver(
-		FuncSource[routecore.AgentRouteConfig, routecore.RouteListOptions]{
+		FuncSource[routecore.RouteConfig, routecore.RouteListOptions]{
 			GetFunc:  manager.Get,
 			ListFunc: manager.List,
 		},
-		func(cfg routecore.AgentRouteConfig) string {
+		func(cfg routecore.RouteConfig) string {
 			return cfg.ID
 		},
-		func(cfg routecore.AgentRouteConfig) (string, error) {
+		func(cfg routecore.RouteConfig) (string, error) {
 			return FingerprintJSON(cfg.ID, "route config", cfg)
 		},
-		func(cfg routecore.AgentRouteConfig) (*testRuntimeRoute, error) {
+		func(cfg routecore.RouteConfig) (*testRuntimeRoute, error) {
 			decodeCalls++
 			return &testRuntimeRoute{Config: cfg}, nil
 		},

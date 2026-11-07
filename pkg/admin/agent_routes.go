@@ -176,7 +176,7 @@ func (h *Handler) handleDeleteAgentRoute(w http.ResponseWriter, r *http.Request)
 	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-func agentRouteViewFromConfig(resolver *agentroute.AgentRouteResolver, cfg agentroute.AgentRouteBaseConfig) AgentRouteView {
+func agentRouteViewFromConfig(resolver *agentroute.AgentRouteResolver, cfg agentroute.RouteConfig) AgentRouteView {
 	item, _ := agentroute.NewAgentRouteConfigFromConfig(cfg)
 	view := AgentRouteView{AgentRouteConfig: item, Source: "store"}
 	if resolver != nil && resolver.ConfigManager() != nil && resolver.ConfigManager().IsStatic(cfg.ID) {

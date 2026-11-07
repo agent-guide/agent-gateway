@@ -26,7 +26,7 @@ const (
 	RouteProtocolMCP       = routecore.RouteProtocolMCP
 )
 
-type AgentRouteConfig = routecore.AgentRouteConfig
+type RouteConfig = routecore.RouteConfig
 type RouteMatchPolicy = routecore.RouteMatchPolicy
 type RouteAuthPolicy = routecore.RouteAuthPolicy
 
@@ -100,7 +100,7 @@ type RouteDirectProviderPolicy struct {
 
 // DecodeStoredRoute decodes a persisted route config and converts it to a runtime route.
 func DecodeStoredRoute(data []byte) (any, error) {
-	var cfg AgentRouteConfig
+	var cfg RouteConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("decode route config: %w", err)
 	}
@@ -118,13 +118,13 @@ type LLMRouteState struct{}
 
 // LLMRouteConfig is the expanded configuration form of an LLM route.
 type LLMRouteConfig struct {
-	AgentRouteConfig
+	RouteConfig
 	TargetPolicy RouteTargetPolicy
 }
 
 // LLMRoute is the runtime gateway route instance used by dispatch and resolution.
 type LLMRoute struct {
-	AgentRouteConfig
+	RouteConfig
 	TargetPolicy RouteTargetPolicy
 	State        LLMRouteState
 }
@@ -202,7 +202,7 @@ func (r *LLMRoute) UnmarshalJSON(data []byte) error {
 	if err := cfg.UnmarshalJSON(data); err != nil {
 		return err
 	}
-	r.AgentRouteConfig = cfg.AgentRouteConfig
+	r.RouteConfig = cfg.RouteConfig
 	r.TargetPolicy = cfg.TargetPolicy
 	r.State = LLMRouteState{}
 	return nil
@@ -229,7 +229,7 @@ func (r *LLMRouteConfig) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	r.AgentRouteConfig = AgentRouteConfig{
+	r.RouteConfig = RouteConfig{
 		ID:          raw.ID,
 		Kind:        raw.Kind,
 		Protocol:    raw.Protocol,
@@ -244,19 +244,19 @@ func (r *LLMRouteConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func NewLLMRouteConfigFromConfig(cfg AgentRouteConfig) (LLMRouteConfig, error) {
+func NewLLMRouteConfigFromConfig(cfg RouteConfig) (LLMRouteConfig, error) {
 	cfg = normalizeConfigDefaults(cfg)
 	targetPolicy, err := unmarshalRouteTargetPolicy(cfg.TargetPolicy)
 	if err != nil {
 		return LLMRouteConfig{}, fmt.Errorf("route %q decode target policy: %w", cfg.ID, err)
 	}
 	return LLMRouteConfig{
-		AgentRouteConfig: cfg,
-		TargetPolicy:     targetPolicy,
+		RouteConfig:  cfg,
+		TargetPolicy: targetPolicy,
 	}, nil
 }
 
-func NewLLMRouteFromConfig(cfg AgentRouteConfig) (LLMRoute, error) {
+func NewLLMRouteFromConfig(cfg RouteConfig) (LLMRoute, error) {
 	routeCfg, err := NewLLMRouteConfigFromConfig(cfg)
 	if err != nil {
 		return LLMRoute{}, err
@@ -266,19 +266,19 @@ func NewLLMRouteFromConfig(cfg AgentRouteConfig) (LLMRoute, error) {
 
 func NewRuntimeLLMRoute(cfg LLMRouteConfig) LLMRoute {
 	return LLMRoute{
-		AgentRouteConfig: cfg.AgentRouteConfig,
-		TargetPolicy:     cfg.TargetPolicy,
-		State:            LLMRouteState{},
+		RouteConfig:  cfg.RouteConfig,
+		TargetPolicy: cfg.TargetPolicy,
+		State:        LLMRouteState{},
 	}
 }
 
-func (r LLMRouteConfig) ToConfig() (AgentRouteConfig, error) {
+func (r LLMRouteConfig) ToConfig() (RouteConfig, error) {
 	r.Normalize()
 	targetPolicy, err := json.Marshal(r.TargetPolicy)
 	if err != nil {
-		return AgentRouteConfig{}, fmt.Errorf("route %q encode target policy: %w", r.ID, err)
+		return RouteConfig{}, fmt.Errorf("route %q encode target policy: %w", r.ID, err)
 	}
-	cfg := r.AgentRouteConfig
+	cfg := r.RouteConfig
 	cfg.ID = strings.TrimSpace(r.ID)
 	cfg.Kind = RouteKindLLM
 	cfg.Protocol = normalizeRouteProtocol(cfg.Protocol)
@@ -292,11 +292,11 @@ func (r LLMRouteConfig) ToConfig() (AgentRouteConfig, error) {
 	return cfg, nil
 }
 
-func (r LLMRoute) ToConfig() (AgentRouteConfig, error) {
+func (r LLMRoute) ToConfig() (RouteConfig, error) {
 	return r.Config().ToConfig()
 }
 
-func normalizeConfigDefaults(cfg AgentRouteConfig) AgentRouteConfig {
+func normalizeConfigDefaults(cfg RouteConfig) RouteConfig {
 	cfg.ID = strings.TrimSpace(cfg.ID)
 	cfg.Protocol = normalizeRouteProtocol(cfg.Protocol)
 	cfg.Description = strings.TrimSpace(cfg.Description)
@@ -416,7 +416,7 @@ func (r *LLMRouteConfig) Normalize() {
 	if r == nil {
 		return
 	}
-	r.AgentRouteConfig = normalizeConfigDefaults(r.AgentRouteConfig)
+	r.RouteConfig = normalizeConfigDefaults(r.RouteConfig)
 	if r.TargetPolicy != nil {
 		r.TargetPolicy.Normalize()
 	}
@@ -428,8 +428,8 @@ func (r LLMRouteConfig) UsesLogicalModel() bool {
 
 func (r LLMRoute) Config() LLMRouteConfig {
 	return LLMRouteConfig{
-		AgentRouteConfig: r.AgentRouteConfig,
-		TargetPolicy:     r.TargetPolicy,
+		RouteConfig:  r.RouteConfig,
+		TargetPolicy: r.TargetPolicy,
 	}
 }
 
@@ -439,7 +439,7 @@ func (r *LLMRoute) Normalize() {
 	}
 	cfg := r.Config()
 	cfg.Normalize()
-	r.AgentRouteConfig = cfg.AgentRouteConfig
+	r.RouteConfig = cfg.RouteConfig
 	r.TargetPolicy = cfg.TargetPolicy
 }
 
@@ -449,7 +449,7 @@ func (r *LLMRoute) NormalizeTimestamps(now time.Time) {
 	}
 	cfg := r.Config()
 	cfg.NormalizeTimestamps(now)
-	r.AgentRouteConfig = cfg.AgentRouteConfig
+	r.RouteConfig = cfg.RouteConfig
 }
 
 func (r LLMRoute) MarshalJSON() ([]byte, error) {

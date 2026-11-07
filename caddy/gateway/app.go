@@ -44,7 +44,7 @@ type App struct {
 	// command is omitted.
 	CredentialRefreshArgs []string `json:"credential_refresh_args,omitempty"`
 	// LLMRoutes lists statically configured gateway LLM route configs from the Caddyfile app block.
-	LLMRoutes []routecore.AgentRouteConfig `json:"llm_routes,omitempty"`
+	LLMRoutes []routecore.RouteConfig `json:"llm_routes,omitempty"`
 	// Metrics configures observability retention, agent-chain governance, and
 	// optional OTLP span export of usage events.
 	Metrics distribution.MetricsConfig `json:"metrics,omitzero"`

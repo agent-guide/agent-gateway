@@ -27,20 +27,20 @@ const (
 	RouteProtocolA2A   = routecore.RouteProtocolA2A
 )
 
-type AgentRouteBaseConfig = routecore.AgentRouteConfig
+type RouteConfig = routecore.RouteConfig
 type RouteMatch = routecore.RouteMatchPolicy
 type RouteAuthPolicy = routecore.RouteAuthPolicy
 type RouteListOptions = routecore.RouteListOptions
 
 // AgentRouteConfig is the expanded config form with direct agent_id access.
 type AgentRouteConfig struct {
-	AgentRouteBaseConfig
+	RouteConfig
 	AgentID string `json:"agent_id"`
 }
 
 // AgentRoute is the runtime route object used by dispatcher/runtime code.
 type AgentRoute struct {
-	AgentRouteBaseConfig
+	RouteConfig
 	AgentID string `json:"agent_id"`
 }
 
@@ -49,7 +49,7 @@ type routeTargetPolicy struct {
 	AgentID string                          `json:"agent_id"`
 }
 
-func normalizeConfigDefaults(cfg AgentRouteBaseConfig) AgentRouteBaseConfig {
+func normalizeConfigDefaults(cfg RouteConfig) RouteConfig {
 	cfg.ID = strings.TrimSpace(cfg.ID)
 	cfg.Kind = RouteKindAgent
 	cfg.Protocol = RouteProtocol(strings.TrimSpace(string(cfg.Protocol)))
@@ -69,7 +69,7 @@ func (r *AgentRouteConfig) Normalize() {
 	if r == nil {
 		return
 	}
-	r.AgentRouteBaseConfig = normalizeConfigDefaults(r.AgentRouteBaseConfig)
+	r.RouteConfig = normalizeConfigDefaults(r.RouteConfig)
 	r.AgentID = strings.TrimSpace(r.AgentID)
 	if r.ID == "" && r.AgentID != "" {
 		r.ID = routecore.GenerateRouteID("agent", r.AgentID, r.MatchPolicy.PathPrefix)
@@ -135,7 +135,7 @@ func (r *AgentRouteConfig) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	r.AgentRouteBaseConfig = normalizeConfigDefaults(AgentRouteBaseConfig{
+	r.RouteConfig = normalizeConfigDefaults(RouteConfig{
 		ID:          raw.ID,
 		Kind:        raw.Kind,
 		Protocol:    raw.Protocol,
@@ -152,7 +152,7 @@ func (r *AgentRouteConfig) UnmarshalJSON(data []byte) error {
 }
 
 func DecodeStoredAgentRoute(data []byte) (any, error) {
-	var cfg AgentRouteBaseConfig
+	var cfg RouteConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("decode agent route config: %w", err)
 	}
@@ -164,21 +164,21 @@ func DecodeStoredAgentRoute(data []byte) (any, error) {
 	return &route, nil
 }
 
-func NewAgentRouteConfigFromConfig(cfg AgentRouteBaseConfig) (AgentRouteConfig, error) {
+func NewAgentRouteConfigFromConfig(cfg RouteConfig) (AgentRouteConfig, error) {
 	cfg = normalizeConfigDefaults(cfg)
 	agentID, err := decodeAgentID(cfg.TargetPolicy)
 	if err != nil {
 		return AgentRouteConfig{}, fmt.Errorf("route %q decode target policy: %w", cfg.ID, err)
 	}
 	route := AgentRouteConfig{
-		AgentRouteBaseConfig: cfg,
-		AgentID:              agentID,
+		RouteConfig: cfg,
+		AgentID:     agentID,
 	}
 	route.Normalize()
 	return route, nil
 }
 
-func NewAgentRouteFromConfig(cfg AgentRouteBaseConfig) (AgentRoute, error) {
+func NewAgentRouteFromConfig(cfg RouteConfig) (AgentRoute, error) {
 	routeCfg, err := NewAgentRouteConfigFromConfig(cfg)
 	if err != nil {
 		return AgentRoute{}, err
@@ -188,21 +188,21 @@ func NewAgentRouteFromConfig(cfg AgentRouteBaseConfig) (AgentRoute, error) {
 
 func NewRuntimeAgentRoute(cfg AgentRouteConfig) AgentRoute {
 	return AgentRoute{
-		AgentRouteBaseConfig: cfg.AgentRouteBaseConfig,
-		AgentID:              cfg.AgentID,
+		RouteConfig: cfg.RouteConfig,
+		AgentID:     cfg.AgentID,
 	}
 }
 
-func (r AgentRouteConfig) ToConfig() (AgentRouteBaseConfig, error) {
+func (r AgentRouteConfig) ToConfig() (RouteConfig, error) {
 	r.Normalize()
 	targetPolicy, err := json.Marshal(routeTargetPolicy{
 		Kind:    routecore.RouteTargetPolicyKindAgent,
 		AgentID: r.AgentID,
 	})
 	if err != nil {
-		return AgentRouteBaseConfig{}, fmt.Errorf("route %q encode target policy: %w", r.ID, err)
+		return RouteConfig{}, fmt.Errorf("route %q encode target policy: %w", r.ID, err)
 	}
-	cfg := r.AgentRouteBaseConfig
+	cfg := r.RouteConfig
 	cfg.ID = r.ID
 	cfg.Kind = RouteKindAgent
 	cfg.Protocol = r.Protocol
@@ -218,8 +218,8 @@ func (r AgentRouteConfig) ToConfig() (AgentRouteBaseConfig, error) {
 
 func (r AgentRoute) Config() AgentRouteConfig {
 	return AgentRouteConfig{
-		AgentRouteBaseConfig: r.AgentRouteBaseConfig,
-		AgentID:              r.AgentID,
+		RouteConfig: r.RouteConfig,
+		AgentID:     r.AgentID,
 	}
 }
 
@@ -227,7 +227,7 @@ func (r AgentRoute) MarshalJSON() ([]byte, error) {
 	return r.Config().MarshalJSON()
 }
 
-func (r AgentRoute) ToConfig() (AgentRouteBaseConfig, error) {
+func (r AgentRoute) ToConfig() (RouteConfig, error) {
 	return r.Config().ToConfig()
 }
 

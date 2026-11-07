@@ -33,7 +33,7 @@ type LLMRouteView struct {
 }
 
 func (v LLMRouteView) LLMRouteConfig() (llmroutepkg.LLMRouteConfig, error) {
-	return llmroutepkg.NewLLMRouteConfigFromConfig(llmroutepkg.AgentRouteConfig{
+	return llmroutepkg.NewLLMRouteConfigFromConfig(llmroutepkg.RouteConfig{
 		ID:           v.ID,
 		Kind:         v.Kind,
 		Protocol:     v.Protocol,
@@ -336,7 +336,7 @@ func (h *Handler) llmRouteResolver() *llmroutepkg.LLMRouteResolver {
 	return llmroutepkg.NewLLMRouteResolver(manager)
 }
 
-func llmRouteViewFromRoute(manager *routecore.AgentRouteConfigManager, llmRoute *llmroutepkg.LLMRoute) LLMRouteView {
+func llmRouteViewFromRoute(manager *routecore.RouteConfigManager, llmRoute *llmroutepkg.LLMRoute) LLMRouteView {
 	var item llmroutepkg.LLMRouteConfig
 	if llmRoute != nil {
 		item = llmRoute.Config()
@@ -349,7 +349,7 @@ func llmRouteViewFromRoute(manager *routecore.AgentRouteConfigManager, llmRoute 
 	return view
 }
 
-func llmRouteViewFromConfig(manager *routecore.AgentRouteConfigManager, cfg routecore.AgentRouteConfig) LLMRouteView {
+func llmRouteViewFromConfig(manager *routecore.RouteConfigManager, cfg routecore.RouteConfig) LLMRouteView {
 	item, _ := llmroutepkg.NewLLMRouteConfigFromConfig(cfg)
 	view := newLLMRouteView(item, "store", false)
 	if manager != nil && manager.IsStatic(cfg.ID) {

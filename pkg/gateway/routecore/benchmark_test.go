@@ -11,13 +11,13 @@ import (
 func BenchmarkRouteMatching(b *testing.B) {
 	for _, count := range []int{10, 100, 1000} {
 		b.Run(fmt.Sprint(count), func(b *testing.B) {
-			routes := make([]AgentRouteConfig, count)
+			routes := make([]RouteConfig, count)
 			for i := range routes {
-				routes[i] = AgentRouteConfig{ID: fmt.Sprint(i), Kind: RouteKindLLM, Protocol: RouteProtocolOpenAI,
+				routes[i] = RouteConfig{ID: fmt.Sprint(i), Kind: RouteKindLLM, Protocol: RouteProtocolOpenAI,
 					MatchPolicy:  RouteMatchPolicy{PathPrefix: fmt.Sprintf("/routes/%04d/", i), Methods: []string{"POST"}},
 					TargetPolicy: json.RawMessage(`{"type":"direct-provider","provider_target":{"provider_id":"main"}}`)}
 			}
-			m := NewAgentRouteConfigManager(nil)
+			m := NewRouteConfigManager(nil)
 			m.InitStaticRoutes(routes)
 			ctx := context.Background()
 			if err := m.Refresh(ctx); err != nil {

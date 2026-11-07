@@ -97,7 +97,7 @@ Important types:
 - `RouteLogicalModelTargetPolicy` and `RouteDirectProviderPolicy`
 - `RouteFallbackPolicy`
 
-The shared persisted envelope is `routecore.AgentRouteConfig` for all kinds.
+The shared persisted envelope is `routecore.RouteConfig` for all kinds.
 There is no generic route-level timeout, retry, quota, or rate-limit policy.
 VirtualKeys own admission limits; Provider network settings own upstream
 timeouts/retries; logical-model targets own candidate fallback.
@@ -141,7 +141,7 @@ Important types:
 
 Current shape:
 
-- persisted/static MCP routes use `routecore.AgentRouteConfig`
+- persisted/static MCP routes use `routecore.RouteConfig`
 - `MCPRouteConfig` is the expanded config form used by admin and config-adjacent layers that need direct `service_id` access
 - `MCPRoute` is the runtime object created by `MCPRouteResolver` and used by dispatcher/runtime code
 - prefer `*MCPRoute` at runtime rather than copying `MCPRoute` values

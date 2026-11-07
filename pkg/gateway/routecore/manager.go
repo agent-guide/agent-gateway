@@ -27,33 +27,33 @@ type RouteListOptions struct {
 	TagPrefix string
 }
 
-type AgentRouteConfigManager struct {
-	base *configmgr.BaseConfigManager[AgentRouteConfig]
+type RouteConfigManager struct {
+	base *configmgr.BaseConfigManager[RouteConfig]
 	// Serializes full-generation validation, persistence and publication.
 	writeMu sync.Mutex
-	guard   configmgr.MutationGuard[AgentRouteConfig]
+	guard   configmgr.MutationGuard[RouteConfig]
 
 	mu            sync.RWMutex
 	dynamicLoaded bool
 }
 
-func NewAgentRouteConfigManager(store configstore.ConfigStore, guards ...configmgr.MutationGuard[AgentRouteConfig]) *AgentRouteConfigManager {
-	return &AgentRouteConfigManager{
+func NewRouteConfigManager(store configstore.ConfigStore, guards ...configmgr.MutationGuard[RouteConfig]) *RouteConfigManager {
+	return &RouteConfigManager{
 		guard: configmgr.SelectMutationGuard(guards),
-		base: configmgr.NewBaseConfigManager(store, configmgr.Definition[AgentRouteConfig]{
+		base: configmgr.NewBaseConfigManager(store, configmgr.Definition[RouteConfig]{
 			DisableListCache: true,
 			ValidateSnapshot: ValidateRouteConfigs,
 			GetID:            routeConfigID,
 			Decode:           decodeRouteConfigItem,
 			Clone:            cloneRouteConfig,
-			PrepareCreate: func(route AgentRouteConfig) (any, AgentRouteConfig, error) {
+			PrepareCreate: func(route RouteConfig) (any, RouteConfig, error) {
 				if route.ID == "" {
-					return nil, AgentRouteConfig{}, fmt.Errorf("route id is required")
+					return nil, RouteConfig{}, fmt.Errorf("route id is required")
 				}
 				route = normalizeRouteConfigTimestamps(route, time.Now().UTC(), true)
 				return storedRouteConfig{route: route}, route, nil
 			},
-			PrepareUpdate: func(routeID string, current AgentRouteConfig, route AgentRouteConfig) (any, AgentRouteConfig, error) {
+			PrepareUpdate: func(routeID string, current RouteConfig, route RouteConfig) (any, RouteConfig, error) {
 				route.ID = routeID
 				route = normalizeRouteConfigTimestamps(route, time.Now().UTC(), false)
 				route.CreatedAt = current.CreatedAt
@@ -75,7 +75,7 @@ func NewAgentRouteConfigManager(store configstore.ConfigStore, guards ...configm
 	}
 }
 
-func (m *AgentRouteConfigManager) Reset() {
+func (m *RouteConfigManager) Reset() {
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
 	m.base.Reset()
@@ -84,10 +84,10 @@ func (m *AgentRouteConfigManager) Reset() {
 	m.mu.Unlock()
 }
 
-func (m *AgentRouteConfigManager) InitStaticRoutes(routes []AgentRouteConfig) error {
+func (m *RouteConfigManager) InitStaticRoutes(routes []RouteConfig) error {
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
-	candidate := append([]AgentRouteConfig(nil), routes...)
+	candidate := append([]RouteConfig(nil), routes...)
 	for _, r := range m.base.Snapshot(configmgr.ListQuery{}) {
 		if !m.base.IsStatic(r.ID) {
 			candidate = append(candidate, r)
@@ -100,42 +100,42 @@ func (m *AgentRouteConfigManager) InitStaticRoutes(routes []AgentRouteConfig) er
 	return nil
 }
 
-func (m *AgentRouteConfigManager) IsStatic(routeID string) bool {
+func (m *RouteConfigManager) IsStatic(routeID string) bool {
 	return m.base.IsStatic(routeID)
 }
 
-func (m *AgentRouteConfigManager) Get(ctx context.Context, routeID string) (AgentRouteConfig, error) {
+func (m *RouteConfigManager) Get(ctx context.Context, routeID string) (RouteConfig, error) {
 	if routeID == "" {
-		return AgentRouteConfig{}, fmt.Errorf("route_id is required")
+		return RouteConfig{}, fmt.Errorf("route_id is required")
 	}
 
 	if err := m.ensureDynamicLoaded(ctx); err != nil {
-		return AgentRouteConfig{}, err
+		return RouteConfig{}, err
 	}
 	if route, ok := m.base.GetCached(routeID); ok {
 		return route, nil
 	}
-	return AgentRouteConfig{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
+	return RouteConfig{}, fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
 }
 
-func (m *AgentRouteConfigManager) List(ctx context.Context, opts RouteListOptions) ([]AgentRouteConfig, error) {
+func (m *RouteConfigManager) List(ctx context.Context, opts RouteListOptions) ([]RouteConfig, error) {
 	return m.base.List(ctx, configmgr.ListQuery{
 		Tag:       opts.Tag,
 		TagPrefix: opts.TagPrefix,
 	})
 }
 
-func (m *AgentRouteConfigManager) Refresh(ctx context.Context) error {
+func (m *RouteConfigManager) Refresh(ctx context.Context) error {
 	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationRefresh, "", nil, m.refresh)
 }
 
-func (m *AgentRouteConfigManager) refresh(ctx context.Context) error {
+func (m *RouteConfigManager) refresh(ctx context.Context) error {
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
 	return m.refreshLocked(ctx)
 }
 
-func (m *AgentRouteConfigManager) refreshLocked(ctx context.Context) error {
+func (m *RouteConfigManager) refreshLocked(ctx context.Context) error {
 	if err := m.base.Refresh(ctx, configmgr.ListQuery{}); err != nil {
 		return err
 	}
@@ -146,15 +146,15 @@ func (m *AgentRouteConfigManager) refreshLocked(ctx context.Context) error {
 }
 
 // Match resolves the most specific route config whose MatchPolicy accepts the request.
-func (m *AgentRouteConfigManager) Match(ctx context.Context, r *http.Request) (AgentRouteConfig, bool, error) {
+func (m *RouteConfigManager) Match(ctx context.Context, r *http.Request) (RouteConfig, bool, error) {
 	if err := m.ensureDynamicLoaded(ctx); err != nil {
-		return AgentRouteConfig{}, false, err
+		return RouteConfig{}, false, err
 	}
 	routes := m.base.Snapshot(configmgr.ListQuery{})
 	return matchRouteConfigs(routes, r)
 }
 
-func (m *AgentRouteConfigManager) ensureDynamicLoaded(ctx context.Context) error {
+func (m *RouteConfigManager) ensureDynamicLoaded(ctx context.Context) error {
 	m.mu.RLock()
 	loaded := m.dynamicLoaded
 	m.mu.RUnlock()
@@ -164,14 +164,14 @@ func (m *AgentRouteConfigManager) ensureDynamicLoaded(ctx context.Context) error
 	return m.Refresh(ctx)
 }
 
-func MatchManagers(ctx context.Context, r *http.Request, managers ...*AgentRouteConfigManager) (AgentRouteConfig, bool, error) {
-	routes := make([]AgentRouteConfig, 0)
+func MatchManagers(ctx context.Context, r *http.Request, managers ...*RouteConfigManager) (RouteConfig, bool, error) {
+	routes := make([]RouteConfig, 0)
 	for _, manager := range managers {
 		if manager == nil {
 			continue
 		}
 		if err := manager.ensureDynamicLoaded(ctx); err != nil {
-			return AgentRouteConfig{}, false, err
+			return RouteConfig{}, false, err
 		}
 		routes = append(routes, manager.base.Snapshot(configmgr.ListQuery{})...)
 	}
@@ -179,13 +179,13 @@ func MatchManagers(ctx context.Context, r *http.Request, managers ...*AgentRoute
 	return matchRouteConfigs(routes, r)
 }
 
-func MatchRouteConfigs(routes []AgentRouteConfig, r *http.Request) (AgentRouteConfig, bool, error) {
+func MatchRouteConfigs(routes []RouteConfig, r *http.Request) (RouteConfig, bool, error) {
 	return matchRouteConfigs(routes, r)
 }
 
-func matchRouteConfigs(routes []AgentRouteConfig, r *http.Request) (AgentRouteConfig, bool, error) {
+func matchRouteConfigs(routes []RouteConfig, r *http.Request) (RouteConfig, bool, error) {
 	var (
-		best      AgentRouteConfig
+		best      RouteConfig
 		bestScore routeMatchScore
 		found     bool
 	)
@@ -213,17 +213,17 @@ func matchRouteConfigs(routes []AgentRouteConfig, r *http.Request) (AgentRouteCo
 	}
 	if len(tied) > 1 {
 		sort.Strings(tied)
-		return AgentRouteConfig{}, false, fmt.Errorf("%w: equally matching routes %q", ErrAmbiguousRoute, tied)
+		return RouteConfig{}, false, fmt.Errorf("%w: equally matching routes %q", ErrAmbiguousRoute, tied)
 	}
 	return cloneRouteConfig(best), found, nil
 }
 
-func (m *AgentRouteConfigManager) Create(ctx context.Context, route AgentRouteConfig, tag string) error {
+func (m *RouteConfigManager) Create(ctx context.Context, route RouteConfig, tag string) error {
 	route = cloneRouteConfig(route)
 	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationCreate, route.ID, &route, func(ctx context.Context) error { return m.create(ctx, route, tag) })
 }
 
-func (m *AgentRouteConfigManager) create(ctx context.Context, route AgentRouteConfig, tag string) error {
+func (m *RouteConfigManager) create(ctx context.Context, route RouteConfig, tag string) error {
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
 	if err := m.ensureLoadedLocked(ctx); err != nil {
@@ -245,13 +245,13 @@ func (m *AgentRouteConfigManager) create(ctx context.Context, route AgentRouteCo
 	return nil
 }
 
-func (m *AgentRouteConfigManager) Update(ctx context.Context, routeID string, route AgentRouteConfig) error {
+func (m *RouteConfigManager) Update(ctx context.Context, routeID string, route RouteConfig) error {
 	route = cloneRouteConfig(route)
 	route.ID = routeID
 	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationUpdate, routeID, &route, func(ctx context.Context) error { return m.update(ctx, routeID, route) })
 }
 
-func (m *AgentRouteConfigManager) update(ctx context.Context, routeID string, route AgentRouteConfig) error {
+func (m *RouteConfigManager) update(ctx context.Context, routeID string, route RouteConfig) error {
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
 	if err := m.ensureLoadedLocked(ctx); err != nil {
@@ -284,11 +284,11 @@ func (m *AgentRouteConfigManager) update(ctx context.Context, routeID string, ro
 	return nil
 }
 
-func (m *AgentRouteConfigManager) Delete(ctx context.Context, routeID string) error {
+func (m *RouteConfigManager) Delete(ctx context.Context, routeID string) error {
 	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationDelete, routeID, nil, func(ctx context.Context) error { return m.delete(ctx, routeID) })
 }
 
-func (m *AgentRouteConfigManager) delete(ctx context.Context, routeID string) error {
+func (m *RouteConfigManager) delete(ctx context.Context, routeID string) error {
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
 	if err := m.ensureLoadedLocked(ctx); err != nil {
@@ -306,7 +306,7 @@ func (m *AgentRouteConfigManager) delete(ctx context.Context, routeID string) er
 	return nil
 }
 
-func (m *AgentRouteConfigManager) ensureLoadedLocked(ctx context.Context) error {
+func (m *RouteConfigManager) ensureLoadedLocked(ctx context.Context) error {
 	m.mu.RLock()
 	loaded := m.dynamicLoaded
 	m.mu.RUnlock()
@@ -317,7 +317,7 @@ func (m *AgentRouteConfigManager) ensureLoadedLocked(ctx context.Context) error 
 }
 
 type storedRouteConfig struct {
-	route AgentRouteConfig
+	route RouteConfig
 	tag   string
 }
 
@@ -329,8 +329,8 @@ func (r storedRouteConfig) ConfigStoreTag() string {
 	return r.tag
 }
 
-func DecodeStoredAgentRouteConfig(data []byte) (any, error) {
-	var cfg AgentRouteConfig
+func DecodeStoredRouteConfig(data []byte) (any, error) {
+	var cfg RouteConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("decode route config: %w", err)
 	}
@@ -342,14 +342,14 @@ func DecodeStoredAgentRouteConfig(data []byte) (any, error) {
 	return &cfg, nil
 }
 
-func decodeRouteConfigItem(routeID string, item any) (AgentRouteConfig, error) {
+func decodeRouteConfigItem(routeID string, item any) (RouteConfig, error) {
 	switch route := item.(type) {
-	case *AgentRouteConfig:
+	case *RouteConfig:
 		if route == nil || route.ID == "" {
 			break
 		}
 		return *route, nil
-	case AgentRouteConfig:
+	case RouteConfig:
 		if route.ID == "" {
 			break
 		}
@@ -358,10 +358,10 @@ func decodeRouteConfigItem(routeID string, item any) (AgentRouteConfig, error) {
 	if routeID == "" {
 		routeID = "<unknown>"
 	}
-	return AgentRouteConfig{}, fmt.Errorf("route %q has unexpected type %T", routeID, item)
+	return RouteConfig{}, fmt.Errorf("route %q has unexpected type %T", routeID, item)
 }
 
-func cloneRouteConfig(route AgentRouteConfig) AgentRouteConfig {
+func cloneRouteConfig(route RouteConfig) RouteConfig {
 	route.TargetPolicy = append(json.RawMessage(nil), route.TargetPolicy...)
 	if len(route.MatchPolicy.Methods) > 0 {
 		route.MatchPolicy.Methods = append([]string(nil), route.MatchPolicy.Methods...)
@@ -369,11 +369,11 @@ func cloneRouteConfig(route AgentRouteConfig) AgentRouteConfig {
 	return route
 }
 
-func routeConfigID(route AgentRouteConfig) string {
+func routeConfigID(route RouteConfig) string {
 	return route.ID
 }
 
-func normalizeRouteConfigTimestamps(route AgentRouteConfig, now time.Time, create bool) AgentRouteConfig {
+func normalizeRouteConfigTimestamps(route RouteConfig, now time.Time, create bool) RouteConfig {
 	if create {
 		if route.CreatedAt.IsZero() {
 			route.CreatedAt = now

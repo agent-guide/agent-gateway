@@ -180,7 +180,7 @@ its own checker route.
 
 ### 5.3 External-target gate
 
-The shared `routecore.AgentRouteConfig` envelope gains an optional
+The shared `routecore.RouteConfig` envelope gains an optional
 `guardrail_policy_id`, so expanded LLM, MCP, and Agent route models inherit one
 binding mechanism. Gateway startup configuration may also enable a global
 `require_guardrails_for_external` gate.

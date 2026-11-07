@@ -37,7 +37,7 @@ const (
 	RouteTargetPolicyKindAgent          RouteTargetPolicyKind = "agent"
 )
 
-type AgentRouteConfig struct {
+type RouteConfig struct {
 	ID           string           `json:"id"`
 	Kind         RouteKind        `json:"kind"`
 	Protocol     RouteProtocol    `json:"protocol"`
@@ -56,7 +56,7 @@ type AgentRouteConfig struct {
 // signal only: the route resolvers also explicitly Invalidate on every mutation,
 // so the fingerprint exists to self-heal any resolver that missed invalidation.
 // Avoid marshaling the whole config here; this runs on every matched request.
-func (c AgentRouteConfig) Fingerprint() string {
+func (c RouteConfig) Fingerprint() string {
 	return strconv.FormatInt(c.UpdatedAt.UnixNano(), 10)
 }
 

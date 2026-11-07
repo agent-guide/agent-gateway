@@ -33,8 +33,8 @@ func (s *mutationRouteStore) Update(_ context.Context, obj any) error {
 
 func TestConcurrentRouteWritesRejectTies(t *testing.T) {
 	ctx := context.Background()
-	store := &mutationRouteStore{testRouteStore{items: map[string]*AgentRouteConfig{}}}
-	m := NewAgentRouteConfigManager(store)
+	store := &mutationRouteStore{testRouteStore{items: map[string]*RouteConfig{}}}
+	m := NewRouteConfigManager(store)
 	if err := m.Refresh(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestConcurrentRouteWritesRejectTies(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			r := AgentRouteConfig{ID: string(rune('a' + i)), MatchPolicy: RouteMatchPolicy{PathPrefix: "/api"}}
+			r := RouteConfig{ID: string(rune('a' + i)), MatchPolicy: RouteMatchPolicy{PathPrefix: "/api"}}
 			if err := m.Create(ctx, r, ""); err == nil {
 				accepted.Add(1)
 			} else if !errors.Is(err, ErrAmbiguousRoute) {
@@ -63,12 +63,12 @@ func TestConcurrentRouteWritesRejectTies(t *testing.T) {
 
 func TestRefreshRetainsLastValidGenerationAndListCannotPublish(t *testing.T) {
 	ctx := context.Background()
-	store := &mutationRouteStore{testRouteStore{items: map[string]*AgentRouteConfig{"a": {ID: "a", MatchPolicy: RouteMatchPolicy{PathPrefix: "/api"}}}}}
-	m := NewAgentRouteConfigManager(store)
+	store := &mutationRouteStore{testRouteStore{items: map[string]*RouteConfig{"a": {ID: "a", MatchPolicy: RouteMatchPolicy{PathPrefix: "/api"}}}}}
+	m := NewRouteConfigManager(store)
 	if err := m.Refresh(ctx); err != nil {
 		t.Fatal(err)
 	}
-	store.items["b"] = &AgentRouteConfig{ID: "b", Kind: RouteKindMCP, Disabled: true, MatchPolicy: RouteMatchPolicy{PathPrefix: "/api"}}
+	store.items["b"] = &RouteConfig{ID: "b", Kind: RouteKindMCP, Disabled: true, MatchPolicy: RouteMatchPolicy{PathPrefix: "/api"}}
 	err := m.Refresh(ctx)
 	if !errors.Is(err, ErrAmbiguousRoute) || !strings.Contains(err.Error(), "repair-architecture-config") {
 		t.Fatalf("error = %v", err)
@@ -95,16 +95,16 @@ func TestRefreshRetainsLastValidGenerationAndListCannotPublish(t *testing.T) {
 
 func TestStaticDynamicTieAndMutationRejection(t *testing.T) {
 	ctx := context.Background()
-	store := &mutationRouteStore{testRouteStore{items: map[string]*AgentRouteConfig{}}}
-	m := NewAgentRouteConfigManager(store)
-	static := AgentRouteConfig{ID: "static", MatchPolicy: RouteMatchPolicy{PathPrefix: "/api", Methods: []string{"GET", "POST"}}}
-	if err := m.InitStaticRoutes([]AgentRouteConfig{static}); err != nil {
+	store := &mutationRouteStore{testRouteStore{items: map[string]*RouteConfig{}}}
+	m := NewRouteConfigManager(store)
+	static := RouteConfig{ID: "static", MatchPolicy: RouteMatchPolicy{PathPrefix: "/api", Methods: []string{"GET", "POST"}}}
+	if err := m.InitStaticRoutes([]RouteConfig{static}); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.Refresh(ctx); err != nil {
 		t.Fatal(err)
 	}
-	dynamic := AgentRouteConfig{ID: "dynamic", Disabled: true, MatchPolicy: RouteMatchPolicy{PathPrefix: "/api", Methods: []string{"POST"}}}
+	dynamic := RouteConfig{ID: "dynamic", Disabled: true, MatchPolicy: RouteMatchPolicy{PathPrefix: "/api", Methods: []string{"POST"}}}
 	if err := m.Create(ctx, dynamic, ""); !errors.Is(err, ErrAmbiguousRoute) {
 		t.Fatalf("static/dynamic tie accepted: %v", err)
 	}
@@ -121,8 +121,8 @@ func TestStaticDynamicTieAndMutationRejection(t *testing.T) {
 	}
 	// Existing conflicting rows reject first startup; no partial data plane.
 	store.items[dynamic.ID] = &dynamic
-	fresh := NewAgentRouteConfigManager(store)
-	if err := fresh.InitStaticRoutes([]AgentRouteConfig{static}); err != nil {
+	fresh := NewRouteConfigManager(store)
+	if err := fresh.InitStaticRoutes([]RouteConfig{static}); err != nil {
 		t.Fatal(err)
 	}
 	if err := fresh.Refresh(ctx); !errors.Is(err, ErrAmbiguousRoute) {
@@ -131,12 +131,12 @@ func TestStaticDynamicTieAndMutationRejection(t *testing.T) {
 }
 
 func TestRuntimeTieErrorIsDeterministic(t *testing.T) {
-	a := AgentRouteConfig{ID: "a", MatchPolicy: RouteMatchPolicy{PathPrefix: "/api"}}
+	a := RouteConfig{ID: "a", MatchPolicy: RouteMatchPolicy{PathPrefix: "/api"}}
 	b := a
 	b.ID = "b"
 	request := httptest.NewRequest("GET", "http://example.org/api", nil)
-	_, _, first := MatchRouteConfigs([]AgentRouteConfig{a, b}, request)
-	_, _, second := MatchRouteConfigs([]AgentRouteConfig{b, a}, request)
+	_, _, first := MatchRouteConfigs([]RouteConfig{a, b}, request)
+	_, _, second := MatchRouteConfigs([]RouteConfig{b, a}, request)
 	if !errors.Is(first, ErrAmbiguousRoute) || first.Error() != second.Error() {
 		t.Fatalf("unstable ambiguity: %v / %v", first, second)
 	}
@@ -145,7 +145,7 @@ func TestRuntimeTieErrorIsDeterministic(t *testing.T) {
 	c := a
 	c.ID = "c"
 	c.MatchPolicy.PathPrefix = "/api/chat"
-	got, ok, err := MatchRouteConfigs([]AgentRouteConfig{a, b, c}, httptest.NewRequest("GET", "http://example.org/api/chat", nil))
+	got, ok, err := MatchRouteConfigs([]RouteConfig{a, b, c}, httptest.NewRequest("GET", "http://example.org/api/chat", nil))
 	if err != nil || !ok || got.ID != "c" {
 		t.Fatalf("match = %v, %v, %v", got, ok, err)
 	}
@@ -153,9 +153,9 @@ func TestRuntimeTieErrorIsDeterministic(t *testing.T) {
 
 func TestRouteReadsCannotMutatePublishedConfiguration(t *testing.T) {
 	ctx := context.Background()
-	m := NewAgentRouteConfigManager(nil)
-	r := AgentRouteConfig{ID: "a", MatchPolicy: RouteMatchPolicy{PathPrefix: "/api", Methods: []string{"POST"}}, TargetPolicy: []byte(`{"provider_target":{"provider_id":"p"}}`)}
-	if err := m.InitStaticRoutes([]AgentRouteConfig{r}); err != nil {
+	m := NewRouteConfigManager(nil)
+	r := RouteConfig{ID: "a", MatchPolicy: RouteMatchPolicy{PathPrefix: "/api", Methods: []string{"POST"}}, TargetPolicy: []byte(`{"provider_target":{"provider_id":"p"}}`)}
+	if err := m.InitStaticRoutes([]RouteConfig{r}); err != nil {
 		t.Fatal(err)
 	}
 	request := httptest.NewRequest("POST", "http://example.org/api", nil)
@@ -173,19 +173,19 @@ func TestRouteReadsCannotMutatePublishedConfiguration(t *testing.T) {
 
 func TestRemovedTargetFieldRejectedBeforePublication(t *testing.T) {
 	ctx := context.Background()
-	store := &mutationRouteStore{testRouteStore{items: map[string]*AgentRouteConfig{}}}
-	m := NewAgentRouteConfigManager(store)
-	r := AgentRouteConfig{ID: "a", Kind: RouteKindLLM, TargetPolicy: []byte(`{"provider_id":"p"}`)}
+	store := &mutationRouteStore{testRouteStore{items: map[string]*RouteConfig{}}}
+	m := NewRouteConfigManager(store)
+	r := RouteConfig{ID: "a", Kind: RouteKindLLM, TargetPolicy: []byte(`{"provider_id":"p"}`)}
 	if err := m.Create(ctx, r, ""); err == nil {
 		t.Fatal("removed field persisted")
 	}
 	if len(store.items) != 0 {
 		t.Fatal("invalid create wrote storage")
 	}
-	if err := m.InitStaticRoutes([]AgentRouteConfig{r}); err == nil {
+	if err := m.InitStaticRoutes([]RouteConfig{r}); err == nil {
 		t.Fatal("static config accepted removed field")
 	}
-	if _, err := DecodeStoredAgentRouteConfig([]byte(`{"id":"a","kind":"llm","target_policy":{"provider_id":"p"}}`)); err == nil {
+	if _, err := DecodeStoredRouteConfig([]byte(`{"id":"a","kind":"llm","target_policy":{"provider_id":"p"}}`)); err == nil {
 		t.Fatal("stored decoder silently ignored removed field")
 	}
 }

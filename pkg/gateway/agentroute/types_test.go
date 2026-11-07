@@ -26,8 +26,8 @@ func TestNormalizeGeneratesDeterministicID(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := AgentRouteConfig{
-				AgentRouteBaseConfig: AgentRouteBaseConfig{MatchPolicy: RouteMatch{PathPrefix: tc.pathPrefix}},
-				AgentID:              tc.agentID,
+				RouteConfig: RouteConfig{MatchPolicy: RouteMatch{PathPrefix: tc.pathPrefix}},
+				AgentID:     tc.agentID,
 			}
 			cfg.Normalize()
 			if cfg.ID != tc.wantID {
@@ -42,7 +42,7 @@ func TestNormalizeGeneratesDeterministicID(t *testing.T) {
 
 func TestNormalizeKeepsExplicitIDAndTrims(t *testing.T) {
 	cfg := AgentRouteConfig{
-		AgentRouteBaseConfig: AgentRouteBaseConfig{
+		RouteConfig: RouteConfig{
 			ID:          "  my-route  ",
 			Kind:        routecore.RouteKindLLM,
 			Protocol:    routecore.RouteProtocolOpenAI,
@@ -66,7 +66,7 @@ func TestNormalizeKeepsExplicitIDAndTrims(t *testing.T) {
 
 func TestConfigRoundTripThroughPersistedShape(t *testing.T) {
 	cfg := AgentRouteConfig{
-		AgentRouteBaseConfig: AgentRouteBaseConfig{
+		RouteConfig: RouteConfig{
 			Description: "reviewer ingress",
 			MatchPolicy: RouteMatch{PathPrefix: "/agents/reviewer", Methods: []string{"POST", "GET"}},
 			AuthPolicy:  RouteAuthPolicy{RequireVirtualKey: true},
@@ -126,7 +126,7 @@ func TestConfigRoundTripThroughPersistedShape(t *testing.T) {
 }
 
 func TestDecodeStoredAgentRoute(t *testing.T) {
-	stored := AgentRouteBaseConfig{
+	stored := RouteConfig{
 		ID:           "agent:reviewer:root",
 		Kind:         routecore.RouteKindAgent,
 		Protocol:     routecore.RouteProtocolAgent,
@@ -162,7 +162,7 @@ func TestDecodeTargetAgentIDRejectsForeignTargetKind(t *testing.T) {
 			t.Fatalf("DecodeTargetAgentID(%s) = %q, %v", raw, agentID, err)
 		}
 	}
-	stored := AgentRouteBaseConfig{
+	stored := RouteConfig{
 		ID:           "agent:reviewer:root",
 		Kind:         routecore.RouteKindAgent,
 		Protocol:     routecore.RouteProtocolAgent,
@@ -181,10 +181,10 @@ func TestDecodeTargetAgentIDRejectsForeignTargetKind(t *testing.T) {
 // kind=agent like every other family: longest path prefix wins regardless of
 // kind, and same-prefix collisions surface deterministically by score.
 func TestMatcherPriorityAcrossRouteFamilies(t *testing.T) {
-	mk := func(id string, kind routecore.RouteKind, protocol routecore.RouteProtocol, prefix string) routecore.AgentRouteConfig {
-		return routecore.AgentRouteConfig{ID: id, Kind: kind, Protocol: protocol, MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: prefix}}
+	mk := func(id string, kind routecore.RouteKind, protocol routecore.RouteProtocol, prefix string) routecore.RouteConfig {
+		return routecore.RouteConfig{ID: id, Kind: kind, Protocol: protocol, MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: prefix}}
 	}
-	routes := []routecore.AgentRouteConfig{
+	routes := []routecore.RouteConfig{
 		mk("llm", routecore.RouteKindLLM, routecore.RouteProtocolOpenAI, "/v1"),
 		mk("mcp", routecore.RouteKindMCP, routecore.RouteProtocolMCP, "/mcp"),
 		mk("agent", routecore.RouteKindAgent, routecore.RouteProtocolAgent, "/agents/reviewer"),
@@ -219,24 +219,24 @@ func (l staticProxyLookup) A2AProxyReady(id string) error { return l[id] }
 
 // memoryRouteStore is a minimal in-memory route ConfigStore for resolver tests.
 type memoryRouteStore struct {
-	items map[string]routecore.AgentRouteConfig
+	items map[string]routecore.RouteConfig
 }
 
 func newMemoryRouteStore() *memoryRouteStore {
-	return &memoryRouteStore{items: map[string]routecore.AgentRouteConfig{}}
+	return &memoryRouteStore{items: map[string]routecore.RouteConfig{}}
 }
 
-func (s *memoryRouteStore) unwrap(obj any) (routecore.AgentRouteConfig, error) {
+func (s *memoryRouteStore) unwrap(obj any) (routecore.RouteConfig, error) {
 	if u, ok := obj.(configstore.ObjectUnwrapper); ok {
 		obj = u.ConfigStoreObject()
 	}
 	switch cfg := obj.(type) {
-	case *routecore.AgentRouteConfig:
+	case *routecore.RouteConfig:
 		return *cfg, nil
-	case routecore.AgentRouteConfig:
+	case routecore.RouteConfig:
 		return cfg, nil
 	default:
-		return routecore.AgentRouteConfig{}, fmt.Errorf("unexpected route object %T", obj)
+		return routecore.RouteConfig{}, fmt.Errorf("unexpected route object %T", obj)
 	}
 }
 
@@ -298,15 +298,15 @@ func (s *memoryRouteStore) GetByIndex(context.Context, string, any) (any, error)
 
 func TestResolverValidatesTarget(t *testing.T) {
 	ctx := context.Background()
-	manager := routecore.NewAgentRouteConfigManager(newMemoryRouteStore())
+	manager := routecore.NewRouteConfigManager(newMemoryRouteStore())
 	manager.InitStaticRoutes(nil)
 	resolver := NewAgentRouteResolver(manager)
 	resolver.SetAgentLookup(staticAgentLookup{"reviewer": true, "disabled-agent": true})
 
-	build := func(agentID, prefix string) routecore.AgentRouteConfig {
+	build := func(agentID, prefix string) routecore.RouteConfig {
 		cfg := AgentRouteConfig{
-			AgentRouteBaseConfig: AgentRouteBaseConfig{MatchPolicy: RouteMatch{PathPrefix: prefix}},
-			AgentID:              agentID,
+			RouteConfig: RouteConfig{MatchPolicy: RouteMatch{PathPrefix: prefix}},
+			AgentID:     agentID,
 		}
 		cfg.Normalize()
 		stored, err := cfg.ToConfig()
@@ -350,13 +350,13 @@ func TestResolverValidatesTarget(t *testing.T) {
 
 func TestResolverValidatesA2AProtocolTargetAndMethods(t *testing.T) {
 	ctx := context.Background()
-	manager := routecore.NewAgentRouteConfigManager(newMemoryRouteStore())
+	manager := routecore.NewRouteConfigManager(newMemoryRouteStore())
 	manager.InitStaticRoutes(nil)
 	resolver := NewAgentRouteResolver(manager)
 	resolver.SetAgentLookup(staticAgentLookup{"remote": true})
 	resolver.SetA2AProxyLookup(staticProxyLookup{"remote": nil})
-	build := func(host string, methods []string) routecore.AgentRouteConfig {
-		cfg := AgentRouteConfig{AgentRouteBaseConfig: AgentRouteBaseConfig{
+	build := func(host string, methods []string) routecore.RouteConfig {
+		cfg := AgentRouteConfig{RouteConfig: RouteConfig{
 			Protocol: RouteProtocolA2A, MatchPolicy: RouteMatch{Host: host, PathPrefix: "/remote", Methods: methods},
 		}, AgentID: "remote"}
 		cfg.Normalize()

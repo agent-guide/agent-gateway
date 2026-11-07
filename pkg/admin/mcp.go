@@ -650,7 +650,7 @@ func (h *Handler) handleListMCPServiceSessions(w http.ResponseWriter, r *http.Re
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"session": view})
 }
 
-func mcpRouteViewFromConfig(resolver *mcproute.MCPRouteResolver, cfg mcproute.AgentRouteConfig) MCPRouteView {
+func mcpRouteViewFromConfig(resolver *mcproute.MCPRouteResolver, cfg mcproute.RouteConfig) MCPRouteView {
 	item, _ := mcproute.NewMCPRouteConfigFromConfig(cfg)
 	view := MCPRouteView{
 		MCPRouteConfig: item,

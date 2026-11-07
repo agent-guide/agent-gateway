@@ -15,35 +15,35 @@ var (
 )
 
 type MCPRouteResolver struct {
-	configManager *routecore.AgentRouteConfigManager
-	base          *runtimecore.Resolver[routecore.AgentRouteConfig, *MCPRoute, RouteListOptions]
+	configManager *routecore.RouteConfigManager
+	base          *runtimecore.Resolver[routecore.RouteConfig, *MCPRoute, RouteListOptions]
 }
 
-func NewMCPRouteResolver(configManager *routecore.AgentRouteConfigManager) *MCPRouteResolver {
+func NewMCPRouteResolver(configManager *routecore.RouteConfigManager) *MCPRouteResolver {
 	return &MCPRouteResolver{
 		configManager: configManager,
 		base: runtimecore.NewResolver(
-			runtimecore.FuncSource[routecore.AgentRouteConfig, RouteListOptions]{
-				GetFunc: func(ctx context.Context, routeID string) (routecore.AgentRouteConfig, error) {
+			runtimecore.FuncSource[routecore.RouteConfig, RouteListOptions]{
+				GetFunc: func(ctx context.Context, routeID string) (routecore.RouteConfig, error) {
 					if configManager == nil {
-						return routecore.AgentRouteConfig{}, fmt.Errorf("route config manager is not configured")
+						return routecore.RouteConfig{}, fmt.Errorf("route config manager is not configured")
 					}
 					return configManager.Get(ctx, routeID)
 				},
-				ListFunc: func(ctx context.Context, opts RouteListOptions) ([]routecore.AgentRouteConfig, error) {
+				ListFunc: func(ctx context.Context, opts RouteListOptions) ([]routecore.RouteConfig, error) {
 					if configManager == nil {
 						return nil, fmt.Errorf("route config manager is not configured")
 					}
 					return configManager.List(ctx, routecore.RouteListOptions(opts))
 				},
 			},
-			func(cfg routecore.AgentRouteConfig) string {
+			func(cfg routecore.RouteConfig) string {
 				return cfg.ID
 			},
-			func(cfg routecore.AgentRouteConfig) (string, error) {
+			func(cfg routecore.RouteConfig) (string, error) {
 				return cfg.Fingerprint(), nil
 			},
-			func(cfg routecore.AgentRouteConfig) (*MCPRoute, error) {
+			func(cfg routecore.RouteConfig) (*MCPRoute, error) {
 				route, err := NewMCPRouteFromConfig(cfg)
 				if err != nil {
 					return nil, err
@@ -54,22 +54,22 @@ func NewMCPRouteResolver(configManager *routecore.AgentRouteConfigManager) *MCPR
 	}
 }
 
-func (r *MCPRouteResolver) ConfigManager() *routecore.AgentRouteConfigManager {
+func (r *MCPRouteResolver) ConfigManager() *routecore.RouteConfigManager {
 	if r == nil {
 		return nil
 	}
 	return r.configManager
 }
 
-func (r *MCPRouteResolver) GetConfig(ctx context.Context, routeID string) (routecore.AgentRouteConfig, error) {
+func (r *MCPRouteResolver) GetConfig(ctx context.Context, routeID string) (routecore.RouteConfig, error) {
 	manager := r.ConfigManager()
 	if manager == nil {
-		return routecore.AgentRouteConfig{}, fmt.Errorf("route config manager is not configured")
+		return routecore.RouteConfig{}, fmt.Errorf("route config manager is not configured")
 	}
 	return manager.Get(ctx, routeID)
 }
 
-func (r *MCPRouteResolver) ListConfigs(ctx context.Context, opts RouteListOptions) ([]routecore.AgentRouteConfig, error) {
+func (r *MCPRouteResolver) ListConfigs(ctx context.Context, opts RouteListOptions) ([]routecore.RouteConfig, error) {
 	manager := r.ConfigManager()
 	if manager == nil {
 		return nil, fmt.Errorf("route config manager is not configured")
@@ -77,7 +77,7 @@ func (r *MCPRouteResolver) ListConfigs(ctx context.Context, opts RouteListOption
 	return manager.List(ctx, routecore.RouteListOptions(opts))
 }
 
-func (r *MCPRouteResolver) CreateConfig(ctx context.Context, route routecore.AgentRouteConfig, tag string) error {
+func (r *MCPRouteResolver) CreateConfig(ctx context.Context, route routecore.RouteConfig, tag string) error {
 	if route.ID == "" {
 		return fmt.Errorf("route id is required")
 	}
@@ -95,7 +95,7 @@ func (r *MCPRouteResolver) CreateConfig(ctx context.Context, route routecore.Age
 	return nil
 }
 
-func (r *MCPRouteResolver) UpdateConfig(ctx context.Context, routeID string, route routecore.AgentRouteConfig) error {
+func (r *MCPRouteResolver) UpdateConfig(ctx context.Context, routeID string, route routecore.RouteConfig) error {
 	if routeID == "" {
 		return fmt.Errorf("route id is required")
 	}
@@ -128,7 +128,7 @@ func (r *MCPRouteResolver) DeleteConfig(ctx context.Context, routeID string) err
 	return nil
 }
 
-func (r *MCPRouteResolver) Resolve(ctx context.Context, cfg routecore.AgentRouteConfig) (*MCPRoute, error) {
+func (r *MCPRouteResolver) Resolve(ctx context.Context, cfg routecore.RouteConfig) (*MCPRoute, error) {
 	if r == nil {
 		return nil, fmt.Errorf("route config manager is not configured")
 	}

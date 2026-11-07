@@ -26,7 +26,7 @@ import (
 // The guaranteed operation is POST /turn (SSE with the common event envelope);
 // /permission, /sessions, and /sessions/{id}/transcript are capabilities and
 // fail closed with capability_not_supported.
-func (h *Handler) dispatchAgent(w http.ResponseWriter, r *http.Request, next NextHandler, cfg routecore.AgentRouteConfig) error {
+func (h *Handler) dispatchAgent(w http.ResponseWriter, r *http.Request, next NextHandler, cfg routecore.RouteConfig) error {
 	if !h.agentEnabled {
 		return serveNextOrNotFound(next, w, r)
 	}

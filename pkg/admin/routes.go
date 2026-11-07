@@ -1163,7 +1163,7 @@ func (h *Handler) routeStore() configstore.ConfigStore {
 	return store
 }
 
-func (h *Handler) routeConfigManagerForRoutes() *routecore.AgentRouteConfigManager {
+func (h *Handler) routeConfigManagerForRoutes() *routecore.RouteConfigManager {
 	if h.routeConfigManager != nil {
 		return h.routeConfigManager
 	}
@@ -1172,11 +1172,11 @@ func (h *Handler) routeConfigManagerForRoutes() *routecore.AgentRouteConfigManag
 	if store == nil {
 		return nil
 	}
-	return routecore.NewAgentRouteConfigManager(store)
+	return routecore.NewRouteConfigManager(store)
 }
 
-func filterRouteConfigsByKind(items []routecore.AgentRouteConfig, kind routecore.RouteKind) []routecore.AgentRouteConfig {
-	filtered := make([]routecore.AgentRouteConfig, 0, len(items))
+func filterRouteConfigsByKind(items []routecore.RouteConfig, kind routecore.RouteKind) []routecore.RouteConfig {
+	filtered := make([]routecore.RouteConfig, 0, len(items))
 	for _, item := range items {
 		if item.Kind == kind {
 			filtered = append(filtered, item)

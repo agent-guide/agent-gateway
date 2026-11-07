@@ -10,7 +10,7 @@ func TestMCPRouteConfigToConfigRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	route := MCPRouteConfig{
-		AgentRouteConfig: AgentRouteConfig{
+		RouteConfig: RouteConfig{
 			ID:          "mcp-route-1",
 			Description: " test route ",
 			Disabled:    true,
@@ -60,7 +60,7 @@ func TestNewMCPRouteFromConfigCreatesRuntimeRoute(t *testing.T) {
 	t.Parallel()
 
 	routeCfg := MCPRouteConfig{
-		AgentRouteConfig: AgentRouteConfig{
+		RouteConfig: RouteConfig{
 			ID:          "mcp-route-1",
 			Kind:        routecore.RouteKindMCP,
 			Protocol:    routecore.RouteProtocolMCP,

@@ -32,7 +32,7 @@ func TestConfiguredLimiterPublishesAllowDenyAndUnlimitedPublishesNothing(t *test
 			if err := g.Bootstrap(context.Background(), gateway.BootstrapOptions{
 				EventPublisher:     p,
 				ConfigStoreBackend: &testConfigStoreBackend{store: singleVirtualKeyStore{keyID: "vk-1", key: "fixture-bearer", route: "broad-route", rateLimits: limits}},
-				StaticLLMRoutes:    mustRouteConfigs(t, []llmroute.LLMRoute{{AgentRouteConfig: llmroute.AgentRouteConfig{ID: "broad-route", Protocol: "local-stub", MatchPolicy: llmroute.RouteMatchPolicy{PathPrefix: "/"}, AuthPolicy: llmroute.RouteAuthPolicy{RequireVirtualKey: true}}, TargetPolicy: &llmroute.RouteDirectProviderPolicy{ProviderTarget: llmroute.DirectProviderTarget{ProviderID: "unused"}}}}),
+				StaticLLMRoutes:    mustRouteConfigs(t, []llmroute.LLMRoute{{RouteConfig: llmroute.RouteConfig{ID: "broad-route", Protocol: "local-stub", MatchPolicy: llmroute.RouteMatchPolicy{PathPrefix: "/"}, AuthPolicy: llmroute.RouteAuthPolicy{RequireVirtualKey: true}}, TargetPolicy: &llmroute.RouteDirectProviderPolicy{ProviderTarget: llmroute.DirectProviderTarget{ProviderID: "unused"}}}}),
 			}); err != nil {
 				t.Fatal(err)
 			}

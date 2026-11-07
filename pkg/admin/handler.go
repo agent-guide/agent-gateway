@@ -38,7 +38,7 @@ type Handler struct {
 	extensions               *extension.Manager
 	credentialManager        *credential.Manager
 	configStoreBackend       configstore.ConfigStoreBackend
-	routeConfigManager       *routecore.AgentRouteConfigManager
+	routeConfigManager       *routecore.RouteConfigManager
 	sharedLLMRouteResolver   *llmroute.LLMRouteResolver
 	sharedMCPRouteResolver   *mcproute.MCPRouteResolver
 	sharedAgentRouteResolver *agentroute.AgentRouteResolver
@@ -71,7 +71,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 
 	var credentialMgr *credential.Manager
 	var configStoreBackend configstore.ConfigStoreBackend
-	var routeConfigManager *routecore.AgentRouteConfigManager
+	var routeConfigManager *routecore.RouteConfigManager
 	var sharedLLMRouteResolver *llmroute.LLMRouteResolver
 	var sharedMCPRouteResolver *mcproute.MCPRouteResolver
 	var sharedAgentRouteResolver *agentroute.AgentRouteResolver
@@ -93,7 +93,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 	if agentGateway != nil {
 		credentialMgr = agentGateway.CredentialManager()
 		configStoreBackend = agentGateway.ConfigStoreBackend()
-		routeConfigManager = agentGateway.AgentRouteConfigManager()
+		routeConfigManager = agentGateway.RouteConfigManager()
 		sharedLLMRouteResolver = agentGateway.LLMRouteResolver()
 		sharedMCPRouteResolver = agentGateway.MCPRouteResolver()
 		sharedAgentRouteResolver = agentGateway.AgentRouteResolver()

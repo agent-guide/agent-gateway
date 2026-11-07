@@ -647,7 +647,7 @@ func (h *Handler) resolveAgentResources(ctx context.Context, a agentpkg.Agent) *
 // routeRefFromConfig builds a resource ref from a route resolver GetConfig
 // result. A non-nil error (typically not-found) leaves exists=false so a
 // dangling route reference is visible.
-func routeRefFromConfig(id string, cfg routecore.AgentRouteConfig, err error) resourceRef {
+func routeRefFromConfig(id string, cfg routecore.RouteConfig, err error) resourceRef {
 	ref := resourceRef{ID: id}
 	if err != nil {
 		return ref

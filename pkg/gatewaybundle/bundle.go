@@ -37,7 +37,7 @@ type GatewayBundle struct {
 	Kind          string                        `json:"kind"`
 	Providers     []provider.ProviderConfig     `json:"providers,omitempty"`
 	ManagedModels []modelcatalog.ManagedModel   `json:"managedModels,omitempty"`
-	LLMRoutes     []routecore.AgentRouteConfig  `json:"llmRoutes,omitempty"`
+	LLMRoutes     []routecore.RouteConfig       `json:"llmRoutes,omitempty"`
 	VirtualKeys   []BundleVirtualKey            `json:"virtualKeys,omitempty"`
 	MCPServices   []mcpservice.MCPServiceConfig `json:"mcpServices,omitempty"`
 	MCPRoutes     []mcproute.MCPRouteConfig     `json:"mcpRoutes,omitempty"`
@@ -506,7 +506,7 @@ func (b *GatewayBundle) validate(_ bool) error {
 
 	// Matching is shared across all route kinds, including disabled entries.
 	// Compile the complete bundle view before any apply entry point can publish.
-	allRoutes := append([]routecore.AgentRouteConfig(nil), b.LLMRoutes...)
+	allRoutes := append([]routecore.RouteConfig(nil), b.LLMRoutes...)
 	for _, route := range b.MCPRoutes {
 		cfg, err := route.ToConfig()
 		if err == nil {

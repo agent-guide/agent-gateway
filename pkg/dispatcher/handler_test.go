@@ -83,7 +83,7 @@ func TestHandlerRequiresVirtualKeyBeforeLLMApiMatch(t *testing.T) {
 	gw := gateway.NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
-			AgentRouteConfig: llmroutepkg.AgentRouteConfig{
+			RouteConfig: llmroutepkg.RouteConfig{
 				ID:          "broad-route",
 				Protocol:    llmroutepkg.RouteProtocol("stub"),
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
@@ -119,8 +119,8 @@ func TestHandlerLocalExecutionSkipsRoutedProvider(t *testing.T) {
 	gw := gateway.NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
-			AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "local-route", Protocol: llmroutepkg.RouteProtocol("local-stub"), MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"}},
-			TargetPolicy:     &llmroutepkg.RouteDirectProviderPolicy{ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "must-not-resolve"}},
+			RouteConfig:  llmroutepkg.RouteConfig{ID: "local-route", Protocol: llmroutepkg.RouteProtocol("local-stub"), MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"}},
+			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "must-not-resolve"}},
 		}}),
 	}); err != nil {
 		t.Fatal(err)
@@ -156,7 +156,7 @@ func TestHandlerRateLimitsBeforeLLMApiMatchAndRecordsOutcome(t *testing.T) {
 			},
 		}},
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
-			AgentRouteConfig: llmroutepkg.AgentRouteConfig{
+			RouteConfig: llmroutepkg.RouteConfig{
 				ID:          "broad-route",
 				Protocol:    llmroutepkg.RouteProtocol("stub"),
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
@@ -230,7 +230,7 @@ func TestHandlerRateLimitsStreamingRequestConsumesOneToken(t *testing.T) {
 			},
 		}},
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
-			AgentRouteConfig: llmroutepkg.AgentRouteConfig{
+			RouteConfig: llmroutepkg.RouteConfig{
 				ID:          "broad-route",
 				Protocol:    llmroutepkg.RouteProtocol("stub"),
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
@@ -291,7 +291,7 @@ func TestHandlerRateLimit429WrittenThroughResponseRecorder(t *testing.T) {
 			},
 		}},
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
-			AgentRouteConfig: llmroutepkg.AgentRouteConfig{
+			RouteConfig: llmroutepkg.RouteConfig{
 				ID:          "broad-route",
 				Protocol:    llmroutepkg.RouteProtocol("stub"),
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
@@ -370,7 +370,7 @@ func TestHandlerRateLimitConsumesTokenOnServeNextOrNotFound(t *testing.T) {
 			},
 		}},
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
-			AgentRouteConfig: llmroutepkg.AgentRouteConfig{
+			RouteConfig: llmroutepkg.RouteConfig{
 				ID:          "broad-route",
 				Protocol:    llmroutepkg.RouteProtocol("stub"),
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
@@ -432,7 +432,7 @@ func TestHandlerRejectsAgentDepthOverConfiguredLimit(t *testing.T) {
 	gw := gateway.NewAgentGateway()
 	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
-			AgentRouteConfig: llmroutepkg.AgentRouteConfig{
+			RouteConfig: llmroutepkg.RouteConfig{
 				ID:          "chat",
 				Protocol:    llmroutepkg.RouteProtocol("stub"),
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
@@ -469,10 +469,10 @@ func TestHandlerValidateAllowsMCPOnly(t *testing.T) {
 	}
 }
 
-func mustRouteConfigs(t *testing.T, routes []llmroutepkg.LLMRoute) []llmroutepkg.AgentRouteConfig {
+func mustRouteConfigs(t *testing.T, routes []llmroutepkg.LLMRoute) []llmroutepkg.RouteConfig {
 	t.Helper()
 
-	out := make([]llmroutepkg.AgentRouteConfig, 0, len(routes))
+	out := make([]llmroutepkg.RouteConfig, 0, len(routes))
 	for _, route := range routes {
 		cfg, err := route.ToConfig()
 		if err != nil {

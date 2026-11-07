@@ -113,7 +113,7 @@ func TestOfflineSQLiteRepairAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := routecore.NewAgentRouteConfigManager(store)
+	manager := routecore.NewRouteConfigManager(store)
 	if err := manager.Refresh(ctx); err != nil {
 		t.Fatal(err)
 	}

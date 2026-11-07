@@ -23,7 +23,7 @@ func (h *attributionAPI) ServeLLMApi(w http.ResponseWriter, r *http.Request, _ p
 }
 func TestCallerTenantHeaderIgnoredWithNoopObserver(t *testing.T) {
 	g := gateway.NewAgentGateway()
-	if err := g.Bootstrap(context.Background(), gateway.BootstrapOptions{StaticLLMRoutes: mustRouteConfigs(t, []llmroute.LLMRoute{{AgentRouteConfig: llmroute.AgentRouteConfig{ID: "local", Protocol: "local-stub", MatchPolicy: llmroute.RouteMatchPolicy{PathPrefix: "/"}}, TargetPolicy: &llmroute.RouteDirectProviderPolicy{ProviderTarget: llmroute.DirectProviderTarget{ProviderID: "unused"}}}})}); err != nil {
+	if err := g.Bootstrap(context.Background(), gateway.BootstrapOptions{StaticLLMRoutes: mustRouteConfigs(t, []llmroute.LLMRoute{{RouteConfig: llmroute.RouteConfig{ID: "local", Protocol: "local-stub", MatchPolicy: llmroute.RouteMatchPolicy{PathPrefix: "/"}}, TargetPolicy: &llmroute.RouteDirectProviderPolicy{ProviderTarget: llmroute.DirectProviderTarget{ProviderID: "unused"}}}})}); err != nil {
 		t.Fatal(err)
 	}
 	defer g.Close()

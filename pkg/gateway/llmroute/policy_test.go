@@ -74,7 +74,7 @@ func TestResolveTargetFiltersProtocolFeatureCapability(t *testing.T) {
 		},
 	})
 	route := LLMRoute{
-		AgentRouteConfig: AgentRouteConfig{ID: "native-route"},
+		RouteConfig: RouteConfig{ID: "native-route"},
 		TargetPolicy: &RouteLogicalModelTargetPolicy{
 			DefaultModel: "claude",
 			ModelTargets: []RouteModelTarget{{
@@ -107,8 +107,8 @@ func TestResolveTargetFiltersProtocolFeatureCapability(t *testing.T) {
 
 func TestDirectProviderReturnsRequirementGap(t *testing.T) {
 	route := LLMRoute{
-		AgentRouteConfig: AgentRouteConfig{ID: "native-direct"},
-		TargetPolicy:     &RouteDirectProviderPolicy{ProviderTarget: DirectProviderTarget{ProviderID: "generic"}},
+		RouteConfig:  RouteConfig{ID: "native-direct"},
+		TargetPolicy: &RouteDirectProviderPolicy{ProviderTarget: DirectProviderTarget{ProviderID: "generic"}},
 	}
 	_, err := route.ResolveTarget(context.Background(), testModelCatalogResolver{}, testProviderConfigResolver{configs: map[string]provider.ProviderConfig{
 		"generic": {Id: "generic", ProviderType: "generic-test", DefaultModel: "generic-default"},
@@ -124,8 +124,8 @@ func TestDirectProviderReturnsRequirementGap(t *testing.T) {
 
 func TestDirectAnthropicProviderReportsMissingFeature(t *testing.T) {
 	route := LLMRoute{
-		AgentRouteConfig: AgentRouteConfig{ID: "anthropic-direct"},
-		TargetPolicy:     &RouteDirectProviderPolicy{ProviderTarget: DirectProviderTarget{ProviderID: "anthropic"}},
+		RouteConfig:  RouteConfig{ID: "anthropic-direct"},
+		TargetPolicy: &RouteDirectProviderPolicy{ProviderTarget: DirectProviderTarget{ProviderID: "anthropic"}},
 	}
 	_, err := route.ResolveTarget(context.Background(), testModelCatalogResolver{}, testProviderConfigResolver{configs: map[string]provider.ProviderConfig{
 		"anthropic": {Id: "anthropic", ProviderType: "anthropic"},
@@ -137,7 +137,7 @@ func TestDirectAnthropicProviderReportsMissingFeature(t *testing.T) {
 
 func TestLogicalModelNoEligibleBindingsNamesRequirements(t *testing.T) {
 	route := LLMRoute{
-		AgentRouteConfig: AgentRouteConfig{ID: "tools-route"},
+		RouteConfig: RouteConfig{ID: "tools-route"},
 		TargetPolicy: &RouteLogicalModelTargetPolicy{
 			DefaultModel: "chat",
 			ModelTargets: []RouteModelTarget{{
@@ -167,8 +167,8 @@ func TestDirectProviderUsesAtomicReasoningCapability(t *testing.T) {
 		ProtocolFeatures: map[provider.ProtocolFeature]struct{}{provider.FeatureAnthropicReasoningReplay: {}},
 	})
 	route := LLMRoute{
-		AgentRouteConfig: AgentRouteConfig{ID: "reasoning-direct"},
-		TargetPolicy:     &RouteDirectProviderPolicy{ProviderTarget: DirectProviderTarget{ProviderID: "reasoning"}},
+		RouteConfig:  RouteConfig{ID: "reasoning-direct"},
+		TargetPolicy: &RouteDirectProviderPolicy{ProviderTarget: DirectProviderTarget{ProviderID: "reasoning"}},
 	}
 	configs := testProviderConfigResolver{configs: map[string]provider.ProviderConfig{
 		"reasoning": {Id: "reasoning", ProviderType: "reasoning-test"},
@@ -185,7 +185,7 @@ func TestDirectProviderUsesAtomicReasoningCapability(t *testing.T) {
 
 func TestAgentRouteResolveTargetUsesRouteDefaultModel(t *testing.T) {
 	route := LLMRoute{
-		AgentRouteConfig: AgentRouteConfig{ID: "chat-prod"},
+		RouteConfig: RouteConfig{ID: "chat-prod"},
 		TargetPolicy: &RouteLogicalModelTargetPolicy{
 			DefaultModel: "chat-fast",
 			ModelTargets: []RouteModelTarget{{
@@ -239,7 +239,7 @@ func TestAgentRouteResolveTargetUsesRouteDefaultModel(t *testing.T) {
 
 func TestAgentRouteResolveTargetRejectsUnknownModel(t *testing.T) {
 	route := LLMRoute{
-		AgentRouteConfig: AgentRouteConfig{ID: "chat-prod"},
+		RouteConfig: RouteConfig{ID: "chat-prod"},
 		TargetPolicy: &RouteLogicalModelTargetPolicy{
 			ModelTargets: []RouteModelTarget{{Name: "chat-fast"}},
 		},
@@ -257,7 +257,7 @@ func TestAgentRouteResolveTargetRejectsUnknownModel(t *testing.T) {
 
 func TestAgentRouteResolveTargetUsesDirectProvider(t *testing.T) {
 	route := LLMRoute{
-		AgentRouteConfig: AgentRouteConfig{ID: "chat-prod"},
+		RouteConfig: RouteConfig{ID: "chat-prod"},
 		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
 		},
@@ -305,7 +305,7 @@ func TestAgentRouteResolveTargetUsesDirectProvider(t *testing.T) {
 
 func TestAgentRouteResolveTargetUsesDirectProviderWhenModelNameIsPresent(t *testing.T) {
 	route := LLMRoute{
-		AgentRouteConfig: AgentRouteConfig{ID: "chat-prod"},
+		RouteConfig: RouteConfig{ID: "chat-prod"},
 		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
 		},
@@ -337,7 +337,7 @@ func TestAgentRouteResolveTargetUsesDirectProviderWhenModelNameIsPresent(t *test
 
 func TestAgentRouteResolveTargetDirectProviderEmptyModelUsesProviderDefault(t *testing.T) {
 	route := LLMRoute{
-		AgentRouteConfig: AgentRouteConfig{ID: "chat-prod"},
+		RouteConfig: RouteConfig{ID: "chat-prod"},
 		TargetPolicy: &RouteDirectProviderPolicy{
 			ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
 		},

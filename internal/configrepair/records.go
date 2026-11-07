@@ -117,7 +117,7 @@ func CanonicalTarget(data []byte) ([]byte, error) {
 // Reports contain identifiers and field names, never raw configuration/secrets.
 func Inspect(records []Record) []Issue {
 	var issues []Issue
-	var routes []routecore.AgentRouteConfig
+	var routes []routecore.RouteConfig
 	seen := map[string]uint8{}
 	for _, r := range records {
 		add := func(field, action string) { issues = append(issues, Issue{r.Family, r.ID, field, action}) }
@@ -156,7 +156,7 @@ func Inspect(records []Record) []Issue {
 		}
 		switch r.Family {
 		case "routes":
-			var route routecore.AgentRouteConfig
+			var route routecore.RouteConfig
 			if err := json.Unmarshal(r.Data, &route); err != nil {
 				add("record", "invalid route shape; replace or delete by ID")
 				continue

@@ -15,7 +15,7 @@ import (
 )
 
 func TestRouteDeletionConflictDuringPendingAgentDeletion(t *testing.T) {
-	store := &testRouteStore{items: map[string]*routecore.AgentRouteConfig{
+	store := &testRouteStore{items: map[string]*routecore.RouteConfig{
 		"chat":  {ID: "chat", Kind: routecore.RouteKindLLM, Protocol: "openai", MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/chat"}},
 		"tools": {ID: "tools", Kind: routecore.RouteKindMCP, Protocol: "mcp", MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/tools"}},
 	}}
@@ -55,7 +55,7 @@ func TestRouteDeletionConflictDuringPendingAgentDeletion(t *testing.T) {
 			if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "resource is referenced") {
 				t.Fatalf("delete = %d %s", w.Code, w.Body.String())
 			}
-			if _, err := g.AgentRouteConfigManager().Get(t.Context(), tc.id); err != nil {
+			if _, err := g.RouteConfigManager().Get(t.Context(), tc.id); err != nil {
 				t.Fatalf("protected route removed: %v", err)
 			}
 		})
