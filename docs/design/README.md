@@ -22,6 +22,7 @@ Current design pages:
 - [enterprise-extension-contract.md](enterprise-extension-contract.md) — Community-side SPI, compatibility, assembly, and cross-repository rules for separately maintained distributions
 - [model-first-routing.md](model-first-routing.md)
 - [route-target-policy.md](route-target-policy.md)
+- [server-assembly.md](server-assembly.md) — shared service construction, runtime ownership and bounded shutdown
 - [provider-type-startup-policy.md](provider-type-startup-policy.md)
 - [provider-compatibility.md](provider-compatibility.md) — ingress, upstream provider, compatibility shaping and ACP dimensions with the implemented option-support matrix
 - [virtual-key-rate-limiting.md](virtual-key-rate-limiting.md)

@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/agent-guide/agent-gateway/internal/extensionstore"
 	"github.com/agent-guide/agent-gateway/pkg/attribution"
@@ -248,8 +249,12 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	return nil
 }
 
-func (g *AgentGateway) Reset() {
-	shutdown, cancelShutdown := context.WithTimeout(context.Background(), extension.LifecycleBudget)
+func (g *AgentGateway) Reset() { _ = g.CloseContext(context.Background()) }
+
+// CloseContext retires runtime resources and reports extension teardown failures.
+// Native subprocess transports are killed synchronously before this returns.
+func (g *AgentGateway) CloseContext(ctx context.Context) (result error) {
+	shutdown, cancelShutdown := context.WithTimeout(ctx, extension.LifecycleBudget)
 	defer cancelShutdown()
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -269,10 +274,10 @@ func (g *AgentGateway) Reset() {
 	}
 
 	if g.virtualKeyManager != nil {
-		_ = g.virtualKeyManager.Close(shutdown)
+		result = errors.Join(result, g.virtualKeyManager.Close(shutdown))
 	}
 	if g.extensions != nil {
-		_ = g.extensions.Close(shutdown)
+		result = errors.Join(result, g.extensions.Close(shutdown))
 		g.extensions = nil
 	}
 	g.distribution = distribution.Assembly{}
@@ -309,6 +314,7 @@ func (g *AgentGateway) Reset() {
 	g.usagePrometheus = nil
 	g.usageConfig = usage.Config{}
 	g.logger = nil
+	return result
 }
 
 func (g *AgentGateway) Close() {

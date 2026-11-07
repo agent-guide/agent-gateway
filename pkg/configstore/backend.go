@@ -89,6 +89,18 @@ func (b *Backend) Get(name string) (ConfigStore, error) {
 	return store, nil
 }
 
+// Close releases the creator's connection after all borrowed stores and usage
+// services have stopped. Creators without owned closeable resources need no hook.
+func (b *Backend) Close() error {
+	if b == nil {
+		return nil
+	}
+	if closer, ok := b.creator.(interface{ Close() error }); ok {
+		return closer.Close()
+	}
+	return nil
+}
+
 func validateSchema(name string, storeSchema StoreSchema) error {
 	if storeSchema.Name == "" {
 		return fmt.Errorf("schema name is required for store %q", name)

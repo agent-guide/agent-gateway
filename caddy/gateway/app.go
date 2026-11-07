@@ -1,21 +1,18 @@
 package gateway
 
 import (
-	"context"
+	"errors"
 	"fmt"
 	"github.com/agent-guide/agent-gateway/internal/distributionmetrics"
 	"github.com/agent-guide/agent-gateway/internal/distributionruntime"
+	"github.com/agent-guide/agent-gateway/internal/runtimeassembly"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
-	"strings"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"go.uber.org/zap"
 
 	configstoresqlite "github.com/agent-guide/agent-gateway/caddy/configstore/sqlite"
-	"github.com/agent-guide/agent-gateway/internal/observability/einotap"
-	"github.com/agent-guide/agent-gateway/internal/observability/otelexport"
-	"github.com/agent-guide/agent-gateway/internal/observability/pipeline"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
@@ -59,6 +56,7 @@ type App struct {
 	providers       map[string]provider.Provider
 	agentGateway    *runtimegateway.AgentGateway
 	usageService    *usage.UsageService
+	lifecycle       *runtimeassembly.Lifecycle
 }
 
 // CaddyModule returns the Caddy module information.
@@ -73,21 +71,18 @@ func (App) CaddyModule() caddy.ModuleInfo {
 func (a *App) Provision(ctx caddy.Context) (provisionErr error) {
 	defer func() {
 		if provisionErr != nil {
-			if a.agentGateway != nil {
-				a.agentGateway.Close()
-			}
-			if a.usageService != nil {
-				_ = a.usageService.Close()
-			}
+			provisionErr = errors.Join(provisionErr, a.lifecycle.Close())
 		}
 	}()
 	a.logger = ctx.Logger(a)
 	a.agentGateway = runtimegateway.NewAgentGateway()
+	a.lifecycle = &runtimeassembly.Lifecycle{Runtime: a.agentGateway.CloseContext}
 
 	if err := a.provisionConfigStore(ctx); err != nil {
 		return fmt.Errorf("init config store: %w", err)
 	}
 	a.provisionUsageService()
+	a.lifecycle.Usage = a.usageService
 	assembly := distributionruntime.Current()
 	policy, err := assembly.AttributionPolicy()
 	if err != nil {
@@ -106,26 +101,12 @@ func (a *App) Provision(ctx caddy.Context) (provisionErr error) {
 	} else {
 		provider.EnableAllProviderTypes()
 	}
-	credentialStore, err := a.configBackend.Get(schema.StoreCredentials)
+	credentials, err := runtimeassembly.NewCredentials(a.configBackend, a.CredentialRefreshCommand, a.CredentialRefreshArgs)
 	if err != nil {
-		return fmt.Errorf("get credential store: %w", err)
+		return err
 	}
+	a.credentialMgr, a.credentialSched = credentials.Manager, credentials.Scheduler
 
-	credentialScheduler := credentialscheduler.NewScheduler(nil)
-	a.credentialSched = credentialScheduler
-	a.credentialMgr = credential.NewManager(credentialStore)
-	refreshCommand := strings.TrimSpace(a.CredentialRefreshCommand)
-	refreshArgs := append([]string(nil), a.CredentialRefreshArgs...)
-	if refreshCommand == "" {
-		refreshCommand = credential.DefaultRefreshCommand
-		if len(refreshArgs) == 0 {
-			refreshArgs = []string{credential.DefaultRefreshCommandArg}
-		}
-	}
-	a.credentialMgr.SetRefresher(credential.NewCommandRefresher(refreshCommand, refreshArgs...))
-	if schedulerListener, ok := credentialScheduler.(credential.CredentialLifecycleListener); ok {
-		a.credentialMgr.AddListener(schedulerListener)
-	}
 	if err := a.provisionProviders(ctx); err != nil {
 		return fmt.Errorf("provision providers: %w", err)
 	}
@@ -203,53 +184,10 @@ func (a *App) Start() error {
 }
 
 // Stop stops the app.
-func (a *App) Stop() error {
-	if a.agentGateway != nil {
-		a.agentGateway.Close()
-	}
-	if a.usageService != nil {
-		if err := a.usageService.Close(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
+func (a *App) Stop() error { return a.lifecycle.Close() }
 
 func (a *App) provisionUsageService() {
-	// The eino callbacks tap is stateless and resolves the active span from the
-	// request context, so registering here (re-run on every Caddy config
-	// reload) is safe: Register is guarded by a process-wide sync.Once.
-	einotap.Register()
-	dbProvider, ok := a.configBackend.(usage.SQLDBProvider)
-	if !ok {
-		a.usageService = usage.NewUsageService(pipeline.NewEventPipeline(4096), nil)
-		return
-	}
-	sink, query, err := pipeline.NewSQLiteSink(dbProvider, distributionmetrics.From(a.Metrics))
-	if err != nil {
-		a.logger.Warn("usage metrics sqlite sink unavailable", zap.Error(err))
-		a.usageService = usage.NewUsageService(pipeline.NewEventPipeline(4096), nil)
-		return
-	}
-	promSink := pipeline.NewPrometheusSink()
-	sinks := []pipeline.Sink{sink, promSink}
-	if otlp := distributionmetrics.From(a.Metrics).Normalized().OTLP; otlp.Enabled() {
-		exporter, err := otelexport.New(context.Background(), otlp)
-		if err != nil {
-			a.logger.Warn("otlp usage exporter unavailable", zap.Error(err))
-		} else {
-			sinks = append(sinks, pipeline.NewOpenTelemetrySink(exporter))
-			if otlp.Components {
-				otelexport.EnableComponentTap(exporter)
-			}
-			a.logger.Info("otlp usage export enabled",
-				zap.String("endpoint", otlp.Endpoint), zap.String("protocol", otlp.Protocol),
-				zap.Bool("components", otlp.Components))
-		}
-	}
-	svc := usage.NewUsageService(pipeline.NewEventPipeline(4096, sinks...), query)
-	svc.AttachPrometheus(promSink)
-	a.usageService = svc
+	a.usageService = runtimeassembly.NewUsage(a.configBackend, a.logger, distributionmetrics.From(a.Metrics))
 }
 
 // GetApp retrieves the agent gateway app from the Caddy context.
@@ -290,10 +228,11 @@ func (a *App) provisionConfigStore(ctx caddy.Context) error {
 		if !ok {
 			return fmt.Errorf("config store backend module %q does not implement configstore.ConfigStoreBackend", name)
 		}
+		a.configBackend = backend
+		a.lifecycle.Store, _ = backend.(interface{ Close() error })
 		if err := schema.RegisterDefaultStores(backend); err != nil {
 			return err
 		}
-		a.configBackend = backend
 		return nil
 	}
 

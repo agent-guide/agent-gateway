@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"github.com/agent-guide/agent-gateway/internal/runtimeassembly"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -58,7 +59,7 @@ func TestCleanupAfterStopDoesNotClosePublicSinkTwice(t *testing.T) {
 	if err := svc.ConfigurePublic(attribution.Policy{}, []event.Registration{{ModuleID: "online.agentguide.community.gateway", New: func(context.Context) (event.Sink, error) { return sink, nil }}}); err != nil {
 		t.Fatal(err)
 	}
-	a := &App{usageService: svc}
+	a := &App{usageService: svc, lifecycle: &runtimeassembly.Lifecycle{Usage: svc}}
 	t.Cleanup(func() { _ = a.Cleanup() })
 	if err := a.Stop(); err != nil {
 		t.Fatal(err)

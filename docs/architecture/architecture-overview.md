@@ -120,7 +120,7 @@ Static route limitation:
 - Caddyfile routes only support direct-provider targets
 - logical-model routes are configured through the Admin API and config-store-backed workflows
 
-This is the key design choice in the project: transport adapters are intentionally thin, runtime assembly is allowed to differ between `agw` and `agwd`, and `pkg/gateway` owns the reusable gateway services.
+This is the key design choice in the project: transport adapters are intentionally thin, `internal/runtimeassembly` constructs the shared credential/scheduler and usage services for both `agw` and `agwd`, and `pkg/gateway` owns the reusable gateway services. Each host owns its returned service handles. The common lifecycle stops Gateway producers, drains usage and then closes the storage connection with a bounded, idempotent shutdown; see [server service assembly](../design/server-assembly.md). Usage construction borrows the configuration database; SQLite sink initialization failure preserves serving with an in-memory pipeline and no historical query, Prometheus or OTLP service.
 
 ### 4.2 `caddy/dispatcher/` And `pkg/dispatcher/`: Compatible LLM Ingress
 

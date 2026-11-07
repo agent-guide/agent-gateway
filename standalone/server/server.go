@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/agent-guide/agent-gateway/internal/distributionmetrics"
+	"github.com/agent-guide/agent-gateway/internal/runtimeassembly"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"net"
@@ -13,16 +14,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-guide/agent-gateway/internal/observability/einotap"
-	"github.com/agent-guide/agent-gateway/internal/observability/otelexport"
-	"github.com/agent-guide/agent-gateway/internal/observability/pipeline"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/pkg/admin"
 	configstore "github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	configstoresqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
-	"github.com/agent-guide/agent-gateway/pkg/credential"
-	credentialscheduler "github.com/agent-guide/agent-gateway/pkg/credential/scheduler"
 	"github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	anthropicapi "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/anthropic"
 	ccapi "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/cc"
@@ -62,12 +58,7 @@ func (o *Options) setDefaults() {
 	if o.ConfigStorePath == "" {
 		o.ConfigStorePath = "./data/configstore.db"
 	}
-	if o.CredentialRefreshCommand == "" {
-		o.CredentialRefreshCommand = credential.DefaultRefreshCommand
-		if len(o.CredentialRefreshArgs) == 0 {
-			o.CredentialRefreshArgs = []string{credential.DefaultRefreshCommandArg}
-		}
-	}
+	o.CredentialRefreshCommand, o.CredentialRefreshArgs = runtimeassembly.RefreshCommand(o.CredentialRefreshCommand, o.CredentialRefreshArgs)
 }
 
 func Run(ctx context.Context, opts Options) (result error) {
@@ -86,16 +77,10 @@ func Run(ctx context.Context, opts Options) (result error) {
 	if err != nil {
 		return err
 	}
-	if usageService != nil {
-		usageService.Start()
-		defer func() {
-			if err := usageService.Close(); err != nil {
-				result = errors.Join(result, fmt.Errorf("close event pipeline: %w", err))
-			}
-		}()
-	}
-
-	defer agentGateway.Close()
+	lifecycle := &runtimeassembly.Lifecycle{Runtime: agentGateway.CloseContext, Usage: usageService}
+	lifecycle.Store, _ = agentGateway.ConfigStoreBackend().(interface{ Close() error })
+	defer func() { result = errors.Join(result, lifecycle.Close()) }()
+	usageService.Start()
 	adminHandler, err := protectAdminHandler(admin.NewHandler(agentGateway, logger.Named("admin")), opts.AdminBasicAuthHash)
 	if err != nil {
 		return fmt.Errorf("configure admin auth: %w", err)
@@ -173,7 +158,7 @@ func newDispatchHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) 
 	), nil
 }
 
-func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*gateway.AgentGateway, *usage.UsageService, error) {
+func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (_ *gateway.AgentGateway, _ *usage.UsageService, result error) {
 	if opts.Registry == nil {
 		a := opts.Assembly
 		if a.Modules == nil {
@@ -195,16 +180,19 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 	if err != nil {
 		return nil, nil, fmt.Errorf("open config store: %w", err)
 	}
-	if err := schema.RegisterDefaultStores(configstoreBackend); err != nil {
-		return nil, nil, err
-	}
-	usageService := newUsageService(configstoreBackend, logger, distributionmetrics.From(opts.Metrics))
+	lifecycle := &runtimeassembly.Lifecycle{}
+	lifecycle.Store, _ = configstoreBackend.(interface{ Close() error })
 	bootstrapped := false
 	defer func() {
 		if !bootstrapped {
-			_ = usageService.Close()
+			result = errors.Join(result, lifecycle.Close())
 		}
 	}()
+	if err := schema.RegisterDefaultStores(configstoreBackend); err != nil {
+		return nil, nil, err
+	}
+	usageService := runtimeassembly.NewUsage(configstoreBackend, logger, distributionmetrics.From(opts.Metrics))
+	lifecycle.Usage = usageService
 	policy, err := opts.Assembly.AttributionPolicy()
 	if err != nil {
 		return nil, nil, err
@@ -213,21 +201,17 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 		return nil, nil, err
 	}
 
-	credentialStore, err := configstoreBackend.Get(schema.StoreCredentials)
+	credentials, err := runtimeassembly.NewCredentials(configstoreBackend, opts.CredentialRefreshCommand, opts.CredentialRefreshArgs)
 	if err != nil {
-		return nil, nil, fmt.Errorf("get credential store: %w", err)
+		return nil, nil, err
 	}
-	credentialScheduler := credentialscheduler.NewScheduler(nil)
-	credentialManager := credential.NewManager(credentialStore)
-	credentialManager.SetRefresher(credential.NewCommandRefresher(opts.CredentialRefreshCommand, opts.CredentialRefreshArgs...))
-	if schedulerListener, ok := credentialScheduler.(credential.CredentialLifecycleListener); ok {
-		credentialManager.AddListener(schedulerListener)
-	}
+	credentialManager, credentialScheduler := credentials.Manager, credentials.Scheduler
 
 	if err := credentialManager.Load(ctx); err != nil {
 		return nil, nil, fmt.Errorf("load credentials: %w", err)
 	}
 	agentGateway := gateway.NewAgentGateway()
+	lifecycle.Runtime = agentGateway.CloseContext
 	if err := agentGateway.Bootstrap(ctx, gateway.BootstrapOptions{
 		ExtensionRegistry: opts.Registry, Distribution: opts.Assembly, EventPublisher: usageService,
 		StaticLLMRoutes:     staticConfig.LLMRoutes,
@@ -242,7 +226,6 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 		UsageConfig:         distributionmetrics.From(opts.Metrics).Normalized(),
 		Logger:              logger,
 	}); err != nil {
-		agentGateway.Close()
 		return nil, nil, fmt.Errorf("bootstrap agent gateway: %w", err)
 	}
 	if attribution := usageService.Attribution(); attribution != nil {
@@ -252,44 +235,6 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (*g
 	}
 	bootstrapped = true
 	return agentGateway, usageService, nil
-}
-
-func newUsageService(backend configstore.ConfigStoreBackend, logger *zap.Logger, cfg usage.Config) *usage.UsageService {
-	einotap.Register()
-	dbProvider, ok := backend.(usage.SQLDBProvider)
-	if !ok {
-		return usage.NewUsageService(pipeline.NewEventPipeline(4096), nil)
-	}
-	sink, query, err := pipeline.NewSQLiteSink(dbProvider, cfg)
-	if err != nil {
-		if logger != nil {
-			logger.Warn("usage metrics sqlite sink unavailable", zap.Error(err))
-		}
-		return usage.NewUsageService(pipeline.NewEventPipeline(4096), nil)
-	}
-	promSink := pipeline.NewPrometheusSink()
-	sinks := []pipeline.Sink{sink, promSink}
-	if otlp := cfg.Normalized().OTLP; otlp.Enabled() {
-		exporter, err := otelexport.New(context.Background(), otlp)
-		if err != nil {
-			if logger != nil {
-				logger.Warn("otlp usage exporter unavailable", zap.Error(err))
-			}
-		} else {
-			sinks = append(sinks, pipeline.NewOpenTelemetrySink(exporter))
-			if otlp.Components {
-				otelexport.EnableComponentTap(exporter)
-			}
-			if logger != nil {
-				logger.Info("otlp usage export enabled",
-					zap.String("endpoint", otlp.Endpoint), zap.String("protocol", otlp.Protocol),
-					zap.Bool("components", otlp.Components))
-			}
-		}
-	}
-	svc := usage.NewUsageService(pipeline.NewEventPipeline(4096, sinks...), query)
-	svc.AttachPrometheus(promSink)
-	return svc
 }
 
 type staticConfig struct {

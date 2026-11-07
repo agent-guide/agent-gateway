@@ -31,6 +31,11 @@ Current persisted backend:
 
 - `sqlite`
 
+The host lifecycle owns the optional backend Close hook. SQLite creators close
+their own connection once, after all configuration/usage borrowers stop. Caddy
+adapters forward Close and transactions; child-module cleanup must not close
+the shared connection before the parent drains usage.
+
 `TransactionalBackend` is optional; existing ConfigStore/Backend interfaces do
 not change. `Backend.Transaction` binds requested registered schemas through a
 `TransactionalCreator`. SQLite supplies stores on one transaction without

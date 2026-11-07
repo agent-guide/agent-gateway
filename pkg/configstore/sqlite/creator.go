@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/glebarez/sqlite"
@@ -20,8 +21,29 @@ type Config struct {
 type SQLiteConfigStoreCreator struct {
 	SQLitePath string `json:"sqlite_path,omitempty"`
 
-	logger *zap.Logger
-	db     *gorm.DB
+	logger    *zap.Logger
+	db        *gorm.DB
+	closeOnce sync.Once
+	closeErr  error
+}
+
+// Close owns the connection shared by configuration stores and usage services.
+// Borrowers must finish first; closing an old lifecycle cannot close a new one.
+func (s *SQLiteConfigStoreCreator) Close() error {
+	if s == nil {
+		return nil
+	}
+	s.closeOnce.Do(func() {
+		if s.db != nil {
+			db, err := s.db.DB()
+			if err != nil {
+				s.closeErr = err
+				return
+			}
+			s.closeErr = db.Close()
+		}
+	})
+	return s.closeErr
 }
 
 func init() {

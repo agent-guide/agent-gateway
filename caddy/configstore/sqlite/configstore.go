@@ -72,6 +72,15 @@ func (s *SQLiteConfigStoreBackend) Get(name string) (configstore.ConfigStore, er
 	return s.backend.Get(name)
 }
 
+// The app owns shutdown order; a child Caddy Cleanup must not close a connection
+// while the app is still draining its usage sink.
+func (s *SQLiteConfigStoreBackend) Close() error {
+	if closer, ok := s.backend.(interface{ Close() error }); ok {
+		return closer.Close()
+	}
+	return nil
+}
+
 // Transaction preserves the optional backend capability through the Caddy
 // module boundary, including the same schema-bound stores and rollback rules.
 func (s *SQLiteConfigStoreBackend) Transaction(ctx context.Context, names []string, apply func(map[string]configstore.ConfigStore) error) error {

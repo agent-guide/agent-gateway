@@ -97,6 +97,9 @@ Notes:
 
 - `make build` builds `agw` from `cmd/agw/main.go`, `agwd` from `cmd/agwd/main.go`, and `agwctl` from `cmd/agwctl/main.go`.
 - The three mains own explicit linked-module imports and delegate to `pkg/distribution/caddycmd`, `daemoncmd`, and `ctlcmd`. Command construction must keep flag state local; dotenv, signals, and process exit belong to execution.
+- Both hosts use `internal/runtimeassembly` for credential/scheduler and usage
+  construction. Their shared lifecycle retires Gateway resources, drains usage,
+  then closes storage; shutdown errors remain inspectable.
 - Both server mains pass `distribution.CommunityRuntime()`; CLI passes `CommunityValidation()`. These supply validated manifest metadata, with explicitly injected attribution producers/allowlists and per-lifecycle public sink factories excluded from serialization. Keep declarations aligned with main imports.
 - The resulting binary is a standard Caddy binary with custom modules compiled in, so normal Caddy subcommands such as `run`, `reload`, `validate`, and `hash-password` work.
 
