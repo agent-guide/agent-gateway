@@ -31,13 +31,15 @@ type AgentRouteConfigManager struct {
 	base *configmgr.BaseConfigManager[AgentRouteConfig]
 	// Serializes full-generation validation, persistence and publication.
 	writeMu sync.Mutex
+	guard   configmgr.MutationGuard[AgentRouteConfig]
 
 	mu            sync.RWMutex
 	dynamicLoaded bool
 }
 
-func NewAgentRouteConfigManager(store configstore.ConfigStore) *AgentRouteConfigManager {
+func NewAgentRouteConfigManager(store configstore.ConfigStore, guards ...configmgr.MutationGuard[AgentRouteConfig]) *AgentRouteConfigManager {
 	return &AgentRouteConfigManager{
+		guard: configmgr.SelectMutationGuard(guards),
 		base: configmgr.NewBaseConfigManager(store, configmgr.Definition[AgentRouteConfig]{
 			DisableListCache: true,
 			ValidateSnapshot: ValidateRouteConfigs,
@@ -124,6 +126,10 @@ func (m *AgentRouteConfigManager) List(ctx context.Context, opts RouteListOption
 }
 
 func (m *AgentRouteConfigManager) Refresh(ctx context.Context) error {
+	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationRefresh, "", nil, m.refresh)
+}
+
+func (m *AgentRouteConfigManager) refresh(ctx context.Context) error {
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
 	return m.refreshLocked(ctx)
@@ -213,6 +219,11 @@ func matchRouteConfigs(routes []AgentRouteConfig, r *http.Request) (AgentRouteCo
 }
 
 func (m *AgentRouteConfigManager) Create(ctx context.Context, route AgentRouteConfig, tag string) error {
+	route = cloneRouteConfig(route)
+	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationCreate, route.ID, &route, func(ctx context.Context) error { return m.create(ctx, route, tag) })
+}
+
+func (m *AgentRouteConfigManager) create(ctx context.Context, route AgentRouteConfig, tag string) error {
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
 	if err := m.ensureLoadedLocked(ctx); err != nil {
@@ -235,6 +246,12 @@ func (m *AgentRouteConfigManager) Create(ctx context.Context, route AgentRouteCo
 }
 
 func (m *AgentRouteConfigManager) Update(ctx context.Context, routeID string, route AgentRouteConfig) error {
+	route = cloneRouteConfig(route)
+	route.ID = routeID
+	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationUpdate, routeID, &route, func(ctx context.Context) error { return m.update(ctx, routeID, route) })
+}
+
+func (m *AgentRouteConfigManager) update(ctx context.Context, routeID string, route AgentRouteConfig) error {
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
 	if err := m.ensureLoadedLocked(ctx); err != nil {
@@ -268,6 +285,10 @@ func (m *AgentRouteConfigManager) Update(ctx context.Context, routeID string, ro
 }
 
 func (m *AgentRouteConfigManager) Delete(ctx context.Context, routeID string) error {
+	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationDelete, routeID, nil, func(ctx context.Context) error { return m.delete(ctx, routeID) })
+}
+
+func (m *AgentRouteConfigManager) delete(ctx context.Context, routeID string) error {
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
 	if err := m.ensureLoadedLocked(ctx); err != nil {

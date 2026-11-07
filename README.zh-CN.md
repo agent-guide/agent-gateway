@@ -30,6 +30,9 @@ LLM 直连目标仅使用 `target_policy.provider_target.provider_id`；已移�
 Agent 尚未执行预算限制，因此拒绝非 null 的 `policy.budget`；加载配置前必须
 显式移除已有预算配置。
 
+删除 Provider 前必须移除其 LLM 路由引用，并删除或重新绑定其凭证；所属
+ManagedModel 会在同一个 SQLite 事务中清理。
+
 ## 无需模型 Provider Key 即可试用
 
 最短的受支持验证路径只需要安装带 Compose v2 的 Docker Engine、`curl` 和

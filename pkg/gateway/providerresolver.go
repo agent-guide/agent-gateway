@@ -47,10 +47,12 @@ type ProviderManager struct {
 	resolver        *runtimecore.Resolver[provider.ProviderConfig, provider.Provider, ProviderListOptions]
 
 	store configstore.ConfigStore
+	guard configmgr.MutationGuard[provider.ProviderConfig]
 }
 
-func NewProviderManager(store configstore.ConfigStore) *ProviderManager {
+func NewProviderManager(store configstore.ConfigStore, guards ...configmgr.MutationGuard[provider.ProviderConfig]) *ProviderManager {
 	manager := &ProviderManager{
+		guard: configmgr.SelectMutationGuard(guards),
 		configs: configmgr.NewBaseConfigManager(store, configmgr.Definition[provider.ProviderConfig]{
 			GetID:  providerConfigID,
 			Decode: decodeProviderConfigManagerItem,
@@ -160,6 +162,10 @@ func (m *ProviderManager) ListConfigs(ctx context.Context, opts ProviderListOpti
 }
 
 func (m *ProviderManager) CreateConfig(ctx context.Context, cfg provider.ProviderConfig) error {
+	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationCreate, cfg.Id, &cfg, func(ctx context.Context) error { return m.createConfig(ctx, cfg) })
+}
+
+func (m *ProviderManager) createConfig(ctx context.Context, cfg provider.ProviderConfig) error {
 	if err := m.configs.Create(ctx, cfg); err != nil {
 		return err
 	}
@@ -169,6 +175,11 @@ func (m *ProviderManager) CreateConfig(ctx context.Context, cfg provider.Provide
 }
 
 func (m *ProviderManager) UpdateConfig(ctx context.Context, providerID string, cfg provider.ProviderConfig) error {
+	cfg.Id = providerID
+	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationUpdate, providerID, &cfg, func(ctx context.Context) error { return m.updateConfig(ctx, providerID, cfg) })
+}
+
+func (m *ProviderManager) updateConfig(ctx context.Context, providerID string, cfg provider.ProviderConfig) error {
 	if providerID == "" {
 		return fmt.Errorf("provider id is required")
 	}
@@ -181,6 +192,10 @@ func (m *ProviderManager) UpdateConfig(ctx context.Context, providerID string, c
 }
 
 func (m *ProviderManager) DeleteConfig(ctx context.Context, providerID string) error {
+	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationDelete, providerID, nil, func(ctx context.Context) error { return m.deleteConfig(ctx, providerID) })
+}
+
+func (m *ProviderManager) deleteConfig(ctx context.Context, providerID string) error {
 	if providerID == "" {
 		return fmt.Errorf("provider id is required")
 	}

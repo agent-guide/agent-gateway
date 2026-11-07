@@ -269,6 +269,9 @@ func (h *Handler) handleCreateMCPRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := resolver.CreateConfig(r.Context(), cfg, ""); err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		if errors.Is(err, mcproute.ErrStaticRouteReadOnly) || errors.Is(err, routecore.ErrAmbiguousRoute) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return
@@ -357,6 +360,9 @@ func (h *Handler) handleUpdateMCPRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := resolver.UpdateConfig(r.Context(), id, cfg); err != nil {
+		if writeControlPlaneError(w, err) {
+			return
+		}
 		if errors.Is(err, mcproute.ErrStaticRouteReadOnly) || errors.Is(err, routecore.ErrAmbiguousRoute) {
 			_ = httpjson.Error(w, http.StatusConflict, err.Error())
 			return

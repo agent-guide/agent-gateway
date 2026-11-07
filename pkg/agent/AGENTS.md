@@ -142,6 +142,12 @@ Admin LLM and MCP route deletion use `DeleteUnreferencedLLMRoute` and
 and deletion callback. Gateway bootstrap wires
 resource route existence/kind validation for Create/Update under the same lock;
 validation and deletion callbacks must not reenter Manager mutations.
+
+When composed by AgentGateway, ordinary definition writes, Refresh and Recommit
+enter application coordination after acquiring writeMu. Do not invert this
+order in route callbacks or credential listeners. The coordinator validates
+direct route deletions against both persisted Agent references and the retained
+definition generation; this preserves protection during failed readback.
 The fallback attribution index contains MCP references only. Per-Agent usage
 uses durable identity; only untagged exclusive MCP history may use route fallback.
 

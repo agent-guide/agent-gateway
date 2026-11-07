@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 )
 
@@ -26,6 +27,7 @@ type Manager struct {
 	store                  configstore.ConfigStore
 	routeLookup            AgentRouteLookup
 	validateResourceRoutes func(context.Context, Routes) error
+	guard                  configmgr.MutationGuard[Agent]
 
 	// writeMu serializes the validate -> prospective-generation ->
 	// store-write -> generation-commit sequence so the P0
@@ -47,8 +49,9 @@ type Manager struct {
 	byRoute map[string]string // exclusive MCP route id -> agent id
 }
 
-func NewManager(store configstore.ConfigStore) *Manager {
+func NewManager(store configstore.ConfigStore, guards ...configmgr.MutationGuard[Agent]) *Manager {
 	return &Manager{
+		guard:    configmgr.SelectMutationGuard(guards),
 		store:    store,
 		snapshot: map[string]Agent{},
 		byRoute:  map[string]string{},
@@ -156,6 +159,10 @@ func (m *Manager) Create(ctx context.Context, a Agent) error {
 	}
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
+	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationCreate, a.ID, &a, func(ctx context.Context) error { return m.createLocked(ctx, a) })
+}
+
+func (m *Manager) createLocked(ctx context.Context, a Agent) error {
 	a.Normalize()
 	if err := a.Validate(); err != nil {
 		return err
@@ -202,6 +209,10 @@ func (m *Manager) Update(ctx context.Context, id string, a Agent) error {
 	}
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
+	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationUpdate, id, &a, func(ctx context.Context) error { return m.updateLocked(ctx, id, a) })
+}
+
+func (m *Manager) updateLocked(ctx context.Context, id string, a Agent) error {
 	current, err := m.Get(ctx, id)
 	if err != nil {
 		return err
@@ -254,6 +265,10 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	}
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
+	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationDelete, id, nil, func(ctx context.Context) error { return m.deleteLocked(ctx, id) })
+}
+
+func (m *Manager) deleteLocked(ctx context.Context, id string) error {
 	if m.routeLookup != nil {
 		routeIDs, err := m.routeLookup.AgentRouteIDsForAgent(ctx, id)
 		if err != nil {
@@ -309,7 +324,7 @@ func (m *Manager) Refresh(ctx context.Context) error {
 	}
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
-	return m.refreshLocked(ctx)
+	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationRefresh, "", nil, m.refreshLocked)
 }
 
 // refreshLocked replaces the current definition generation from the store.
@@ -345,6 +360,10 @@ func (m *Manager) Recommit(ctx context.Context) error {
 	}
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
+	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationRefresh, "", nil, m.recommitLocked)
+}
+
+func (m *Manager) recommitLocked(ctx context.Context) error {
 	m.snapMu.RLock()
 	loaded := m.snapshotLoaded
 	m.snapMu.RUnlock()

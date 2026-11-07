@@ -63,7 +63,8 @@ type BootstrapOptions struct {
 }
 
 type AgentGateway struct {
-	mu sync.RWMutex
+	control *controlPlane
+	mu      sync.RWMutex
 
 	extensions          *extension.Manager
 	distribution        distribution.Assembly
@@ -112,6 +113,7 @@ func NewAgentGateway() *AgentGateway {
 func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.control = &controlPlane{backend: opts.ConfigStoreBackend, credentials: opts.CredentialManager}
 
 	var extensionManager *extension.Manager
 	if opts.ExtensionRegistry != nil {
@@ -158,6 +160,9 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 		return err
 	}
 	g.credentialManager = opts.CredentialManager
+	if g.credentialManager != nil {
+		g.credentialManager.SetMutationGuard(g.control.credentialMutation)
+	}
 	g.credentialScheduler = opts.CredentialScheduler
 	if opts.UsageObserver != nil {
 		g.usageObserver = opts.UsageObserver
@@ -585,7 +590,8 @@ func (g *AgentGateway) configureRouteResolver(ctx context.Context, configStoreBa
 			return fmt.Errorf("get llm route store: %w", err)
 		}
 	}
-	g.routeConfigManager = routecore.NewAgentRouteConfigManager(routeStore)
+	g.routeConfigManager = routecore.NewAgentRouteConfigManager(routeStore, g.control.routeMutation)
+	g.control.routes = g.routeConfigManager
 	if err := g.routeConfigManager.InitStaticRoutes(staticRoutes); err != nil {
 		return fmt.Errorf("load static route configs: %w", err)
 	}
@@ -625,13 +631,14 @@ func (g *AgentGateway) configureAgentManager(ctx context.Context, configStoreBac
 	if err != nil {
 		return err
 	}
-	manager := agentpkg.NewManager(store)
+	manager := agentpkg.NewManager(store, g.control.agentMutation)
 	manager.SetRouteLookup(agentRouteLookup{agent: g.agentRouteResolver})
 	manager.SetResourceRouteValidator(g.validateAgentResourceRoutes)
 	if err := manager.Refresh(ctx); err != nil {
 		return fmt.Errorf("load agents: %w", err)
 	}
 	g.agentManager = manager
+	g.control.agents = manager
 	if g.agentRouteResolver != nil {
 		g.agentRouteResolver.SetAgentLookup(manager)
 	}
@@ -753,11 +760,12 @@ func (g *AgentGateway) configureProviderResolver(ctx context.Context, configStor
 		}
 	}
 
-	providerManager := NewProviderManager(providerStore)
+	providerManager := NewProviderManager(providerStore, g.control.providerMutation)
 	if err := providerManager.InitStaticProviders(staticProviders); err != nil {
 		return fmt.Errorf("init static providers: %w", err)
 	}
 	g.providerManager = providerManager
+	g.control.providers = providerManager
 	return nil
 }
 
@@ -775,7 +783,9 @@ func (g *AgentGateway) configureModelCatalog(ctx context.Context, configStoreBac
 			return fmt.Errorf("get model store: %w", err)
 		}
 	}
-	g.modelCatalog = modelcatalog.NewService(modelStore, g.providerManager, logger)
+	g.modelCatalog = modelcatalog.NewService(modelStore, g.providerManager, logger, g.control.modelMutation)
+	g.control.models = g.modelCatalog
+	g.control.modelStore = modelStore
 	return nil
 }
 

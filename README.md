@@ -31,6 +31,9 @@ outer `target_policy.provider_id` must be explicitly converted before loading.
 Agent budgets are not enforced. Non-null `policy.budget` values are rejected;
 explicitly remove existing budgets before loading the configuration.
 
+Provider deletion requires detaching LLM routes and removing/rebinding its
+credentials. Its ManagedModels are cleaned up in the same SQLite transaction.
+
 ## Try it without a provider key
 
 The shortest supported evaluation path needs Docker Engine with Compose v2,

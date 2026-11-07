@@ -13,6 +13,13 @@ carry access/refresh token material and request-time refresh metadata.
 Credential type is immutable after creation: Admin updates may omit `type` or
 repeat the existing type, but must reject attempts to convert a credential.
 
+Composed-manager ownership writes use the gateway's application mutation guard.
+Provider credentials require an existing matching Provider and block Provider
+deletion until explicitly removed/rebound; credentials are never cascade-deleted.
+Persist credential deletion before removing its runtime entry or notifying
+listeners. Failed deletion must leave both selection state and listener state
+intact. HTTP Agent credential deletion remains an allowed revocation.
+
 HTTP Agent execution reuses this store rather than creating a second secret
 model. Its P0 upstream credentials use the dedicated non-provider scope
 `http-agent:<agent-id>` and leave `provider_type` / `provider_id`

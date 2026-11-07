@@ -502,10 +502,16 @@ HTTP admin request
 
 This is why the project can support operational changes without treating the Caddyfile as the only mutable state.
 
-Cross-resource checks currently span several managers and Admin handlers. This
-flow does not imply an atomic transaction across Provider deletion, route
-references and managed-model cleanup. Persistence and snapshot publication are
-separate operations; individual managers define their failure behavior.
+The application coordinator in `pkg/gateway/controlplane.go` attaches mutation
+guards to composed managers, so direct calls, Admin and Bundle use the same
+reference checks. It serializes Provider/Route/model and credential ownership
+mutations; Agent mutation acquires its own write lock before coordination.
+Provider deletion rejects remaining LLM routes and Provider credentials and
+removes the Provider plus all of its ManagedModels in one SQLite transaction.
+Readback precedes commit; cache retirement follows commit and fences in-flight
+model discovery. Backends without transactions cannot perform this atomic
+deletion. Persistence and runtime snapshot publication remain separate facts;
+the Agent post-write readback recovery behavior still has its own contract.
 
 Offline recovery is separate from serving: `internal/configrepair`, exposed
 through `scripts/repair-architecture-config`, inspects raw SQLite records and

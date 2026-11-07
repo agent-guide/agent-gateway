@@ -38,6 +38,17 @@ Runtime route matching uses the in-memory manager snapshot. Bootstrap and
 route manager create/update/delete/refresh keep that snapshot populated; do not
 reintroduce per-request config-store `List` calls for matching.
 
+`controlplane.go` composes manager mutation guards. Provider/Route/model and
+credential ownership writes serialize under its process-local lock; Agent
+mutations acquire their write lock first, then coordination, then any route
+write lock. Never acquire the Agent mutation lock under coordination. Direct
+composed-manager calls have the same reference checks as Admin/Bundle.
+Provider deletion blocks all LLM route and Provider-credential references,
+including disabled entries, and deletes its ManagedModels in one SQLite
+transaction with readback before cache retirement. Unsupported transactions
+fail explicitly. Agent Resources declarations are retained as management links;
+HTTP credential revocation remains allowed and fails closed at live lookup.
+
 `routecore.ValidateRouteConfigs` rejects equal-score intersections across all
 kinds and static/dynamic routes. Disabled routes reserve space. A2A's effective
 match accepts all methods while scoring uses declared methods. Route mutations

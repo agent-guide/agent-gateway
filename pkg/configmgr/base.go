@@ -103,6 +103,14 @@ func (m *BaseConfigManager[T]) GetCached(id string) (T, bool) {
 	return item, ok
 }
 
+// Evict forgets a record after an application-owned transaction has committed
+// its deletion. It does not issue another persistence write.
+func (m *BaseConfigManager[T]) Evict(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.dynamic, id)
+}
+
 func (m *BaseConfigManager[T]) Get(ctx context.Context, id string) (T, error) {
 	var zero T
 	if id == "" {

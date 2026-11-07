@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"go.uber.org/zap"
@@ -38,22 +39,29 @@ type service struct {
 	store       configstore.ConfigStore
 	providerMgr providerResolver
 	snapshots   map[string][]ProviderModelSnapshot
+	epochs      map[string]uint64
 	logger      *zap.Logger
+	guard       configmgr.MutationGuard[ManagedModel]
 }
 
-func NewService(store configstore.ConfigStore, providerMgr providerResolver, logger *zap.Logger) Service {
+func NewService(store configstore.ConfigStore, providerMgr providerResolver, logger *zap.Logger, guards ...configmgr.MutationGuard[ManagedModel]) Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &service{
+		guard:       configmgr.SelectMutationGuard(guards),
 		store:       store,
 		providerMgr: providerMgr,
 		snapshots:   map[string][]ProviderModelSnapshot{},
+		epochs:      map[string]uint64{},
 		logger:      logger,
 	}
 }
 
 func (s *service) RefreshProvider(ctx context.Context, providerID string) error {
+	s.mu.RLock()
+	epoch := s.epochs[providerID]
+	s.mu.RUnlock()
 	if s.providerMgr == nil {
 		s.logger.Error("provider model discovery cannot run without provider manager",
 			zap.String("provider_id", providerID))
@@ -107,9 +115,27 @@ func (s *service) RefreshProvider(ctx context.Context, providerID string) error 
 			zap.Int("model_count", len(models)))
 	}
 	s.mu.Lock()
+	if s.epochs[providerID] != epoch {
+		s.mu.Unlock()
+		return fmt.Errorf("provider %q discovery generation was retired", providerID)
+	}
 	s.snapshots[providerID] = snapshots
 	s.mu.Unlock()
 	return err
+}
+
+// InvalidateProvider retires discovery state after a committed Provider change.
+// In-flight discovery may finish but cannot republish the retired generation.
+func InvalidateProvider(svc Service, id string) {
+	if s, ok := svc.(*service); ok {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.epochs == nil {
+			s.epochs = map[string]uint64{}
+		}
+		s.epochs[id]++
+		delete(s.snapshots, id)
+	}
 }
 
 func (s *service) ListProviderSnapshots(ctx context.Context, providerID string) ([]ProviderModelSnapshot, error) {
@@ -182,6 +208,10 @@ func (s *service) GetResolvedManagedModel(ctx context.Context, providerID string
 }
 
 func (s *service) CreateManagedModel(ctx context.Context, model ManagedModel) error {
+	return configmgr.GuardMutation(s.guard, ctx, configmgr.MutationCreate, model.ProviderID, &model, func(ctx context.Context) error { return s.createManagedModel(ctx, model) })
+}
+
+func (s *service) createManagedModel(ctx context.Context, model ManagedModel) error {
 	model.Normalize()
 	if model.ProviderID == "" || model.UpstreamModel == "" {
 		return fmt.Errorf("provider_id and upstream_model are required")
@@ -193,6 +223,10 @@ func (s *service) CreateManagedModel(ctx context.Context, model ManagedModel) er
 }
 
 func (s *service) UpdateManagedModel(ctx context.Context, model ManagedModel) error {
+	return configmgr.GuardMutation(s.guard, ctx, configmgr.MutationUpdate, model.ProviderID, &model, func(ctx context.Context) error { return s.updateManagedModel(ctx, model) })
+}
+
+func (s *service) updateManagedModel(ctx context.Context, model ManagedModel) error {
 	model.Normalize()
 	if model.ProviderID == "" || model.UpstreamModel == "" {
 		return fmt.Errorf("provider_id and upstream_model are required")
@@ -204,6 +238,10 @@ func (s *service) UpdateManagedModel(ctx context.Context, model ManagedModel) er
 }
 
 func (s *service) DeleteManagedModel(ctx context.Context, providerID string, upstreamModel string) error {
+	return configmgr.GuardMutation(s.guard, ctx, configmgr.MutationDelete, providerID, nil, func(ctx context.Context) error { return s.deleteManagedModel(ctx, providerID, upstreamModel) })
+}
+
+func (s *service) deleteManagedModel(ctx context.Context, providerID string, upstreamModel string) error {
 	if s.store == nil {
 		return fmt.Errorf("model store is not configured")
 	}

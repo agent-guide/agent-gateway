@@ -1,5 +1,12 @@
 # Unreleased
 
+- Provider deletion and ManagedModel cleanup now commit together in SQLite.
+  All composed-manager write entry points, including direct calls and Bundle,
+  enforce Provider/Route/model references. Provider credentials also block their
+  Provider's deletion and are never cascade-deleted. Agent resource declarations
+  remain management links; HTTP credential revocation remains allowed. Failed
+  credential deletion no longer removes runtime selection state prematurely.
+
 - Non-null Agent `policy.budget` is rejected, including empty and all-zero
   objects, because budgets are not enforced. Stored records can prevent startup;
   remove them explicitly through offline recovery. Null/absent values remain

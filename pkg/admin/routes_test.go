@@ -650,7 +650,7 @@ func (s *testVirtualKeyStore) GetByIndex(_ context.Context, indexName string, va
 }
 
 func TestLLMRouteCRUD(t *testing.T) {
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{providerStore: providerFixtures("openai"),
 		routeStore: &testRouteStore{items: map[string]*routecore.AgentRouteConfig{}},
 	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
@@ -826,7 +826,7 @@ func TestLegacyRuntimeAdminSurfacesAreNotRegistered(t *testing.T) {
 func TestLLMRouteUpdatePreservesCreatedAt(t *testing.T) {
 	createdAt := time.Now().UTC().Add(-time.Hour).Round(0)
 	updatedAt := createdAt
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{providerStore: providerFixtures("openai", "anthropic"),
 		routeStore: &testRouteStore{items: map[string]*routecore.AgentRouteConfig{
 			"chat-prod": mustRouteConfig(t, llmroutepkg.LLMRoute{
 				AgentRouteConfig: llmroutepkg.AgentRouteConfig{
@@ -1565,10 +1565,10 @@ func TestLLMApiHandlerTypeList(t *testing.T) {
 }
 
 func TestLLMRouteEnableDisable(t *testing.T) {
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{providerStore: providerFixtures("openai"),
 		routeStore: &testRouteStore{items: map[string]*routecore.AgentRouteConfig{
 			"chat-prod": mustRouteConfig(t, llmroutepkg.LLMRoute{
-				AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-prod"},
+				AgentRouteConfig: llmroutepkg.AgentRouteConfig{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
 				TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
 					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
 				},
@@ -1982,10 +1982,32 @@ func TestProviderDeleteRemovesManagedModelsForProvider(t *testing.T) {
 			Enabled:       true,
 		},
 	}}
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		providerStore: providerStore,
-		modelStore:    modelStore,
-	}, nil, nil, nil, nil), nil)
+	creator, err := configstoresqlite.Open(t.Context(), configstoresqlite.Config{SQLitePath: t.TempDir() + "/config.db"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := creator.UsageDB().DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	backend := configstore.NewBackend(creator)
+	if err := configstoreschema.RegisterDefaultStores(backend); err != nil {
+		t.Fatal(err)
+	}
+	providers, _ := backend.Get(configstoreschema.StoreProviders)
+	models, _ := backend.Get(configstoreschema.StoreManagedModels)
+	for _, item := range providerStore.items {
+		if err := providers.Create(t.Context(), item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, item := range modelStore.items {
+		if err := models.Create(t.Context(), item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	handler := NewHandler(newTestAgentGateway(backend, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	req := httptest.NewRequest(http.MethodDelete, "/admin/llm/providers/openai-main", nil)
@@ -1996,16 +2018,16 @@ func TestProviderDeleteRemovesManagedModelsForProvider(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("unexpected delete status: got %d want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	if _, ok := providerStore.items["openai-main"]; ok {
+	if _, err := providers.Get(t.Context(), "openai-main"); !errors.Is(err, configstore.ErrNotFound) {
 		t.Fatal("provider openai-main was not deleted")
 	}
-	if _, ok := modelStore.items["openai-main\x00gpt-4.1"]; ok {
+	if _, err := models.Get(t.Context(), "openai-main", "gpt-4.1"); !errors.Is(err, configstore.ErrNotFound) {
 		t.Fatal("managed model openai-main/gpt-4.1 was not deleted")
 	}
-	if _, ok := modelStore.items["openai-main\x00gpt-4.1-mini"]; ok {
+	if _, err := models.Get(t.Context(), "openai-main", "gpt-4.1-mini"); !errors.Is(err, configstore.ErrNotFound) {
 		t.Fatal("managed model openai-main/gpt-4.1-mini was not deleted")
 	}
-	if _, ok := modelStore.items["deepseek-main\x00deepseek-v4-pro"]; !ok {
+	if _, err := models.Get(t.Context(), "deepseek-main", "deepseek-v4-pro"); err != nil {
 		t.Fatal("managed model for another provider was deleted")
 	}
 }
@@ -2287,7 +2309,7 @@ func TestManagedModelViewIncludesResolvedAndSnapshotFields(t *testing.T) {
 
 func TestCreateManagedModelUsesStoreCreate(t *testing.T) {
 	store := &testModelStore{}
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{modelStore: store}, nil, nil, nil, nil), nil)
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{providerStore: providerFixtures("openai-main"), modelStore: store}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body := bytes.NewBufferString(`{"provider_id":"openai-main","upstream_model":"gpt-4.1","enabled":true}`)
@@ -2315,7 +2337,7 @@ func TestUpdateManagedModelUsesStoreUpdate(t *testing.T) {
 			},
 		},
 	}
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{modelStore: store}, nil, nil, nil, nil), nil)
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{providerStore: providerFixtures("openai-main"), modelStore: store}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body := bytes.NewBufferString(`{"enabled":true}`)
@@ -2334,7 +2356,7 @@ func TestUpdateManagedModelUsesStoreUpdate(t *testing.T) {
 }
 
 func TestUpdateManagedModelReturnsNotFoundWhenMissing(t *testing.T) {
-	handler := NewHandler(newTestAgentGateway(&testConfigStore{modelStore: &testModelStore{}}, nil, nil, nil, nil), nil)
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{providerStore: providerFixtures("openai-main"), modelStore: &testModelStore{}}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body := bytes.NewBufferString(`{"enabled":true}`)
@@ -2568,4 +2590,12 @@ func TestDeleteMCPRouteProtectsAgentReferences(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || strings.Contains(rec.Body.String(), "agent not found") {
 		t.Fatalf("deleted MCP reference update = %d %s", rec.Code, rec.Body.String())
 	}
+}
+
+func providerFixtures(ids ...string) configstore.ConfigStore {
+	items := map[string]*provider.ProviderConfig{}
+	for _, id := range ids {
+		items[id] = &provider.ProviderConfig{Id: id, ProviderType: "openai"}
+	}
+	return &testProviderConfigStore{items: items}
 }

@@ -3,6 +3,7 @@ package modelcatalog
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
@@ -48,6 +49,48 @@ func (p testProvider) Capabilities() provider.ProviderCapabilities {
 
 func (p testProvider) Config() provider.ProviderConfig {
 	return p.cfg
+}
+
+type blockingDiscoveryProvider struct {
+	testProvider
+	started, release chan struct{}
+}
+
+type retiredDiscoveryResolver struct {
+	provider provider.Provider
+	retired  atomic.Bool
+}
+
+func (r *retiredDiscoveryResolver) ResolveProvider(context.Context, string) (provider.Provider, error) {
+	if r.retired.Load() {
+		return nil, errors.New("provider removed")
+	}
+	return r.provider, nil
+}
+
+func (p blockingDiscoveryProvider) ListModels(context.Context) ([]provider.ModelInfo, error) {
+	close(p.started)
+	<-p.release
+	return []provider.ModelInfo{{ID: "old"}}, nil
+}
+
+func TestInvalidationPreventsLateDiscoveryPublication(t *testing.T) {
+	p := blockingDiscoveryProvider{testProvider: testProvider{cfg: provider.ProviderConfig{Id: "p", ProviderType: "openai"}}, started: make(chan struct{}), release: make(chan struct{})}
+	resolver := &retiredDiscoveryResolver{provider: p}
+	svc := NewService(nil, resolver, nil)
+	done := make(chan error, 1)
+	go func() { done <- svc.RefreshProvider(t.Context(), "p") }()
+	<-p.started
+	InvalidateProvider(svc, "p")
+	resolver.retired.Store(true)
+	close(p.release)
+	if err := <-done; err == nil {
+		t.Fatal("retired discovery reported publication success")
+	}
+	snapshots, err := svc.ListProviderSnapshots(t.Context(), "p")
+	if err == nil || len(snapshots) != 0 {
+		t.Fatalf("late discovery republished deleted provider: %v, %v", snapshots, err)
+	}
 }
 
 func TestListProviderSnapshotsRefreshesOnFirstRead(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/credential/model"
 	"github.com/google/uuid"
@@ -63,6 +64,7 @@ type Manager struct {
 	creds           map[string]*ManagedCredential
 	listeners       []CredentialLifecycleListener
 	refresher       Refresher
+	guard           configmgr.MutationGuard[Credential]
 }
 
 type credentialRefreshLock struct {
@@ -81,6 +83,21 @@ func NewManager(store configstore.ConfigStore) *Manager {
 		creds: make(map[string]*ManagedCredential),
 	}
 	return m
+}
+
+// SetMutationGuard wires application coordination during host bootstrap.
+// Ownership changes use this guard; request-time secret refresh retains its
+// independent per-credential lock and cannot change credential ownership.
+func (m *Manager) SetMutationGuard(guard configmgr.MutationGuard[Credential]) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.guard = guard
+}
+
+func (m *Manager) mutationGuard() configmgr.MutationGuard[Credential] {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.guard
 }
 
 func (m *Manager) AddListener(listener CredentialLifecycleListener) {
@@ -145,6 +162,10 @@ func (m *Manager) ReloadFromStore(ctx context.Context) error {
 	if m == nil || m.store == nil {
 		return nil
 	}
+	return configmgr.GuardMutation(m.mutationGuard(), ctx, configmgr.MutationRefresh, "", nil, m.reloadFromStore)
+}
+
+func (m *Manager) reloadFromStore(ctx context.Context) error {
 	items, err := m.store.ListByTagPrefix(ctx, "")
 	if err != nil {
 		return fmt.Errorf("credential manager: reload from store: %w", err)
@@ -178,6 +199,10 @@ func (m *Manager) RegisterCredential(ctx context.Context, cred *Credential) erro
 	if cred == nil {
 		return fmt.Errorf("credential manager: credential is nil")
 	}
+	return configmgr.GuardMutation(m.mutationGuard(), ctx, configmgr.MutationCreate, cred.ID, cred, func(ctx context.Context) error { return m.registerCredential(ctx, cred) })
+}
+
+func (m *Manager) registerCredential(ctx context.Context, cred *Credential) error {
 	cred = cred.Normalize()
 	applyDefaultCredentialScope(cred)
 	if err := cred.Validate(); err != nil {
@@ -221,6 +246,10 @@ func (m *Manager) UpdateCredential(ctx context.Context, cred *Credential) error 
 	if cred == nil {
 		return fmt.Errorf("credential manager: credential is nil")
 	}
+	return configmgr.GuardMutation(m.mutationGuard(), ctx, configmgr.MutationUpdate, cred.ID, cred, func(ctx context.Context) error { return m.updateCredential(ctx, cred) })
+}
+
+func (m *Manager) updateCredential(ctx context.Context, cred *Credential) error {
 
 	cred = cred.Clone().Normalize()
 	applyDefaultCredentialScope(cred)
@@ -248,17 +277,19 @@ func (m *Manager) DeregisterCredential(ctx context.Context, id string) error {
 	if m == nil {
 		return nil
 	}
+	return configmgr.GuardMutation(m.mutationGuard(), ctx, configmgr.MutationDelete, id, nil, func(ctx context.Context) error { return m.deregisterCredential(ctx, id) })
+}
+
+func (m *Manager) deregisterCredential(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return fmt.Errorf("credential manager: id is empty")
 	}
 
-	m.mu.Lock()
+	m.mu.RLock()
 	cred := m.creds[id]
 	_, ok := m.creds[id]
-	delete(m.creds, id)
-	m.mu.Unlock()
-	m.clearRefreshFailure(id)
+	m.mu.RUnlock()
 	if !ok {
 		return nil
 	}
@@ -268,6 +299,10 @@ func (m *Manager) DeregisterCredential(ctx context.Context, id string) error {
 			return fmt.Errorf("credential manager: delete from store: %w", err)
 		}
 	}
+	m.mu.Lock()
+	delete(m.creds, id)
+	m.mu.Unlock()
+	m.clearRefreshFailure(id)
 	if cred != nil {
 		m.notifyDeregistered(ctx, cred)
 	}

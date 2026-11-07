@@ -205,6 +205,12 @@ Cross-cutting invariants:
   Agent mutation lock through deletion. Agent writes validate resource route
   existence and kind under that lock; write-time route fallback is MCP-only.
 
+- composed managers share the control-plane coordinator for reference checks
+  and writes, including direct callers and Bundle. Lock order is Agent writeMu,
+  coordinator, Route writeMu, then local store/cache locks. Provider deletion
+  blocks LLM routes and Provider credentials and atomically removes its
+  ManagedModels; no sequential fallback or secret cascade is permitted.
+
 - dependency direction: `pkg/agent` composes the LLM/MCP/ACP/metrics surfaces; the lower protocol packages (`pkg/llm`, `pkg/mcp`, `pkg/acp`, `pkg/a2a`) must not depend on `pkg/agent`
 - no config-store reads in per-request hot paths (provider resolution, route matching); manager snapshots are refreshed on mutation
 - route publication rejects equal-score intersecting matches across all kinds
