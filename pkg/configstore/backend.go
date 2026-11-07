@@ -18,14 +18,16 @@ var (
 type Backend struct {
 	creator ConfigStoreCreator
 
-	mu     sync.RWMutex
-	stores map[string]ConfigStore
+	mu      sync.RWMutex
+	stores  map[string]ConfigStore
+	schemas map[string]StoreSchema
 }
 
 func NewBackend(creator ConfigStoreCreator) *Backend {
 	return &Backend{
 		creator: creator,
 		stores:  make(map[string]ConfigStore),
+		schemas: make(map[string]StoreSchema),
 	}
 }
 
@@ -53,6 +55,7 @@ func (b *Backend) Register(name string, storeSchema StoreSchema) error {
 		return err
 	}
 	b.stores[name] = store
+	b.schemas[name] = cloneSchema(storeSchema)
 	return nil
 }
 

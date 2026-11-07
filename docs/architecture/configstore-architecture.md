@@ -4,6 +4,14 @@
 
 This document describes the current `pkg/configstore/` architecture and the technical contract for persisted gateway configuration.
 
+An optional `TransactionalBackend` capability executes a callback with stores
+for a fixed set of registered schemas. `Backend.Transaction` delegates to a
+`TransactionalCreator`; SQLite binds those stores to one transaction without
+schema migration. Callback/readback failure rolls back the complete batch.
+Runtime publication remains the caller's responsibility after successful commit.
+Unsupported backends return `ErrTransactionsUnsupported` and never perform a
+sequential fallback. The existing generic store/backend interfaces are unchanged.
+
 It covers:
 
 - the generic config store interfaces

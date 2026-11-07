@@ -33,6 +33,20 @@ func TestBackendGetUnknownStore(t *testing.T) {
 	}
 }
 
+func TestBackendTransactionsNeverFallBackToSequentialWrites(t *testing.T) {
+	backend := configstore.NewBackend(fakeConfigStoreCreator{store: fakeConfigStore{}})
+	if err := backend.Register(schema.StoreProviders, schema.ProviderConfigSchema); err != nil {
+		t.Fatal(err)
+	}
+	err := backend.Transaction(context.Background(), []string{schema.StoreProviders}, func(map[string]configstore.ConfigStore) error {
+		t.Fatal("unsupported backend invoked callback")
+		return nil
+	})
+	if !errors.Is(err, configstore.ErrTransactionsUnsupported) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestBackendRegisterDuplicateStore(t *testing.T) {
 	backend := configstore.NewBackend(fakeConfigStoreCreator{store: fakeConfigStore{}})
 	if err := backend.Register(schema.StoreProviders, schema.ProviderConfigSchema); err != nil {

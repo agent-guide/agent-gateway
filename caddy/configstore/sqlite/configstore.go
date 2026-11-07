@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"path/filepath"
 
 	"github.com/caddyserver/caddy/v2"
@@ -69,6 +70,16 @@ func (s *SQLiteConfigStoreBackend) Register(name string, storeSchema configstore
 
 func (s *SQLiteConfigStoreBackend) Get(name string) (configstore.ConfigStore, error) {
 	return s.backend.Get(name)
+}
+
+// Transaction preserves the optional backend capability through the Caddy
+// module boundary, including the same schema-bound stores and rollback rules.
+func (s *SQLiteConfigStoreBackend) Transaction(ctx context.Context, names []string, apply func(map[string]configstore.ConfigStore) error) error {
+	backend, ok := s.backend.(configstore.TransactionalBackend)
+	if !ok {
+		return configstore.ErrTransactionsUnsupported
+	}
+	return backend.Transaction(ctx, names, apply)
 }
 
 func (s *SQLiteConfigStoreBackend) UsageDB() *gorm.DB {

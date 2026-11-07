@@ -31,6 +31,13 @@ Current persisted backend:
 
 - `sqlite`
 
+`TransactionalBackend` is optional; existing ConfigStore/Backend interfaces do
+not change. `Backend.Transaction` binds requested registered schemas through a
+`TransactionalCreator`. SQLite supplies stores on one transaction without
+migrations. Callback failure rolls back all writes. Publish runtime snapshots
+only after commit, never retain transaction stores, and never substitute
+sequential writes when transactions are unsupported.
+
 `internal/configrepair` and `scripts/repair-architecture-config` provide offline
 raw-record inspection and repair without schema registration or data-plane
 startup. Repairs require stopped services, back up committed SQLite contents,
