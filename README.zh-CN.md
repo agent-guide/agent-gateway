@@ -24,6 +24,9 @@ Code 和 MCP 的入口。
 无需启动 Admin 的离线配置检查与显式修复流程，参见
 [配置恢复指南](docs/guides/architecture-config-recovery.md)。
 
+LLM 直连目标仅使用 `target_policy.provider_target.provider_id`；已移除的外层
+`target_policy.provider_id` 必须在加载前显式转换。
+
 ## 无需模型 Provider Key 即可试用
 
 最短的受支持验证路径只需要安装带 Compose v2 的 Docker Engine、`curl` 和

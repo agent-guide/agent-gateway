@@ -95,7 +95,6 @@ type RouteLogicalModelTargetPolicy struct {
 
 type RouteDirectProviderPolicy struct {
 	RouteTargetPolicyCommon
-	ProviderID     string               `json:"provider_id,omitempty"`
 	ProviderTarget DirectProviderTarget `json:"provider_target,omitempty"`
 }
 
@@ -339,7 +338,6 @@ func (p RouteDirectProviderPolicy) MarshalJSON() ([]byte, error) {
 	p.Normalize()
 	type directJSON struct {
 		Type                 RouteTargetPolicyKind         `json:"type,omitempty"`
-		ProviderID           string                        `json:"provider_id,omitempty"`
 		CredentialSelector   RouteCredentialSelectStrategy `json:"credential_selector,omitempty"`
 		CredentialScopeOrder []RouteCredentialScope        `json:"credential_scope_order,omitempty"`
 		CredentialTypeOrder  []RouteCredentialType         `json:"credential_type_order,omitempty"`
@@ -347,7 +345,6 @@ func (p RouteDirectProviderPolicy) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(directJSON{
 		Type:                 p.PolicyKind(),
-		ProviderID:           p.ProviderID,
 		CredentialSelector:   p.CredentialSelector(),
 		CredentialScopeOrder: p.CredentialScopeOrder(),
 		CredentialTypeOrder:  p.CredentialTypeOrder(),
@@ -359,9 +356,11 @@ func unmarshalRouteTargetPolicy(data []byte) (RouteTargetPolicy, error) {
 	if len(data) == 0 || string(data) == "null" {
 		return nil, nil
 	}
+	if err := routecore.ValidateLLMTargetFields("", data); err != nil {
+		return nil, err
+	}
 	var probe struct {
 		Type           RouteTargetPolicyKind `json:"type,omitempty"`
-		ProviderID     string                `json:"provider_id,omitempty"`
 		ProviderTarget DirectProviderTarget  `json:"provider_target,omitempty"`
 		ModelTargets   []RouteModelTarget    `json:"model_targets,omitempty"`
 	}
@@ -371,7 +370,7 @@ func unmarshalRouteTargetPolicy(data []byte) (RouteTargetPolicy, error) {
 	kind := probe.Type
 	if kind == "" {
 		switch {
-		case strings.TrimSpace(probe.ProviderID) != "" || strings.TrimSpace(probe.ProviderTarget.ProviderID) != "":
+		case strings.TrimSpace(probe.ProviderTarget.ProviderID) != "":
 			kind = RouteTargetPolicyKindDirectProvider
 		case len(probe.ModelTargets) > 0:
 			kind = RouteTargetPolicyKindLogicalModel
@@ -397,6 +396,19 @@ func unmarshalRouteTargetPolicy(data []byte) (RouteTargetPolicy, error) {
 	default:
 		return nil, fmt.Errorf("unknown route target policy kind %q", kind)
 	}
+}
+
+func (p *RouteDirectProviderPolicy) UnmarshalJSON(data []byte) error {
+	if err := routecore.ValidateLLMTargetFields("", data); err != nil {
+		return err
+	}
+	type policyJSON RouteDirectProviderPolicy
+	var value policyJSON
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*p = RouteDirectProviderPolicy(value)
+	return nil
 }
 
 // Normalize fills defaults on a route config value before it is used.

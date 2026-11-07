@@ -399,10 +399,11 @@ an Agent whose runtime definition chooses ACP, builtin, or HTTP execution.
 
 LLM `RouteTargetPolicy` implementations own credential selection and, for
 logical-model routes, allowed target names, candidate selection and fallback.
-The direct policy currently contains both `ProviderID` and
-`ProviderTarget.ProviderID`: normalization fills a missing value from the other,
-but execution reads the outer `ProviderID`. Conflicting nonempty values are not
-a safe representation to rely on. Logical targets carry `ModelTargets` instead.
+The direct policy stores only `ProviderTarget.ProviderID`, serialized as
+`target_policy.provider_target.provider_id`. The removed outer policy
+`provider_id` is explicitly rejected at decoding and publication boundaries.
+Existing data requires explicit offline conversion; conflicting old values
+require an operator-selected target. Logical targets carry `ModelTargets` instead.
 
 Routes do not define a general timeout, retry, quota, or rate-limit policy.
 Provider network configuration owns upstream timeouts and retry settings;

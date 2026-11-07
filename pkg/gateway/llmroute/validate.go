@@ -71,8 +71,8 @@ func (c RouteTargetPolicyCommon) validateCredentialPolicy(routeID string) error 
 
 func (p *RouteDirectProviderPolicy) ValidateDefinition(routeID string) error {
 	p.Normalize()
-	if p.ProviderID == "" {
-		return fmt.Errorf("route %q target_policy.provider_id is required", routeID)
+	if p.ProviderTarget.ProviderID == "" {
+		return fmt.Errorf("route %q target_policy.provider_target.provider_id is required", routeID)
 	}
 	if err := p.RouteTargetPolicyCommon.validateCredentialPolicy(routeID); err != nil {
 		return err

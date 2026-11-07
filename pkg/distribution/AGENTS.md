@@ -31,6 +31,10 @@ Public signatures and their required transitive types must not expose Community
 Run `make test-extension-consumer` when changing this boundary; root `go test
 ./...` alone cannot discover the separately rooted consumer module.
 
+LLM direct targets render and export the canonical
+`target_policy.provider_target.provider_id` only. Old outer provider fields are
+errors, not CLI fallback inputs; offline conversion lives outside command trees.
+
 `AttributeKeys`, `AttributionProducer` and `EventSinks` are explicit code-owned
 runtime inputs, excluded from manifests. Clone owns mutable slices; callbacks
 remain distribution-owned. Sink factories create fresh instances for each server

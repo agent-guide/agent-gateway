@@ -23,6 +23,12 @@ interface implementation name. Direct targets use
 `fallback`. See the [logical routing guide](../guides/logical-model-routing.md)
 for the complete dynamic configuration workflow.
 
+The direct policy has no outer `provider_id` member. Decoding explicitly rejects
+that removed field even if it is empty, null, or agrees with the inner value.
+Runtime accessors and exports use the inner value only. Existing records require
+explicit offline conversion before startup; the converter classifies original
+raw JSON and refuses conflicting provider values rather than choosing one.
+
 ## Resolution
 
 Route matching uses path-prefix length, host specificity, then method

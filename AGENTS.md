@@ -262,6 +262,9 @@ Important current directives:
 - LLM routes use `protocol <openai|anthropic|cc>`, MCP routes use `protocol mcp`, and Agent ingress routes use `protocol agent` or `protocol a2a` (HTTP Agent native Path A; see `docs/design/http-agent-runtime.md`)
 - `agent_route_dispatcher` uses `llm_api <name>`, `mcp`, and `agent`
 - auth uses `virtualkey`, not `local_api_key`
+- direct-provider targets store only `target_policy.provider_target.provider_id`;
+  the removed outer `target_policy.provider_id` is rejected, including empty or
+  null values. Convert existing data explicitly with the offline recovery tool.
 
 ## Admin API Notes
 

@@ -15,11 +15,21 @@ func ValidateRouteConfigs(routes []AgentRouteConfig) error {
 	errs := RouteConflicts(routes)
 	ids := map[string]bool{}
 	var duplicates []string
+	var targetErrors []error
 	for _, r := range routes {
+		if r.Kind == RouteKindLLM {
+			if err := ValidateLLMTargetFields(r.ID, r.TargetPolicy); err != nil {
+				targetErrors = append(targetErrors, err)
+			}
+		}
 		if ids[r.ID] {
 			duplicates = append(duplicates, r.ID)
 		}
 		ids[r.ID] = true
+	}
+	if len(targetErrors) > 0 {
+		sort.Slice(targetErrors, func(i, j int) bool { return targetErrors[i].Error() < targetErrors[j].Error() })
+		return errors.Join(targetErrors...)
 	}
 	sort.Strings(duplicates)
 	for _, id := range duplicates {

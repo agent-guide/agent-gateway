@@ -25,6 +25,9 @@ is not an Agent framework or a durable workflow engine.
 For offline configuration inspection and explicit repairs without Admin, see
 [configuration recovery](docs/guides/architecture-config-recovery.md).
 
+LLM direct targets use `target_policy.provider_target.provider_id`; the removed
+outer `target_policy.provider_id` must be explicitly converted before loading.
+
 ## Try it without a provider key
 
 The shortest supported evaluation path needs Docker Engine with Compose v2,

@@ -170,3 +170,22 @@ func TestRouteReadsCannotMutatePublishedConfiguration(t *testing.T) {
 		t.Fatalf("read mutated generation: %v, %v", again, err)
 	}
 }
+
+func TestRemovedTargetFieldRejectedBeforePublication(t *testing.T) {
+	ctx := context.Background()
+	store := &mutationRouteStore{testRouteStore{items: map[string]*AgentRouteConfig{}}}
+	m := NewAgentRouteConfigManager(store)
+	r := AgentRouteConfig{ID: "a", Kind: RouteKindLLM, TargetPolicy: []byte(`{"provider_id":"p"}`)}
+	if err := m.Create(ctx, r, ""); err == nil {
+		t.Fatal("removed field persisted")
+	}
+	if len(store.items) != 0 {
+		t.Fatal("invalid create wrote storage")
+	}
+	if err := m.InitStaticRoutes([]AgentRouteConfig{r}); err == nil {
+		t.Fatal("static config accepted removed field")
+	}
+	if _, err := DecodeStoredAgentRouteConfig([]byte(`{"id":"a","kind":"llm","target_policy":{"provider_id":"p"}}`)); err == nil {
+		t.Fatal("stored decoder silently ignored removed field")
+	}
+}

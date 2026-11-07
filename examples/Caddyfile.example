@@ -11,6 +11,8 @@
 # Static and dynamic routes share one match space. Equal-score intersecting
 # matches are rejected, including disabled routes; use distinct paths/hosts or
 # non-overlapping methods. Inspect old conflicts with scripts/repair-architecture-config.
+# Direct targets serialize only target_policy.provider_target.provider_id;
+# existing outer target_policy.provider_id fields require explicit conversion.
 #
 # Caddy module IDs:
 # - agent_gateway

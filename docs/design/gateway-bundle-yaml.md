@@ -21,6 +21,11 @@ and static/dynamic ties. A partial Bundle must also pass the manager's complete
 generation checks when applied against existing configuration; validating the
 file alone cannot prove that it has no conflicts with stored or static routes.
 
+LLM direct targets use only `target_policy.provider_target.provider_id`.
+Validation rejects the removed outer `target_policy.provider_id`, including an
+empty or null field; import/export retains no runtime alias. Convert old records
+or static files explicitly through the offline configuration recovery tool.
+
 The bundle design is built around these goals:
 
 - provide one declarative file format for configuration-type gateway objects

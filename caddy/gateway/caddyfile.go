@@ -561,7 +561,7 @@ func parseRouteTargetPolicy(seg *caddyfile.Dispenser, route *llmroutepkg.LLMRout
 			if len(args) != 1 {
 				return seg.ArgErr()
 			}
-			directPolicy.ProviderID = strings.Trim(args[0], "\"`")
+			directPolicy.ProviderTarget.ProviderID = strings.Trim(args[0], "\"`")
 		case "model_selector_strategy":
 			return seg.Err("model_selector_strategy may only be used in target_policy logical-model")
 		case "credential_selector":

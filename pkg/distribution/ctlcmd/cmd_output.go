@@ -517,9 +517,6 @@ func extractLLMRouteTargetID(item adminclient.LLMRoute) string {
 		return ""
 	}
 	if directPolicy, ok := llmroutepkg.DirectProviderPolicyOf(routeCfg.TargetPolicy); ok {
-		if directPolicy.ProviderID != "" {
-			return directPolicy.ProviderID
-		}
 		return directPolicy.ProviderTarget.ProviderID
 	}
 	return ""

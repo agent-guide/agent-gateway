@@ -55,14 +55,7 @@ func (p *RouteDirectProviderPolicy) Normalize() {
 		return
 	}
 	p.RouteTargetPolicyCommon.Normalize()
-	p.ProviderID = strings.TrimSpace(p.ProviderID)
 	p.ProviderTarget.ProviderID = strings.TrimSpace(p.ProviderTarget.ProviderID)
-	if p.ProviderID == "" {
-		p.ProviderID = p.ProviderTarget.ProviderID
-	}
-	if p.ProviderTarget.ProviderID == "" {
-		p.ProviderTarget.ProviderID = p.ProviderID
-	}
 }
 
 func (p *RouteDirectProviderPolicy) PolicyKind() RouteTargetPolicyKind {
@@ -71,10 +64,10 @@ func (p *RouteDirectProviderPolicy) PolicyKind() RouteTargetPolicyKind {
 
 func (p *RouteDirectProviderPolicy) ProviderIDs() []string {
 	p.Normalize()
-	if p.ProviderID == "" {
+	if p.ProviderTarget.ProviderID == "" {
 		return nil
 	}
-	return []string{p.ProviderID}
+	return []string{p.ProviderTarget.ProviderID}
 }
 
 func (p *RouteDirectProviderPolicy) CredentialSelector() RouteCredentialSelectStrategy {
@@ -95,7 +88,7 @@ func (p *RouteDirectProviderPolicy) FallbackPolicy() RouteFallbackPolicy {
 
 func (p *RouteDirectProviderPolicy) ResolveTarget(ctx context.Context, routeID string, _ ModelCatalogResolver, providers ProviderConfigResolver, req RequestRequirements) (*ResolvedTarget, error) {
 	p.Normalize()
-	providerID := p.ProviderID
+	providerID := p.ProviderTarget.ProviderID
 	credentialScope := credential.ProviderIDCredentialScope(providerID)
 	cfg, err := providers.GetConfig(ctx, providerID)
 	if err != nil {

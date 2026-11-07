@@ -87,6 +87,11 @@ Current route modes:
 - model-target mode: `target_policy.model_targets` with optional `default_model`
 - direct-provider mode: `target_policy.provider_target.provider_id`
 
+`RouteDirectProviderPolicy` holds only `ProviderTarget.ProviderID`. Do not add
+outer ProviderID aliases or dual-read normalization. Raw envelope validation,
+typed decoding, startup, mutations and Bundle reject the removed outer field;
+only the offline repair tool may classify and convert existing representations.
+
 Static config restriction:
 
 - Caddyfile routes and standalone `--static-config` bundle `llmRoutes` only support direct-provider mode

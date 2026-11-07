@@ -1,5 +1,12 @@
 # Unreleased
 
+- Direct LLM targets store only `target_policy.provider_target.provider_id`.
+  The outer `target_policy.provider_id` field and its normalization aliases have
+  been removed. All new input rejects it, including empty/null/equal duplicates.
+  Before upgrading existing data, inspect and explicitly convert it offline.
+  Conflicting old provider values require an explicit replacement; a failed
+  batch never partially converts records or silently changes upstream targets.
+
 - Route configuration rejects equal-score intersecting matches across LLM, MCP
   and Agent routes, including static/dynamic ties and disabled entries. Static
   routes no longer win equal-score matches. Overlapping method sets count as
