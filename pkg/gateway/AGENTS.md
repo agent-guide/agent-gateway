@@ -60,13 +60,17 @@ Defines the route model used by static config, the Admin API, and runtime resolu
 
 Important types:
 
-- `AgentRoute`
-- `RouteMatch`
+- `LLMRouteConfig` and `LLMRoute`
+- `RouteMatchPolicy` and `RouteAuthPolicy`
 - `RouteTargetPolicy`
 - `DirectProviderTarget`
-- `RoutePolicy`
-- `SelectionPolicy`
-- `RetryPolicy`
+- `RouteLogicalModelTargetPolicy` and `RouteDirectProviderPolicy`
+- `RouteFallbackPolicy`
+
+The shared persisted envelope is `routecore.AgentRouteConfig` for all kinds.
+There is no generic route-level timeout, retry, quota, or rate-limit policy.
+VirtualKeys own admission limits; Provider network settings own upstream
+timeouts/retries; logical-model targets own candidate fallback.
 
 Current route modes:
 

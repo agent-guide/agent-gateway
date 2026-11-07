@@ -89,7 +89,8 @@ The thin `cmd/agw`, `cmd/agwd`, and `cmd/agwctl` mains retain edition-specific
 imports and delegate to public entries under `pkg/distribution/{caddycmd,daemoncmd,ctlcmd}`.
 Both server mains supply `distribution.CommunityRuntime()` metadata, while CLI
 supplies its validation projection. These snapshots describe explicit linking;
-validated registries and runtime manifest queries are still planned.
+registries are validated at assembly, and manifests are available through the
+commands and `GET /admin/manifest`.
 Daemon and CLI constructors create fresh Cobra trees without loading dotenv.
 Their process runners load `.env.local` before `.env` with shell values taking
 precedence. Daemon signal handling is installed only when serving. Caddy delegates
@@ -153,7 +154,12 @@ separate HTTP handler module. Unified Agent handling is enabled with `agent`;
 it dispatches `protocol=agent` turns to the target Agent runtime backend and
 handles `protocol=a2a` routes through the native HTTP Agent proxy path.
 
-The runtime dispatcher in `pkg/dispatcher` does not define route policy inline. Instead, it asks the shared gateway route manager to match the HTTP request against `AgentRoute.match`, strips the matched route path prefix, selects the route's `protocol`, and resolves the matched route and target provider.
+The runtime dispatcher in `pkg/dispatcher` asks the shared gateway route manager
+to match the HTTP request against `match_policy`. It validates VirtualKey access,
+applies admission, selects the route's protocol handler and strips the matched
+path prefix. For LLM traffic, protocol parsing and request requirement derivation
+precede target and credential selection; locally served operations skip provider
+resolution.
 
 This separation is deliberate:
 
@@ -261,18 +267,17 @@ The default config store backend is `agent_gateway.config_store_backends.sqlite`
 It persists:
 
 - provider configs
-- route definitions
+- route definitions of all three kinds in one `routes` store
 - virtual keys
 - upstream provider credentials
 - managed model overlays
 - MCP service definitions
-- MCP route definitions
 - Agent definitions (including inline ACP runtime config)
-- unified Agent route definitions
+- linked-module extension envelopes
 
 SQLite is the only storage backend that is provisioned end-to-end today.
 
-The runtime storage API is schema-bound. `ConfigStoreBackend.Register(name, schema)` validates a schema, prepares storage, creates a schema-bound generic `ConfigStore`, and caches it. `ConfigStoreBackend.Get(name)` returns the cached store. The gateway registers the canonical schemas for providers, credentials, routes, virtual keys, managed models, MCP services, and Agents during startup. Generic store interfaces and schema primitives live under `pkg/configstore/`; built-in business schemas live under `pkg/configstore/schema/`.
+The runtime storage API is schema-bound. `ConfigStoreBackend.Register(name, schema)` validates a schema, prepares storage, creates a schema-bound generic `ConfigStore`, and caches it. `ConfigStoreBackend.Get(name)` returns the cached store. Startup registers `providers`, `credentials`, `routes`, `virtual_keys`, `managed_models`, `mcp_services`, `agents`, and `extensions`. Generic store interfaces and schema primitives live under `pkg/configstore/`; built-in business schemas live under `pkg/configstore/schema/`. Logical store names need not equal physical tables: managed models use `model_configs`, and credentials retain the historical `cliauth_credentials` table to preserve existing data.
 
 The config store is important for one reason beyond persistence: it allows some route and provider updates to take effect dynamically without rewriting the entire Caddy config.
 
@@ -306,11 +311,15 @@ Current status:
   - used by the HTTP Agent translating backend and native A2A ingress; see
     [http-agent-architecture.md](http-agent-architecture.md)
 - `pkg/llm/memory/`
-  - interfaces exist
-  - SQLite and Mem0-related code exists
-  - not active in normal request execution
+  - interfaces and SQLite/Mem0 backend scaffolding exist
+  - core storage, retrieval, and embedding operations are unimplemented
+  - no wired request-path storage or retrieval subsystem exists; the Admin
+    namespace remains reserved and returns 501
 
-Architecturally, MCP and ACP are active native runtime subsystems, and `pkg/agent` is the active external control plane that composes them (it does not own an agent's internal reasoning loop). Memory is still an extension subsystem.
+Architecturally, MCP and ACP are active native runtime subsystems, and `pkg/agent`
+is the active control plane that composes them. The builtin ADK host owns
+in-process execution. Memory remains an unimplemented reserved capability; its
+[design](../design/memory.md) does not describe a wired runtime subsystem.
 
 ## 5. Configuration Model
 
@@ -338,27 +347,32 @@ Static configuration lives in the global `agent_gateway` Caddyfile block:
 The parser currently supports:
 
 - `provider <provider-id>`
+- `provider_types { ... }`
 - `config_store <name>`
 - `route <id>`
 
 Static route parsing is intentionally small right now. Supported route subdirectives are:
 
-- `require_virtual_key`
-- `target provider <provider-id> [weight]`
+- `protocol`, `host`, `path_prefix`, and `method`
+- `require_virtual_key [true|false]`
+- `target provider <provider-id>`
+- `target_policy direct-provider { ... }` with provider and credential-selection settings
 
 The Go route model is richer than the current static config grammar. That mismatch is intentional: the runtime and Admin API support logical-model routes, while Caddyfile and standalone startup config only accept direct-provider routes to keep static bootstrap simpler.
 
 ### 5.2 Dynamic Persisted Configuration
 
-The config store also holds:
+The stores listed in section 4.6 hold mutable operational configuration. All
+route kinds share generic persisted envelopes keyed by route ID and tagged by
+kind/protocol. VirtualKeys are keyed by ID with a unique index on the bearer key.
 
-- provider records keyed by ID and tag
-- LLM route objects keyed by ID
-- MCP route objects keyed by ID
-- MCP service objects keyed by ID
-- virtual key objects keyed by key string
-
-When an API handler receives a request for a given `route_id`, the runtime can reload the latest stored route definition for that ID. Provider references can also resolve through persisted provider config.
+Startup refreshes manager snapshots. Requests match routes from those snapshots
+and resolve typed runtime objects through materializers. Provider configuration
+and instances are cached; manager mutations refresh cached configuration and
+invalidate affected runtime instances. Ordinary request execution does not
+reload stored records on each call. Administrative reads and explicit refresh
+operations can access persistence; direct database edits do not synchronize
+another process's in-memory state.
 
 This produces a hybrid model:
 
@@ -371,28 +385,30 @@ That is one of the core architectural decisions in the project.
 
 ### 6.1 Route Object
 
-The primary routing configuration is `pkg/gateway/llmroute.AgentRoute`.
+The generic persisted envelope is `routecore.AgentRouteConfig`, despite its
+name covering every route kind. It contains `ID`, `Kind`, `Protocol`,
+`Description`, `Disabled`, `AuthPolicy`, `MatchPolicy`, raw JSON `TargetPolicy`,
+and timestamps. The JSON fields are `auth_policy`, `match_policy`, and
+`target_policy`; there is no generic route-level `Policy` field.
 
-Important fields include:
+Typed decoding produces `llmroute.LLMRouteConfig`, `mcproute.MCPRouteConfig`,
+or `agentroute.AgentRouteConfig`; runtime resolution produces the corresponding
+`LLMRoute`, `MCPRoute`, or `AgentRoute`. LLM targets select a direct provider or
+logical-model candidates. MCP targets select a service; Agent targets select
+an Agent whose runtime definition chooses ACP, builtin, or HTTP execution.
 
-- `ID`
-- `Match`
-- `Protocol`
-- `TargetPolicy`
-- `Policy`
-- timestamps and disabled state
+LLM `RouteTargetPolicy` implementations own credential selection and, for
+logical-model routes, allowed target names, candidate selection and fallback.
+The direct policy currently contains both `ProviderID` and
+`ProviderTarget.ProviderID`: normalization fills a missing value from the other,
+but execution reads the outer `ProviderID`. Conflicting nonempty values are not
+a safe representation to rely on. Logical targets carry `ModelTargets` instead.
 
-The richer route model already supports ideas such as:
-
-- logical-model and direct-provider routing
-- route-level auth
-- allowed model restrictions
-- timeout, retry, fallback, quota, and rate-limit policy
-- caller-specific policy overrides through `VirtualKey`
-
-Only part of this model is enforced today, but the shape of the runtime data model is already defined.
-
-Current runtime resolution treats `TargetPolicy.ProviderTarget.ProviderID` as the direct-provider switch. If that field is set, the route resolves in direct-provider mode; otherwise it resolves through `TargetPolicy.ModelTargets`.
+Routes do not define a general timeout, retry, quota, or rate-limit policy.
+Provider network configuration owns upstream timeouts and retry settings;
+VirtualKeys own route access and per-kind rate-limit policies, enforced through
+the configured admission backend. Logical-model fallback belongs to the LLM
+target policy, not a generic HTTP route policy.
 
 ### 6.2 Selection and Resolution
 
@@ -409,7 +425,11 @@ Provider resolution currently combines:
 
 This allows the request path to resolve a named target provider without hard-coding the source of truth to either the Caddyfile or the database alone.
 
-Provider config `options.compact` is the current compatibility-mode selector. Supported values are `cc`, `codex`, and `none`; providers ignore compact modes they do not support.
+Provider config `options.compact` selects compatibility shaping. The parser
+recognizes `cc`, `codex`, and `none`; application and validation depend on the
+provider constructor. For example, Codex applies `cc`, Claude Code applies
+`codex`, and OpenAI validates the option without applying those profiles. This
+setting is distinct from route ingress protocol and ACP runtime type.
 
 ## 7. Data Flows
 
@@ -420,15 +440,17 @@ The standard request path is:
 ```text
 HTTP request
   -> agent_route_dispatcher
-  -> match AgentRoute by host/path prefix/method
+  -> match a generic route snapshot by host/path prefix/method
   -> validate virtual key if required
-  -> apply the VirtualKey's in-memory route-kind rate limit if configured
-  -> strip matched path prefix
+  -> apply the VirtualKey's configured route-kind admission backend
   -> select route protocol handler
-  -> resolve target provider
-  -> convert request into provider.Chat/StreamChat input
-  -> call upstream provider
-  -> translate provider response back to dialect response
+  -> strip matched path prefix and parse the protocol request
+  -> derive generic capabilities and AST-based atomic protocol requirements
+  -> serve local operations without target/provider/credential resolution
+  -> otherwise resolve eligible logical-model binding or direct-provider target
+  -> select credential and refresh expiring OAuth token when required
+  -> resolve provider instance and execute the prepared operation
+  -> write protocol JSON/SSE, including validated native relay when eligible
 ```
 
 The important design property here is that compatible ingress is separated from route policy and from provider implementation.
@@ -442,7 +464,7 @@ HTTP request
   -> agent_route_dispatcher with mcp enabled
   -> match MCPRoute by host/path prefix/method
   -> validate virtual key if required
-  -> apply the VirtualKey's in-memory MCP rate limit if configured
+  -> apply the VirtualKey's configured MCP admission backend
   -> decode JSON-RPC request
   -> register in-flight request in pkg/mcp/runtime
   -> resolve target MCP service
@@ -459,11 +481,18 @@ For a route or provider change:
 ```text
 HTTP admin request
   -> agent_gateway_admin
-  -> config store CRUD
-  -> later request path reloads latest stored record
+  -> domain manager validation and applicable reference protection
+  -> persist through the schema-bound config store
+  -> update manager snapshot and invalidate affected runtime materialization
+  -> subsequent requests resolve from the updated in-memory configuration
 ```
 
 This is why the project can support operational changes without treating the Caddyfile as the only mutable state.
+
+Cross-resource checks currently span several managers and Admin handlers. This
+flow does not imply an atomic transaction across Provider deletion, route
+references and managed-model cleanup. Persistence and snapshot publication are
+separate operations; individual managers define their failure behavior.
 
 ### 7.4 External CLI Login
 
