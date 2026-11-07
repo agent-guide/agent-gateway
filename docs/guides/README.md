@@ -4,6 +4,7 @@ This section is for task-oriented operational guides.
 
 Current pages:
 
+- [architecture-config-recovery.md](architecture-config-recovery.md)
 - [install-release.md](install-release.md)
 - [upgrade.md](upgrade.md)
 - [admin-auth.md](admin-auth.md)

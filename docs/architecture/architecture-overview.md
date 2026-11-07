@@ -494,6 +494,12 @@ flow does not imply an atomic transaction across Provider deletion, route
 references and managed-model cleanup. Persistence and snapshot publication are
 separate operations; individual managers define their failure behavior.
 
+Offline recovery is separate from serving: `internal/configrepair`, exposed
+through `scripts/repair-architecture-config`, inspects raw SQLite records and
+static configuration without bootstrap. Explicit stopped-service repair batches
+back up first, validate references and persisted readback, and commit together.
+See [configuration recovery](../guides/architecture-config-recovery.md).
+
 ### 7.4 External CLI Login
 
 ```text

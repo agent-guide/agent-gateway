@@ -60,6 +60,12 @@ must be labeled as roadmap on the pages.
 
 ## Build & Run
 
+Offline configuration inspection and explicit transactional repairs use
+`scripts/repair-architecture-config`; see
+`docs/guides/architecture-config-recovery.md`. Recovery reads raw records without
+normal startup decoding. Keep its checks aligned with route and Agent contracts;
+strict validation changes must retain a tested offline recovery path.
+
 ```bash
 # Build the main gateway binary, standalone daemon, and management CLI
 make build

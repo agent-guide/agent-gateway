@@ -22,6 +22,9 @@ is not an Agent framework or a durable workflow engine.
 [Releases](https://github.com/agent-guide/agent-gateway/releases) ·
 [Support](https://github.com/agent-guide/agent-gateway/issues)
 
+For offline configuration inspection and explicit repairs without Admin, see
+[configuration recovery](docs/guides/architecture-config-recovery.md).
+
 ## Try it without a provider key
 
 The shortest supported evaluation path needs Docker Engine with Compose v2,

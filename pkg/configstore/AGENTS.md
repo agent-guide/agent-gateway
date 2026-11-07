@@ -30,3 +30,10 @@ Current store names:
 Current persisted backend:
 
 - `sqlite`
+
+`internal/configrepair` and `scripts/repair-architecture-config` provide offline
+raw-record inspection and repair without schema registration or data-plane
+startup. Repairs require stopped services, back up committed SQLite contents,
+validate the prospective full configuration and references, and perform one
+transaction with readback before commit. Do not turn this recovery-only reader
+into a runtime dual-read compatibility path.

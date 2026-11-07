@@ -21,6 +21,9 @@ Code 和 MCP 的入口。
 [版本发布](https://github.com/agent-guide/agent-gateway/releases) ·
 [支持](https://github.com/agent-guide/agent-gateway/issues)
 
+无需启动 Admin 的离线配置检查与显式修复流程，参见
+[配置恢复指南](docs/guides/architecture-config-recovery.md)。
+
 ## 无需模型 Provider Key 即可试用
 
 最短的受支持验证路径只需要安装带 Compose v2 的 Docker Engine、`curl` 和
