@@ -94,7 +94,7 @@ func TestShortConcurrentWaiterDoesNotRetireAnotherLifecycle(t *testing.T) {
 
 func TestLifecycleReleasesRealConnectionAfterUsage(t *testing.T) {
 	b := testBackend(t)
-	db, err := b.UsageDB().DB()
+	db, err := b.Database().DB()
 	if err != nil {
 		t.Fatal(err)
 	}

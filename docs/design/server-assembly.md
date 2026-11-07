@@ -19,7 +19,9 @@ and defaults to `agw-auth refresh` when omitted. Explicit arguments are retained
 The scheduler listener is installed before credentials load. Hosts retain a load
 boundary because Caddy provisions static providers between construction and load.
 
-Usage borrows the configuration connection; it never closes that connection.
+Usage borrows the generic Database connection; it never closes that connection.
+Its SQL implementation lives in internal/observability/persistence/sqlite, and
+generic ConfigStore has no usage-schema or observability-type dependency.
 SQLite initialization or migration failure logs a warning and returns an in-memory
 event pipeline. This fallback has no historical query service, Prometheus sink or
 OTLP exporter. Exporter initialization failure alone leaves persistence and

@@ -54,3 +54,7 @@ startup. Repairs require stopped services, back up committed SQLite contents,
 validate the prospective full configuration and references, and perform one
 transaction with readback before commit. Do not turn this recovery-only reader
 into a runtime dual-read compatibility path.
+
+The optional Database() handle is generic borrowed SQL access. Usage-specific
+migrations/writes/queries/cleanup live in internal/observability/persistence/sqlite.
+Do not import observability types or reintroduce a UsageDB capability here.

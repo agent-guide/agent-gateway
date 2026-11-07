@@ -2,17 +2,13 @@ package usage
 
 import (
 	"context"
-	"github.com/agent-guide/agent-gateway/pkg/attribution"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-	"gorm.io/gorm"
-)
+	"github.com/agent-guide/agent-gateway/pkg/attribution"
 
-type SQLDBProvider interface {
-	UsageDB() *gorm.DB
-}
+	"github.com/google/uuid"
+)
 
 type InteractionObserver interface {
 	Begin(ctx context.Context, dims InteractionDimensions) (InteractionSpan, context.Context)

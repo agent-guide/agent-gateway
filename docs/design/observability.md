@@ -166,7 +166,7 @@ path.
                          │
                          ▼
 ┌──────────────────────────────────────────────────────┐
-│               pkg/configstore/sqlite                  │
+│       internal/observability/persistence/sqlite       │
 │   llm_usage_events table                             │
 │   mcp_usage_events table                             │
 │   acp_usage_events table                             │
@@ -750,14 +750,14 @@ internal/observability/usage/
     event.go         common event; typed LLM, MCP, ACP, and builtin events
     observer.go      InteractionObserver and InteractionSpan interfaces
     noop.go          no-op observer
-    service.go       UsageService wired by caddy/gateway/app.go
+    service.go       UsageService constructed by internal/runtimeassembly
 
 internal/observability/pipeline/
     pipeline.go      EventPipeline: buffered input channel, fan-out loop, Sink interface
     sqlite_sink.go   SQLite sink, including common HTTP/A2A event projection
     prom_sink.go     Prometheus sink
 
-pkg/configstore/sqlite/
+internal/observability/persistence/sqlite/
     usage_writer.go  low-level typed INSERT helpers consumed by sqlite_sink
     usage_query.go   typed query helpers for Admin API handlers
 ```

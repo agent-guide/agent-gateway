@@ -2,9 +2,10 @@ package usage
 
 import (
 	"context"
+	"sync/atomic"
+
 	"github.com/agent-guide/agent-gateway/pkg/attribution"
 	"github.com/agent-guide/agent-gateway/pkg/event"
-	"sync/atomic"
 )
 
 type Config struct {

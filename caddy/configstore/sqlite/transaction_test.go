@@ -15,7 +15,7 @@ func TestCaddyAdapterPreservesTransactionRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, _ := creator.UsageDB().DB()
+	db, _ := creator.Database().DB()
 	t.Cleanup(func() { _ = db.Close() })
 	adapter := &SQLiteConfigStoreBackend{backend: configstore.NewBackend(creator)}
 	if err = schema.RegisterDefaultStores(adapter); err != nil {

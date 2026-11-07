@@ -55,7 +55,7 @@ func TestSQLiteAgentReadbackRollbackAndUncertainCommitRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := creator.UsageDB().DB()
+	db, err := creator.Database().DB()
 	if err != nil {
 		t.Fatal(err)
 	}

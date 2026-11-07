@@ -20,7 +20,7 @@ type usageDatabase struct {
 	db *gorm.DB
 }
 
-func (b usageDatabase) UsageDB() *gorm.DB { return b.db }
+func (b usageDatabase) Database() *gorm.DB { return b.db }
 
 func testBackend(t *testing.T) *configstore.Backend {
 	t.Helper()
@@ -32,7 +32,7 @@ func testBackend(t *testing.T) *configstore.Backend {
 	if err = schema.RegisterDefaultStores(backend); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db, _ := b.UsageDB().DB(); _ = db.Close() })
+	t.Cleanup(func() { db, _ := b.Database().DB(); _ = db.Close() })
 	return backend
 }
 
@@ -83,9 +83,9 @@ func TestUsagePersistenceAndDegradation(t *testing.T) {
 			}
 			if mode == "SQL initialization failure" {
 				broken := testBackend(t)
-				db, _ := broken.UsageDB().DB()
+				db, _ := broken.Database().DB()
 				_ = db.Close()
-				backend = usageDatabase{ConfigStoreBackend: b, db: broken.UsageDB()}
+				backend = usageDatabase{ConfigStoreBackend: b, db: broken.Database()}
 			}
 			svc := NewUsage(backend, nil, usage.Config{OTLP: usage.OTLPConfig{Endpoint: "http://127.0.0.1:4318", Protocol: "invalid"}})
 			t.Cleanup(func() { _ = svc.Close() })

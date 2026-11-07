@@ -38,6 +38,8 @@ The main layers are:
   - defines store-name constants and the built-in schemas for providers, credentials, routes, virtual keys, and managed models
 - `pkg/configstore/sqlite/`
   - implements the SQLite JSON backend creator and schema-bound generic store
+- `internal/observability/persistence/sqlite/`
+  - owns usage SQL separately, borrowing the same generic Database connection
 - `caddy/configstore/sqlite/`
   - adapts the SQLite backend into the Caddy module namespace
 

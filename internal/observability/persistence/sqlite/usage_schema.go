@@ -7,13 +7,6 @@ import (
 	"gorm.io/gorm"
 )
 
-func (s *SQLiteConfigStoreCreator) UsageDB() *gorm.DB {
-	if s == nil {
-		return nil
-	}
-	return s.db
-}
-
 // llmUsageEventsDDL is parameterized by table name so the live table and the
 // rebuild scratch table in dropUsageFinalizedDefault cannot drift apart.
 func llmUsageEventsDDL(table string) string {

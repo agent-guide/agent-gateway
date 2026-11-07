@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	persistencesqlite "github.com/agent-guide/agent-gateway/internal/observability/persistence/sqlite"
+
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	configsqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
 )
@@ -14,7 +16,7 @@ func TestSQLiteSinkPersistsA2AInteraction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sink, query, err := NewSQLiteSink(backend, usage.Config{})
+	sink, query, err := NewSQLiteSink(backend.Database(), usage.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,13 +59,13 @@ func TestSQLiteSinkFreshDatabaseCreatesAllUsageTablesAndIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sink, _, err := NewSQLiteSink(backend, usage.Config{})
+	sink, _, err := NewSQLiteSink(backend.Database(), usage.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sink.Close() })
 
-	db := backend.UsageDB()
+	db := backend.Database()
 	for table, indexes := range map[string][]string{
 		"llm_usage_events":     {"idx_llm_events_started", "idx_llm_events_route", "idx_llm_events_trace"},
 		"mcp_usage_events":     {"idx_mcp_events_started", "idx_mcp_events_route", "idx_mcp_events_trace"},
@@ -95,22 +97,22 @@ func TestSQLiteSinkUpgradesPreV06DatabaseAndPreservesUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db := backend.UsageDB()
-	if err := configsqlite.MigrateUsageTables(db); err != nil {
+	db := backend.Database()
+	if err := persistencesqlite.MigrateUsageTables(db); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
 	legacy := usage.InteractionEvent{StartedAt: now, FinishedAt: now.Add(time.Millisecond), Success: true, StatusCode: 200}
-	if err := configsqlite.InsertLLMUsageEvent(db, usage.LLMUsageEvent{InteractionEvent: withLegacyID(legacy, "legacy-llm", "llm")}); err != nil {
+	if err := persistencesqlite.InsertLLMUsageEvent(db, usage.LLMUsageEvent{InteractionEvent: withLegacyID(legacy, "legacy-llm", "llm")}); err != nil {
 		t.Fatal(err)
 	}
-	if err := configsqlite.InsertMCPUsageEvent(db, usage.MCPUsageEvent{InteractionEvent: withLegacyID(legacy, "legacy-mcp", "mcp")}); err != nil {
+	if err := persistencesqlite.InsertMCPUsageEvent(db, usage.MCPUsageEvent{InteractionEvent: withLegacyID(legacy, "legacy-mcp", "mcp")}); err != nil {
 		t.Fatal(err)
 	}
-	if err := configsqlite.InsertACPUsageEvent(db, usage.ACPUsageEvent{InteractionEvent: withLegacyID(legacy, "legacy-acp", "agent")}); err != nil {
+	if err := persistencesqlite.InsertACPUsageEvent(db, usage.ACPUsageEvent{InteractionEvent: withLegacyID(legacy, "legacy-acp", "agent")}); err != nil {
 		t.Fatal(err)
 	}
-	if err := configsqlite.InsertBuiltinUsageEvent(db, usage.BuiltinUsageEvent{InteractionEvent: withLegacyID(legacy, "legacy-builtin", "agent")}); err != nil {
+	if err := persistencesqlite.InsertBuiltinUsageEvent(db, usage.BuiltinUsageEvent{InteractionEvent: withLegacyID(legacy, "legacy-builtin", "agent")}); err != nil {
 		t.Fatal(err)
 	}
 	// v0.5.x has the four established usage families but no A2A table.
@@ -118,7 +120,7 @@ func TestSQLiteSinkUpgradesPreV06DatabaseAndPreservesUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sink, query, err := NewSQLiteSink(backend, usage.Config{})
+	sink, query, err := NewSQLiteSink(backend.Database(), usage.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,11 +2,12 @@ package pipeline
 
 import (
 	"context"
-	"github.com/agent-guide/agent-gateway/pkg/attribution"
-	"github.com/agent-guide/agent-gateway/pkg/event"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/agent-guide/agent-gateway/pkg/attribution"
+	"github.com/agent-guide/agent-gateway/pkg/event"
 )
 
 type Sink interface {

@@ -7,16 +7,18 @@ import (
 	"testing"
 	"time"
 
+	configsqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
+
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"gorm.io/gorm"
 )
 
 func TestUsageFinalizedHasNoSQLDefault(t *testing.T) {
-	backend, err := Open(t.Context(), Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
+	backend, err := configsqlite.Open(t.Context(), configsqlite.Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	db := backend.UsageDB()
+	db := backend.Database()
 	if err := MigrateUsageTables(db); err != nil {
 		t.Fatalf("MigrateUsageTables() error = %v", err)
 	}
@@ -29,11 +31,11 @@ func TestUsageFinalizedHasNoSQLDefault(t *testing.T) {
 }
 
 func TestUsageWriterColumnsMatchSchema(t *testing.T) {
-	backend, err := Open(t.Context(), Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
+	backend, err := configsqlite.Open(t.Context(), configsqlite.Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	db := backend.UsageDB()
+	db := backend.Database()
 	if err := MigrateUsageTables(db); err != nil {
 		t.Fatalf("MigrateUsageTables() error = %v", err)
 	}
@@ -98,11 +100,11 @@ const legacyLLMUsageEventsDDL = `CREATE TABLE llm_usage_events (
 )`
 
 func TestMigrateUsageTablesRebuildsLegacyLLMTable(t *testing.T) {
-	backend, err := Open(t.Context(), Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
+	backend, err := configsqlite.Open(t.Context(), configsqlite.Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	db := backend.UsageDB()
+	db := backend.Database()
 	if err := db.Exec(legacyLLMUsageEventsDDL).Error; err != nil {
 		t.Fatalf("create legacy table: %v", err)
 	}
@@ -166,11 +168,11 @@ func TestMigrateUsageTablesRebuildsLegacyLLMTable(t *testing.T) {
 }
 
 func TestMigrateUsageTablesAddsCommonIdentityToPreM1Schema(t *testing.T) {
-	backend, err := Open(t.Context(), Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
+	backend, err := configsqlite.Open(t.Context(), configsqlite.Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	db := backend.UsageDB()
+	db := backend.Database()
 	if err := MigrateUsageTables(db); err != nil {
 		t.Fatal(err)
 	}
@@ -230,11 +232,11 @@ func TestMigrateUsageTablesAddsCommonIdentityToPreM1Schema(t *testing.T) {
 }
 
 func TestUsageCommonIdentityMixedRowsAndQueryPlans(t *testing.T) {
-	backend, err := Open(t.Context(), Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
+	backend, err := configsqlite.Open(t.Context(), configsqlite.Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	db := backend.UsageDB()
+	db := backend.Database()
 	if err := MigrateUsageTables(db); err != nil {
 		t.Fatal(err)
 	}
@@ -309,11 +311,11 @@ func TestUsageCommonIdentityMixedRowsAndQueryPlans(t *testing.T) {
 }
 
 func TestUsageAgentIDRoundTrip(t *testing.T) {
-	backend, err := Open(t.Context(), Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
+	backend, err := configsqlite.Open(t.Context(), configsqlite.Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	db := backend.UsageDB()
+	db := backend.Database()
 	if err := MigrateUsageTables(db); err != nil {
 		t.Fatalf("MigrateUsageTables() error = %v", err)
 	}
@@ -349,11 +351,11 @@ func TestUsageAgentIDRoundTrip(t *testing.T) {
 }
 
 func TestBuiltinRunCorrelationRoundTrip(t *testing.T) {
-	backend, err := Open(t.Context(), Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
+	backend, err := configsqlite.Open(t.Context(), configsqlite.Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	db := backend.UsageDB()
+	db := backend.Database()
 	if err := MigrateUsageTables(db); err != nil {
 		t.Fatalf("MigrateUsageTables() error = %v", err)
 	}
@@ -412,11 +414,11 @@ func TestBuiltinRunCorrelationRoundTrip(t *testing.T) {
 }
 
 func TestSharedLLMAttributionUsesDurableIdentity(t *testing.T) {
-	backend, err := Open(t.Context(), Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
+	backend, err := configsqlite.Open(t.Context(), configsqlite.Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	db := backend.UsageDB()
+	db := backend.Database()
 	if err := MigrateUsageTables(db); err != nil {
 		t.Fatalf("MigrateUsageTables() error = %v", err)
 	}
@@ -522,11 +524,11 @@ func TestSharedLLMAttributionUsesDurableIdentity(t *testing.T) {
 }
 
 func TestInteractionAggregatesSupportUnifiedFilters(t *testing.T) {
-	backend, err := Open(t.Context(), Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
+	backend, err := configsqlite.Open(t.Context(), configsqlite.Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	db := backend.UsageDB()
+	db := backend.Database()
 	if err := MigrateUsageTables(db); err != nil {
 		t.Fatalf("MigrateUsageTables() error = %v", err)
 	}
@@ -606,11 +608,11 @@ func TestInteractionAggregatesSupportUnifiedFilters(t *testing.T) {
 }
 
 func TestAgentAttributionDoesNotUseHistoricalACPServiceID(t *testing.T) {
-	backend, err := Open(t.Context(), Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
+	backend, err := configsqlite.Open(t.Context(), configsqlite.Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	db := backend.UsageDB()
+	db := backend.Database()
 	if err := MigrateUsageTables(db); err != nil {
 		t.Fatalf("MigrateUsageTables() error = %v", err)
 	}
@@ -719,13 +721,13 @@ func TestObserverStampsMCPAgentIDFromAttribution(t *testing.T) {
 }
 
 func TestUsageWriterQuerySummaryAndEvents(t *testing.T) {
-	backend, err := Open(t.Context(), Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
+	backend, err := configsqlite.Open(t.Context(), configsqlite.Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	db := backend.UsageDB()
+	db := backend.Database()
 	if db == nil {
-		t.Fatal("UsageDB() = nil")
+		t.Fatal("Database() = nil")
 	}
 	if err := MigrateUsageTables(db); err != nil {
 		t.Fatalf("MigrateUsageTables() error = %v", err)
@@ -932,11 +934,11 @@ func TestUsageWriterQuerySummaryAndEvents(t *testing.T) {
 }
 
 func TestUsageSummaryPreservesFractionalAverageLatency(t *testing.T) {
-	backend, err := Open(t.Context(), Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
+	backend, err := configsqlite.Open(t.Context(), configsqlite.Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	db := backend.UsageDB()
+	db := backend.Database()
 	if err := MigrateUsageTables(db); err != nil {
 		t.Fatalf("MigrateUsageTables() error = %v", err)
 	}
@@ -1012,11 +1014,11 @@ func TestUsageSummaryPreservesFractionalAverageLatency(t *testing.T) {
 }
 
 func TestInteractionsTimeseriesIncludesBuiltinAndA2ARuntimeTables(t *testing.T) {
-	backend, err := Open(t.Context(), Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
+	backend, err := configsqlite.Open(t.Context(), configsqlite.Config{SQLitePath: t.TempDir() + "/usage.db"}, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	db := backend.UsageDB()
+	db := backend.Database()
 	if err := MigrateUsageTables(db); err != nil {
 		t.Fatalf("MigrateUsageTables() error = %v", err)
 	}

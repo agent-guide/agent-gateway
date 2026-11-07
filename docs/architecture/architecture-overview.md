@@ -283,6 +283,10 @@ It persists:
 - linked-module extension envelopes
 
 SQLite is the only storage backend that is provisioned end-to-end today.
+`internal/observability/persistence/sqlite` owns all usage-table migrations,
+writes, queries and retention. Assembly borrows the backend's generic Database
+handle, so configuration and usage share one file/connection without ConfigStore
+importing observability. The host closes the connection after usage drains.
 
 The runtime storage API is schema-bound. `ConfigStoreBackend.Register(name, schema)` validates a schema, prepares storage, creates a schema-bound generic `ConfigStore`, and caches it. `ConfigStoreBackend.Get(name)` returns the cached store. Startup registers `providers`, `credentials`, `routes`, `virtual_keys`, `managed_models`, `mcp_services`, `agents`, and `extensions`. Generic store interfaces and schema primitives live under `pkg/configstore/`; built-in business schemas live under `pkg/configstore/schema/`. Logical store names need not equal physical tables: managed models use `model_configs`, and credentials retain the historical `cliauth_credentials` table to preserve existing data.
 

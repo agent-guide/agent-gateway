@@ -21,7 +21,7 @@ func TestProviderRecoveryRejectsMismatchedAuthoritativeID(t *testing.T) {
 		t.Fatalf("uncertain create = %v", err)
 	}
 	pending := m.PendingMutation("p")
-	if err := creator.UsageDB().Exec(`UPDATE providers SET config=? WHERE id=?`, `{"id":"q","provider_type":"openai","default_model":"corrupt"}`, "p").Error; err != nil {
+	if err := creator.Database().Exec(`UPDATE providers SET config=? WHERE id=?`, `{"id":"q","provider_type":"openai","default_model":"corrupt"}`, "p").Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := m.Recover(t.Context(), "p"); !errors.Is(err, configmgr.ErrMutationPending) {

@@ -1,8 +1,9 @@
 package usage
 
 import (
-	"github.com/agent-guide/agent-gateway/pkg/attribution"
 	"unicode/utf8"
+
+	"github.com/agent-guide/agent-gateway/pkg/attribution"
 )
 
 // CorrelationFromDimensions projects runtime identity into the bounded public

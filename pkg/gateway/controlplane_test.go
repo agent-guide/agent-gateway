@@ -53,7 +53,7 @@ func controlPlaneGateway(t *testing.T) (*AgentGateway, *configstore.Backend, *co
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := creator.UsageDB().DB()
+	db, err := creator.Database().DB()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestProviderDeletionRollsBackOverlayCleanupFailure(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := creator.UsageDB().Exec(`CREATE TRIGGER fail_cleanup BEFORE DELETE ON model_configs WHEN OLD.upstream_model='b' BEGIN SELECT RAISE(ABORT,'injected failure'); END`).Error; err != nil {
+	if err := creator.Database().Exec(`CREATE TRIGGER fail_cleanup BEFORE DELETE ON model_configs WHEN OLD.upstream_model='b' BEGIN SELECT RAISE(ABORT,'injected failure'); END`).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := g.ProviderManager().DeleteConfig(t.Context(), "p"); err == nil {
@@ -139,10 +139,10 @@ func TestProviderDeletionRollsBackOverlayCleanupFailure(t *testing.T) {
 	if _, err := g.ProviderManager().GetConfig(t.Context(), "p"); err != nil {
 		t.Fatal("rollback invalidated the valid runtime config")
 	}
-	if err := creator.UsageDB().Exec(`DROP TRIGGER fail_cleanup`).Error; err != nil {
+	if err := creator.Database().Exec(`DROP TRIGGER fail_cleanup`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := creator.UsageDB().Exec(`CREATE TRIGGER fail_cleanup BEFORE DELETE ON model_configs WHEN OLD.upstream_model='b' BEGIN SELECT RAISE(IGNORE); END`).Error; err != nil {
+	if err := creator.Database().Exec(`CREATE TRIGGER fail_cleanup BEFORE DELETE ON model_configs WHEN OLD.upstream_model='b' BEGIN SELECT RAISE(IGNORE); END`).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := g.ProviderManager().DeleteConfig(t.Context(), "p"); err == nil {
@@ -154,7 +154,7 @@ func TestProviderDeletionRollsBackOverlayCleanupFailure(t *testing.T) {
 	if items, err := models.List(t.Context()); err != nil || len(items) != 2 {
 		t.Fatal("failed readback partially committed overlay deletion")
 	}
-	if err := creator.UsageDB().Exec(`DROP TRIGGER fail_cleanup`).Error; err != nil {
+	if err := creator.Database().Exec(`DROP TRIGGER fail_cleanup`).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := g.ProviderManager().DeleteConfig(t.Context(), "p"); err != nil {

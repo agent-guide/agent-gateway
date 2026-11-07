@@ -2,9 +2,10 @@ package usage
 
 import (
 	"context"
-	"github.com/agent-guide/agent-gateway/pkg/attribution"
 	"strings"
 	"testing"
+
+	"github.com/agent-guide/agent-gateway/pkg/attribution"
 )
 
 func TestRuntimeDimensionsPropagatePublicCorrelationAndRetainTrustedIdentity(t *testing.T) {

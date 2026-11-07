@@ -2,12 +2,14 @@ package runtimeassembly
 
 import (
 	"context"
+
 	"github.com/agent-guide/agent-gateway/internal/observability/einotap"
 	"github.com/agent-guide/agent-gateway/internal/observability/otelexport"
 	"github.com/agent-guide/agent-gateway/internal/observability/pipeline"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // NewUsage preserves the host degradation policy: without a persistent sink,
@@ -15,11 +17,11 @@ import (
 // The returned service owns sinks and workers, but borrows the database.
 func NewUsage(backend configstore.ConfigStoreBackend, logger *zap.Logger, cfg usage.Config) *usage.UsageService {
 	einotap.Register()
-	dbProvider, ok := backend.(usage.SQLDBProvider)
+	dbProvider, ok := backend.(interface{ Database() *gorm.DB })
 	if !ok {
 		return usage.NewUsageService(pipeline.NewEventPipeline(4096), nil)
 	}
-	sink, query, err := pipeline.NewSQLiteSink(dbProvider, cfg)
+	sink, query, err := pipeline.NewSQLiteSink(dbProvider.Database(), cfg)
 	if err != nil {
 		if logger != nil {
 			logger.Warn("usage metrics sqlite sink unavailable", zap.Error(err))

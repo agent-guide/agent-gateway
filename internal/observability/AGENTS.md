@@ -65,3 +65,11 @@ change the first caller's common budget. Contract probes reject stalled sinks.
 Runtime dimension updates carry bounded attribution without replacing trusted
 subject/tenant and allowlisted attributes. Keep arbitrary client identity headers
 out of trusted context and all secret/config/content fields out of public DTOs.
+
+## Persistence ownership
+
+`persistence/sqlite/` owns usage-table migrations, typed writes, historical queries
+and retention SQL. Pipeline sinks borrow the generic Database handle supplied by
+assembly; only the host storage owner closes that connection, after pipeline drain.
+ConfigStore must neither import observability types nor own usage ORM contracts.
+Preserve existing table names and query/history semantics when moving code.

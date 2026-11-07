@@ -2,11 +2,12 @@ package pipeline
 
 import (
 	"context"
-	"github.com/agent-guide/agent-gateway/pkg/attribution"
-	"github.com/agent-guide/agent-gateway/pkg/event"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/agent-guide/agent-gateway/pkg/attribution"
+	"github.com/agent-guide/agent-gateway/pkg/event"
 )
 
 type publicSink struct {

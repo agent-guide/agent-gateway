@@ -7,7 +7,6 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 
-	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	configstoresqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
 	"gorm.io/gorm"
@@ -91,18 +90,18 @@ func (s *SQLiteConfigStoreBackend) Transaction(ctx context.Context, names []stri
 	return backend.Transaction(ctx, names, apply)
 }
 
-func (s *SQLiteConfigStoreBackend) UsageDB() *gorm.DB {
-	provider, ok := s.backend.(usage.SQLDBProvider)
+func (s *SQLiteConfigStoreBackend) Database() *gorm.DB {
+	provider, ok := s.backend.(interface{ Database() *gorm.DB })
 	if !ok {
 		return nil
 	}
-	return provider.UsageDB()
+	return provider.Database()
 }
 
 var (
-	_ caddy.Module                   = (*SQLiteConfigStoreBackend)(nil)
-	_ caddy.Provisioner              = (*SQLiteConfigStoreBackend)(nil)
-	_ caddyfile.Unmarshaler          = (*SQLiteConfigStoreBackend)(nil)
-	_ configstore.ConfigStoreBackend = (*SQLiteConfigStoreBackend)(nil)
-	_ usage.SQLDBProvider            = (*SQLiteConfigStoreBackend)(nil)
+	_ caddy.Module                     = (*SQLiteConfigStoreBackend)(nil)
+	_ caddy.Provisioner                = (*SQLiteConfigStoreBackend)(nil)
+	_ caddyfile.Unmarshaler            = (*SQLiteConfigStoreBackend)(nil)
+	_ configstore.ConfigStoreBackend   = (*SQLiteConfigStoreBackend)(nil)
+	_ interface{ Database() *gorm.DB } = (*SQLiteConfigStoreBackend)(nil)
 )

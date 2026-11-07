@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/agent-guide/agent-gateway/internal/observability/persistence/sqlite"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
-	"github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -22,12 +22,11 @@ type SQLiteSink struct {
 	stopOnce  sync.Once
 }
 
-func NewSQLiteSink(provider usage.SQLDBProvider, cfg usage.Config) (*SQLiteSink, *sqlite.UsageQueries, error) {
-	if provider == nil || provider.UsageDB() == nil {
+func NewSQLiteSink(db *gorm.DB, cfg usage.Config) (*SQLiteSink, *sqlite.UsageQueries, error) {
+	if db == nil {
 		return nil, nil, fmt.Errorf("usage sqlite db is not available")
 	}
 	cfg = cfg.Normalized()
-	db := provider.UsageDB()
 	if err := sqlite.MigrateUsageTables(db); err != nil {
 		return nil, nil, err
 	}

@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	configstore "github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
+	"gorm.io/gorm"
 )
 
 func TestRegisterDefaultStoresRegistersAllSchemas(t *testing.T) {
@@ -37,11 +37,9 @@ func TestRegisterDefaultStoresRegistersAllSchemas(t *testing.T) {
 	}
 }
 
-// TestBackendForwardsUsageDB guards the metrics wiring: the generic Backend
-// wrapper must forward the creator's usage.SQLDBProvider capability, otherwise
-// the gateway silently falls back to a no-op usage observer and never persists
-// LLM/MCP/ACP usage events.
-func TestBackendForwardsUsageDB(t *testing.T) {
+// TestBackendForwardsDatabase guards generic connection borrowing without
+// giving the configuration backend responsibility for another domain schema.
+func TestBackendForwardsDatabase(t *testing.T) {
 	creator, err := Open(context.Background(), Config{
 		SQLitePath: t.TempDir() + "/configstore.db",
 	}, nil)
@@ -50,12 +48,12 @@ func TestBackendForwardsUsageDB(t *testing.T) {
 	}
 
 	var backend configstore.ConfigStoreBackend = configstore.NewBackend(creator)
-	provider, ok := backend.(usage.SQLDBProvider)
+	provider, ok := backend.(interface{ Database() *gorm.DB })
 	if !ok {
-		t.Fatalf("generic backend does not satisfy usage.SQLDBProvider")
+		t.Fatalf("generic backend does not expose its database")
 	}
-	if provider.UsageDB() == nil {
-		t.Fatalf("forwarded UsageDB returned nil")
+	if provider.Database() == nil {
+		t.Fatalf("forwarded Database returned nil")
 	}
 }
 

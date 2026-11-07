@@ -116,3 +116,12 @@ func (s *SQLiteConfigStoreCreator) NewStore(storeSchema configstore.StoreSchema)
 }
 
 var _ configstore.ConfigStoreCreator = (*SQLiteConfigStoreCreator)(nil)
+
+// Database returns the connection borrowed by other storage adapters. Its owner
+// closes it after those adapters stop; it carries no business schema contract.
+func (s *SQLiteConfigStoreCreator) Database() *gorm.DB {
+	if s == nil {
+		return nil
+	}
+	return s.db
+}
