@@ -2,6 +2,7 @@ package dispatcher
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/caddyserver/caddy/v2"
@@ -27,6 +28,18 @@ func (h *AgentRouteDispatcher) UnmarshalCaddyfile(d *caddyfile.Dispenser) error 
 
 	for d.NextBlock(0) {
 		switch d.Val() {
+		case "max_llm_request_body_bytes":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			limit, err := strconv.ParseInt(d.Val(), 10, 64)
+			if err != nil || limit < 0 {
+				return d.Err("max_llm_request_body_bytes must be a non-negative integer number of bytes")
+			}
+			if d.NextArg() {
+				return d.ArgErr()
+			}
+			h.MaxLLMRequestBodyBytes = limit
 		case "llm_api":
 			if !d.NextArg() {
 				return d.ArgErr()

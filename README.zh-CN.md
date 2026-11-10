@@ -196,6 +196,11 @@ make build
 [Caddyfile 参考](docs/reference/caddyfile-reference.md)，如何在 `agw` 和 `agwd`
 之间选择见 [Runtime 模式参考](docs/reference/runtime-modes.md)。
 
+LLM 请求体默认上限为 16 MiB。较长会话或内嵌附件需要更大空间时，可在 Caddy 的
+`agent_route_dispatcher` 块中设置 `max_llm_request_body_bytes 67108864`，或使用
+`agwd --max-llm-request-body-bytes 67108864`，将上限调整为 64 MiB。
+`0` 使用默认值，负数会被拒绝。详见[请求体大小配置](docs/guides/routes.md#llm-request-body-size)。
+
 ## 文档
 
 - [文档索引](docs/README.md)

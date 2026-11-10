@@ -275,6 +275,12 @@ Important current directives:
 - providers use `provider_type <name>`
 - LLM routes use `protocol <openai|anthropic|cc>`, MCP routes use `protocol mcp`, and Agent ingress routes use `protocol agent` or `protocol a2a` (HTTP Agent native Path A; see `docs/design/http-agent-runtime.md`)
 - `agent_route_dispatcher` uses `llm_api <name>`, `mcp`, and `agent`
+- dispatcher `max_llm_request_body_bytes` (Caddyfile/Caddy JSON) and standalone
+  `--max-llm-request-body-bytes` bound the received LLM JSON body. Omitted/zero
+  uses 16 MiB; negative values fail validation. Keep the host settings aligned,
+  enforce unknown lengths while reading, and return 413 before upstream work.
+  This transport setting includes `count_tokens` and is independent of other
+  protocol/Admin limits, Provider network settings and VirtualKey admission.
 - auth uses `virtualkey`, not `local_api_key`
 - direct-provider targets store only `target_policy.provider_target.provider_id`;
   the removed outer `target_policy.provider_id` is rejected, including empty or

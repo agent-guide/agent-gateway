@@ -16,6 +16,9 @@
   `--credential-refresh-arg` (together defaulting to `agw-auth refresh`)
 - does not use a Caddyfile runtime
 - if any `--provider-type` flag is set, only those provider types are enabled for the process
+- `--max-llm-request-body-bytes` sets the LLM body limit in integer bytes;
+  the default is 16,777,216 (16 MiB), `0` selects that default, and negative
+  values are invalid. For example, `67108864` allows 64 MiB.
 
 Current static config restriction:
 

@@ -104,6 +104,48 @@ Use logical-model mode when:
 - you want provider or model indirection
 - you want candidate selection and fallback behavior at the gateway layer
 
+## LLM Request Body Size
+
+The default LLM request body limit is 16 MiB (16,777,216 bytes). It measures the
+whole received JSON body, including conversation history, tools, tool results,
+and base64 attachments. It applies to OpenAI, Anthropic and Claude Code ingress,
+including `count_tokens`. The limit is independent of model context/token limits
+and response streaming.
+
+To allow up to 64 MiB in Caddy, configure the HTTP dispatcher:
+
+```caddy
+agent_route_dispatcher {
+    llm_api openai
+    llm_api anthropic
+    llm_api cc
+    max_llm_request_body_bytes 67108864
+}
+```
+
+The corresponding Caddy JSON handler property is `max_llm_request_body_bytes`.
+For the standalone daemon, use:
+
+```sh
+./agwd --max-llm-request-body-bytes 67108864
+```
+
+Values are integer byte counts. Omission or `0` selects the 16 MiB default;
+negative values are invalid. Each dispatcher instance owns its limit. Configure
+it in the HTTP host, independently of persisted routes, Providers and VirtualKeys.
+MCP, Agent and Admin body limits retain their separate policies.
+
+Oversized requests receive HTTP 413 with an error such as
+`{"error":"LLM request body exceeds 67108864 bytes"}` before upstream execution.
+Known oversized lengths are rejected before body reads; unknown-length bodies
+are limited while reading. A lower outer proxy/middleware limit can still reject
+the request. Increasing this setting does not increase upstream limits.
+
+Choose a limit that fits the host's concurrency and memory budget: the handlers
+buffer the request and then decode JSON, so memory per active request can exceed
+its received byte size. Reducing history/tool output or attachment size may also
+reduce payload size.
+
 ## Related Docs
 
 - [../reference/route-schema-reference.md](../reference/route-schema-reference.md)

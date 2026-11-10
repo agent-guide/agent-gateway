@@ -17,9 +17,10 @@ func init() {
 
 // AgentRouteDispatcher is the Caddy middleware adapter for the runtime dispatcher.
 type AgentRouteDispatcher struct {
-	APIHandlersRaw caddy.ModuleMap `json:"api_handlers,omitempty" caddy:"namespace=agent_route_dispatcher.llm_apis"`
-	EnableMCP      bool            `json:"mcp,omitempty"`
-	EnableAgent    bool            `json:"agent,omitempty"`
+	APIHandlersRaw         caddy.ModuleMap `json:"api_handlers,omitempty" caddy:"namespace=agent_route_dispatcher.llm_apis"`
+	EnableMCP              bool            `json:"mcp,omitempty"`
+	EnableAgent            bool            `json:"agent,omitempty"`
+	MaxLLMRequestBodyBytes int64           `json:"max_llm_request_body_bytes,omitempty"`
 
 	handler *dispatcherpkg.Handler
 }
@@ -55,7 +56,7 @@ func (h *AgentRouteDispatcher) Provision(ctx caddy.Context) error {
 		apiHandlers[name] = apiHandler
 	}
 
-	h.handler = dispatcherpkg.NewHandler(app.AgentGateway(), apiHandlers, ctx.Logger(h), dispatcherpkg.HandlerOptions{EnableMCP: h.EnableMCP, EnableAgent: h.EnableAgent})
+	h.handler = dispatcherpkg.NewHandler(app.AgentGateway(), apiHandlers, ctx.Logger(h), dispatcherpkg.HandlerOptions{EnableMCP: h.EnableMCP, EnableAgent: h.EnableAgent, MaxLLMRequestBodyBytes: h.MaxLLMRequestBodyBytes})
 	return nil
 }
 

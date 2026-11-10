@@ -149,6 +149,15 @@ The HTTP handler is `http.handlers.agent_route_dispatcher`, and it loads LLM pro
 - `agent_route_dispatcher.llm_apis.anthropic`
 - `agent_route_dispatcher.llm_apis.cc`
 
+The dispatcher bounds LLM request bodies before protocol execution, defaulting
+to 16 MiB. Caddy's `max_llm_request_body_bytes` handler setting and standalone
+`--max-llm-request-body-bytes` configure the same runtime option; zero selects
+the default and negative values are invalid. The limit covers the complete
+received JSON body, including `count_tokens` requests. Known oversized lengths
+fail before reading; bounded readers enforce unknown lengths. Oversized bodies
+return 413 before Provider execution. The setting is host-owned and does not
+read ConfigStore on request paths or alter other protocol/Admin limits.
+
 The `anthropic` and `cc` handlers are thin sibling ingress profiles over the
 shared `pkg/dispatcher/llmapi/anthropicmsg` Messages core. The core owns parsing,
 conversion, response lifecycle, and SSE content-block ordering. The `cc`

@@ -46,6 +46,7 @@ type Options struct {
 	CredentialRefreshArgs    []string
 	AdminBasicAuthHash       string
 	Metrics                  distribution.MetricsConfig
+	MaxLLMRequestBodyBytes   int64
 }
 
 func (o *Options) setDefaults() {
@@ -63,6 +64,9 @@ func (o *Options) setDefaults() {
 
 func Run(ctx context.Context, opts Options) (result error) {
 	opts.setDefaults()
+	if opts.MaxLLMRequestBodyBytes < 0 {
+		return fmt.Errorf("max_llm_request_body_bytes must not be negative")
+	}
 	if err := configureProviderTypes(opts.ProviderTypes); err != nil {
 		return err
 	}
@@ -86,7 +90,7 @@ func Run(ctx context.Context, opts Options) (result error) {
 		return fmt.Errorf("configure admin auth: %w", err)
 	}
 	warnIfAdminUnprotected(logger, opts.AdminAddr, opts.AdminBasicAuthHash)
-	dispatchHandler, err := newDispatchHandler(agentGateway, logger.Named("dispatcher"))
+	dispatchHandler, err := newDispatchHandler(agentGateway, logger.Named("dispatcher"), opts.MaxLLMRequestBodyBytes)
 	if err != nil {
 		return err
 	}
@@ -149,13 +153,14 @@ func configureProviderTypes(providerTypes []string) error {
 	return provider.ConfigureProviderTypes(settings, true)
 }
 
-func newDispatchHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) (*dispatcher.Handler, error) {
-	return dispatcher.NewHandler(
+func newDispatchHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger, maxLLMRequestBodyBytes int64) (*dispatcher.Handler, error) {
+	handler := dispatcher.NewHandler(
 		agentGateway,
 		newLLMAPIHandlers(logger),
 		logger,
-		dispatcher.HandlerOptions{EnableMCP: true, EnableAgent: true},
-	), nil
+		dispatcher.HandlerOptions{EnableMCP: true, EnableAgent: true, MaxLLMRequestBodyBytes: maxLLMRequestBodyBytes},
+	)
+	return handler, handler.Validate()
 }
 
 func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (_ *gateway.AgentGateway, _ *usage.UsageService, result error) {

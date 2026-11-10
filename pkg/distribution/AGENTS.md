@@ -26,6 +26,11 @@ Daemon/CLI `Run` return process exit codes; Caddy's process adapter delegates to
 upstream `Main` including its exit behavior. Keep output on each Cobra tree's
 writers and avoid package-global flags, output state or command pointers.
 
+`daemoncmd.ServerOptions.MaxLLMRequestBodyBytes` and the corresponding
+`--max-llm-request-body-bytes` flag feed the shared dispatcher option. Zero
+selects the 16 MiB default; negative values fail before server/storage startup.
+Keep this host-owned request-byte limit aligned with the Caddy dispatcher setting.
+
 Public signatures and their required transitive types must not expose Community
 `internal/` types. Public metrics values translate through the internal adapter.
 Run `make test-extension-consumer` when changing this boundary; root `go test

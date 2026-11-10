@@ -32,16 +32,20 @@ type NextHandler interface {
 
 // Handler dispatches gateway requests to the route-selected LLM API handler.
 type Handler struct {
-	apiHandlers  map[string]LLMApiHandler
-	gateway      *gateway.AgentGateway
-	logger       *zap.Logger
-	mcpEnabled   bool
-	agentEnabled bool
+	apiHandlers            map[string]LLMApiHandler
+	gateway                *gateway.AgentGateway
+	logger                 *zap.Logger
+	mcpEnabled             bool
+	agentEnabled           bool
+	maxLLMRequestBodyBytes int64
 }
 
 type HandlerOptions struct {
 	EnableMCP   bool
 	EnableAgent bool
+	// MaxLLMRequestBodyBytes limits the complete received LLM request body.
+	// Zero selects the 16 MiB default; negative values are invalid.
+	MaxLLMRequestBodyBytes int64
 }
 
 // NewHandler constructs a runtime dispatcher handler.
@@ -52,12 +56,16 @@ func NewHandler(agentGateway *gateway.AgentGateway, apiHandlers map[string]LLMAp
 	if apiHandlers == nil {
 		apiHandlers = map[string]LLMApiHandler{}
 	}
+	if opts.MaxLLMRequestBodyBytes == 0 {
+		opts.MaxLLMRequestBodyBytes = DefaultMaxLLMRequestBodyBytes
+	}
 	handler := &Handler{
-		apiHandlers:  apiHandlers,
-		gateway:      agentGateway,
-		logger:       logger,
-		mcpEnabled:   opts.EnableMCP,
-		agentEnabled: opts.EnableAgent,
+		apiHandlers:            apiHandlers,
+		gateway:                agentGateway,
+		logger:                 logger,
+		mcpEnabled:             opts.EnableMCP,
+		agentEnabled:           opts.EnableAgent,
+		maxLLMRequestBodyBytes: opts.MaxLLMRequestBodyBytes,
 	}
 	return handler
 }
@@ -66,6 +74,9 @@ func NewHandler(agentGateway *gateway.AgentGateway, apiHandlers map[string]LLMAp
 func (h *Handler) Validate() error {
 	if h == nil || (len(h.apiHandlers) == 0 && !h.mcpEnabled && !h.agentEnabled) {
 		return fmt.Errorf("agent_route_dispatcher requires at least one llm_api, mcp, or agent")
+	}
+	if h.maxLLMRequestBodyBytes < 0 {
+		return fmt.Errorf("max_llm_request_body_bytes must not be negative")
 	}
 	return nil
 }
@@ -308,8 +319,12 @@ func (h *Handler) dispatchLLM(w http.ResponseWriter, r *http.Request, next NextH
 	if !apiHandler.MatchLLMApi(rewritten) {
 		return serveNextOrNotFound(next, w, r)
 	}
+	if rewritten.ContentLength > h.maxLLMRequestBodyBytes {
+		err := &http.MaxBytesError{Limit: h.maxLLMRequestBodyBytes}
+		return WriteDispatchError(h.logger, apiHandler.Name(), route.ID, "", http.StatusRequestEntityTooLarge, w, rewritten, "prepare request", fmt.Sprintf("LLM request body exceeds %d bytes", h.maxLLMRequestBodyBytes), err)
+	}
 	if rewritten.Body != nil {
-		rewritten.Body = http.MaxBytesReader(w, rewritten.Body, MaxLLMRequestBodyBytes)
+		rewritten.Body = http.MaxBytesReader(w, rewritten.Body, h.maxLLMRequestBodyBytes)
 	}
 	logRequestPhase(h.logger, "dispatcher: llm api matched", rewritten,
 		zap.String("route_id", route.ID),
@@ -322,7 +337,14 @@ func (h *Handler) dispatchLLM(w http.ResponseWriter, r *http.Request, next NextH
 		if prepared != nil {
 			model = prepared.Model()
 		}
-		return WriteDispatchError(h.logger, apiHandler.Name(), route.ID, model, RequestBodyErrorStatus(err, 0), w, rewritten, "prepare request", "", err)
+		status := RequestBodyErrorStatus(err, 0)
+		message := ""
+		if status == http.StatusRequestEntityTooLarge {
+			var bodyErr *http.MaxBytesError
+			errors.As(err, &bodyErr)
+			message = fmt.Sprintf("LLM request body exceeds %d bytes", bodyErr.Limit)
+		}
+		return WriteDispatchError(h.logger, apiHandler.Name(), route.ID, model, status, w, rewritten, "prepare request", message, err)
 	}
 	if !prepared.IsValid() {
 		return WriteDispatchError(h.logger, apiHandler.Name(), route.ID, "", 0, w, rewritten, "prepare request", "", fmt.Errorf("llm api handler returned invalid prepared request"))

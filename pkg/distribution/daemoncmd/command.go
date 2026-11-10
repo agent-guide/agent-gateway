@@ -14,6 +14,7 @@ import (
 	"slices"
 	"syscall"
 
+	"github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"github.com/agent-guide/agent-gateway/standalone/server"
 	"github.com/joho/godotenv"
@@ -37,6 +38,7 @@ type ServerOptions struct {
 	CredentialRefreshArgs    []string
 	AdminBasicAuthHash       string
 	Metrics                  distribution.MetricsConfig
+	MaxLLMRequestBodyBytes   int64
 }
 
 // NewCommand creates fresh flags without dotenv or signal side effects.
@@ -56,6 +58,9 @@ func NewCommand(assembly Options) *cobra.Command {
 	if opts.ConfigStorePath == "" {
 		opts.ConfigStorePath = "./data/configstore.db"
 	}
+	if opts.MaxLLMRequestBodyBytes == 0 {
+		opts.MaxLLMRequestBodyBytes = dispatcher.DefaultMaxLLMRequestBodyBytes
+	}
 	if opts.AdminBasicAuthHash == "" {
 		opts.AdminBasicAuthHash = os.Getenv("AGW_ADMIN_BASIC_AUTH_HASH")
 	}
@@ -73,11 +78,13 @@ func NewCommand(assembly Options) *cobra.Command {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			return server.Run(ctx, server.Options{
-				Registry: registry, Assembly: assembly.Assembly, Addr: opts.Addr, AdminAddr: opts.AdminAddr, ConfigStorePath: opts.ConfigStorePath, StaticConfigPath: opts.StaticConfigPath, ProviderTypes: opts.ProviderTypes, CredentialRefreshCommand: opts.CredentialRefreshCommand, CredentialRefreshArgs: opts.CredentialRefreshArgs, AdminBasicAuthHash: opts.AdminBasicAuthHash, Metrics: opts.Metrics,
+				MaxLLMRequestBodyBytes: opts.MaxLLMRequestBodyBytes,
+				Registry:               registry, Assembly: assembly.Assembly, Addr: opts.Addr, AdminAddr: opts.AdminAddr, ConfigStorePath: opts.ConfigStorePath, StaticConfigPath: opts.StaticConfigPath, ProviderTypes: opts.ProviderTypes, CredentialRefreshCommand: opts.CredentialRefreshCommand, CredentialRefreshArgs: opts.CredentialRefreshArgs, AdminBasicAuthHash: opts.AdminBasicAuthHash, Metrics: opts.Metrics,
 			})
 		},
 	}
 	rootCmd.Flags().StringVar(&opts.Addr, "addr", opts.Addr, "LLM gateway listen address")
+	rootCmd.Flags().Int64Var(&opts.MaxLLMRequestBodyBytes, "max-llm-request-body-bytes", opts.MaxLLMRequestBodyBytes, "maximum LLM request body in bytes; 0 selects the 16 MiB default")
 	rootCmd.Flags().StringVar(&opts.AdminAddr, "admin-addr", opts.AdminAddr, "Admin API listen address")
 	rootCmd.Flags().StringVar(&opts.AdminBasicAuthHash, "admin-basic-auth-hash", opts.AdminBasicAuthHash, "admin Basic Auth configuration as username:bcrypt-hash")
 	rootCmd.Flags().StringVar(&opts.ConfigStorePath, "config-store", opts.ConfigStorePath, "SQLite config store file")

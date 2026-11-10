@@ -1,5 +1,12 @@
 # Unreleased
 
+- LLM request body limits are now configurable per HTTP dispatcher through
+  Caddy `max_llm_request_body_bytes` or daemon `--max-llm-request-body-bytes`.
+  The default remains 16 MiB; zero selects the default and negative values are
+  rejected. Larger configured requests can reach all LLM ingress profiles,
+  including `count_tokens`. Oversized requests return 413 with the effective
+  byte limit; unknown lengths remain bounded while reading.
+
 - Caddy and standalone share credential/scheduler and usage construction, with
   independent resources per lifecycle. Shutdown retires runtime producers,
   drains events and closes storage with bounded waits and inspectable errors.

@@ -121,9 +121,9 @@ func (r *PreparedLLMApiRequest) SetModel(model string) {
 const StatusClientClosedRequest = 499
 
 const (
-	MaxLLMRequestBodyBytes = 16 << 20
-	MaxMCPRequestBodyBytes = 4 << 20
-	MaxACPRequestBodyBytes = 4 << 20
+	DefaultMaxLLMRequestBodyBytes = 16 << 20
+	MaxMCPRequestBodyBytes        = 4 << 20
+	MaxACPRequestBodyBytes        = 4 << 20
 )
 
 func RequestBodyErrorStatus(err error, fallback int) int {

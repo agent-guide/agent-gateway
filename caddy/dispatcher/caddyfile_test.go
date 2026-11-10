@@ -21,6 +21,7 @@ func TestParseAgentRouteDispatcher(t *testing.T) {
 		llm_api cc
 		mcp
 		agent
+		max_llm_request_body_bytes 67108864
 	}
 	`)
 
@@ -51,6 +52,9 @@ func TestParseAgentRouteDispatcher(t *testing.T) {
 	if !dispatcherHandler.EnableAgent {
 		t.Fatal("expected agent to be enabled")
 	}
+	if dispatcherHandler.MaxLLMRequestBodyBytes != 64<<20 {
+		t.Fatalf("body limit = %d", dispatcherHandler.MaxLLMRequestBodyBytes)
+	}
 }
 
 func TestAgentRouteDispatcherAdaptUsesHandlerType(t *testing.T) {
@@ -62,6 +66,7 @@ func TestAgentRouteDispatcherAdaptUsesHandlerType(t *testing.T) {
 				llm_api cc
 				mcp
 				agent
+				max_llm_request_body_bytes 67108864
 			}
 		}
 	`)
@@ -73,6 +78,9 @@ func TestAgentRouteDispatcherAdaptUsesHandlerType(t *testing.T) {
 	}
 
 	json := string(adapted)
+	if !strings.Contains(json, `"max_llm_request_body_bytes":67108864`) {
+		t.Fatalf("adapted config missing body limit: %s", json)
+	}
 	if !strings.Contains(json, `"handler":"agent_route_dispatcher"`) {
 		t.Fatalf("adapted config missing agent_route_dispatcher handler: %s", json)
 	}
@@ -84,6 +92,17 @@ func TestAgentRouteDispatcherAdaptUsesHandlerType(t *testing.T) {
 	}
 	if !strings.Contains(json, `"agent":true`) {
 		t.Fatalf("adapted config missing agent flag: %s", json)
+	}
+}
+
+func TestParseAgentRouteDispatcherRejectsInvalidBodyLimits(t *testing.T) {
+	for _, value := range []string{"", "-1", "1.5", "64MiB", "9223372036854775808", "128 256"} {
+		t.Run(value, func(t *testing.T) {
+			d := caddyfile.NewTestDispenser("agent_route_dispatcher {\nllm_api openai\nmax_llm_request_body_bytes " + value + "\n}")
+			if _, err := parseAgentRouteDispatcher(httpcaddyfile.Helper{Dispenser: d}); err == nil {
+				t.Fatal("invalid body limit accepted")
+			}
+		})
 	}
 }
 

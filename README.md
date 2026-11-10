@@ -222,6 +222,12 @@ the [Caddyfile reference](docs/reference/caddyfile-reference.md) for the Caddy
 runtime, and the [runtime modes reference](docs/reference/runtime-modes.md) to
 choose between `agw` and `agwd`.
 
+LLM request bodies default to 16 MiB. For larger histories or inline attachments,
+set `max_llm_request_body_bytes 67108864` inside the Caddy
+`agent_route_dispatcher` block, or run `agwd --max-llm-request-body-bytes 67108864`
+for a 64 MiB limit. Zero selects the default; negative values are rejected.
+See [request body limits](docs/guides/routes.md#llm-request-body-size).
+
 ## Documentation
 
 - [Documentation index](docs/README.md)

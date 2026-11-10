@@ -184,6 +184,9 @@ agent_route_dispatcher {
 - `llm_api <name>` enables a protocol handler
 - current LLM handler names are `openai`, `anthropic`, and `cc`
 - `mcp` enables MCP protocol handling in the dispatcher
+- `max_llm_request_body_bytes <integer>` sets the LLM request body limit in bytes;
+  omitted or `0` selects 16,777,216 bytes (16 MiB). Negative values are invalid.
+  Caddy JSON uses the same `max_llm_request_body_bytes` handler property.
 - `agent` enables unified ACP, builtin, and HTTP Agent ingress, including
   `protocol=agent` common turns and `protocol=a2a` native HTTP Agent routes
 
