@@ -240,7 +240,7 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 	// one is accepted.
 	ghostCfg := agentroute.AgentRouteConfig{
 		RouteMetadata: agentroute.RouteMetadata{MatchPolicy: agentroute.RouteMatch{PathPrefix: "/agents/ghost"}},
-		AgentID:     "ghost",
+		AgentID:       "ghost",
 	}
 	ghostCfg.Normalize()
 	storedGhost, _ := ghostCfg.ToConfig()

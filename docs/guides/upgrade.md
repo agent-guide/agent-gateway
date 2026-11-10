@@ -4,6 +4,63 @@ Read every section between the installed version and the target version. Back
 up the SQLite store and retain the current binaries or image digest before
 starting a new release.
 
+## Upgrading to v0.7.3
+
+v0.7.3 requires explicit repair of configurations that use any of these shapes:
+
+- Direct LLM targets containing outer `target_policy.provider_id`, even when
+  empty, null, or equal to the nested value. The only accepted field is
+  `target_policy.provider_target.provider_id`.
+- Agent `policy.budget` objects, including empty or all-zero objects. Budgets
+  are not enforced; the field must be absent or null.
+- Equal-score intersecting route matches across LLM, MCP and Agent routes,
+  including disabled routes and static/dynamic ties. Static routes no longer
+  take precedence. Native A2A matching covers every HTTP method.
+
+These checks apply to persisted and static configuration. An invalid stored
+record can prevent startup; Admin cannot repair a server that cannot start.
+The historical `cliauth_credentials` table is unchanged.
+
+1. Retain the existing binaries or image digest. Back up the SQLite store
+   consistently and preserve the original static files before changing either.
+2. From the v0.7.3 source checkout, run
+   `scripts/repair-architecture-config --db /absolute/path/gateway.db`, adding
+   `--static-config` for the complete static configuration. Inspection opens the
+   database read-only and does not start the gateway. For Caddy, adapt the
+   Caddyfile without provisioning and inspect the JSON with `--caddy-json`.
+3. Follow the [offline recovery guide](architecture-config-recovery.md) to
+   prepare explicit conversions, budget removals and route replacements or
+   deletions. Stop all services using the files before applying repairs; supply
+   an unused backup path and `--service-stopped`. Conflicting Provider targets
+   require an explicit choice. Database and static-file repairs are separate
+   operations, so validate the complete prospective configuration together.
+4. Repeat inspection until it reports an empty array with exit code zero.
+   Update Bundle sources and other configuration templates to the same shapes,
+   then start v0.7.3 and verify the manifest version, health and expected routes.
+5. If rollback is needed, stop v0.7.3 and restore the retained binaries or image
+   together with the matching pre-upgrade database and static files. Restore
+   SQLite as a standalone file without stale `-wal`/`-shm` companions; do not
+   assume a binary-only rollback reverses configuration repairs.
+
+Agent and Provider mutations whose persistence outcome cannot be confirmed now
+block new execution and conflicting writes for that resource. Inspect
+`GET /admin/agents/{id}/mutation` or
+`GET /admin/llm/providers/{id}/mutation`; their matching `POST .../{id}/recover`
+endpoints verify stored facts without replaying the write. See
+[mutation recovery](configuration-mutation-recovery.md).
+
+Provider deletion now rejects remaining Provider credentials as well as LLM
+route references. Remove or reassign those dependencies explicitly before
+retrying deletion; credentials are never cascade-deleted.
+
+HTTP/ACP common-turn session ownership is scoped by route, VirtualKey, Agent
+and runtime configuration; sharing a VirtualKey shares that client identity.
+Clients must retain their own returned IDs. ACP ownership is process-local and
+bounded; restart or eviction can require a new session. LLM ingress still
+defaults to a 16 MiB JSON body limit; larger
+requests require explicit Caddy `max_llm_request_body_bytes` or standalone
+`--max-llm-request-body-bytes` configuration.
+
 ## Upgrading to v0.7.2
 
 v0.7.2 adds no protocol or persisted-resource migration. It corrects metrics
@@ -79,7 +136,7 @@ handle.
 
 ## Stores from before the v0.5.0 CLI-auth cutover
 
-This is not a v0.7.0, v0.7.1, or v0.7.2 migration. It applies only when a store has not
+This older migration applies only when a store has not
 completed the external CLI-auth cutover documented since v0.5.0. The historical
 table name remains `cliauth_credentials`, but current credential and route
 values use `oauth_token`.

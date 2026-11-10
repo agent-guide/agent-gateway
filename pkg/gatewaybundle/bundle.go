@@ -40,7 +40,7 @@ type GatewayBundle struct {
 	LLMRoutes     []routecore.RouteConfig       `json:"llmRoutes,omitempty"`
 	VirtualKeys   []BundleVirtualKey            `json:"virtualKeys,omitempty"`
 	MCPServices   []mcpservice.MCPServiceConfig `json:"mcpServices,omitempty"`
-	MCPRoutes     []mcproute.MCPRoute     `json:"mcpRoutes,omitempty"`
+	MCPRoutes     []mcproute.MCPRoute           `json:"mcpRoutes,omitempty"`
 	AgentRoutes   []agentroute.AgentRouteConfig `json:"agentRoutes,omitempty"`
 	Agents        []agentpkg.Agent              `json:"agents,omitempty"`
 }

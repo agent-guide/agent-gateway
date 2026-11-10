@@ -46,22 +46,22 @@ governed Agent requests. It needs no repository checkout, local Go toolchain,
 or LLM provider credential.
 
 ```sh
-curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.2/agent-gateway-first-run-v0.7.2.tar.gz
-curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.2/SHA256SUMS
+curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.3/agent-gateway-first-run-v0.7.3.tar.gz
+curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.3/SHA256SUMS
 ```
 
 Verify the archive on Linux:
 
 ```sh
-grep 'agent-gateway-first-run-v0.7.2.tar.gz' SHA256SUMS | sha256sum -c -
+grep 'agent-gateway-first-run-v0.7.3.tar.gz' SHA256SUMS | sha256sum -c -
 ```
 
 On macOS, use `shasum -a 256 -c -` instead of `sha256sum -c -`. Then start
 the project and run the smoke test:
 
 ```sh
-tar -xzf agent-gateway-first-run-v0.7.2.tar.gz
-cd agent-gateway-first-run-v0.7.2
+tar -xzf agent-gateway-first-run-v0.7.3.tar.gz
+cd agent-gateway-first-run-v0.7.3
 ./setup.sh
 ./run-smoke.sh
 ```
@@ -241,11 +241,12 @@ See [request body limits](docs/guides/routes.md#llm-request-body-size).
 
 ## Upgrading
 
-v0.7.2 adds no protocol or persisted-resource migration beyond v0.7.0. Stores
-that have not completed the external CLI-auth cutover documented since v0.5.0
-need a one-time credential migration and a separately installed refresh
-command. Do not start an upgrade until you have reviewed the applicable
-[upgrade guide](docs/guides/upgrade.md) and rollback preparation.
+v0.7.3 tightens configuration validation. Before replacing binaries, inspect
+existing routes and Agents for legacy direct-provider targets, non-null budgets,
+and ambiguous route matches using the [offline recovery tool](docs/guides/architecture-config-recovery.md).
+Affected configurations require explicit repair and can otherwise prevent startup.
+Review the [upgrade guide](docs/guides/upgrade.md) for backup, repair and rollback
+steps, including the external CLI-auth cutover for older stores.
 
 ## Community and license
 

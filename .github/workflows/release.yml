@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "v0.7.2"
+      - "v0.7.3"
 
 permissions:
   contents: read
@@ -44,6 +44,8 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Verify source release gates
         run: make verify-release
+      - name: Verify documentation, examples, and release-facing content
+        run: make verify-adoption
       - name: Smoke source release processes
         run: make smoke-release
       - name: Verify immutable Community consumer candidate
@@ -365,7 +367,7 @@ jobs:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          body_path: docs/releases/v0.7.2.md
+          body_path: docs/releases/v0.7.3.md
           files: |
             dist/*.tar.gz
             dist/*.spdx.json

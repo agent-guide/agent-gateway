@@ -120,7 +120,7 @@ func TestHandlerLocalExecutionSkipsRoutedProvider(t *testing.T) {
 	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
 			RouteMetadata: llmroutepkg.RouteMetadata{ID: "local-route", Protocol: llmroutepkg.RouteProtocol("local-stub"), MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"}},
-			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "must-not-resolve"}},
+			TargetPolicy:  &llmroutepkg.RouteDirectProviderPolicy{ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "must-not-resolve"}},
 		}}),
 	}); err != nil {
 		t.Fatal(err)

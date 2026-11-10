@@ -654,8 +654,8 @@ func mcpRouteViewFromConfig(resolver *mcproute.MCPRouteResolver, cfg mcproute.Ro
 	item, _ := mcproute.NewMCPRouteFromConfig(cfg)
 	view := MCPRouteView{
 		MCPRoute: item,
-		Source:         "store",
-		ReadOnly:       false,
+		Source:   "store",
+		ReadOnly: false,
 	}
 	if resolver != nil {
 		if configManager := resolver.ConfigManager(); configManager != nil && configManager.IsStatic(cfg.ID) {

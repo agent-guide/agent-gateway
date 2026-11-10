@@ -3,7 +3,7 @@ package distribution
 import "testing"
 
 func TestCommunityManifestVersion(t *testing.T) {
-	const want = "0.7.2"
+	const want = "0.7.3"
 	for name, assembly := range map[string]Assembly{
 		"runtime":    CommunityRuntime(),
 		"validation": CommunityValidation(),

@@ -19,6 +19,7 @@ checklists do not belong here.
 Current release notes:
 
 - [Unreleased](unreleased.md) — changes awaiting a target release tag
+- [v0.7.3.md](v0.7.3.md) — configuration safety, client session isolation, and runtime maintenance
 - [v0.7.2.md](v0.7.2.md) — observability corrections and Eino ADK maintenance
 - [v0.7.1.md](v0.7.1.md) — adoption-ready archives, images, first run, telemetry, and documentation
 - [v0.7.0.md](v0.7.0.md) — extension foundation, protected surfaces and published acceptance
