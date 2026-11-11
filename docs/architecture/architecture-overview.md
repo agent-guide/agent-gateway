@@ -475,6 +475,22 @@ accept but ignore `codex`. Anthropic, Gemini and Ollama ignore this option witho
 strict validation. This setting is distinct from route ingress protocol and ACP
 runtime type; see the [support matrix](../design/provider-compatibility.md).
 
+Responses streams require a terminal event. EOF or `[DONE]` without one is a
+truncated stream, even after valid partial output. The OpenAI ingress preserves
+those deltas, emits an SSE error and records a failed interaction while retaining
+the already committed HTTP status. Upstream `response.failed`,
+`response.incomplete` and `error` events also record failure; a terminal event
+without a final newline is still processed. Streams are never replayed after
+partial output.
+
+The Claude Code provider's Anthropic stream parser also dispatches a complete final
+event at clean EOF without a trailing newline; transport read errors remain failures.
+
+Chat Completions streams honor `stream_options.include_usage`: content chunks
+carry `usage: null`, and a successful stream with upstream usage emits one final
+usage chunk with `choices: []` before `[DONE]`. Without opt-in, usage is omitted.
+Missing upstream usage is never synthesized; interrupted streams omit the success footer.
+
 ## 7. Data Flows
 
 ### 7.1 LLM API Request

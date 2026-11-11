@@ -3,6 +3,8 @@ package openaibase
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"github.com/cloudwego/eino/schema"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -438,5 +440,42 @@ func (c providerCredential) toCredential() *credential.Credential {
 		Attributes: map[string]string{
 			"api_key": c.apiKey,
 		},
+	}
+}
+
+func TestResponsesStreamRequiresTerminalEvent(t *testing.T) {
+	for _, tc := range []struct {
+		name, payload     string
+		wantUnexpectedEOF bool
+		events            int
+	}{
+		{"empty", "", true, 0},
+		{"partial", "data:{\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n", true, 1},
+		{"partial-no-newline", "data:{\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}", true, 1},
+		{"done-without-terminal", "data:[DONE]\n\n", true, 0},
+		{"done-no-newline", "data:[DONE]", true, 0},
+		{"completed-no-newline", "data:{\"type\":\"response.completed\"}", false, 1},
+		{"error-no-newline", "data:{\"type\":\"error\"}", false, 1},
+		{"failed-no-newline", "data:{\"type\":\"response.failed\"}", false, 1},
+		{"incomplete-no-newline", "data:{\"type\":\"response.incomplete\"}", false, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reader, writer := schema.Pipe[*provider.ResponsesStreamEvent](4)
+			go (&Base{}).readResponsesStream(io.NopCloser(strings.NewReader(tc.payload)), writer)
+			defer reader.Close()
+			for i := 0; i < tc.events; i++ {
+				if event, err := reader.Recv(); err != nil || event == nil {
+					t.Fatalf("event=%v err=%v", event, err)
+				}
+			}
+			_, err := reader.Recv()
+			want := io.EOF
+			if tc.wantUnexpectedEOF {
+				want = io.ErrUnexpectedEOF
+			}
+			if !errors.Is(err, want) {
+				t.Fatalf("error=%v want=%v", err, want)
+			}
+		})
 	}
 }

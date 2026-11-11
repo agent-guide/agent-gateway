@@ -1616,7 +1616,7 @@ func TestServeStreamReportsReadFailure(t *testing.T) {
 			prov := &testProvider{streamResp: stream}
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-			newHandler().serveStream(rec, req, prov, &provider.ChatRequest{Model: "test"})
+			newHandler().serveStream(rec, req, prov, &provider.ChatRequest{Model: "test"}, false)
 			body := rec.Body.String()
 			if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "text/event-stream" {
 				t.Fatalf("unexpected response: %v", rec.Result())
@@ -1680,6 +1680,94 @@ func TestServeStreamInteractionOutcome(t *testing.T) {
 			}
 			if ev.Success != (tc.streamErr == nil) || ev.StatusCode != http.StatusOK || ev.ErrorType != tc.wantErrorType {
 				t.Fatalf("outcome = success:%v status:%d error_type:%q, want success:%v status:200 error_type:%q", ev.Success, ev.StatusCode, ev.ErrorType, tc.streamErr == nil, tc.wantErrorType)
+			}
+		})
+	}
+}
+
+func TestResponsesStreamInteractionOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name, terminal string
+		streamErr      error
+		wantSuccess    bool
+		wantWireError  bool
+		wantErrorType  string
+	}{
+		{name: "completed", terminal: "response.completed", wantSuccess: true},
+		{name: "truncated", wantWireError: true},
+		{name: "cancelled", streamErr: context.Canceled, wantWireError: true, wantErrorType: "client_cancelled"},
+		{name: "read-failure", streamErr: errors.New("private upstream diagnostic"), wantWireError: true},
+		{name: "failed", terminal: "response.failed"},
+		{name: "incomplete", terminal: "response.incomplete"},
+		{name: "error", terminal: "error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stream, writer := schema.Pipe[*provider.ResponsesStreamEvent](3)
+			writer.Send(&provider.ResponsesStreamEvent{Type: "response.output_text.delta", Delta: "partial"}, nil)
+			if tc.terminal != "" {
+				writer.Send(&provider.ResponsesStreamEvent{Type: tc.terminal}, nil)
+			}
+			if tc.streamErr != nil {
+				writer.Send(nil, tc.streamErr)
+			}
+			writer.Close()
+			sink := &usage.InMemorySink{}
+			span, ctx := usage.NewObserver(sink).Begin(t.Context(), usage.InteractionDimensions{RouteKind: "llm"})
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(ctx)
+			raw := httptest.NewRecorder()
+			rec := httpcapture.NewResponseRecorder(raw)
+			newHandler().writeProviderResponsesStream(rec, req, stream, "chat")
+			span.Finish(usage.InteractionOutcome{Success: rec.StatusCode() < 400 && !rec.Failed(), StatusCode: rec.StatusCode()})
+			if len(sink.Events) != 1 {
+				t.Fatalf("events=%d", len(sink.Events))
+			}
+			ev := sink.Events[0].(usage.LLMUsageEvent)
+			if ev.Success != tc.wantSuccess || ev.StatusCode != 200 {
+				t.Fatalf("outcome=%+v", ev)
+			}
+			wantErrorType := tc.wantErrorType
+			if !tc.wantSuccess && wantErrorType == "" {
+				wantErrorType = "provider_stream_failed"
+			}
+			if ev.ErrorType != wantErrorType {
+				t.Fatalf("error type=%q", ev.ErrorType)
+			}
+			body := raw.Body.String()
+			if !strings.Contains(body, "partial") || strings.Contains(body, "private upstream diagnostic") {
+				t.Fatalf("body=%s", body)
+			}
+			if got := strings.Contains(body, "Stream interrupted before completion"); got != tc.wantWireError {
+				t.Fatalf("wire error=%t want=%t body=%s", got, tc.wantWireError, body)
+			}
+			if !tc.wantSuccess && strings.Contains(body, "response.completed") {
+				t.Fatalf("invented completion: %s", body)
+			}
+		})
+	}
+}
+
+func TestChatStreamUsageWithContentAndFailure(t *testing.T) {
+	for _, failed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("failed=%t", failed), func(t *testing.T) {
+			reader, writer := schema.Pipe[*schema.Message](3)
+			writer.Send(&schema.Message{Content: "answer", ResponseMeta: &schema.ResponseMeta{Usage: &schema.TokenUsage{}}}, nil)
+			writer.Send(&schema.Message{ResponseMeta: &schema.ResponseMeta{FinishReason: "stop"}}, nil)
+			if failed {
+				writer.Send(nil, io.ErrUnexpectedEOF)
+			}
+			writer.Close()
+			rec := httptest.NewRecorder()
+			newHandler().serveStream(rec, httptest.NewRequest("POST", "/v1/chat/completions", nil), &testProvider{streamResp: reader}, &provider.ChatRequest{Model: "m"}, true)
+			body := rec.Body.String()
+			if !strings.Contains(body, "answer") {
+				t.Fatalf("lost content: %s", body)
+			}
+			if failed {
+				if strings.Contains(body, `"choices":[]`) || strings.Contains(body, "[DONE]") {
+					t.Fatalf("failed stream has success footer: %s", body)
+				}
+			} else if !strings.Contains(body, `"choices":[],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}`) {
+				t.Fatalf("missing explicit zero usage: %s", body)
 			}
 		})
 	}

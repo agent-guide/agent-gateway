@@ -215,17 +215,18 @@ func (b *Base) readResponsesStream(body io.ReadCloser, sw *schema.StreamWriter[*
 		}
 		line = strings.TrimRight(line, "\r\n")
 		switch {
-		case strings.HasPrefix(line, "event: "):
-			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
-		case strings.HasPrefix(line, "data: "):
-			data.WriteString(strings.TrimPrefix(line, "data: "))
+		case strings.HasPrefix(line, "event:"):
+			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		case strings.HasPrefix(line, "data:"):
+			data.WriteString(strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
 		case line == "":
 			if data.Len() == 0 {
 				eventName = ""
-				continue
+				break // Still check EOF when no event data was received.
 			}
 			payload := data.String()
 			if strings.TrimSpace(payload) == "[DONE]" {
+				sw.Send(nil, io.ErrUnexpectedEOF)
 				return
 			}
 			event, err := decodeResponsesStreamEvent(eventName, payload)
@@ -248,6 +249,7 @@ func (b *Base) readResponsesStream(body io.ReadCloser, sw *schema.StreamWriter[*
 			if data.Len() > 0 {
 				payload := data.String()
 				if strings.TrimSpace(payload) == "[DONE]" {
+					sw.Send(nil, io.ErrUnexpectedEOF)
 					return
 				}
 				event, decodeErr := decodeResponsesStreamEvent(eventName, payload)
@@ -256,9 +258,12 @@ func (b *Base) readResponsesStream(body io.ReadCloser, sw *schema.StreamWriter[*
 					return
 				}
 				if event != nil {
-					_ = sw.Send(event, nil)
+					if sw.Send(event, nil) || isResponsesTerminalEvent(event.Type) {
+						return
+					}
 				}
 			}
+			sw.Send(nil, io.ErrUnexpectedEOF)
 			return
 		}
 	}
@@ -266,7 +271,7 @@ func (b *Base) readResponsesStream(body io.ReadCloser, sw *schema.StreamWriter[*
 
 func isResponsesTerminalEvent(eventType string) bool {
 	switch eventType {
-	case "response.completed", "response.failed", "response.incomplete":
+	case "response.completed", "response.failed", "response.incomplete", "error":
 		return true
 	default:
 		return false

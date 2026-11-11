@@ -119,6 +119,9 @@ Anthropic Messages ingress profile, not an ACP Agent runtime. That profile can
 route Claude Code traffic to compatible domestic or international model
 providers.
 
+Chat streaming with `stream_options.include_usage: true` returns a final usage
+chunk when the upstream supplies usage.
+
 ## Architecture
 
 Both server modes publish validated route generations; request matching reads an

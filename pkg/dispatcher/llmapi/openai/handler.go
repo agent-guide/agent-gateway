@@ -173,7 +173,8 @@ func (h *Handler) ServeLLMApi(w http.ResponseWriter, r *http.Request, prov provi
 	}
 
 	if prepared.Stream() {
-		h.serveStream(w, r, prov, chatReq)
+		includeUsage, _ := req.StreamOptions["include_usage"].(bool)
+		h.serveStream(w, r, prov, chatReq, includeUsage)
 		return nil
 	}
 
@@ -313,7 +314,7 @@ func (h *Handler) serveResponses(w http.ResponseWriter, r *http.Request, prov pr
 	return nil
 }
 
-func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provider.Provider, chatReq *provider.ChatRequest) {
+func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provider.Provider, chatReq *provider.ChatRequest, includeUsage bool) {
 	ctx := r.Context()
 	h.logger.Debug("openai: starting stream",
 		zap.String("request_type", string(provider.LLMApiRequestTypeChat)),
@@ -342,6 +343,7 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 	reasoningTokens := 0
 	usageFinalized := false
 	var streamErr error
+	var finalUsage *chatStreamUsage
 	for {
 		chunk, err := stream.Recv()
 		if err == io.EOF {
@@ -376,8 +378,26 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 			}
 			usageFinalized = inputTokens > 0 || outputTokens > 0
 		}
+		if chunk.ResponseMeta != nil && chunk.ResponseMeta.Usage != nil {
+			u := provider.UsageFromMessage(chunk)
+			finalUsage = &chatStreamUsage{Usage: Usage{PromptTokens: u.InputTokens, CompletionTokens: u.OutputTokens, TotalTokens: u.TotalTokens}}
+			if u.CachedTokens > 0 {
+				finalUsage.PromptTokenDetails = map[string]int{"cached_tokens": u.CachedTokens}
+			}
+			if u.ReasoningTokens > 0 {
+				finalUsage.CompletionTokenDetails = map[string]int{"reasoning_tokens": u.ReasoningTokens}
+			}
+			// A usage-only provider message is metadata, not a content delta.
+			if chunk.Content == "" && chunk.ReasoningContent == "" && len(chunk.ToolCalls) == 0 && chunk.ResponseMeta.FinishReason == "" {
+				continue
+			}
+		}
 
-		payload, err := json.Marshal(toStreamChunk(chatReq.Model, chunk))
+		wireChunk := toStreamChunk(chatReq.Model, chunk)
+		if includeUsage {
+			wireChunk.Usage = json.RawMessage("null")
+		}
+		payload, err := json.Marshal(wireChunk)
 		if err != nil {
 			streamErr = err
 			httplog.Error(h.logger, "http request failed", r, http.StatusOK, fmt.Errorf("marshal stream chunk: %w", err),
@@ -390,6 +410,14 @@ func (h *Handler) serveStream(w http.ResponseWriter, r *http.Request, prov provi
 		flusher.Flush()
 	}
 	if streamErr == nil {
+		if includeUsage && finalUsage != nil {
+			wireChunk := toStreamChunk(chatReq.Model, &schema.Message{})
+			wireChunk.Choices = []chunkChoice{}
+			wireChunk.Usage = finalUsage
+			payload, _ := json.Marshal(wireChunk)
+			fmt.Fprintf(w, "data: %s\n\n", payload)
+			flusher.Flush()
+		}
 		h.logger.Debug("openai: stream completed",
 			zap.String("request_type", string(provider.LLMApiRequestTypeChat)),
 			zap.String("model", chatReq.Model),
@@ -442,12 +470,18 @@ func (h *Handler) writeProviderResponsesStream(w http.ResponseWriter, r *http.Re
 	cachedTokens := 0
 	reasoningTokens := 0
 	usageFinalized := false
+	terminal := false
+	var streamErr error
 	for {
 		event, err := stream.Recv()
 		if err == io.EOF {
+			if !terminal {
+				streamErr = io.ErrUnexpectedEOF
+			}
 			break
 		}
 		if err != nil {
+			streamErr = err
 			httplog.Error(h.logger, "http request failed", r, http.StatusOK, fmt.Errorf("receive provider responses stream chunk: %w", err),
 				zap.String("protocol", "openai"),
 				zap.String("model", model),
@@ -470,8 +504,19 @@ func (h *Handler) writeProviderResponsesStream(w http.ResponseWriter, r *http.Re
 			reasoningTokens = event.Response.Usage.OutputTokensDetails.ReasoningTokens
 			usageFinalized = totalTokens > 0 || inputTokens > 0 || outputTokens > 0
 		}
+		switch event.Type {
+		case "response.completed":
+			terminal = true
+		case "response.failed", "response.incomplete", "error":
+			terminal = true
+			if marker, ok := w.(interface{ MarkFailed() }); ok {
+				marker.MarkFailed()
+			}
+			usage.SpanFromContext(r.Context()).AddAnnotation("error_type", "provider_stream_failed")
+		}
 		eventCount++
 		if err := writeResponsesEvent(w, event); err != nil {
+			streamErr = err
 			httplog.Error(h.logger, "http request failed", r, http.StatusOK, fmt.Errorf("marshal provider responses stream chunk: %w", err),
 				zap.String("protocol", "openai"),
 				zap.String("model", model),
@@ -479,8 +524,24 @@ func (h *Handler) writeProviderResponsesStream(w http.ResponseWriter, r *http.Re
 			break
 		}
 		flusher.Flush()
+		if terminal {
+			break
+		}
 	}
-	h.logger.Debug("openai: responses stream completed",
+	if streamErr != nil {
+		if marker, ok := w.(interface{ MarkFailed() }); ok {
+			marker.MarkFailed()
+		}
+		errorType := "provider_stream_failed"
+		if dispatcher.IsClientCanceled(streamErr) {
+			errorType = "client_cancelled"
+		}
+		usage.SpanFromContext(r.Context()).AddAnnotation("error_type", errorType)
+		// Headers may already be committed; report interruption on the SSE wire.
+		_, _ = fmt.Fprint(w, "event: error\ndata: {\"type\":\"error\",\"code\":\"server_error\",\"message\":\"Stream interrupted before completion\",\"param\":null}\n\n")
+		flusher.Flush()
+	}
+	h.logger.Debug("openai: responses stream ended",
 		zap.String("request_type", string(provider.LLMApiRequestTypeResponses)),
 		zap.String("model", model),
 		zap.Int("events", eventCount),
@@ -660,12 +721,19 @@ func openAIErrorTypeForStatus(status int) string {
 	}
 }
 
+type chatStreamUsage struct {
+	Usage
+	PromptTokenDetails     map[string]int `json:"prompt_tokens_details,omitempty"`
+	CompletionTokenDetails map[string]int `json:"completion_tokens_details,omitempty"`
+}
+
 type chatCompletionChunk struct {
 	ID      string        `json:"id"`
 	Object  string        `json:"object"`
 	Created int64         `json:"created"`
 	Model   string        `json:"model"`
 	Choices []chunkChoice `json:"choices"`
+	Usage   any           `json:"usage,omitempty"`
 }
 
 type chunkChoice struct {
