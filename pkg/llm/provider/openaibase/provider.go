@@ -215,14 +215,14 @@ func (b *Base) readResponsesStream(body io.ReadCloser, sw *schema.StreamWriter[*
 		}
 		line = strings.TrimRight(line, "\r\n")
 		switch {
-		case strings.HasPrefix(line, "event: "):
-			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
-		case strings.HasPrefix(line, "data: "):
-			data.WriteString(strings.TrimPrefix(line, "data: "))
+		case strings.HasPrefix(line, "event:"):
+			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		case strings.HasPrefix(line, "data:"):
+			data.WriteString(strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
 		case line == "":
 			if data.Len() == 0 {
 				eventName = ""
-				continue
+				break // Still check EOF when no event data was received.
 			}
 			payload := data.String()
 			if strings.TrimSpace(payload) == "[DONE]" {

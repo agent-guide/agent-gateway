@@ -43,10 +43,10 @@ func ReadMessageStream(body io.ReadCloser, sw *schema.StreamWriter[*schema.Messa
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
-		case strings.HasPrefix(line, "event: "):
-			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
-		case strings.HasPrefix(line, "data: "):
-			data.WriteString(strings.TrimPrefix(line, "data: "))
+		case strings.HasPrefix(line, "event:"):
+			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		case strings.HasPrefix(line, "data:"):
+			data.WriteString(strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
 		case line == "":
 			if err := EmitStreamEvent(eventName, data.String(), sw, state, errorPrefix); err != nil {
 				sw.Send(nil, err)
