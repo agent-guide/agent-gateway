@@ -1,15 +1,15 @@
 # MCP Gateway
 
-This guide covers the current MCP gateway surface, how MCP services and routes are configured, and what is implemented today.
+This guide covers the current MCP gateway surface, how MCP connectors and routes are configured, and what is implemented today.
 
 ## What The MCP Gateway Does
 
-The gateway can terminate inbound MCP requests, validate VirtualKeys, and act as an MCP client toward upstream MCP services.
+The gateway can terminate inbound MCP requests, validate VirtualKeys, and act as an MCP client toward upstream MCP connectors.
 
 Current implemented areas include:
 
 - MCP routing through `agent_route_dispatcher` when `mcp` is enabled
-- MCP services persisted in config store
+- MCP connectors persisted in config store
 - MCP routes persisted in config store
 - discovery, execution, and runtime inspection Admin APIs
 
@@ -41,14 +41,16 @@ Minimal MCP bundle shape:
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
 
-mcpServices:
+connectors:
   - id: mcp-http
-    name: HTTP MCP Service
-    transport: streamable_http
-    url: ${MCP_HTTP_URL}
+    name: HTTP MCP connector
+    type: mcp
+    mcp:
+      transport: streamable_http
+      url: ${MCP_HTTP_URL}
 
 mcpRoutes:
-  - service_id: mcp-http
+  - connector_id: mcp-http
     match_policy:
       path_prefix: /mcp/http
     auth_policy:
@@ -62,25 +64,25 @@ See [examples/gateway.bundle.mcp.yaml](../../examples/gateway.bundle.mcp.yaml).
 MCP routes:
 
 - always use `protocol: mcp` at runtime
-- are tied to one `service_id`
+- are tied to one `connector_id`
 - can require a VirtualKey
 - share the common route matching foundation with LLM routes
 
 If `id` is omitted, the MCP route config derives one from:
 
-- `service_id`
+- `connector_id`
 - `match_policy.path_prefix`
 
 The derived shape is the deterministic, slash-free (path prefix lowercased,
 non-alphanumeric runs collapsed to `-`, `/` → `root`):
 
-- `mcp:<service_id>:<path-slug>`
+- `mcp:<connector_id>:<path-slug>`
 
 ## Current Admin Surface
 
 Implemented MCP admin families include:
 
-- MCP service CRUD
+- MCP connector CRUD
 - MCP route CRUD
 - discovery endpoints
 - execution endpoints

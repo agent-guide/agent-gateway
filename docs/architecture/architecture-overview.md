@@ -64,7 +64,7 @@ Shared gateway runtime
   v
 External systems
   - upstream LLM providers (OpenAI / Anthropic / Gemini / DeepSeek / Qwen / Zhipu / OpenRouter / Ollama / Codex / Claude Code)
-  - upstream MCP services
+  - upstream MCP connectors
   - local ACP agent or adapter processes (codex, opencode)
   - remote HTTP agents registered by Agent Card URL and reached through common
     `/turn` translation or governed native A2A Protocol 1.0 JSON-RPC
@@ -196,12 +196,12 @@ Today it exposes working endpoints for:
 - health
 - provider CRUD
 - LLM route CRUD
-- MCP service CRUD
+- MCP connector CRUD
 - MCP route CRUD
 - unified Agent route CRUD
 - virtual key CRUD
 - credential list/get/delete
-- MCP service discovery and execution endpoints
+- MCP connector discovery and execution endpoints
 - MCP dispatcher runtime inspection endpoints
 - ACP runtime inspection and operator escape-hatch endpoints
 - metrics summary, event, timeseries, breakdown, and Prometheus exposition endpoints
@@ -291,7 +291,7 @@ It persists:
 - virtual keys
 - upstream provider credentials
 - managed model overlays
-- MCP service definitions
+- MCP connector definitions
 - Agent definitions (including inline ACP runtime config)
 - linked-module extension envelopes
 
@@ -301,7 +301,7 @@ writes, queries and retention. Assembly borrows the backend's generic Database
 handle, so configuration and usage share one file/connection without ConfigStore
 importing observability. The host closes the connection after usage drains.
 
-The runtime storage API is schema-bound. `ConfigStoreBackend.Register(name, schema)` validates a schema, prepares storage, creates a schema-bound generic `ConfigStore`, and caches it. `ConfigStoreBackend.Get(name)` returns the cached store. Startup registers `providers`, `credentials`, `routes`, `virtual_keys`, `managed_models`, `mcp_services`, `agents`, and `extensions`. Generic store interfaces and schema primitives live under `pkg/configstore/`; built-in business schemas live under `pkg/configstore/schema/`. Logical store names need not equal physical tables: managed models use `model_configs`, and credentials retain the historical `cliauth_credentials` table to preserve existing data.
+The runtime storage API is schema-bound. `ConfigStoreBackend.Register(name, schema)` validates a schema, prepares storage, creates a schema-bound generic `ConfigStore`, and caches it. `ConfigStoreBackend.Get(name)` returns the cached store. Startup registers `providers`, `credentials`, `routes`, `virtual_keys`, `managed_models`, `connectors`, `agents`, and `extensions`. Generic store interfaces and schema primitives live under `pkg/configstore/`; built-in business schemas live under `pkg/configstore/schema/`. Logical store names need not equal physical tables: managed models use `model_configs`, and credentials retain the historical `cliauth_credentials` table to preserve existing data.
 
 The config store is important for one reason beyond persistence: it allows some route and provider updates to take effect dynamically without rewriting the entire Caddy config.
 
@@ -315,7 +315,7 @@ Current status:
 
 - `pkg/mcp/`
   - protocol types, transport clients, service runtime, and runtime registry are active
-  - `pkg/mcp/service` manages `mcp_services`, discovery, execution, and session reuse
+  - `pkg/connector` manages `connectors`, discovery, execution, and session reuse
   - `pkg/mcp/runtime` tracks in-flight requests and progress for the MCP dispatcher
   - `streamable_http`, `stdio`, and legacy `sse` are integrated upstream transports
 - `pkg/acp/`
@@ -525,9 +525,9 @@ HTTP request
   -> apply the VirtualKey's configured MCP admission backend
   -> decode JSON-RPC request
   -> register in-flight request in pkg/mcp/runtime
-  -> resolve target MCP service
+  -> resolve target MCP connector
   -> initialize or reuse upstream Streamable HTTP session
-  -> invoke discovery or execution method on upstream MCP service
+  -> invoke discovery or execution method on upstream MCP connector
   -> map notifications/cancelled and notifications/progress into runtime state
   -> translate upstream result into JSON-RPC response
 ```
@@ -594,7 +594,7 @@ The current implementation includes:
 - SQLite config persistence
 - provider CRUD
 - route CRUD
-- MCP service CRUD
+- MCP connector CRUD
 - MCP route CRUD
 - virtual key CRUD
 - credential inspection and deletion
@@ -730,8 +730,9 @@ removed outside the Admin API, the Agent resources endpoint exposes the dangling
 reference with `exists=false`; an update must remove or replace that reference.
 Resource-route validation does not block Agent deletion.
 
-Agent Resources describe management relationships. Declared MCP services also
-constrain builtin tool definitions; ProviderIDs and VirtualKeyIDs do not add a
+Agent Resources describe management relationships. Connector declarations are
+strong dependencies: they require existing connectors and block their deletion,
+including disabled Agents. They also constrain builtin tool definitions; ProviderIDs and VirtualKeyIDs do not add a
 cross-runtime authorization layer. Daily budgets are unimplemented: non-null
 `policy.budget` is rejected, including empty objects. Agent
 `policy.max_agent_depth` is checked only by the builtin host, independently of
@@ -806,3 +807,22 @@ The external assembly workflow is documented in the
 symbols. Linked configuration and Admin lifecycle alone do not add data-plane
 interception; additional domain seams and their ownership are
 [Proposed](../design/enterprise-extension-contract.md#12-domain-extension-coverage-and-ownership).
+
+## Connector execution
+
+Connector configuration, MCP session adapters and the builtin bridge live in
+`pkg/connector`. See [Connector runtime](connectors.md) for generation leases,
+session ownership, observation and the current publication boundary. MCP publishing targets use `connector_id`;
+Agent declarations use `resources.connector_ids`.
+
+Connector identity is `id` (immutable, case-sensitive) plus `name` (editable,
+non-unique display text), with no separate slug. Display renames preserve
+references; Connector updates reject a different ID in the request body.
+
+Connector execution edits/deletion reject Agent/MCPRoute references and active or
+queued calls/discovery/initialization, including direct manager and Refresh paths.
+Name/description edits preserve execution generations and MCP sessions. Revocation
+remains available. Dormant old handles reject changed execution generations;
+shutdown cancels work and waits within the host budget with inspectable errors.
+Builtin definition retirement removes stale graphs and permission checkpoints
+without reference-counting immutable configuration memory.

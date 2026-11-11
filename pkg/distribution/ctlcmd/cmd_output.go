@@ -146,18 +146,23 @@ func (s *commandState) printGatewayLLMRoutesTable(items []adminclient.LLMRoute) 
 	s.printTable(headers, rows)
 }
 
-func (s *commandState) printGatewayMCPServicesTable(items []adminclient.MCPServiceView) {
+func (s *commandState) printGatewayConnectorsTable(items []adminclient.ConnectorView) {
 	headers := []string{"ID", "NAME", "TRANSPORT", "ENDPOINT", "DISABLED", "SOURCE"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
-		endpoint := item.URL
-		if item.Transport == "stdio" {
-			endpoint = item.Command
+		endpoint := ""
+		transport := item.Type
+		if item.MCP != nil {
+			endpoint = item.MCP.URL
+			transport = string(item.MCP.Transport)
+		}
+		if item.MCP != nil && item.MCP.Transport == "stdio" {
+			endpoint = item.MCP.Command
 		}
 		rows = append(rows, []string{
 			dash(item.ID),
 			dash(item.Name),
-			dash(string(item.Transport)),
+			dash(transport),
 			dash(endpoint),
 			boolStr(item.Disabled),
 			dash(item.Source),
@@ -166,12 +171,12 @@ func (s *commandState) printGatewayMCPServicesTable(items []adminclient.MCPServi
 	s.printTable(headers, rows)
 }
 
-func (s *commandState) printGatewayMCPSessionTable(item *adminclient.MCPServiceSessionView) {
+func (s *commandState) printGatewayMCPSessionTable(item *adminclient.ConnectorSessionView) {
 	headers := []string{"SERVICE-ID", "SESSION-ID", "UPSTREAM-SESSION-ID", "TRANSPORT", "STATE", "CREATED-AT", "LAST-USED-AT"}
 	rows := [][]string{}
 	if item != nil {
 		rows = append(rows, []string{
-			dash(item.ServiceID),
+			dash(item.ConnectorID),
 			dash(item.ID),
 			dash(item.UpstreamSessionID),
 			dash(string(item.Transport)),
@@ -243,7 +248,7 @@ func (s *commandState) printGatewayMCPRoutesTable(items []adminclient.MCPRouteVi
 		rows = append(rows, []string{
 			dash(item.ID),
 			dash(item.MatchPolicy.PathPrefix),
-			dash(item.ServiceID),
+			dash(item.ConnectorID),
 			boolStr(item.AuthPolicy.RequireVirtualKey),
 			boolStr(item.Disabled),
 			dash(item.Source),

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,41 +11,84 @@ import (
 	"testing"
 )
 
+func TestConnectorRepairThroughCommand(t *testing.T) {
+	for _, family := range []string{"mcp_services", "connectors"} {
+		t.Run(family, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.db")
+			db, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			if _, err := db.Exec(`CREATE TABLE ` + family + ` (id TEXT PRIMARY KEY, tag TEXT, config TEXT, created_at DATETIME, updated_at DATETIME)`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`INSERT INTO ` + family + `(id,tag,config) VALUES ('tools','mcp','null')`); err != nil {
+				t.Fatal(err)
+			}
+			replacement := `{"id":"tools","name":"Tools","type":"mcp","mcp":{"transport":"stdio","command":"unused"}}`
+			if family == "mcp_services" {
+				replacement = `{"id":"tools","name":"Tools","transport":"stdio","command":"unused"}`
+			}
+			operations := filepath.Join(dir, "operations.json")
+			if err := os.WriteFile(operations, []byte(fmt.Sprintf(`[{"family":%q,"id":"tools","action":"replace","data":%s}]`, family, replacement)), 0600); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"--db", path, "--repair", operations, "--backup", path + ".bak", "--service-stopped"}
+			if family == "mcp_services" {
+				args = append(args, "--convert-connectors")
+			}
+			var out bytes.Buffer
+			if err := run(t.Context(), args, &out); err != nil {
+				t.Fatalf("connector repair command: %v; %s", err, out.String())
+			}
+			var stored string
+			if err := db.QueryRow(`SELECT config FROM connectors WHERE id='tools'`).Scan(&stored); err != nil || !strings.Contains(stored, `"type":"mcp"`) {
+				t.Fatalf("repaired connector missing: %s %v", stored, err)
+			}
+			if _, err := os.Stat(path + ".bak"); err != nil {
+				t.Fatalf("missing backup: %v", err)
+			}
+		})
+	}
+}
+
 func TestOfflineStaticInspectionRepairAndRecheck(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "static.yaml")
-	original := `apiVersion: gateway.agw/v1alpha1
+	original := `agents:
+    - id: agent
+      name: Agent
+      policy:
+        budget: {}
+      runtime:
+        http:
+            card_url: https://example.org/card
+            protocol: a2a
+        type: http
+apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
-mcpServices:
-  - id: tools
-    name: Tools
-    transport: streamable_http
-    url: https://example.org/mcp
-mcpRoutes:
-  - id: tools-route
-    service_id: tools
-    match_policy: {path_prefix: /mcp}
-providers:
-  - id: p
-    provider_type: openai
 llmRoutes:
-  - id: a
-    kind: llm
-    protocol: openai
-    match_policy: {path_prefix: /api}
-    target_policy: {provider_id: p}
-  - id: b
-    kind: llm
-    protocol: openai
-    match_policy: {path_prefix: /api}
-    target_policy: {provider_id: p, provider_target: {provider_id: q}}
-agents:
-  - id: agent
-    name: Agent
-    runtime:
-      type: http
-      http: {card_url: 'https://example.org/card', protocol: a2a}
-    policy: {budget: {}}
+    - id: a
+      kind: llm
+      match_policy:
+        path_prefix: /api
+      protocol: openai
+      target_policy:
+        provider_id: p
+    - id: b
+      kind: llm
+      match_policy:
+        path_prefix: /api
+      protocol: openai
+      target_policy:
+        provider_id: p
+        provider_target:
+            provider_id: q
+providers:
+    - id: p
+      provider_type: openai
 `
 	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
 		t.Fatal(err)

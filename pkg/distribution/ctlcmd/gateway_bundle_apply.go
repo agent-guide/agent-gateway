@@ -12,6 +12,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
+	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
 	agentroute "github.com/agent-guide/agent-gateway/pkg/gateway/agentroute"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
@@ -19,7 +20,6 @@ import (
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
-	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 )
 
 type gatewayApplySummary struct {
@@ -101,7 +101,7 @@ func (s *commandState) runGatewayApply(ctx context.Context, path string) error {
 	if err := applyLLMRoutes(ctx, client, bundle, record); err != nil {
 		return err
 	}
-	if err := applyMCPServices(ctx, client, bundle, record); err != nil {
+	if err := applyConnectors(ctx, client, bundle, record); err != nil {
 		return err
 	}
 	if err := applyMCPRoutes(ctx, client, bundle, record); err != nil {
@@ -370,41 +370,41 @@ func bundleVirtualKeyConfig(key gatewaybundle.BundleVirtualKey) adminclient.Virt
 	}
 }
 
-func applyMCPServices(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
-	items, err := client.ListMCPServices(ctx)
+func applyConnectors(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+	items, err := client.ListConnectors(ctx)
 	if err != nil {
 		return err
 	}
-	current := map[string]adminclient.MCPServiceView{}
+	current := map[string]adminclient.ConnectorView{}
 	for _, item := range items {
 		current[item.ID] = item
 	}
-	for _, desired := range bundle.MCPServices {
+	for _, desired := range bundle.Connectors {
 		desired.Normalize()
 		id := desired.ID
 		item, ok := current[id]
 		if !ok {
-			if _, err := client.CreateMCPService(ctx, desired); err != nil {
-				record("mcp_service", id, "error", fmt.Errorf("mcp_service %q create: %w", id, err))
+			if _, err := client.CreateConnector(ctx, desired); err != nil {
+				record("connector", id, "error", fmt.Errorf("connector %q create: %w", id, err))
 			} else {
-				record("mcp_service", id, "create", nil)
+				record("connector", id, "create", nil)
 			}
 			continue
 		}
 		if item.ReadOnly {
-			record("mcp_service", id, "error", fmt.Errorf("mcp_service %q is read-only", id))
+			record("connector", id, "error", fmt.Errorf("connector %q is read-only", id))
 			continue
 		}
-		current := normalizeComparableMCPService(item.MCPServiceConfig)
-		desiredNorm := normalizeComparableMCPService(desired)
+		current := normalizeComparableConnector(item.ConnectorConfig)
+		desiredNorm := normalizeComparableConnector(desired)
 		if reflect.DeepEqual(current, desiredNorm) {
-			record("mcp_service", id, "skip", nil)
+			record("connector", id, "skip", nil)
 			continue
 		}
-		if _, err := client.UpdateMCPService(ctx, id, desired); err != nil {
-			record("mcp_service", id, "error", fmt.Errorf("mcp_service %q update: %w", id, err))
+		if _, err := client.UpdateConnector(ctx, id, desired); err != nil {
+			record("connector", id, "error", fmt.Errorf("connector %q update: %w", id, err))
 		} else {
-			record("mcp_service", id, "update", nil)
+			record("connector", id, "update", nil)
 		}
 	}
 	return nil
@@ -542,10 +542,10 @@ func applyAgents(ctx context.Context, client *adminclient.Client, bundle *gatewa
 }
 
 type agentApplyReferences struct {
-	providers   map[string]struct{}
-	mcpServices map[string]struct{}
-	llmRoutes   map[string]struct{}
-	mcpRoutes   map[string]struct{}
+	providers  map[string]struct{}
+	connectors map[string]struct{}
+	llmRoutes  map[string]struct{}
+	mcpRoutes  map[string]struct{}
 }
 
 func loadAgentApplyReferences(ctx context.Context, client *adminclient.Client) (*agentApplyReferences, error) {
@@ -553,7 +553,7 @@ func loadAgentApplyReferences(ctx context.Context, client *adminclient.Client) (
 	if err != nil {
 		return nil, err
 	}
-	mcpServices, err := client.ListMCPServices(ctx)
+	connectors, err := client.ListConnectors(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -566,16 +566,16 @@ func loadAgentApplyReferences(ctx context.Context, client *adminclient.Client) (
 		return nil, err
 	}
 	refs := &agentApplyReferences{
-		providers:   map[string]struct{}{},
-		mcpServices: map[string]struct{}{},
-		llmRoutes:   map[string]struct{}{},
-		mcpRoutes:   map[string]struct{}{},
+		providers:  map[string]struct{}{},
+		connectors: map[string]struct{}{},
+		llmRoutes:  map[string]struct{}{},
+		mcpRoutes:  map[string]struct{}{},
 	}
 	for _, item := range providers {
 		refs.providers[item.Id] = struct{}{}
 	}
-	for _, item := range mcpServices {
-		refs.mcpServices[item.ID] = struct{}{}
+	for _, item := range connectors {
+		refs.connectors[item.ID] = struct{}{}
 	}
 	for _, item := range llmRoutes {
 		refs.llmRoutes[item.ID] = struct{}{}
@@ -602,7 +602,7 @@ func (r *agentApplyReferences) validate(a agentpkg.Agent) error {
 		}
 	}
 	check("provider_id", a.Resources.ProviderIDs, r.providers)
-	check("mcp_service_id", a.Resources.MCPServiceIDs, r.mcpServices)
+	check("connector_id", a.Resources.ConnectorIDs, r.connectors)
 	check("llm_route_id", a.Routes.LLMRouteIDs, r.llmRoutes)
 	check("mcp_route_id", a.Routes.MCPRouteIDs, r.mcpRoutes)
 	if len(missing) > 0 {
@@ -626,7 +626,7 @@ func normalizeComparableAgentRoute(cfg agentroute.AgentRouteConfig) agentroute.A
 	return cfg
 }
 
-func normalizeComparableMCPService(cfg mcpservice.MCPServiceConfig) mcpservice.MCPServiceConfig {
+func normalizeComparableConnector(cfg connectorpkg.ConnectorConfig) connectorpkg.ConnectorConfig {
 	cfg.Normalize()
 	cfg.CreatedAt = time.Time{}
 	cfg.UpdatedAt = time.Time{}

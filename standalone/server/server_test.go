@@ -29,7 +29,7 @@ providers:
 llmRoutes:
   - id: chat-prod
     protocol: openai
-    match:
+    match_policy:
       path_prefix: /
       methods:
         - POST
@@ -71,7 +71,7 @@ providers:
 llmRoutes:
   - id: chat-prod
     protocol: openai
-    match:
+    match_policy:
       path_prefix: /
       methods:
         - POST
@@ -284,7 +284,7 @@ providers:
 llmRoutes:
   - id: chat-prod
     protocol: openai
-    match:
+    match_policy:
       path_prefix: /
       methods:
         - POST

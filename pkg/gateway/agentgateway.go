@@ -22,6 +22,7 @@ import (
 	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
+	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/credential"
 	credentialscheduler "github.com/agent-guide/agent-gateway/pkg/credential/scheduler"
 	agentroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/agentroute"
@@ -33,7 +34,6 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	einomodelbridge "github.com/agent-guide/agent-gateway/pkg/llm/provider/einomodel"
 	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
-	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 	einocomponentmodel "github.com/cloudwego/eino/components/model"
 	"go.uber.org/zap"
 )
@@ -82,7 +82,7 @@ type AgentGateway struct {
 	credentialManager   *credential.Manager
 	credentialScheduler credentialscheduler.CredentialScheduler
 	modelCatalog        modelcatalog.Service
-	mcpServiceManager   *mcpservice.Manager
+	connectorManager    *connectorpkg.Manager
 	mcpRuntimeRegistry  *mcpruntime.Registry
 	agentManager        *agentpkg.Manager
 	backends            *runtimebackend.Set
@@ -146,7 +146,7 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	if err := g.configureRouteResolver(ctx, opts.ConfigStoreBackend, staticRoutes); err != nil {
 		return err
 	}
-	if err := g.configureMCPServiceManager(opts.ConfigStoreBackend); err != nil {
+	if err := g.configureConnectorManager(ctx, opts); err != nil {
 		return err
 	}
 	if err := g.configureAgentManager(ctx, opts.ConfigStoreBackend); err != nil {
@@ -183,7 +183,7 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	// Concrete runtime assembly consumes only explicitly injected capabilities.
 	backends, err := runtimebackend.Assemble(ctx, runtimebackend.AssemblyOptions{
 		Agents: g.agentManager, Credentials: g.credentialManager,
-		Builtin:    builtinpkg.Config{Models: routedChatModelResolver{gateway: g}, Tools: g.mcpServiceManager, Observer: g.usageObserver},
+		Builtin:    builtinpkg.Config{Models: routedChatModelResolver{gateway: g}, Tools: g.connectorManager, Observer: g.usageObserver},
 		Registry:   g.runtimeRegistry,
 		Controls:   runtimebackend.RuntimeControls{Runs: g.runRegistry, Permissions: g.permissionBroker, Logger: opts.Logger},
 		ACPRuntime: opts.ACPRuntime, HTTPBackend: opts.HTTPBackend,
@@ -249,7 +249,10 @@ func (g *AgentGateway) CloseContext(ctx context.Context) (result error) {
 	g.credentialManager = nil
 	g.credentialScheduler = nil
 	g.modelCatalog = nil
-	g.mcpServiceManager = nil
+	if g.connectorManager != nil {
+		result = errors.Join(result, g.connectorManager.CloseContext(shutdown))
+	}
+	g.connectorManager = nil
 	g.mcpRuntimeRegistry = mcpruntime.NewRegistry()
 	result = errors.Join(result, g.backends.CloseContext(shutdown))
 	g.backends = nil
@@ -342,10 +345,10 @@ func (g *AgentGateway) ModelCatalog() modelcatalog.Service {
 	return g.modelCatalog
 }
 
-func (g *AgentGateway) MCPServiceManager() *mcpservice.Manager {
+func (g *AgentGateway) ConnectorManager() *connectorpkg.Manager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	return g.mcpServiceManager
+	return g.connectorManager
 }
 
 func (g *AgentGateway) MCPRuntimeRegistry() *mcpruntime.Registry {
@@ -566,19 +569,25 @@ func (g *AgentGateway) configureRouteResolver(ctx context.Context, configStoreBa
 	return nil
 }
 
-func (g *AgentGateway) configureMCPServiceManager(configStoreBackend configstore.ConfigStoreBackend) error {
-	if g.mcpServiceManager != nil {
+func (g *AgentGateway) configureConnectorManager(ctx context.Context, opts BootstrapOptions) error {
+	configStoreBackend := opts.ConfigStoreBackend
+	if g.connectorManager != nil {
 		return nil
 	}
 	if configStoreBackend == nil {
 		return nil
 	}
-	store, err := configStoreBackend.Get(schema.StoreMCPServices)
+	store, err := configStoreBackend.Get(schema.StoreConnectors)
 	if err != nil {
 		return err
 	}
-	g.mcpServiceManager = mcpservice.NewManager(store)
-	return nil
+	if store == nil {
+		return nil
+	}
+	g.connectorManager = connectorpkg.NewManager(store)
+	g.control.connectors = g.connectorManager
+	g.connectorManager.Guard = g.control.connectorMutation
+	return g.connectorManager.Refresh(ctx)
 }
 
 func (g *AgentGateway) configureAgentManager(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend) error {

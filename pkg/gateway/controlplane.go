@@ -13,9 +13,11 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
+	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/credential"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/agentroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
@@ -27,8 +29,10 @@ var (
 )
 
 // controlPlane serializes cross-resource decisions for one gateway lifecycle.
-// Agent mutation enters after its write lock; this service never acquires it.
+// Agent mutations enter after their write lock; Connector mutations acquire it
+// before coordination so reference checks share the same established lock order.
 type controlPlane struct {
+	connectors  *connectorpkg.Manager
 	mu          sync.Mutex
 	backend     configstore.ConfigStoreBackend
 	providers   *ProviderManager
@@ -263,6 +267,17 @@ func (c *controlPlane) routeMutation(ctx context.Context, action configmgr.Mutat
 					return fmt.Errorf("%w: %w", ErrDependencyNotConfigured, err)
 				}
 			}
+		case routecore.RouteKindMCP:
+			r, err := mcproute.NewMCPRouteFromConfig(*next)
+			if err != nil {
+				return err
+			}
+			if c.connectors == nil {
+				return fmt.Errorf("%w: connector manager unavailable", ErrDependencyNotConfigured)
+			}
+			if _, err := c.connectors.Get(ctx, r.ConnectorID); err != nil {
+				return fmt.Errorf("%w: connector unavailable", ErrDependencyNotConfigured)
+			}
 		case routecore.RouteKindAgent:
 			agentID, err := agentroute.DecodeTargetAgentID(next.TargetPolicy)
 			if err != nil {
@@ -298,7 +313,47 @@ func (c *controlPlane) modelMutation(ctx context.Context, action configmgr.Mutat
 func (c *controlPlane) agentMutation(ctx context.Context, action configmgr.MutationAction, id string, next *agent.Agent, apply func(context.Context) error) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if next != nil {
+		if err := c.validateAgentConnectors(ctx, *next); err != nil {
+			return err
+		}
+	}
+	if action == configmgr.MutationRefresh && c.backend != nil {
+		store, err := c.backend.Get(schema.StoreAgents)
+		if err != nil {
+			return err
+		}
+		if store != nil {
+			items, err := store.List(ctx)
+			if err != nil {
+				return err
+			}
+			for _, item := range items {
+				a, ok := item.(*agent.Agent)
+				if !ok || a == nil {
+					return fmt.Errorf("invalid stored Agent")
+				}
+				if err := c.validateAgentConnectors(ctx, *a); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	return apply(ctx)
+}
+
+func (c *controlPlane) validateAgentConnectors(ctx context.Context, a agent.Agent) error {
+	for _, id := range a.Resources.ConnectorIDs {
+		id = strings.TrimSpace(id)
+		if c.connectors == nil {
+			return fmt.Errorf("%w: connector %q", ErrDependencyNotConfigured, id)
+		}
+		_, err := c.connectors.Get(ctx, id)
+		if err != nil {
+			return fmt.Errorf("%w: connector %q: %w", ErrDependencyNotConfigured, id, err)
+		}
+	}
+	return nil
 }
 
 // Credentials normalize their ProviderID to lowercase, while Provider IDs retain
@@ -376,4 +431,79 @@ func (c *controlPlane) credentialMutation(ctx context.Context, action configmgr.
 		}
 	}
 	return apply(ctx)
+}
+
+func (c *controlPlane) connectorMutation(ctx context.Context, id string, next *connectorpkg.ConnectorConfig, apply func() error) error {
+	run := func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if id == "" { // Refresh compares authoritative records against the published family.
+			store, err := c.backend.Get(schema.StoreConnectors)
+			if err != nil {
+				return err
+			}
+			items, err := store.List(ctx)
+			if err != nil {
+				return err
+			}
+			candidate := map[string]*connectorpkg.ConnectorConfig{}
+			for _, item := range items {
+				cfg, ok := item.(*connectorpkg.ConnectorConfig)
+				if !ok {
+					return fmt.Errorf("invalid connector record")
+				}
+				candidate[cfg.ID] = cfg
+			}
+			for _, old := range c.connectors.Snapshot() {
+				cfg := candidate[old.ID]
+				if cfg == nil || !connectorpkg.ExecutionEqual(old, *cfg) {
+					if err := c.connectorReferences(ctx, old.ID); err != nil {
+						return err
+					}
+				}
+			}
+		} else if c.connectors.ExecutionChange(id, next) {
+			if err := c.connectorReferences(ctx, id); err != nil {
+				return err
+			}
+		}
+		return apply()
+	}
+	if c.agents != nil {
+		return c.agents.WithMutationLock(run)
+	}
+	return run()
+}
+func (c *controlPlane) connectorReferences(ctx context.Context, id string) error {
+	if c.routes != nil {
+		routes, err := c.routes.List(ctx, routecore.RouteListOptions{})
+		if err != nil {
+			return err
+		}
+		for _, cfg := range routes {
+			if cfg.Kind != routecore.RouteKindMCP {
+				continue
+			}
+			r, err := mcproute.NewMCPRouteFromConfig(cfg)
+			if err != nil {
+				return err
+			}
+			if r.ConnectorID == id {
+				return fmt.Errorf("%w: connector %q is referenced by route %q", ErrResourceReferenced, id, r.ID)
+			}
+		}
+	}
+	if c.agents != nil {
+		agents, err := c.agents.List(ctx)
+		if err != nil {
+			return err
+		}
+		agents = append(agents, c.agents.Snapshot()...)
+		for _, a := range agents {
+			if slices.Contains(a.Resources.ConnectorIDs, id) {
+				return fmt.Errorf("%w: connector %q is referenced by Agent %q", ErrResourceReferenced, id, a.ID)
+			}
+		}
+	}
+	return nil
 }

@@ -21,7 +21,7 @@ func TestMCPRouteConfigToConfigRoundTrip(t *testing.T) {
 				Methods:    []string{" POST "},
 			},
 		},
-		ServiceID: " svc-main ",
+		ConnectorID: " svc-main ",
 	}
 
 	cfg, err := route.ToConfig()
@@ -39,8 +39,8 @@ func TestMCPRouteConfigToConfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMCPRouteFromConfig() error = %v", err)
 	}
-	if decoded.ServiceID != "svc-main" {
-		t.Fatalf("ServiceID = %q, want svc-main", decoded.ServiceID)
+	if decoded.ConnectorID != "svc-main" {
+		t.Fatalf("ConnectorID = %q, want svc-main", decoded.ConnectorID)
 	}
 	if decoded.Description != "test route" {
 		t.Fatalf("Description = %q, want test route", decoded.Description)
@@ -66,7 +66,7 @@ func TestNewMCPRouteFromConfigCreatesRuntimeRoute(t *testing.T) {
 			Protocol:    routecore.RouteProtocolMCP,
 			MatchPolicy: RouteMatch{PathPrefix: "/mcp"},
 		},
-		ServiceID: "svc-main",
+		ConnectorID: "svc-main",
 	}
 	cfg, err := routeCfg.ToConfig()
 	if err != nil {
@@ -77,12 +77,12 @@ func TestNewMCPRouteFromConfigCreatesRuntimeRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMCPRouteFromConfig() error = %v", err)
 	}
-	if route.ServiceID != "svc-main" {
-		t.Fatalf("ServiceID = %q, want svc-main", route.ServiceID)
+	if route.ConnectorID != "svc-main" {
+		t.Fatalf("ConnectorID = %q, want svc-main", route.ConnectorID)
 	}
 
 	cfgView := route
-	if cfgView.ServiceID != "svc-main" {
-		t.Fatalf("Config().ServiceID = %q, want svc-main", cfgView.ServiceID)
+	if cfgView.ConnectorID != "svc-main" {
+		t.Fatalf("Config().ConnectorID = %q, want svc-main", cfgView.ConnectorID)
 	}
 }

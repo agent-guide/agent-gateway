@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"github.com/agent-guide/agent-gateway/internal/strictjson"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -64,7 +65,7 @@ type BuiltinPermissions struct {
 	// accumulate without bound. Zero takes the host default.
 	MaxPending int `json:"max_pending,omitempty"`
 	// AutoApproveTools bypasses interactive gating for fully-qualified
-	// "<mcp_service_id>/<tool_name>" entries (bare names could collide across
+	// "<connector_id>/<tool_name>" entries (bare names could collide across
 	// services). Every entry must resolve to a declared tool selection.
 	AutoApproveTools []string `json:"auto_approve_tools,omitempty"`
 }
@@ -115,8 +116,8 @@ type BuiltinGeneration struct {
 // the allowed tool names; empty means every tool the service exposes.
 // Selection by name is fail-closed at materialization time.
 type BuiltinToolSelection struct {
-	MCPServiceID string   `json:"mcp_service_id"`
-	Tools        []string `json:"tools,omitempty"`
+	ConnectorID string   `json:"connector_id"`
+	Tools       []string `json:"tools,omitempty"`
 }
 
 // BuiltinTopology selects the ADK structure. Sub-agents are inline child
@@ -353,7 +354,7 @@ func (m *BuiltinModel) normalize() {
 
 func normalizeToolSelections(tools []BuiltinToolSelection) {
 	for i := range tools {
-		tools[i].MCPServiceID = strings.TrimSpace(tools[i].MCPServiceID)
+		tools[i].ConnectorID = strings.TrimSpace(tools[i].ConnectorID)
 		tools[i].Tools = normalizeIDs(tools[i].Tools)
 	}
 }
@@ -399,11 +400,11 @@ func (a Agent) validateBuiltin() error {
 		return fmt.Errorf("runtime.builtin is required for builtin runtime")
 	}
 	llmRoutes := idSet(a.Routes.LLMRouteIDs)
-	mcpServices := idSet(a.Resources.MCPServiceIDs)
+	connectors := idSet(a.Resources.ConnectorIDs)
 	if err := validateBuiltinModel(&b.Model, true, llmRoutes); err != nil {
 		return err
 	}
-	if err := validateBuiltinTools(b.Tools, mcpServices); err != nil {
+	if err := validateBuiltinTools(b.Tools, connectors); err != nil {
 		return err
 	}
 	if b.Generation != nil && b.Generation.MaxTokens < 0 {
@@ -414,7 +415,7 @@ func (a Agent) validateBuiltin() error {
 		// silently inherit and drop the block otherwise.
 		return fmt.Errorf("runtime.builtin model.retry is not supported when topology.kind is planexecute; roles inherit the node model")
 	}
-	if err := validateBuiltinTopology(&b.Topology, llmRoutes, mcpServices, 1); err != nil {
+	if err := validateBuiltinTopology(&b.Topology, llmRoutes, connectors, 1); err != nil {
 		return err
 	}
 	if b.Limits != nil {
@@ -479,7 +480,7 @@ func validateBuiltinPermissions(p *BuiltinPermissions, tools []BuiltinToolSelect
 	for _, entry := range p.AutoApproveTools {
 		serviceID, toolName, ok := strings.Cut(entry, "/")
 		if !ok || strings.TrimSpace(serviceID) == "" || strings.TrimSpace(toolName) == "" {
-			return fmt.Errorf("runtime.builtin.permissions.auto_approve_tools entry %q must be <mcp_service_id>/<tool_name>", entry)
+			return fmt.Errorf("runtime.builtin.permissions.auto_approve_tools entry %q must be <connector_id>/<tool_name>", entry)
 		}
 		if _, dup := seen[entry]; dup {
 			return fmt.Errorf("runtime.builtin.permissions.auto_approve_tools entry %q is duplicated", entry)
@@ -487,7 +488,7 @@ func validateBuiltinPermissions(p *BuiltinPermissions, tools []BuiltinToolSelect
 		seen[entry] = struct{}{}
 		matched := false
 		for _, sel := range tools {
-			if sel.MCPServiceID != serviceID {
+			if sel.ConnectorID != serviceID {
 				continue
 			}
 			if len(sel.Tools) == 0 || slices.Contains(sel.Tools, toolName) {
@@ -605,13 +606,13 @@ func validateBuiltinModel(m *BuiltinModel, required bool, llmRoutes map[string]s
 	return nil
 }
 
-func validateBuiltinTools(tools []BuiltinToolSelection, mcpServices map[string]struct{}) error {
+func validateBuiltinTools(tools []BuiltinToolSelection, connectors map[string]struct{}) error {
 	for _, sel := range tools {
-		if sel.MCPServiceID == "" {
-			return fmt.Errorf("runtime.builtin tools entries require mcp_service_id")
+		if sel.ConnectorID == "" {
+			return fmt.Errorf("runtime.builtin tools entries require connector_id")
 		}
-		if _, ok := mcpServices[sel.MCPServiceID]; !ok {
-			return fmt.Errorf("runtime.builtin tool service %q must appear in resources.mcp_service_ids", sel.MCPServiceID)
+		if _, ok := connectors[sel.ConnectorID]; !ok {
+			return fmt.Errorf("runtime.builtin tool service %q must appear in resources.connector_ids", sel.ConnectorID)
 		}
 	}
 	return nil
@@ -621,7 +622,7 @@ func validateBuiltinTools(tools []BuiltinToolSelection, mcpServices map[string]s
 // cannot describe an unbounded materialization.
 const maxBuiltinTopologyDepth = 4
 
-func validateBuiltinTopology(t *BuiltinTopology, llmRoutes, mcpServices map[string]struct{}, depth int) error {
+func validateBuiltinTopology(t *BuiltinTopology, llmRoutes, connectors map[string]struct{}, depth int) error {
 	if t == nil {
 		return nil
 	}
@@ -657,7 +658,7 @@ func validateBuiltinTopology(t *BuiltinTopology, llmRoutes, mcpServices map[stri
 		if t.Factory != "" {
 			return fmt.Errorf("topology.factory is only meaningful for kind custom")
 		}
-		if err := validateBuiltinPlanExecute(t.PlanExecute, llmRoutes, mcpServices); err != nil {
+		if err := validateBuiltinPlanExecute(t.PlanExecute, llmRoutes, connectors); err != nil {
 			return err
 		}
 	case TopologyKindDeep:
@@ -701,20 +702,20 @@ func validateBuiltinTopology(t *BuiltinTopology, llmRoutes, mcpServices map[stri
 		if sub.Topology != nil && sub.Topology.Kind == TopologyKindPlanExecute && sub.Model != nil && sub.Model.Retry != nil {
 			return fmt.Errorf("sub_agent %q: model.retry is not supported when topology.kind is planexecute; roles inherit the node model", sub.Name)
 		}
-		if err := validateBuiltinTools(sub.Tools, mcpServices); err != nil {
+		if err := validateBuiltinTools(sub.Tools, connectors); err != nil {
 			return err
 		}
 		if sub.Generation != nil && sub.Generation.MaxTokens < 0 {
 			return fmt.Errorf("sub_agent %q generation.max_tokens must be non-negative", sub.Name)
 		}
-		if err := validateBuiltinTopology(sub.Topology, llmRoutes, mcpServices, depth+1); err != nil {
+		if err := validateBuiltinTopology(sub.Topology, llmRoutes, connectors, depth+1); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateBuiltinPlanExecute(pe *BuiltinPlanExecute, llmRoutes, mcpServices map[string]struct{}) error {
+func validateBuiltinPlanExecute(pe *BuiltinPlanExecute, llmRoutes, connectors map[string]struct{}) error {
 	if pe == nil {
 		return nil
 	}
@@ -749,7 +750,7 @@ func validateBuiltinPlanExecute(pe *BuiltinPlanExecute, llmRoutes, mcpServices m
 			}
 			continue
 		}
-		if err := validateBuiltinTools(r.role.Tools, mcpServices); err != nil {
+		if err := validateBuiltinTools(r.role.Tools, connectors); err != nil {
 			return fmt.Errorf("plan_execute.%s: %w", r.name, err)
 		}
 		if r.role.MaxIterations < 0 {
@@ -788,4 +789,27 @@ func RegisterBuiltinFactoryName(name string) {
 func BuiltinFactoryRegistered(name string) bool {
 	_, ok := builtinFactoryNames.Load(name)
 	return ok
+}
+
+// ToolSelections returns a defensive copy of selections throughout a builtin
+// topology for application-level final-reference validation.
+func (b *BuiltinRuntime) ToolSelections() []BuiltinToolSelection {
+	if b == nil {
+		return nil
+	}
+	out := collectToolSelections(b)
+	for i := range out {
+		out[i].Tools = append([]string(nil), out[i].Tools...)
+	}
+	return out
+}
+
+func (s *BuiltinToolSelection) UnmarshalJSON(data []byte) error {
+	type plain BuiltinToolSelection
+	var p plain
+	if err := strictjson.Decode(data, &p, 4<<20, 64); err != nil {
+		return err
+	}
+	*s = BuiltinToolSelection(p)
+	return nil
 }

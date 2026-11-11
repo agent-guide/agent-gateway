@@ -179,7 +179,7 @@ func TestGatewayAgentP1ReadCommand(t *testing.T) {
 	}
 }
 
-func TestGatewayMCPServiceListCommand(t *testing.T) {
+func TestGatewayConnectorListCommand(t *testing.T) {
 	var gotBasicAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -190,7 +190,7 @@ func TestGatewayMCPServiceListCommand(t *testing.T) {
 			})
 		case "/admin/agents/routes", "/admin/agents":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case "/admin/mcp/services":
+		case "/admin/connectors":
 			user, pass, ok := r.BasicAuth()
 			if ok {
 				gotBasicAuth = user + ":" + pass
@@ -198,12 +198,12 @@ func TestGatewayMCPServiceListCommand(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
-						"id":        "svc-1",
-						"name":      "My MCP Service",
-						"transport": "streamable_http",
-						"url":       "https://example.com/mcp",
-						"disabled":  false,
-						"source":    "config_store",
+						"id":       "svc-1",
+						"name":     "My MCP Service",
+						"type":     "mcp",
+						"mcp":      map[string]any{"transport": "streamable_http", "url": "https://example.com/mcp"},
+						"disabled": false,
+						"source":   "config_store",
 					},
 				},
 			})
@@ -217,10 +217,10 @@ func TestGatewayMCPServiceListCommand(t *testing.T) {
 		t,
 		"--admin-addr", srv.URL,
 		"--admin-basic-auth", "admin:secret",
-		"mcp-service", "list",
+		"connector", "list",
 	)
 	if err != nil {
-		t.Fatalf("gateway mcp-service list: %v\nstderr=%s", err, stderr)
+		t.Fatalf("gateway connector list: %v\nstderr=%s", err, stderr)
 	}
 	if gotBasicAuth != "admin:secret" {
 		t.Fatalf("Basic Auth = %q, want admin:secret", gotBasicAuth)
@@ -258,7 +258,7 @@ func TestGatewayAgentListProminentlyShowsNonExecutableRuntime(t *testing.T) {
 	}
 }
 
-func TestGatewayMCPServiceGetAndDeleteCommands(t *testing.T) {
+func TestGatewayConnectorGetAndDeleteCommands(t *testing.T) {
 	var deleteCalled atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -267,15 +267,15 @@ func TestGatewayMCPServiceGetAndDeleteCommands(t *testing.T) {
 				"token":    "test-token",
 				"username": "admin",
 			})
-		case "/admin/mcp/services/svc-1":
+		case "/admin/connectors/svc-1":
 			switch r.Method {
 			case http.MethodGet:
 				_ = json.NewEncoder(w).Encode(map[string]any{
-					"id":        "svc-1",
-					"name":      "My MCP Service",
-					"transport": "stdio",
-					"command":   "npx",
-					"source":    "config_store",
+					"id":   "svc-1",
+					"name": "My MCP Service",
+
+					"source": "config_store", "type": "mcp", "mcp": map[string]any{"transport": "stdio",
+						"command": "npx"},
 				})
 			case http.MethodDelete:
 				deleteCalled.Store(true)
@@ -294,10 +294,10 @@ func TestGatewayMCPServiceGetAndDeleteCommands(t *testing.T) {
 		"--output", "json",
 		"--admin-addr", srv.URL,
 		"--admin-basic-auth", "admin:secret",
-		"mcp-service", "get", "svc-1",
+		"connector", "get", "svc-1",
 	)
 	if err != nil {
-		t.Fatalf("gateway mcp-service get: %v\nstderr=%s", err, stderr)
+		t.Fatalf("gateway connector get: %v\nstderr=%s", err, stderr)
 	}
 	if !strings.Contains(stdout, `"id": "svc-1"`) {
 		t.Fatalf("stdout missing mcp service id:\n%s", stdout)
@@ -308,10 +308,10 @@ func TestGatewayMCPServiceGetAndDeleteCommands(t *testing.T) {
 		"--output", "json",
 		"--admin-addr", srv.URL,
 		"--admin-basic-auth", "admin:secret",
-		"mcp-service", "delete", "svc-1",
+		"connector", "delete", "svc-1",
 	)
 	if err != nil {
-		t.Fatalf("gateway mcp-service delete: %v\nstderr=%s", err, stderr)
+		t.Fatalf("gateway connector delete: %v\nstderr=%s", err, stderr)
 	}
 	if !deleteCalled.Load() {
 		t.Fatal("expected mcp service delete request")
@@ -321,7 +321,7 @@ func TestGatewayMCPServiceGetAndDeleteCommands(t *testing.T) {
 	}
 }
 
-func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
+func TestGatewayConnectorInteractionCommands(t *testing.T) {
 	var toolCallBody []byte
 	var promptGetBody []byte
 	var resourceReadBody []byte
@@ -333,11 +333,11 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 				"token":    "test-token",
 				"username": "admin",
 			})
-		case "/admin/mcp/services/svc-1/sessions":
+		case "/admin/connectors/svc-1/sessions":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]any{
 					"id":                  "sess-1",
-					"service_id":          "svc-1",
+					"connector_id":        "svc-1",
 					"upstream_session_id": "abcdef12****",
 					"transport":           "streamable_http",
 					"state":               "ready",
@@ -345,7 +345,7 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 					"last_used_at":        "2026-05-22T10:05:00Z",
 				},
 			})
-		case "/admin/mcp/services/svc-1/capabilities":
+		case "/admin/connectors/svc-1/capabilities":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"protocolVersion": "2025-11-25",
 				"capabilities": map[string]any{
@@ -359,7 +359,7 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 				},
 				"instructions": "Use tools for filesystem access.",
 			})
-		case "/admin/mcp/services/svc-1/tools":
+		case "/admin/connectors/svc-1/tools":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
@@ -371,7 +371,7 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 					},
 				},
 			})
-		case "/admin/mcp/services/svc-1/tools/call":
+		case "/admin/connectors/svc-1/tools/call":
 			var err error
 			toolCallBody, err = io.ReadAll(r.Body)
 			if err != nil {
@@ -383,7 +383,7 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 				},
 				"isError": false,
 			})
-		case "/admin/mcp/services/svc-1/resources":
+		case "/admin/connectors/svc-1/resources":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
@@ -394,7 +394,7 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 					},
 				},
 			})
-		case "/admin/mcp/services/svc-1/resource-templates":
+		case "/admin/connectors/svc-1/resource-templates":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
@@ -406,7 +406,7 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 					},
 				},
 			})
-		case "/admin/mcp/services/svc-1/resources/read":
+		case "/admin/connectors/svc-1/resources/read":
 			var err error
 			resourceReadBody, err = io.ReadAll(r.Body)
 			if err != nil {
@@ -421,7 +421,7 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 					},
 				},
 			})
-		case "/admin/mcp/services/svc-1/prompts":
+		case "/admin/connectors/svc-1/prompts":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
@@ -430,7 +430,7 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 					},
 				},
 			})
-		case "/admin/mcp/services/svc-1/prompts/get":
+		case "/admin/connectors/svc-1/prompts/get":
 			var err error
 			promptGetBody, err = io.ReadAll(r.Body)
 			if err != nil {
@@ -455,10 +455,10 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		t,
 		"--admin-addr", srv.URL,
 		"--admin-basic-auth", "admin:secret",
-		"mcp-service", "session", "svc-1",
+		"connector", "session", "svc-1",
 	)
 	if err != nil {
-		t.Fatalf("gateway mcp-service session: %v\nstderr=%s", err, stderr)
+		t.Fatalf("gateway connector session: %v\nstderr=%s", err, stderr)
 	}
 	if !strings.Contains(stdout, "SESSION-ID") || !strings.Contains(stdout, "sess-1") {
 		t.Fatalf("stdout missing mcp session table data:\n%s", stdout)
@@ -469,10 +469,10 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		"--output", "json",
 		"--admin-addr", srv.URL,
 		"--admin-basic-auth", "admin:secret",
-		"mcp-service", "capabilities", "svc-1",
+		"connector", "capabilities", "svc-1",
 	)
 	if err != nil {
-		t.Fatalf("gateway mcp-service capabilities: %v\nstderr=%s", err, stderr)
+		t.Fatalf("gateway connector capabilities: %v\nstderr=%s", err, stderr)
 	}
 	if !strings.Contains(stdout, `"protocolVersion": "2025-11-25"`) || !strings.Contains(stdout, `"name": "filesystem"`) {
 		t.Fatalf("stdout missing mcp capabilities payload:\n%s", stdout)
@@ -482,10 +482,10 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		t,
 		"--admin-addr", srv.URL,
 		"--admin-basic-auth", "admin:secret",
-		"mcp-service", "tools", "svc-1",
+		"connector", "tools", "svc-1",
 	)
 	if err != nil {
-		t.Fatalf("gateway mcp-service tools: %v\nstderr=%s", err, stderr)
+		t.Fatalf("gateway connector tools: %v\nstderr=%s", err, stderr)
 	}
 	if !strings.Contains(stdout, "NAME") || !strings.Contains(stdout, "echo") {
 		t.Fatalf("stdout missing mcp tools table data:\n%s", stdout)
@@ -496,11 +496,11 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		"--output", "json",
 		"--admin-addr", srv.URL,
 		"--admin-basic-auth", "admin:secret",
-		"mcp-service", "tool-call", "svc-1", "echo",
+		"connector", "tool-call", "svc-1", "echo",
 		"--arguments", `{"input":"hello"}`,
 	)
 	if err != nil {
-		t.Fatalf("gateway mcp-service tool-call: %v\nstderr=%s", err, stderr)
+		t.Fatalf("gateway connector tool-call: %v\nstderr=%s", err, stderr)
 	}
 	if got := strings.TrimSpace(string(toolCallBody)); got != `{"name":"echo","arguments":{"input":"hello"}}` {
 		t.Fatalf("tool call body = %s", got)
@@ -513,10 +513,10 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		t,
 		"--admin-addr", srv.URL,
 		"--admin-basic-auth", "admin:secret",
-		"mcp-service", "resources", "svc-1",
+		"connector", "resources", "svc-1",
 	)
 	if err != nil {
-		t.Fatalf("gateway mcp-service resources: %v\nstderr=%s", err, stderr)
+		t.Fatalf("gateway connector resources: %v\nstderr=%s", err, stderr)
 	}
 	if !strings.Contains(stdout, "URI") || !strings.Contains(stdout, "example.txt") {
 		t.Fatalf("stdout missing mcp resources table data:\n%s", stdout)
@@ -526,10 +526,10 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		t,
 		"--admin-addr", srv.URL,
 		"--admin-basic-auth", "admin:secret",
-		"mcp-service", "resource-templates", "svc-1",
+		"connector", "resource-templates", "svc-1",
 	)
 	if err != nil {
-		t.Fatalf("gateway mcp-service resource-templates: %v\nstderr=%s", err, stderr)
+		t.Fatalf("gateway connector resource-templates: %v\nstderr=%s", err, stderr)
 	}
 	if !strings.Contains(stdout, "URI-TEMPLATE") || !strings.Contains(stdout, "file:///{path}") {
 		t.Fatalf("stdout missing mcp resource template table data:\n%s", stdout)
@@ -540,10 +540,10 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		"--output", "json",
 		"--admin-addr", srv.URL,
 		"--admin-basic-auth", "admin:secret",
-		"mcp-service", "resource-read", "svc-1", "file:///tmp/example.txt",
+		"connector", "resource-read", "svc-1", "file:///tmp/example.txt",
 	)
 	if err != nil {
-		t.Fatalf("gateway mcp-service resource-read: %v\nstderr=%s", err, stderr)
+		t.Fatalf("gateway connector resource-read: %v\nstderr=%s", err, stderr)
 	}
 	if got := strings.TrimSpace(string(resourceReadBody)); got != `{"uri":"file:///tmp/example.txt"}` {
 		t.Fatalf("resource read body = %s", got)
@@ -556,10 +556,10 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		t,
 		"--admin-addr", srv.URL,
 		"--admin-basic-auth", "admin:secret",
-		"mcp-service", "prompts", "svc-1",
+		"connector", "prompts", "svc-1",
 	)
 	if err != nil {
-		t.Fatalf("gateway mcp-service prompts: %v\nstderr=%s", err, stderr)
+		t.Fatalf("gateway connector prompts: %v\nstderr=%s", err, stderr)
 	}
 	if !strings.Contains(stdout, "NAME") || !strings.Contains(stdout, "summarize") {
 		t.Fatalf("stdout missing mcp prompts table data:\n%s", stdout)
@@ -570,11 +570,11 @@ func TestGatewayMCPServiceInteractionCommands(t *testing.T) {
 		"--output", "json",
 		"--admin-addr", srv.URL,
 		"--admin-basic-auth", "admin:secret",
-		"mcp-service", "prompt-get", "svc-1", "summarize",
+		"connector", "prompt-get", "svc-1", "summarize",
 		"--arguments", `{"topic":"logs"}`,
 	)
 	if err != nil {
-		t.Fatalf("gateway mcp-service prompt-get: %v\nstderr=%s", err, stderr)
+		t.Fatalf("gateway connector prompt-get: %v\nstderr=%s", err, stderr)
 	}
 	if got := strings.TrimSpace(string(promptGetBody)); got != `{"name":"summarize","arguments":{"topic":"logs"}}` {
 		t.Fatalf("prompt get body = %s", got)
@@ -597,10 +597,10 @@ func TestGatewayMCPRouteListGetAndDeleteCommands(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
-						"id":         "mcp:svc-1:/mcp",
-						"kind":       "mcp",
-						"protocol":   "mcp",
-						"service_id": "svc-1",
+						"id":           "mcp:svc-1:/mcp",
+						"kind":         "mcp",
+						"protocol":     "mcp",
+						"connector_id": "svc-1",
 						"match_policy": map[string]any{
 							"path_prefix": "/mcp",
 						},
@@ -615,10 +615,10 @@ func TestGatewayMCPRouteListGetAndDeleteCommands(t *testing.T) {
 			switch r.Method {
 			case http.MethodGet:
 				_ = json.NewEncoder(w).Encode(map[string]any{
-					"id":         "mcp:svc-1:/mcp",
-					"kind":       "mcp",
-					"protocol":   "mcp",
-					"service_id": "svc-1",
+					"id":           "mcp:svc-1:/mcp",
+					"kind":         "mcp",
+					"protocol":     "mcp",
+					"connector_id": "svc-1",
 					"match_policy": map[string]any{
 						"path_prefix": "/mcp",
 					},
@@ -662,8 +662,8 @@ func TestGatewayMCPRouteListGetAndDeleteCommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gateway mcp-route get: %v\nstderr=%s", err, stderr)
 	}
-	if !strings.Contains(stdout, `"service_id": "svc-1"`) {
-		t.Fatalf("stdout missing mcp route service_id:\n%s", stdout)
+	if !strings.Contains(stdout, `"connector_id": "svc-1"`) {
+		t.Fatalf("stdout missing mcp route connector_id:\n%s", stdout)
 	}
 
 	stdout, stderr, err = executeAGWCTL(
@@ -842,7 +842,7 @@ providers:
 llmRoutes:
   - id: chat-prod
     protocol: openai
-    match:
+    match_policy:
       path_prefix: /
       methods:
         - POST
@@ -880,7 +880,7 @@ providers:
 llmRoutes:
   - id: code-codex
     protocol: openai
-    match:
+    match_policy:
       path_prefix: /codecodex
       methods:
         - POST
@@ -1004,7 +1004,7 @@ virtualKeys:
 			})
 		case r.URL.Path == "/admin/agents/routes" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case r.URL.Path == "/admin/mcp/services" && r.Method == http.MethodGet:
+		case r.URL.Path == "/admin/connectors" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/mcp/routes" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -1110,7 +1110,7 @@ virtualKeys:
 			t.Fatalf("unexpected virtual key update request for unchanged object")
 		case r.URL.Path == "/admin/agents/routes" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case r.URL.Path == "/admin/mcp/services" && r.Method == http.MethodGet:
+		case r.URL.Path == "/admin/connectors" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/mcp/routes" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -1182,7 +1182,7 @@ providers:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/agents/routes" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case r.URL.Path == "/admin/mcp/services" && r.Method == http.MethodGet:
+		case r.URL.Path == "/admin/connectors" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/mcp/routes" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -1289,7 +1289,7 @@ func TestGatewayExportCommand(t *testing.T) {
 			})
 		case "/admin/agents/routes", "/admin/agents":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case "/admin/mcp/services":
+		case "/admin/connectors":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/mcp/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -1396,7 +1396,7 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 			})
 		case "/admin/agents/routes", "/admin/agents":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case "/admin/mcp/services":
+		case "/admin/connectors":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/mcp/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -1426,7 +1426,7 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 	}
 }
 
-func TestGatewayExportCommandIncludesMCPServicesAndRoutes(t *testing.T) {
+func TestGatewayExportCommandIncludesConnectorsAndRoutes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/admin/extensions":
@@ -1445,14 +1445,14 @@ func TestGatewayExportCommandIncludesMCPServicesAndRoutes(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/agents/routes", "/admin/agents":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case "/admin/mcp/services":
+		case "/admin/connectors":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
 						"id":        "my-mcp-svc",
 						"name":      "My MCP Service",
-						"transport": "streamable_http",
-						"url":       "https://example.com/mcp",
+						"type":      "mcp",
+						"mcp":       map[string]any{"transport": "streamable_http", "url": "https://example.com/mcp"},
 						"source":    "config_store",
 						"read_only": false,
 					},
@@ -1462,10 +1462,10 @@ func TestGatewayExportCommandIncludesMCPServicesAndRoutes(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
-						"id":         "mcp:my-mcp-svc:/mcp",
-						"kind":       "mcp",
-						"protocol":   "mcp",
-						"service_id": "my-mcp-svc",
+						"id":           "mcp:my-mcp-svc:/mcp",
+						"kind":         "mcp",
+						"protocol":     "mcp",
+						"connector_id": "my-mcp-svc",
 						"match_policy": map[string]any{
 							"path_prefix": "/mcp",
 						},
@@ -1493,11 +1493,11 @@ func TestGatewayExportCommandIncludesMCPServicesAndRoutes(t *testing.T) {
 		t.Fatalf("gateway export: %v\nstderr=%s", err, stderr)
 	}
 	for _, want := range []string{
-		"mcpServices:",
+		"connectors:",
 		"id: my-mcp-svc",
 		"name: My MCP Service",
 		"mcpRoutes:",
-		"service_id: my-mcp-svc",
+		"connector_id: my-mcp-svc",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout)
@@ -1505,28 +1505,29 @@ func TestGatewayExportCommandIncludesMCPServicesAndRoutes(t *testing.T) {
 	}
 }
 
-func TestGatewayApplyCommandCreatesMCPServiceAndRoute(t *testing.T) {
+func TestGatewayApplyCommandCreatesConnectorAndRoute(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "gateway.yaml")
-	if err := os.WriteFile(path, []byte(`
-apiVersion: gateway.agw/v1alpha1
+	if err := os.WriteFile(path, []byte(`apiVersion: gateway.agw/v1alpha1
+connectors:
+    - id: my-mcp-svc
+      mcp:
+        transport: streamable_http
+        url: https://example.com/mcp
+      name: My MCP Service
+      type: mcp
 kind: GatewayBundle
-mcpServices:
-  - id: my-mcp-svc
-    name: My MCP Service
-    transport: streamable_http
-    url: https://example.com/mcp
 mcpRoutes:
-  - service_id: my-mcp-svc
-    match_policy:
-      path_prefix: /mcp
-    auth_policy:
-      require_virtual_key: true
+    - auth_policy:
+        require_virtual_key: true
+      connector_id: my-mcp-svc
+      match_policy:
+        path_prefix: /mcp
 `), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	var mcpServiceCreated atomic.Bool
+	var connectorCreated atomic.Bool
 	var mcpRouteCreated atomic.Bool
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1545,10 +1546,10 @@ mcpRoutes:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/agents/routes" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case r.URL.Path == "/admin/mcp/services" && r.Method == http.MethodGet:
+		case r.URL.Path == "/admin/connectors" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case r.URL.Path == "/admin/mcp/services" && r.Method == http.MethodPost:
-			mcpServiceCreated.Store(true)
+		case r.URL.Path == "/admin/connectors" && r.Method == http.MethodPost:
+			connectorCreated.Store(true)
 			var req map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Fatalf("decode mcp service create request: %v", err)
@@ -1566,8 +1567,8 @@ mcpRoutes:
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Fatalf("decode mcp route create request: %v", err)
 			}
-			if req["service_id"] != "my-mcp-svc" {
-				t.Fatalf("mcp route create service_id = %#v, want my-mcp-svc", req["service_id"])
+			if req["connector_id"] != "my-mcp-svc" {
+				t.Fatalf("mcp route create connector_id = %#v, want my-mcp-svc", req["connector_id"])
 			}
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(req)
@@ -1588,7 +1589,7 @@ mcpRoutes:
 	if err != nil {
 		t.Fatalf("apply: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
 	}
-	if !mcpServiceCreated.Load() {
+	if !connectorCreated.Load() {
 		t.Fatal("expected mcp service create request")
 	}
 	if !mcpRouteCreated.Load() {

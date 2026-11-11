@@ -1,4 +1,4 @@
-package service_test
+package connector_test
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agent-guide/agent-gateway/pkg/mcp/service"
+	"github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/mcp/transport"
 )
 
@@ -129,7 +129,7 @@ func (s *sseTestServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 // newFakeSSEConfig starts a fake SSE MCP server and returns its service config.
 // The server is shut down via t.Cleanup: the done channel is closed so that
 // httptest.Server.Close waits for all handlers, including ones still starting.
-func newFakeSSEConfig(t *testing.T, id string) service.MCPServiceConfig {
+func newFakeSSEConfig(t *testing.T, id string) connector.ConnectorConfig {
 	t.Helper()
 	srv := &sseTestServer{done: make(chan struct{})}
 	mux := http.NewServeMux()
@@ -140,12 +140,11 @@ func newFakeSSEConfig(t *testing.T, id string) service.MCPServiceConfig {
 		close(srv.done) // signal SSE handler goroutines to exit
 		ts.Close()
 	})
-	return service.MCPServiceConfig{
-		ID:        id,
-		Name:      "fake-sse-" + id,
-		Transport: service.TransportSSE,
-		URL:       ts.URL + "/sse",
-		PostURL:   ts.URL + "/message",
+	return connector.ConnectorConfig{
+		ID:   id,
+		Name: "fake-sse-" + id, Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportSSE,
+			URL:     ts.URL + "/sse",
+			PostURL: ts.URL + "/message"},
 	}
 }
 
@@ -273,6 +272,9 @@ func TestManagerSSECallToolRelaysProgress(t *testing.T) {
 				"protocolVersion": "2025-11-25", "capabilities": map[string]any{},
 			}})
 			broadcast(string(data))
+		case "tools/list":
+			data, _ := json.Marshal(&transport.Message{JSONRPC: "2.0", ID: msg.ID, Result: map[string]any{"tools": []any{map[string]any{"name": "echo", "description": "Echo", "inputSchema": map[string]any{"type": "object"}}}}})
+			broadcast(string(data))
 		case "tools/call":
 			// broadcast a progress notification first, then the final result
 			prog, _ := json.Marshal(&transport.Message{
@@ -299,17 +301,16 @@ func TestManagerSSECallToolRelaysProgress(t *testing.T) {
 		ts.Close()
 	})
 
-	cfg := service.MCPServiceConfig{
-		ID: "sse-progress", Name: "sse-progress",
-		Transport: service.TransportSSE,
-		URL:       ts.URL + "/sse",
-		PostURL:   ts.URL + "/message",
+	cfg := connector.ConnectorConfig{
+		ID: "sse-progress", Name: "sse-progress", Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportSSE,
+			URL:     ts.URL + "/sse",
+			PostURL: ts.URL + "/message"},
 	}
 	mgr := newInMemoryManager(t, cfg)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	progressCh := make(chan service.UpstreamProgress, 8)
+	progressCh := make(chan connector.UpstreamProgress, 8)
 	result, err := mgr.CallTool(ctx, cfg.ID, "echo", nil, progressCh)
 	close(progressCh)
 	if err != nil {
@@ -319,7 +320,7 @@ func TestManagerSSECallToolRelaysProgress(t *testing.T) {
 		t.Fatal("expected non-nil result")
 	}
 
-	var collected []service.UpstreamProgress
+	var collected []connector.UpstreamProgress
 	for n := range progressCh {
 		collected = append(collected, n)
 	}
@@ -342,7 +343,7 @@ func TestManagerSSEDerivePostURL(t *testing.T) {
 	// Verify that an SSE service config with no PostURL set still works
 	// because the Manager derives the POST URL from the stream URL (/sse → /message).
 	cfg := newFakeSSEConfig(t, "sse5")
-	cfg.PostURL = "" // clear; Manager must derive /message from /sse
+	cfg.MCP.PostURL = "" // clear; Manager must derive /message from /sse
 	mgr := newInMemoryManager(t, cfg)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

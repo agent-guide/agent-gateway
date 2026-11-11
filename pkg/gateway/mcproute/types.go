@@ -3,6 +3,7 @@ package mcproute
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/agent-guide/agent-gateway/internal/strictjson"
 	"strings"
 	"time"
 
@@ -30,12 +31,12 @@ type RouteListOptions = routecore.RouteListOptions
 // MCPRoute is the expanded configuration form of an MCP route.
 type MCPRoute struct {
 	RouteMetadata
-	ServiceID string `json:"service_id"`
+	ConnectorID string `json:"connector_id"`
 }
 
 type routeTargetPolicy struct {
-	Kind      routecore.RouteTargetPolicyKind `json:"kind,omitempty"`
-	ServiceID string                          `json:"service_id"`
+	Kind        routecore.RouteTargetPolicyKind `json:"kind,omitempty"`
+	ConnectorID string                          `json:"connector_id"`
 }
 
 func normalizeConfigDefaults(cfg RouteConfig) RouteConfig {
@@ -56,9 +57,9 @@ func (r *MCPRoute) Normalize() {
 		return
 	}
 	r.RouteMetadata = normalizeConfigDefaults(r.RouteMetadata.Config(nil)).Metadata()
-	r.ServiceID = strings.TrimSpace(r.ServiceID)
-	if r.ID == "" && r.ServiceID != "" {
-		r.ID = routecore.GenerateRouteID("mcp", r.ServiceID, r.MatchPolicy.PathPrefix)
+	r.ConnectorID = strings.TrimSpace(r.ConnectorID)
+	if r.ID == "" && r.ConnectorID != "" {
+		r.ID = routecore.GenerateRouteID("mcp", r.ConnectorID, r.MatchPolicy.PathPrefix)
 	}
 }
 
@@ -71,7 +72,7 @@ func (r MCPRoute) MarshalJSON() ([]byte, error) {
 		Disabled    bool            `json:"disabled"`
 		MatchPolicy RouteMatch      `json:"match_policy"`
 		AuthPolicy  RouteAuthPolicy `json:"auth_policy"`
-		ServiceID   string          `json:"service_id"`
+		ConnectorID string          `json:"connector_id"`
 		CreatedAt   time.Time       `json:"created_at"`
 		UpdatedAt   time.Time       `json:"updated_at"`
 	}
@@ -88,7 +89,7 @@ func (r MCPRoute) MarshalJSON() ([]byte, error) {
 		Disabled:    cfg.Disabled,
 		MatchPolicy: cfg.MatchPolicy,
 		AuthPolicy:  cfg.AuthPolicy,
-		ServiceID:   r.ServiceID,
+		ConnectorID: r.ConnectorID,
 		CreatedAt:   cfg.CreatedAt,
 		UpdatedAt:   cfg.UpdatedAt,
 	})
@@ -103,12 +104,12 @@ func (r *MCPRoute) UnmarshalJSON(data []byte) error {
 		Disabled    bool            `json:"disabled"`
 		MatchPolicy RouteMatch      `json:"match_policy"`
 		AuthPolicy  RouteAuthPolicy `json:"auth_policy"`
-		ServiceID   string          `json:"service_id"`
+		ConnectorID string          `json:"connector_id"`
 		CreatedAt   time.Time       `json:"created_at"`
 		UpdatedAt   time.Time       `json:"updated_at"`
 	}
 	var raw mcpRouteJSON
-	if err := json.Unmarshal(data, &raw); err != nil {
+	if err := strictjson.Decode(data, &raw, 4<<20, 64); err != nil {
 		return err
 	}
 	r.RouteMetadata = normalizeConfigDefaults(RouteConfig{
@@ -122,7 +123,7 @@ func (r *MCPRoute) UnmarshalJSON(data []byte) error {
 		CreatedAt:   raw.CreatedAt,
 		UpdatedAt:   raw.UpdatedAt,
 	}).Metadata()
-	r.ServiceID = raw.ServiceID
+	r.ConnectorID = raw.ConnectorID
 	r.Normalize()
 	return nil
 }
@@ -142,13 +143,13 @@ func DecodeStoredMCPRoute(data []byte) (any, error) {
 
 func NewMCPRouteFromConfig(cfg RouteConfig) (MCPRoute, error) {
 	cfg = normalizeConfigDefaults(cfg.Clone())
-	serviceID, err := decodeServiceID(cfg.TargetPolicy)
+	connectorID, err := decodeConnectorID(cfg.TargetPolicy)
 	if err != nil {
 		return MCPRoute{}, fmt.Errorf("route %q decode target policy: %w", cfg.ID, err)
 	}
 	route := MCPRoute{
 		RouteMetadata: cfg.Metadata(),
-		ServiceID:     serviceID,
+		ConnectorID:   connectorID,
 	}
 	route.Normalize()
 	return route, nil
@@ -157,8 +158,8 @@ func NewMCPRouteFromConfig(cfg RouteConfig) (MCPRoute, error) {
 func (r MCPRoute) ToConfig() (RouteConfig, error) {
 	r.Normalize()
 	targetPolicy, err := json.Marshal(routeTargetPolicy{
-		Kind:      routecore.RouteTargetPolicyKindMCPService,
-		ServiceID: r.ServiceID,
+		Kind:        routecore.RouteTargetPolicyKindConnector,
+		ConnectorID: r.ConnectorID,
 	})
 	if err != nil {
 		return RouteConfig{}, fmt.Errorf("route %q encode target policy: %w", r.ID, err)
@@ -167,13 +168,16 @@ func (r MCPRoute) ToConfig() (RouteConfig, error) {
 	return cfg, nil
 }
 
-func decodeServiceID(targetPolicy json.RawMessage) (string, error) {
+func decodeConnectorID(targetPolicy json.RawMessage) (string, error) {
 	var target routeTargetPolicy
 	if len(targetPolicy) == 0 {
 		return "", nil
 	}
-	if err := json.Unmarshal(targetPolicy, &target); err != nil {
+	if err := strictjson.Decode(targetPolicy, &target, 4<<20, 64); err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(target.ServiceID), nil
+	if target.Kind != "" && target.Kind != routecore.RouteTargetPolicyKindConnector {
+		return "", fmt.Errorf("unsupported MCP target kind")
+	}
+	return strings.TrimSpace(target.ConnectorID), nil
 }

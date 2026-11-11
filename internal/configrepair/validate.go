@@ -6,6 +6,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
+	"github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/agentroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
@@ -13,7 +14,6 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
-	"github.com/agent-guide/agent-gateway/pkg/mcp/service"
 )
 
 // Validate checks a complete prospective configuration, including references to
@@ -97,12 +97,12 @@ func Validate(records []Record) error {
 			if r.StaticInput {
 				staticBundle.Providers = append(staticBundle.Providers, v)
 			}
-		case "mcp_services":
-			var v service.MCPServiceConfig
+		case "connectors":
+			var v connector.ConnectorConfig
 			err = json.Unmarshal(r.Data, &v)
-			b.MCPServices = append(b.MCPServices, v)
+			b.Connectors = append(b.Connectors, v)
 			if r.StaticInput {
-				staticBundle.MCPServices = append(staticBundle.MCPServices, v)
+				staticBundle.Connectors = append(staticBundle.Connectors, v)
 			}
 		case "virtual_keys":
 			var v gatewaybundle.BundleVirtualKey
@@ -148,7 +148,7 @@ func Validate(records []Record) error {
 		return err
 	}
 	agentView := b
-	agentView.Providers, agentView.MCPServices, agentView.VirtualKeys = nil, nil, nil
+	agentView.Providers, agentView.Connectors, agentView.VirtualKeys = nil, nil, nil
 	if err := agentView.ValidateForConfigStore(); err != nil {
 		return err
 	}
@@ -175,7 +175,7 @@ func Validate(records []Record) error {
 		}
 	}
 	for _, r := range b.MCPRoutes {
-		if err := check("route "+r.ID, "mcp_services", r.ServiceID); err != nil {
+		if err := check("route "+r.ID, "connectors", r.ConnectorID); err != nil {
 			return err
 		}
 	}
@@ -185,6 +185,11 @@ func Validate(records []Record) error {
 		}
 	}
 	for _, a := range b.Agents {
+		for _, id := range a.Resources.ConnectorIDs {
+			if err := check("agent "+a.ID, "connectors", id); err != nil {
+				return err
+			}
+		}
 		for _, id := range append(append([]string(nil), a.Routes.LLMRouteIDs...), a.Routes.MCPRouteIDs...) {
 			if err := check("agent "+a.ID, "routes", id); err != nil {
 				return err

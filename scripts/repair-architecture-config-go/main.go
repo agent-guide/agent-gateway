@@ -37,6 +37,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	dbPath := flags.String("db", "", "existing SQLite file (inspection never starts the gateway)")
 	staticPath := flags.String("static-config", "", "static GatewayBundle YAML or adapted Caddy JSON")
 	caddy := flags.Bool("caddy-json", false, "static file is adapted Caddy JSON")
+	convertConnectors := flags.Bool("convert-connectors", false, "atomically convert legacy MCP services and Agent/route references")
 	operations := flags.String("repair", "", "JSON file containing an explicit repair operation array; omit for inspection")
 	target := flags.String("target", "db", "repair target: db or static (the other source is read-only)")
 	backup := flags.String("backup", "", "unused backup filename, required for repairs")
@@ -50,8 +51,30 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if *target != "db" && *target != "static" {
 		return fmt.Errorf("--target must be db or static")
 	}
-	if *operations != "" && (!*stopped || *backup == "") {
+	if (*operations != "" || *convertConnectors) && (!*stopped || *backup == "") {
 		return fmt.Errorf("repairs require --service-stopped and an unused --backup path")
+	}
+	if *convertConnectors {
+		if *dbPath == "" || *staticPath != "" {
+			return fmt.Errorf("--convert-connectors requires only --db, --backup and --service-stopped")
+		}
+		db, err := configrepair.OpenSQLite(*dbPath, true)
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		var ops []configrepair.Operation
+		if *operations != "" {
+			ops, err = readOperations(*operations)
+			if err != nil {
+				return err
+			}
+		}
+		if err := configrepair.ConvertConnectors(ctx, db, *backup, *stopped, ops...); err != nil {
+			return err
+		}
+		fmt.Fprintln(out, "Connector conversion committed; backup:", *backup)
+		return nil
 	}
 	var records []configrepair.Record
 	var static []configrepair.Record
@@ -183,8 +206,8 @@ func readOperations(path string) ([]configrepair.Operation, error) {
 		return nil, fmt.Errorf("unexpected trailing JSON")
 	}
 	for _, op := range ops {
-		if op.Family != "routes" && op.Family != "agents" {
-			return nil, fmt.Errorf("repair supports routes and agents only")
+		if op.Family != "routes" && op.Family != "agents" && op.Family != "connectors" && op.Family != "mcp_services" {
+			return nil, fmt.Errorf("repair supports routes, agents, connectors and legacy mcp_services only")
 		}
 	}
 	return ops, nil

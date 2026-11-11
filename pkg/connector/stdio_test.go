@@ -1,4 +1,4 @@
-package service_test
+package connector_test
 
 import (
 	"bufio"
@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agent-guide/agent-gateway/pkg/mcp/service"
+	"github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/mcp/transport"
 )
 
@@ -74,25 +74,25 @@ func runFakeMCPServer() {
 	}
 }
 
-// newFakeStdioConfig returns an MCPServiceConfig that launches this test
+// newFakeStdioConfig returns an ConnectorConfig that launches this test
 // binary as a fake MCP stdio server.
-func newFakeStdioConfig(id string) service.MCPServiceConfig {
-	return service.MCPServiceConfig{
-		ID:        id,
-		Name:      "fake-stdio-" + id,
-		Transport: service.TransportStdio,
-		Command:   os.Args[0],
-		// -test.run=^$ ensures the subprocess runs TestMain and exits before
-		// any test function is executed.
-		Args: []string{"-test.run=^$"},
-		Env:  map[string]string{"MCP_STDIO_TEST_SERVER": "1"},
+func newFakeStdioConfig(id string) connector.ConnectorConfig {
+	return connector.ConnectorConfig{
+		ID:   id,
+		Name: "fake-stdio-" + id, Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportStdio,
+			Command: os.Args[0],
+			// -test.run=^$ ensures the subprocess runs TestMain and exits before
+			// any test function is executed.
+			Args: []string{"-test.run=^$"},
+			Env:  map[string]string{"MCP_STDIO_TEST_SERVER": "1"}},
 	}
 }
 
-func newInMemoryManager(t *testing.T, cfgs ...service.MCPServiceConfig) *service.Manager {
+func newInMemoryManager(t *testing.T, cfgs ...connector.ConnectorConfig) *connector.Manager {
 	t.Helper()
 	store := newTestConfigStore(t)
-	mgr := service.NewManager(store)
+	mgr := connector.NewManager(store)
+	t.Cleanup(mgr.Close)
 	ctx := context.Background()
 	for _, cfg := range cfgs {
 		if err := mgr.Create(ctx, cfg); err != nil {
@@ -166,5 +166,33 @@ func TestManagerStdioSessionReuse(t *testing.T) {
 	}
 	if _, err := mgr.ListTools(ctx, cfg.ID); err != nil {
 		t.Fatalf("second ListTools: %v", err)
+	}
+}
+
+func TestStdioSessionSurvivesInitializingRequestCompletion(t *testing.T) {
+	cfg := newFakeStdioConfig("persistent")
+	manager := newInMemoryManager(t, cfg)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	if _, err := manager.Initialize(ctx, cfg.ID); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	before := manager.GetGatewaySession(cfg.ID)
+	cancel()
+	// A request lifetime must not be the lifetime of its cached subprocess.
+	if _, err := manager.ListTools(t.Context(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	after := manager.GetGatewaySession(cfg.ID)
+	if before.ID != after.ID {
+		t.Fatal("request completion killed cached stdio process")
+	}
+	closeCtx, closeCancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer closeCancel()
+	if err := manager.CloseContext(closeCtx); err != nil {
+		t.Fatal(err)
+	}
+	if session := manager.GetGatewaySession(cfg.ID); session == nil || session.State != connector.SessionStateClosed {
+		t.Fatal("shutdown retained ready subprocess session")
 	}
 }

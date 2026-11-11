@@ -8,8 +8,8 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 
+	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
-	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 )
 
 type fakeCaller struct {
@@ -27,7 +27,7 @@ func (f *fakeCaller) ListTools(_ context.Context, id string) ([]basemcp.Tool, er
 	return f.tools, f.listErr
 }
 
-func (f *fakeCaller) CallTool(_ context.Context, id string, name string, args map[string]any, _ chan<- mcpservice.UpstreamProgress) (*basemcp.ToolResult, error) {
+func (f *fakeCaller) CallTool(_ context.Context, id string, name string, args map[string]any, _ chan<- connectorpkg.UpstreamProgress) (*basemcp.ToolResult, error) {
 	f.calledID = id
 	f.calledName = name
 	f.calledArgs = args

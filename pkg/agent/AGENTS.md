@@ -17,8 +17,9 @@ Agent validation rejects every non-null `policy.budget`, including empty/all-zer
 objects, because there is no budget executor. Stored loading and Refresh must
 apply the same rule before publication; failures identify the Agent and offline
 recovery entry point. Never silently remove old budgets. Resources are management
-declarations; MCPServiceIDs also validates builtin tool definitions and must be
-retained. ProviderIDs and VirtualKeyIDs are not per-request authorization.
+declarations; ConnectorIDs are strong Connector dependencies and validate
+builtin tool definitions. They block Connector deletion even for disabled Agents.
+Remove declarations/selections explicitly before deleting a Connector. ProviderIDs and VirtualKeyIDs are not per-request authorization.
 Agent `policy.max_agent_depth` remains a builtin-host check; the independent
 process metrics limit checks incoming `X-Agent-Depth` in the dispatcher. Do not
 merge them or extend the Agent policy to other runtimes in this refactoring.
@@ -72,7 +73,7 @@ merge them or extend the Agent policy to other runtimes in this refactoring.
   optional `retry` block (`max_retries` 1–5, node-level ADK retry over the
   route's own candidate fallback; 429/5xx only; rejected on planexecute
   roles, which expose no retry seam), tools referencing
-  MCP services (must appear in `resources.mcp_service_ids`), topology kinds
+  MCP services (must appear in `resources.connector_ids`), topology kinds
   `single`/`sequential`/`parallel`/`loop`/`supervisor`/`planexecute`/`deep`/
   `custom` (`planexecute` configures roles through the optional
   `topology.plan_execute` block — `planner`/`executor`/`replanner` inherit the

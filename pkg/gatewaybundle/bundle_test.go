@@ -36,7 +36,7 @@ managedModels:
 llmRoutes:
   - id: chat-prod
     protocol: openai
-    match:
+    match_policy:
       path_prefix: /
       methods:
         - POST
@@ -378,7 +378,7 @@ providers:
 llmRoutes:
   - id: chat-prod
     protocol: openai
-    match:
+    match_policy:
       path_prefix: /
       methods:
         - POST
@@ -488,7 +488,7 @@ managedModels:
 llmRoutes:
   - id: route-a
     protocol: openai
-    match:
+    match_policy:
       path_prefix: /
     auth_policy:
       require_virtual_key: true
@@ -497,7 +497,7 @@ llmRoutes:
         provider_id: dup
   - id: route-a
     protocol: openai
-    match:
+    match_policy:
       path_prefix: /v2
     auth_policy:
       require_virtual_key: true
@@ -612,7 +612,7 @@ mcpRoutes:
   - id: tools
     kind: mcp
     disabled: true
-    service_id: s
+    connector_id: s
     match_policy: {path_prefix: /api, methods: [POST]}
 `))
 	if err != nil {
@@ -659,7 +659,7 @@ providers:
 llmRoutes:
   - id: chat-test
     protocol: openai
-    match:
+    match_policy:
       path_prefix: /chat
       methods:
         - POST
@@ -692,59 +692,61 @@ llmRoutes:
 	}
 }
 
-func TestDecodeYAMLWithMCPServicesAndRoutes(t *testing.T) {
+func TestDecodeYAMLWithConnectorsAndRoutes(t *testing.T) {
 	t.Setenv("MY_MCP_API_KEY", "secret-key")
 
-	bundle, err := DecodeYAML([]byte(`
-apiVersion: gateway.agw/v1alpha1
+	bundle, err := DecodeYAML([]byte(`apiVersion: gateway.agw/v1alpha1
+connectors:
+    - id: my-mcp-svc
+      mcp:
+        auth:
+            api_key: ${MY_MCP_API_KEY}
+            type: api_key
+        transport: streamable_http
+        url: https://example.com/mcp
+      name: My MCP Service
+      type: mcp
 kind: GatewayBundle
-mcpServices:
-  - id: my-mcp-svc
-    name: My MCP Service
-    transport: streamable_http
-    url: https://example.com/mcp
-    auth:
-      type: api_key
-      api_key: ${MY_MCP_API_KEY}
 mcpRoutes:
-  - service_id: my-mcp-svc
-    match_policy:
-      path_prefix: /mcp
-    auth_policy:
-      require_virtual_key: true
+    - auth_policy:
+        require_virtual_key: true
+      connector_id: my-mcp-svc
+      match_policy:
+        path_prefix: /mcp
 `))
 	if err != nil {
 		t.Fatalf("DecodeYAML() error = %v", err)
 	}
 
-	if len(bundle.MCPServices) != 1 {
-		t.Fatalf("len(MCPServices) = %d, want 1", len(bundle.MCPServices))
+	if len(bundle.Connectors) != 1 {
+		t.Fatalf("len(Connectors) = %d, want 1", len(bundle.Connectors))
 	}
-	if bundle.MCPServices[0].ID != "my-mcp-svc" {
-		t.Fatalf("MCPServices[0].ID = %q, want my-mcp-svc", bundle.MCPServices[0].ID)
+	if bundle.Connectors[0].ID != "my-mcp-svc" {
+		t.Fatalf("Connectors[0].ID = %q, want my-mcp-svc", bundle.Connectors[0].ID)
 	}
-	if bundle.MCPServices[0].AuthConfig == nil || bundle.MCPServices[0].AuthConfig.APIKey != "secret-key" {
-		t.Fatalf("MCPServices[0].AuthConfig = %#v, want api_key=secret-key", bundle.MCPServices[0].AuthConfig)
+	if bundle.Connectors[0].MCP.AuthConfig == nil || bundle.Connectors[0].MCP.AuthConfig.APIKey != "secret-key" {
+		t.Fatalf("Connectors[0].AuthConfig = %#v, want api_key=secret-key", bundle.Connectors[0].MCP.AuthConfig)
 	}
 	if len(bundle.MCPRoutes) != 1 {
 		t.Fatalf("len(MCPRoutes) = %d, want 1", len(bundle.MCPRoutes))
 	}
-	if bundle.MCPRoutes[0].ServiceID != "my-mcp-svc" {
-		t.Fatalf("MCPRoutes[0].ServiceID = %q, want my-mcp-svc", bundle.MCPRoutes[0].ServiceID)
+	if bundle.MCPRoutes[0].ConnectorID != "my-mcp-svc" {
+		t.Fatalf("MCPRoutes[0].ConnectorID = %q, want my-mcp-svc", bundle.MCPRoutes[0].ConnectorID)
 	}
 	if err := bundle.ValidateForConfigStore(); err != nil {
 		t.Fatalf("ValidateForConfigStore() error = %v", err)
 	}
 }
 
-func TestValidateMCPServiceRequiresID(t *testing.T) {
-	bundle, err := DecodeYAML([]byte(`
-apiVersion: gateway.agw/v1alpha1
+func TestValidateConnectorRequiresID(t *testing.T) {
+	bundle, err := DecodeYAML([]byte(`apiVersion: gateway.agw/v1alpha1
+connectors:
+    - mcp:
+        transport: streamable_http
+        url: https://example.com/mcp
+      name: Missing ID Service
+      type: mcp
 kind: GatewayBundle
-mcpServices:
-  - name: Missing ID Service
-    transport: streamable_http
-    url: https://example.com/mcp
 `))
 	if err != nil {
 		t.Fatalf("DecodeYAML() error = %v", err)
@@ -754,7 +756,7 @@ mcpServices:
 	if err == nil {
 		t.Fatal("ValidateForConfigStore() error = nil, want missing id error")
 	}
-	if !strings.Contains(err.Error(), "mcpServices[0].id is required") {
+	if !strings.Contains(err.Error(), "connectors[0].id is required") {
 		t.Fatalf("ValidateForConfigStore() error = %v, want id required", err)
 	}
 }
@@ -775,10 +777,10 @@ mcpRoutes:
 
 	err = bundle.ValidateForConfigStore()
 	if err == nil {
-		t.Fatal("ValidateForConfigStore() error = nil, want service_id required error")
+		t.Fatal("ValidateForConfigStore() error = nil, want connector_id required error")
 	}
-	if !strings.Contains(err.Error(), "service_id is required") {
-		t.Fatalf("ValidateForConfigStore() error = %v, want service_id required", err)
+	if !strings.Contains(err.Error(), "connector_id is required") {
+		t.Fatalf("ValidateForConfigStore() error = %v, want connector_id required", err)
 	}
 }
 
@@ -792,7 +794,7 @@ providers:
 llmRoutes:
   - id: chat-test
     protocol: openai
-    match:
+    match_policy:
       path_prefix: /chat
       methods:
         - POST

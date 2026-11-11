@@ -16,6 +16,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	configstoreschema "github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	configstoresqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
+	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/credential"
 	dispatcherpkg "github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
@@ -29,14 +30,13 @@ import (
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/deepseek"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
 	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
-	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 	"github.com/cloudwego/eino/schema"
 )
 
 type testConfigStore struct {
 	providerStore   configstore.ConfigStore
 	routeStore      configstore.ConfigStore
-	mcpServiceStore configstore.ConfigStore
+	connectorStore  configstore.ConfigStore
 	virtualKeyStore configstore.ConfigStore
 	modelStore      configstore.ConfigStore
 	agentStore      configstore.ConfigStore
@@ -85,8 +85,8 @@ func (s *testConfigStore) Get(name string) (configstore.ConfigStore, error) {
 		return s.providerStore, nil
 	case configstoreschema.StoreRoutes:
 		return s.routeStore, nil
-	case configstoreschema.StoreMCPServices:
-		return s.mcpServiceStore, nil
+	case configstoreschema.StoreConnectors:
+		return s.connectorStore, nil
 	case configstoreschema.StoreVirtualKeys:
 		return s.virtualKeyStore, nil
 	case configstoreschema.StoreManagedModels:
@@ -195,8 +195,8 @@ type testMCPRouteStore struct {
 	tags  map[string]string
 }
 
-type testMCPServiceStore struct {
-	items map[string]*mcpservice.MCPServiceConfig
+type testConnectorStore struct {
+	items map[string]*connectorpkg.ConnectorConfig
 	tags  map[string]string
 }
 
@@ -388,7 +388,7 @@ func (s *testMCPRouteStore) GetByIndex(context.Context, string, any) (any, error
 	return nil, configstore.ErrNotFound
 }
 
-func (s *testMCPServiceStore) ListByTag(_ context.Context, tag string) ([]any, error) {
+func (s *testConnectorStore) ListByTag(_ context.Context, tag string) ([]any, error) {
 	out := make([]any, 0, len(s.items))
 	for id, item := range s.items {
 		if tag != "" && s.tags[id] != tag {
@@ -400,11 +400,11 @@ func (s *testMCPServiceStore) ListByTag(_ context.Context, tag string) ([]any, e
 	return out, nil
 }
 
-func (s *testMCPServiceStore) List(ctx context.Context) ([]any, error) {
+func (s *testConnectorStore) List(ctx context.Context) ([]any, error) {
 	return s.ListByTag(ctx, "")
 }
 
-func (s *testMCPServiceStore) ListByTagPrefix(_ context.Context, tagPrefix string) ([]any, error) {
+func (s *testConnectorStore) ListByTagPrefix(_ context.Context, tagPrefix string) ([]any, error) {
 	out := make([]any, 0, len(s.items))
 	for id, item := range s.items {
 		if tagPrefix != "" && !strings.HasPrefix(s.tags[id], tagPrefix) {
@@ -416,7 +416,7 @@ func (s *testMCPServiceStore) ListByTagPrefix(_ context.Context, tagPrefix strin
 	return out, nil
 }
 
-func (s *testMCPServiceStore) Create(_ context.Context, obj any) error {
+func (s *testConnectorStore) Create(_ context.Context, obj any) error {
 	tag := ""
 	if carrier, ok := obj.(interface{ ConfigStoreTag() string }); ok {
 		tag = carrier.ConfigStoreTag()
@@ -424,12 +424,12 @@ func (s *testMCPServiceStore) Create(_ context.Context, obj any) error {
 	if unwrapper, ok := obj.(interface{ ConfigStoreObject() any }); ok {
 		obj = unwrapper.ConfigStoreObject()
 	}
-	cfg, ok := obj.(*mcpservice.MCPServiceConfig)
+	cfg, ok := obj.(*connectorpkg.ConnectorConfig)
 	if !ok || cfg == nil {
 		return errors.New("unexpected type")
 	}
 	if s.items == nil {
-		s.items = map[string]*mcpservice.MCPServiceConfig{}
+		s.items = map[string]*connectorpkg.ConnectorConfig{}
 	}
 	if s.tags == nil {
 		s.tags = map[string]string{}
@@ -440,11 +440,11 @@ func (s *testMCPServiceStore) Create(_ context.Context, obj any) error {
 	return nil
 }
 
-func (s *testMCPServiceStore) Update(ctx context.Context, obj any) error {
+func (s *testConnectorStore) Update(ctx context.Context, obj any) error {
 	if unwrapper, ok := obj.(interface{ ConfigStoreObject() any }); ok {
 		obj = unwrapper.ConfigStoreObject()
 	}
-	cfg, ok := obj.(*mcpservice.MCPServiceConfig)
+	cfg, ok := obj.(*connectorpkg.ConnectorConfig)
 	if !ok || cfg == nil {
 		return errors.New("unexpected type")
 	}
@@ -454,7 +454,7 @@ func (s *testMCPServiceStore) Update(ctx context.Context, obj any) error {
 	return s.Create(ctx, obj)
 }
 
-func (s *testMCPServiceStore) Delete(_ context.Context, keyParts ...any) error {
+func (s *testConnectorStore) Delete(_ context.Context, keyParts ...any) error {
 	id, _ := keyParts[0].(string)
 	if _, ok := s.items[id]; !ok {
 		return configstore.ErrNotFound
@@ -464,7 +464,7 @@ func (s *testMCPServiceStore) Delete(_ context.Context, keyParts ...any) error {
 	return nil
 }
 
-func (s *testMCPServiceStore) Get(_ context.Context, keyParts ...any) (any, error) {
+func (s *testConnectorStore) Get(_ context.Context, keyParts ...any) (any, error) {
 	id, _ := keyParts[0].(string)
 	item, ok := s.items[id]
 	if !ok {
@@ -474,7 +474,7 @@ func (s *testMCPServiceStore) Get(_ context.Context, keyParts ...any) (any, erro
 	return &cloned, nil
 }
 
-func (s *testMCPServiceStore) GetByIndex(context.Context, string, any) (any, error) {
+func (s *testConnectorStore) GetByIndex(context.Context, string, any) (any, error) {
 	return nil, configstore.ErrNotFound
 }
 
@@ -910,8 +910,9 @@ func TestLLMRouteCreateRejectsClientManagedTimestamps(t *testing.T) {
 // segment.
 func TestMCPRouteAutoIDIsSlashFreeAndAddressable(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		routeStore: &testMCPRouteStore{items: map[string]*routecore.RouteConfig{}},
-		agentStore: newAgentConfigStore(),
+		connectorStore: &testConnectorStore{items: map[string]*connectorpkg.ConnectorConfig{"svc-main": {ID: "svc-main", Name: "tools", Type: "mcp", MCP: &connectorpkg.MCPConfig{Transport: connectorpkg.TransportStdio, Command: "unused"}}}},
+		routeStore:     &testMCPRouteStore{items: map[string]*routecore.RouteConfig{}},
+		agentStore:     newAgentConfigStore(),
 	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -919,7 +920,7 @@ func TestMCPRouteAutoIDIsSlashFreeAndAddressable(t *testing.T) {
 		RouteMetadata: mcproute.RouteMetadata{
 			MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp/foo"},
 		},
-		ServiceID: "svc-main",
+		ConnectorID: "svc-main",
 	})
 	if err != nil {
 		t.Fatalf("marshal mcp route: %v", err)
@@ -976,7 +977,7 @@ func TestMCPRouteCreateRejectsSlashID(t *testing.T) {
 			ID:          "mcp/with/slash",
 			MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
 		},
-		ServiceID: "svc-main",
+		ConnectorID: "svc-main",
 	})
 	if err != nil {
 		t.Fatalf("marshal mcp route: %v", err)
@@ -993,7 +994,8 @@ func TestMCPRouteCreateRejectsSlashID(t *testing.T) {
 
 func TestMCPRouteCRUD(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		routeStore: &testMCPRouteStore{items: map[string]*routecore.RouteConfig{}},
+		connectorStore: &testConnectorStore{items: map[string]*connectorpkg.ConnectorConfig{"svc-main": {ID: "svc-main", Name: "tools", Type: "mcp", MCP: &connectorpkg.MCPConfig{Transport: connectorpkg.TransportStdio, Command: "unused"}}}},
+		routeStore:     &testMCPRouteStore{items: map[string]*routecore.RouteConfig{}},
 	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
@@ -1002,7 +1004,7 @@ func TestMCPRouteCRUD(t *testing.T) {
 			ID:          "mcp-route-1",
 			MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
 		},
-		ServiceID: "svc-main",
+		ConnectorID: "svc-main",
 	})
 	if err != nil {
 		t.Fatalf("marshal mcp route: %v", err)
@@ -1020,7 +1022,7 @@ func TestMCPRouteCRUD(t *testing.T) {
 	if err := json.NewDecoder(createRec.Body).Decode(&created); err != nil {
 		t.Fatalf("decode created mcp route: %v", err)
 	}
-	if created.ID != "mcp-route-1" || created.ServiceID != "svc-main" {
+	if created.ID != "mcp-route-1" || created.ConnectorID != "svc-main" {
 		t.Fatalf("unexpected created route: %#v", created)
 	}
 
@@ -1041,7 +1043,7 @@ func TestListMCPRoutes(t *testing.T) {
 					ID:          "mcp-route-1",
 					MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
 				},
-				ServiceID: "svc-main",
+				ConnectorID: "svc-main",
 			}),
 		}},
 	}, nil, nil, nil, nil), nil)
@@ -1084,7 +1086,7 @@ func TestListRoutesExcludesMCPRoutesFromSharedStore(t *testing.T) {
 					ID:          "mcp-route-1",
 					MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
 				},
-				ServiceID: "svc-main",
+				ConnectorID: "svc-main",
 			}),
 		}},
 	}, nil, nil, nil, nil), nil)
@@ -1127,7 +1129,7 @@ func TestListMCPRoutesExcludesLLMRoutesFromSharedStore(t *testing.T) {
 					ID:          "mcp-route-1",
 					MatchPolicy: mcproute.RouteMatch{PathPrefix: "/mcp"},
 				},
-				ServiceID: "svc-main",
+				ConnectorID: "svc-main",
 			}),
 		}},
 	}, nil, nil, nil, nil), nil)
@@ -1234,11 +1236,11 @@ func TestListMCPDispatcherHistory(t *testing.T) {
 	}
 }
 
-func TestMCPServiceEndpointsRequireSharedManager(t *testing.T) {
+func TestConnectorEndpointsRequireSharedManager(t *testing.T) {
 	handler := NewHandler(nil, nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/mcp/services", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/connectors", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -1249,7 +1251,7 @@ func TestMCPServiceEndpointsRequireSharedManager(t *testing.T) {
 		t.Fatalf("unexpected body: %s", rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/admin/mcp/services/svc-1/capabilities", nil)
+	req = httptest.NewRequest(http.MethodGet, "/admin/connectors/svc-1/capabilities", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)

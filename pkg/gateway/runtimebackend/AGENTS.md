@@ -12,7 +12,10 @@ late prepared commits and stop retry scheduling.
 ACP, builtin and HTTP adapters share injected RunRegistry, PermissionBroker and
 CheckExecution admission. They do not create private copies of shared controls.
 Agent definition listeners prepare off-lock, commit bounded in-memory changes,
-and retire external resources in cleanup. HTTP common turns and native A2A proxy
+and retire external resources in cleanup. Builtin definition commits claim only
+old broker/decided continuations; delayed cleanup must preserve permissions from
+new definitions. Registration uses the Host definition guard to prevent late
+old turns from registering after retirement. HTTP common turns and native A2A proxy
 share one HTTPRuntimeManager, Card generation and credential listener.
 
 Trusted client scope includes Route, VirtualKey, Agent ID and runtime definition.

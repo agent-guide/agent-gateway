@@ -70,22 +70,24 @@ llmRoutes:
   #     credential_type_order:
   #       - api_key
 
-# Optional: MCP services referenced by the agent's tools. A node that carries
+# Optional: MCP connectors referenced by the agent's tools. A node that carries
 # tools resolves its model with RequireTools, so on logical-model routes only
 # tool-capable candidates bind.
 #
-# mcpServices:
+# connectors:
 #
 #   - id: mcp-filesystem
-#     name: Filesystem MCP Service (stdio)
-#     transport: stdio
-#     command: npx
-#     args:
-#       - -y
-#       - "@modelcontextprotocol/server-filesystem"
-#       - /private/tmp
-#     env:
-#       NODE_ENV: production
+#     name: Filesystem MCP connector (stdio)
+#     type: mcp
+#     mcp:
+#       transport: stdio
+#       command: npx
+#       args:
+#         - -y
+#         - "@modelcontextprotocol/server-filesystem"
+#         - /private/tmp
+#       env:
+#         NODE_ENV: production
 
 agents:
 
@@ -110,11 +112,11 @@ agents:
         generation:
           max_tokens: 2048
           temperature: 0.2
-        # Optional MCP tools; every mcp_service_id must appear in
-        # resources.mcp_service_ids. Tool name selection is fail-closed —
+        # Optional MCP tools; every connector_id must appear in
+        # resources.connector_ids. Tool name selection is fail-closed —
         # a missing tool is an apply-time error, not a silent skip.
         # tools:
-        #   - mcp_service_id: mcp-filesystem
+        #   - connector_id: mcp-filesystem
         #     tools:
         #       - read_text_file
         topology:
@@ -147,7 +149,7 @@ agents:
       llm_route_ids:
         - chat-main
     resources: {}
-    #   mcp_service_ids:
+    #   connector_ids:
     #     - mcp-filesystem
     policy: {}
 
@@ -199,13 +201,13 @@ agents:
   #         plan_execute:
   #           executor:
   #             tools:
-  #               - mcp_service_id: mcp-filesystem
+  #               - connector_id: mcp-filesystem
   #             max_iterations: 20
   #   routes:
   #     llm_route_ids:
   #       - chat-alt
   #   resources:
-  #     mcp_service_ids:
+  #     connector_ids:
   #       - mcp-filesystem
   #   policy: {}
 

@@ -150,7 +150,7 @@ invoke the Vision MCP service.
 Vision is a separate gateway-managed MCP service:
 
 ```yaml
-mcpServices:
+connectors:
   - id: zhipu-vision
     name: Zhipu Coding Plan Vision
     transport: stdio

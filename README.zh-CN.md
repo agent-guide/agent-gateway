@@ -91,7 +91,7 @@ OpenTelemetry Collector 和 Grafana。Fixture 和允许本地匿名访问的 Gra
 | 需求 | 网关提供的边界 |
 | --- | --- |
 | 把现有 Agent 暴露为内部服务 | 统一的 AgentRoute、VirtualKey 鉴权、流式 Turn、取消、权限，以及 Runtime 支持时的 Session 和 Transcript |
-| 治理模型和工具访问 | 兼容 OpenAI、Anthropic 和 Claude Code 的 LLM 路由，以及统一管理的 MCP Service 和 Route |
+| 治理模型和工具访问 | 兼容 OpenAI、Anthropic 和 Claude Code 的 LLM 路由，以及统一管理的 MCP Connector 和 MCP 发布路由 |
 | 连接远程 Agent | 通用 Turn 转换和受治理的原生 A2A Protocol 1.0 JSON-RPC 入口 |
 | 使用一个配置入口运维 | SQLite 支撑的 Admin API、声明式 Bundle validate/apply/export 和幂等更新 |
 | 查看实际发生了什么 | 持久化 Interaction、分协议指标、Prometheus 计数器和可选 OpenTelemetry Trace |
@@ -241,3 +241,14 @@ Prompt 或私有配置。疑似安全漏洞请使用 [SECURITY.md](SECURITY.md)�
 ACP 线程、显式会话续接、转录和待处理权限绑定已认证的 VirtualKey、路由及运行配置。
 会话列表保留原生分页和元数据，并按已证明的客户端归属过滤；重启或有界归属缓存
 淘汰后，客户端需开启新会话。
+
+MCP Connector 的管理、执行和生命周期参见
+[Connector 运行架构](docs/architecture/connectors.md)。
+
+Connector 使用不可变的 `id` 作为引用标识，使用可修改的 `name` 作为展示名称；
+修改展示名称不会改变 Agent 和路由引用。
+
+修改 Connector 执行配置或删除前，必须先解除 Agent 和 MCP 路由引用，并等待执行、
+排队和初始化结束。展示信息修改保留会话，禁用和凭据撤销仍可执行。
+Bundle apply 逐个更新资源，
+允许部分成功，不提供跨资源原子发布或组恢复。

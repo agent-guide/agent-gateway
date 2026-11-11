@@ -69,6 +69,11 @@ func PreflightLegacyAgentRuntime(ctx context.Context, path string) error {
 		err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, name).Scan(&n)
 		return n > 0, err
 	}
+	if ok, err := hasTable("mcp_services"); err != nil {
+		return err
+	} else if ok {
+		return fmt.Errorf("legacy_connector_layout: mcp_services table exists; stop services and use scripts/repair-architecture-config --convert-connectors; database left unchanged")
+	}
 	if ok, err := hasTable("acp_services"); err != nil {
 		return err
 	} else if ok {

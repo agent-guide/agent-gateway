@@ -19,8 +19,8 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/agent"
 	builtinhost "github.com/agent-guide/agent-gateway/pkg/agent/builtin"
 	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
+	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
-	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 )
 
 func inlineACPRuntime(cfg hostconfig.Config) *agent.ACPRuntime {
@@ -618,7 +618,7 @@ func (t *hitlTools) ListTools(context.Context, string) ([]basemcp.Tool, error) {
 	return []basemcp.Tool{{Name: "fetch_doc", Description: "Fetch", InputSchema: map[string]any{"type": "object"}}}, nil
 }
 
-func (t *hitlTools) CallTool(context.Context, string, string, map[string]any, chan<- mcpservice.UpstreamProgress) (*basemcp.ToolResult, error) {
+func (t *hitlTools) CallTool(context.Context, string, string, map[string]any, chan<- connectorpkg.UpstreamProgress) (*basemcp.ToolResult, error) {
 	t.calls++
 	return &basemcp.ToolResult{Content: []any{map[string]any{"type": "text", "text": "tool output"}}}, nil
 }
@@ -629,11 +629,11 @@ func TestBuiltinBackendRealCheckpointResumePreservesCommonSequenceAndSpanLink(t 
 		Runtime: agent.Runtime{Type: agent.RuntimeTypeBuiltin, Builtin: &agent.BuiltinRuntime{
 			Model:       agent.BuiltinModel{LLMRouteID: "chat-main"},
 			Topology:    agent.BuiltinTopology{Kind: agent.TopologyKindSingle},
-			Tools:       []agent.BuiltinToolSelection{{MCPServiceID: "docs", Tools: []string{"fetch_doc"}}},
+			Tools:       []agent.BuiltinToolSelection{{ConnectorID: "docs", Tools: []string{"fetch_doc"}}},
 			Permissions: &agent.BuiltinPermissions{Mode: agent.PermissionModeInteractive},
 		}},
 		Routes:    agent.Routes{LLMRouteIDs: []string{"chat-main"}},
-		Resources: agent.Resources{MCPServiceIDs: []string{"docs"}},
+		Resources: agent.Resources{ConnectorIDs: []string{"docs"}},
 	}
 	usageSink := &usage.InMemorySink{}
 	observer := usage.NewObserver(usageSink)

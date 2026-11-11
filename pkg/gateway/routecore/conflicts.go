@@ -17,6 +17,11 @@ func ValidateRouteConfigs(routes []RouteConfig) error {
 	var duplicates []string
 	var targetErrors []error
 	for _, r := range routes {
+		if r.Kind == RouteKindMCP {
+			if err := ValidateMCPTargetFields(r.ID, r.TargetPolicy); err != nil {
+				targetErrors = append(targetErrors, err)
+			}
+		}
 		if r.Kind == RouteKindLLM {
 			if err := ValidateLLMTargetFields(r.ID, r.TargetPolicy); err != nil {
 				targetErrors = append(targetErrors, err)

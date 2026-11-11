@@ -916,10 +916,28 @@ func (b *BuiltinBackend) ServeTurn(ctx context.Context, a agentpkg.Agent, req ag
 				b.expireBuiltinRequests(a.ID, []string{ev.RequestID})
 				return agentruntime.WrapError(agentruntime.ErrorTurnFailed, "generate permission continuation token", tokenErr)
 			}
-			b.storeBuiltinContinuation(token, builtinPermissionContinuation{agentID: a.ID, runID: req.RunID, requestID: ev.RequestID})
-			_, regErr := b.permissions.Register(agentruntime.PendingPermission{RequestID: ev.RequestID, AgentID: a.ID, RuntimeType: a.Runtime.Type, RunID: req.RunID, SessionID: ev.SessionID, TTL: ttl, Actions: actions, ResumeMode: agentruntime.PermissionResumeNewStream}, token, b)
+			register := func() error {
+				b.storeBuiltinContinuation(token, builtinPermissionContinuation{agentID: a.ID, runID: req.RunID, requestID: ev.RequestID})
+				_, err := b.permissions.Register(agentruntime.PendingPermission{RequestID: ev.RequestID, AgentID: a.ID, RuntimeType: a.Runtime.Type, RunID: req.RunID, SessionID: ev.SessionID, TTL: ttl, Actions: actions, ResumeMode: agentruntime.PermissionResumeNewStream}, token, b)
+				if err != nil {
+					b.builtinContinuation(token, true)
+				}
+				return err
+			}
+			var regErr error
+			if b.checkExecution != nil {
+				regErr = b.checkExecution(a)
+			}
+			if regErr == nil {
+				if guard, ok := b.host.(interface {
+					GuardContinuation(string, time.Time, func() error) error
+				}); ok {
+					regErr = guard.GuardContinuation(a.ID, a.UpdatedAt, register)
+				} else {
+					regErr = register()
+				}
+			}
 			if regErr != nil {
-				b.builtinContinuation(token, true)
 				b.expireBuiltinRequests(a.ID, []string{ev.RequestID})
 				return regErr
 			}
@@ -997,8 +1015,14 @@ func (b *BuiltinBackend) ResolvePermission(ctx context.Context, a agentpkg.Agent
 // when an Agent definition is updated or deleted. Pending broker entries are
 // drained separately; these entries have already been claimed by Admin.
 func (b *BuiltinBackend) DiscardAgentContinuations(agentID string) {
+	b.claimAgentContinuations(agentID)()
+}
+
+// Claim only the continuations present at definition commit. Cleanup must not
+// discard permissions created by a subsequent definition.
+func (b *BuiltinBackend) claimAgentContinuations(agentID string) func() {
 	if b == nil {
-		return
+		return func() {}
 	}
 	var requestIDs []string
 	b.decidedMu.Lock()
@@ -1009,7 +1033,7 @@ func (b *BuiltinBackend) DiscardAgentContinuations(agentID string) {
 		}
 	}
 	b.decidedMu.Unlock()
-	b.expireBuiltinRequests(agentID, requestIDs)
+	return func() { b.expireBuiltinRequests(agentID, requestIDs) }
 }
 
 // DiscardAllContinuations removes every Admin-decided continuation during

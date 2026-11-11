@@ -267,7 +267,7 @@ func TestRepairPreservesRetainedAgentReferences(t *testing.T) {
 	ctx := context.Background()
 	path, db := oldDatabase(t)
 	if _, err := db.Exec(`UPDATE agents SET config=json_set(config,
-		'$.resources',json('{"provider_ids":["removed-provider"],"mcp_service_ids":["removed-service"],"virtual_key_ids":["removed-key"]}'),
+		'$.resources',json('{"provider_ids":["removed-provider"],"virtual_key_ids":["removed-key"]}'),
 		'$.runtime.http.auth_ref','revoked-credential') WHERE id='agent'`); err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestRepairPreservesRetainedAgentReferences(t *testing.T) {
 	}
 	for _, r := range records {
 		if r.Family == "agents" {
-			for _, ref := range []string{"removed-provider", "removed-service", "removed-key", "revoked-credential"} {
+			for _, ref := range []string{"removed-provider", "removed-key", "revoked-credential"} {
 				if !strings.Contains(string(r.Data), ref) {
 					t.Fatalf("repair removed retained reference %q", ref)
 				}

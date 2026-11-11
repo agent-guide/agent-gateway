@@ -9,7 +9,11 @@ runtime structure belongs in `docs/architecture/architecture-overview.md`.
 
 - One host owned by `AgentGateway` serves all builtin agents. Materializations
   are cached by agent id and definition version; updates affect the next turn
-  while existing turns drain on their current graph.
+  while existing turns drain on their current graph. Definition commits remove
+  obsolete graphs and claim old continuations using bounded in-memory work;
+  cleanup removes only retired checkpoints. Fence late builds and permission
+  registration by definition version. CloseContext rejects new turns, cancels
+  running/queued turns and waits within its caller's budget.
 - Resolve models through the agent's LLM route and wrap the resulting
   `RoutedProvider` with `einomodel`. Tool-calling nodes must request
   tool-capable route candidates. Resolve MCP tools through `einotool`, with

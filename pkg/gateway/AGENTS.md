@@ -141,9 +141,9 @@ Important types:
 Current shape:
 
 - persisted/static MCP routes use `routecore.RouteConfig`
-- `MCPRoute` is the single typed form for Admin and runtime, with direct `service_id` access
+- `MCPRoute` is the single typed form for Admin and runtime, with direct `connector_id` access
 - prefer `*MCPRoute` at runtime rather than copying `MCPRoute` values
-- route ids follow the shared convention above with the `mcp:<service_id>:<path-slug>` shape
+- route ids follow the shared convention above with the `mcp:<connector_id>:<path-slug>` shape
 
 ## `agentroute/`
 
@@ -332,3 +332,13 @@ perform I/O or reenter mutations. Materializer epochs fence late cache builds.
 
 Gateway exposes the single common RouteConfigManager; route-kind resolvers
 share that manager rather than retaining duplicate per-kind manager getters.
+
+Connector deletion checks both Agent connector declarations and MCP publishing
+route targets under shared coordination. Agent writes require existing connectors. References from disabled objects and
+pending retained Agent generations remain protected. Resource CRUD and Bundle
+apply are independent, sequential updates; no group publication/recovery exists.
+
+The simplified Connector mutation contract additionally requires all execution
+edits/deletion to reject references or active/queued calls/discovery/initialization,
+with atomic admission/exclusion. Display edits keep sessions intact; explicit
+disablement/credential revocation remain possible. Preserve the same guards in direct manager calls, Refresh, Admin and Bundle. Do not introduce group transactions or old/new session drain.

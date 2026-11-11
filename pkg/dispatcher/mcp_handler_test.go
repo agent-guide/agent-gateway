@@ -2,6 +2,7 @@ package dispatcher
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +17,41 @@ import (
 	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
 	"github.com/agent-guide/agent-gateway/pkg/mcp/transport"
 )
+
+func TestMCPRequestBodyLimitStatus(t *testing.T) {
+	gw := gateway.NewAgentGateway()
+	if err := gw.Bootstrap(t.Context(), gateway.BootstrapOptions{ConfigStoreBackend: &testConfigStoreBackend{store: emptyConfigStore{}}}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(gw.Close)
+	handler := NewHandler(gw, nil, nil, HandlerOptions{EnableMCP: true})
+	route := &mcproute.MCPRoute{RouteMetadata: mcproute.RouteMetadata{ID: "route"}, ConnectorID: "unused"}
+	for _, tc := range []struct {
+		name   string
+		body   string
+		status int
+	}{
+		{"oversize", strings.Repeat(" ", MaxMCPRequestBodyBytes+1), http.StatusRequestEntityTooLarge},
+		{"malformed", `{"jsonrpc":`, http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, unknownLength := range []bool{false, true} {
+				request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(tc.body))
+				if unknownLength {
+					request.Body = io.NopCloser(strings.NewReader(tc.body))
+					request.ContentLength = -1
+				}
+				response := httptest.NewRecorder()
+				if err := handler.dispatchJSONRPC(response, request, route); err != nil {
+					t.Fatal(err)
+				}
+				if response.Code != tc.status {
+					t.Fatalf("unknown length=%t: HTTP %d, want %d: %s", unknownLength, response.Code, tc.status, response.Body.String())
+				}
+			}
+		})
+	}
+}
 
 type testConfigStoreBackend struct {
 	store configstore.ConfigStore
@@ -32,7 +68,7 @@ func (b *testConfigStoreBackend) Get(name string) (configstore.ConfigStore, erro
 		configstoreschema.StoreRoutes,
 		configstoreschema.StoreVirtualKeys,
 		configstoreschema.StoreManagedModels,
-		configstoreschema.StoreMCPServices,
+		configstoreschema.StoreConnectors,
 		configstoreschema.StoreAgents:
 		return b.store, nil
 	default:
@@ -144,7 +180,7 @@ func TestCancelRequestCancelsInFlightRequest(t *testing.T) {
 	t.Parallel()
 
 	handler := &Handler{gateway: gateway.NewAgentGateway()}
-	route := &mcproute.MCPRoute{RouteMetadata: mcproute.RouteMetadata{ID: "route-1"}, ServiceID: "svc-1"}
+	route := &mcproute.MCPRoute{RouteMetadata: mcproute.RouteMetadata{ID: "route-1"}, ConnectorID: "svc-1"}
 	msg := transport.Message{
 		JSONRPC: "2.0",
 		ID:      "req-1",
@@ -175,7 +211,7 @@ func TestCancelRequestRejectsInitialize(t *testing.T) {
 	t.Parallel()
 
 	handler := &Handler{gateway: gateway.NewAgentGateway()}
-	route := &mcproute.MCPRoute{RouteMetadata: mcproute.RouteMetadata{ID: "route-1"}, ServiceID: "svc-1"}
+	route := &mcproute.MCPRoute{RouteMetadata: mcproute.RouteMetadata{ID: "route-1"}, ConnectorID: "svc-1"}
 	_, finish := handler.beginRequest(context.Background(), route, transport.Message{
 		JSONRPC: "2.0",
 		ID:      "init-1",
@@ -196,7 +232,7 @@ func TestHandleProgressNotificationStoresState(t *testing.T) {
 	t.Parallel()
 
 	handler := &Handler{gateway: gateway.NewAgentGateway()}
-	route := &mcproute.MCPRoute{RouteMetadata: mcproute.RouteMetadata{ID: "route-1"}, ServiceID: "svc-1"}
+	route := &mcproute.MCPRoute{RouteMetadata: mcproute.RouteMetadata{ID: "route-1"}, ConnectorID: "svc-1"}
 	_, finish := handler.beginRequest(context.Background(), route, transport.Message{
 		JSONRPC: "2.0",
 		ID:      "req-2",
@@ -261,7 +297,7 @@ func TestDispatchJSONRPCUsesGatewayVirtualKeyResolution(t *testing.T) {
 			ID:         "mcp-route",
 			AuthPolicy: mcproute.RouteAuthPolicy{RequireVirtualKey: true},
 		},
-		ServiceID: "svc-1",
+		ConnectorID: "svc-1",
 	}
 
 	if err := handler.dispatchJSONRPC(rec, req, route); err != nil {

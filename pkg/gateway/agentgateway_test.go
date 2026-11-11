@@ -285,7 +285,7 @@ func TestBootstrapInitializesStaticMCPRoutes(t *testing.T) {
 			MatchPolicy: mcproutepkg.RouteMatch{PathPrefix: "/mcp"},
 			AuthPolicy:  mcproutepkg.RouteAuthPolicy{RequireVirtualKey: true},
 		},
-		ServiceID: "svc-1",
+		ConnectorID: "svc-1",
 	}).ToConfig()
 	if err != nil {
 		t.Fatalf("ToConfig returned error: %v", err)
@@ -314,8 +314,8 @@ func TestBootstrapInitializesStaticMCPRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveByID returned error: %v", err)
 	}
-	if route.ServiceID != "svc-1" {
-		t.Fatalf("ServiceID = %q, want svc-1", route.ServiceID)
+	if route.ConnectorID != "svc-1" {
+		t.Fatalf("ServiceID = %q, want svc-1", route.ConnectorID)
 	}
 
 	err = resolver.DeleteConfig(context.Background(), "mcp-route")

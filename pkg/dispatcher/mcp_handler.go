@@ -5,16 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
+
+	"github.com/agent-guide/agent-gateway/internal/strictjson"
+	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
+	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
-	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 	"github.com/agent-guide/agent-gateway/pkg/mcp/transport"
 	"go.uber.org/zap"
 )
@@ -24,7 +28,7 @@ func (h *Handler) dispatchMCP(w http.ResponseWriter, r *http.Request, next NextH
 		return serveNextOrNotFound(next, w, r)
 	}
 
-	serviceManager := h.gateway.MCPServiceManager()
+	serviceManager := h.gateway.ConnectorManager()
 	if serviceManager == nil {
 		return WriteDispatchError(h.logger, string(cfg.Protocol), cfg.ID, "", http.StatusServiceUnavailable, w, r, "dispatch mcp route", "mcp dispatcher is not configured", fmt.Errorf("mcp dispatcher is not configured"))
 	}
@@ -43,7 +47,7 @@ func (h *Handler) dispatchMCP(w http.ResponseWriter, r *http.Request, next NextH
 	}
 	logRequestPhase(h.logger, "dispatcher: mcp route resolved", r,
 		zap.String("route_id", route.ID),
-		zap.String("service_id", route.ServiceID),
+		zap.String("service_id", route.ConnectorID),
 		zap.String("path_prefix", route.MatchPolicy.PathPrefix),
 	)
 
@@ -61,13 +65,17 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		r.Body = http.MaxBytesReader(w, r.Body, MaxMCPRequestBodyBytes)
 	}
 
-	serviceManager := h.gateway.MCPServiceManager()
+	serviceManager := h.gateway.ConnectorManager()
 	if serviceManager == nil {
 		return WriteDispatchError(h.logger, string(route.Protocol), route.ID, "", http.StatusServiceUnavailable, w, r, "dispatch json-rpc request", "mcp dispatcher is not configured", fmt.Errorf("mcp dispatcher is not configured"))
 	}
 
 	var msg transport.Message
-	if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
+	body, readErr := io.ReadAll(io.LimitReader(r.Body, MaxMCPRequestBodyBytes+1))
+	if readErr != nil {
+		return writeMCPError(w, nil, RequestBodyErrorStatus(readErr, http.StatusBadRequest), -32700, "invalid MCP body")
+	}
+	if err := strictjson.Decode(body, &msg, MaxMCPRequestBodyBytes, 64); err != nil {
 		return writeMCPError(w, nil, RequestBodyErrorStatus(err, http.StatusBadRequest), -32700, fmt.Sprintf("decode json-rpc request: %v", err))
 	}
 	if msg.JSONRPC == "" {
@@ -81,14 +89,14 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 	}
 	logRequestPhase(h.logger, "dispatcher: mcp json-rpc request", r,
 		zap.String("route_id", route.ID),
-		zap.String("service_id", route.ServiceID),
+		zap.String("service_id", route.ConnectorID),
 		zap.String("jsonrpc_method", strings.TrimSpace(msg.Method)),
 		zap.Bool("is_notification", isNotification(msg)),
 		zap.Bool("has_request_id", msg.ID != nil),
 	)
 	usage.SpanFromContext(r.Context()).SetExtension(usage.MCPExtension{
 		RequestID: jsonRPCIDString(msg.ID),
-		ServiceID: route.ServiceID,
+		ServiceID: route.ConnectorID,
 		Method:    strings.TrimSpace(msg.Method),
 	})
 	if isNotification(msg) {
@@ -102,16 +110,16 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 	case "initialize":
 		logRequestPhase(h.logger, "dispatcher: mcp initialize upstream", r,
 			zap.String("route_id", route.ID),
-			zap.String("service_id", route.ServiceID),
+			zap.String("service_id", route.ConnectorID),
 		)
-		result, err := serviceManager.Initialize(requestCtx, route.ServiceID)
+		result, err := serviceManager.Initialize(requestCtx, route.ConnectorID)
 		if err != nil {
 			upstreamErr = err
 			return h.writeRequestError(w, r, route, msg, err)
 		}
 		logRequestPhase(h.logger, "dispatcher: mcp initialize completed", r,
 			zap.String("route_id", route.ID),
-			zap.String("service_id", route.ServiceID),
+			zap.String("service_id", route.ConnectorID),
 		)
 		return writeMCPResult(w, msg.ID, result)
 	case "ping":
@@ -125,10 +133,10 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		}
 		logRequestPhase(h.logger, "dispatcher: mcp tools/list upstream", r,
 			zap.String("route_id", route.ID),
-			zap.String("service_id", route.ServiceID),
+			zap.String("service_id", route.ConnectorID),
 			zap.String("cursor", cursor),
 		)
-		result, err := serviceManager.ListToolsPage(requestCtx, route.ServiceID, cursor)
+		result, err := serviceManager.ListToolsPage(requestCtx, route.ConnectorID, cursor)
 		if err != nil {
 			upstreamErr = err
 			return h.writeRequestError(w, r, route, msg, err)
@@ -141,10 +149,10 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		}
 		logRequestPhase(h.logger, "dispatcher: mcp resources/list upstream", r,
 			zap.String("route_id", route.ID),
-			zap.String("service_id", route.ServiceID),
+			zap.String("service_id", route.ConnectorID),
 			zap.String("cursor", cursor),
 		)
-		result, err := serviceManager.ListResourcesPage(requestCtx, route.ServiceID, cursor)
+		result, err := serviceManager.ListResourcesPage(requestCtx, route.ConnectorID, cursor)
 		if err != nil {
 			upstreamErr = err
 			return h.writeRequestError(w, r, route, msg, err)
@@ -157,10 +165,10 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		}
 		logRequestPhase(h.logger, "dispatcher: mcp resource templates/list upstream", r,
 			zap.String("route_id", route.ID),
-			zap.String("service_id", route.ServiceID),
+			zap.String("service_id", route.ConnectorID),
 			zap.String("cursor", cursor),
 		)
-		result, err := serviceManager.ListResourceTemplatesPage(requestCtx, route.ServiceID, cursor)
+		result, err := serviceManager.ListResourceTemplatesPage(requestCtx, route.ConnectorID, cursor)
 		if err != nil {
 			upstreamErr = err
 			return h.writeRequestError(w, r, route, msg, err)
@@ -173,10 +181,10 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		}
 		logRequestPhase(h.logger, "dispatcher: mcp prompts/list upstream", r,
 			zap.String("route_id", route.ID),
-			zap.String("service_id", route.ServiceID),
+			zap.String("service_id", route.ConnectorID),
 			zap.String("cursor", cursor),
 		)
-		result, err := serviceManager.ListPromptsPage(requestCtx, route.ServiceID, cursor)
+		result, err := serviceManager.ListPromptsPage(requestCtx, route.ConnectorID, cursor)
 		if err != nil {
 			upstreamErr = err
 			return h.writeRequestError(w, r, route, msg, err)
@@ -201,7 +209,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 			ArgCount:     usage.Int(argCount),
 			ResultStatus: "success",
 		}
-		if captureMCPToolArgs(r.Context(), serviceManager, route.ServiceID) {
+		if captureMCPToolArgs(r.Context(), serviceManager, route.ConnectorID) {
 			if data, err := json.Marshal(args); err == nil {
 				ext.ToolArgsJSON = string(data)
 			}
@@ -209,16 +217,39 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		usage.SpanFromContext(r.Context()).SetExtension(ext)
 		logRequestPhase(h.logger, "dispatcher: mcp tools/call upstream", r,
 			zap.String("route_id", route.ID),
-			zap.String("service_id", route.ServiceID),
+			zap.String("service_id", route.ConnectorID),
 			zap.String("tool_name", strings.TrimSpace(name)),
 		)
-		progressCh := make(chan mcpservice.UpstreamProgress, 64)
-		result, err := serviceManager.CallTool(requestCtx, route.ServiceID, strings.TrimSpace(name), args, progressCh)
+		progressCh := make(chan connectorpkg.UpstreamProgress, 64)
+		lease, err := serviceManager.Acquire(requestCtx, route.ConnectorID)
+		var result *basemcp.ToolResult
+		if err == nil {
+			defer lease.Close()
+			var outcome cr.CallOutcome
+			outcome, err = lease.CallTool(requestCtx, cr.ToolCall{Name: strings.TrimSpace(name), Arguments: args, Progress: func(p cr.Progress) {
+				select {
+				case progressCh <- connectorpkg.UpstreamProgress{ProgressToken: p.ProgressToken, Progress: p.Progress, Total: p.Total, Message: p.Message}:
+				default:
+				}
+			}})
+			result = outcome.Result
+			if outcome.Failure != nil {
+				ext.ResultStatus = "error"
+				usage.SpanFromContext(r.Context()).AddAnnotation("error_type", outcome.Failure.Category)
+			}
+			usage.SpanFromContext(r.Context()).SetExtension(ext)
+		}
 		close(progressCh)
 		h.drainUpstreamProgress(route, progressCh)
 		if err != nil {
 			upstreamErr = err
 			return h.writeRequestError(w, r, route, msg, err)
+		}
+		if result != nil && result.IsError {
+			upstreamErr = fmt.Errorf("tool execution failed")
+			if usage.TransferFinishOwnership(r.Context()) {
+				defer usage.SpanFromContext(r.Context()).Finish(usage.InteractionOutcome{Success: false, StatusCode: http.StatusOK})
+			}
 		}
 		return writeMCPResult(w, msg.ID, result)
 	case "resources/read":
@@ -236,11 +267,11 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		})
 		logRequestPhase(h.logger, "dispatcher: mcp resources/read upstream", r,
 			zap.String("route_id", route.ID),
-			zap.String("service_id", route.ServiceID),
+			zap.String("service_id", route.ConnectorID),
 			zap.String("resource_uri", strings.TrimSpace(uri)),
 		)
-		progressCh := make(chan mcpservice.UpstreamProgress, 64)
-		result, err := serviceManager.ReadResource(requestCtx, route.ServiceID, strings.TrimSpace(uri), progressCh)
+		progressCh := make(chan connectorpkg.UpstreamProgress, 64)
+		result, err := serviceManager.ReadResource(requestCtx, route.ConnectorID, strings.TrimSpace(uri), progressCh)
 		close(progressCh)
 		h.drainUpstreamProgress(route, progressCh)
 		if err != nil {
@@ -267,11 +298,11 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		}
 		logRequestPhase(h.logger, "dispatcher: mcp prompts/get upstream", r,
 			zap.String("route_id", route.ID),
-			zap.String("service_id", route.ServiceID),
+			zap.String("service_id", route.ConnectorID),
 			zap.String("prompt_name", strings.TrimSpace(name)),
 		)
-		progressCh := make(chan mcpservice.UpstreamProgress, 64)
-		result, err := serviceManager.GetPrompt(requestCtx, route.ServiceID, strings.TrimSpace(name), args, progressCh)
+		progressCh := make(chan connectorpkg.UpstreamProgress, 64)
+		result, err := serviceManager.GetPrompt(requestCtx, route.ConnectorID, strings.TrimSpace(name), args, progressCh)
 		close(progressCh)
 		h.drainUpstreamProgress(route, progressCh)
 		if err != nil {
@@ -296,11 +327,11 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		})
 		logRequestPhase(h.logger, "dispatcher: mcp completion upstream", r,
 			zap.String("route_id", route.ID),
-			zap.String("service_id", route.ServiceID),
+			zap.String("service_id", route.ConnectorID),
 			zap.String("completion_ref_type", ref.Type),
 			zap.String("completion_argument_name", argument.Name),
 		)
-		result, err := serviceManager.Complete(requestCtx, route.ServiceID, ref, argument, args)
+		result, err := serviceManager.Complete(requestCtx, route.ConnectorID, ref, argument, args)
 		if err != nil {
 			upstreamErr = err
 			return h.writeRequestError(w, r, route, msg, err)
@@ -314,11 +345,11 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 func (h *Handler) dispatchNotification(w http.ResponseWriter, r *http.Request, route *mcproute.MCPRoute, msg transport.Message) error {
 	switch msg.Method {
 	case "notifications/initialized":
-		serviceManager := h.gateway.MCPServiceManager()
+		serviceManager := h.gateway.ConnectorManager()
 		if serviceManager == nil {
 			return WriteDispatchError(h.logger, string(route.Protocol), route.ID, "", http.StatusServiceUnavailable, w, r, "dispatch mcp notification", "mcp dispatcher is not configured", fmt.Errorf("mcp dispatcher is not configured"))
 		}
-		if _, err := serviceManager.Initialize(r.Context(), route.ServiceID); err != nil {
+		if _, err := serviceManager.Initialize(r.Context(), route.ConnectorID); err != nil {
 			return httpjson.Error(w, http.StatusBadGateway, err.Error())
 		}
 	case "notifications/cancelled":
@@ -357,7 +388,7 @@ func (h *Handler) beginRequest(parent context.Context, route *mcproute.MCPRoute,
 
 // drainUpstreamProgress reads all buffered upstream progress notifications and
 // stores them in the runtime registry so they are visible via the admin API.
-func (h *Handler) drainUpstreamProgress(route *mcproute.MCPRoute, ch <-chan mcpservice.UpstreamProgress) {
+func (h *Handler) drainUpstreamProgress(route *mcproute.MCPRoute, ch <-chan connectorpkg.UpstreamProgress) {
 	registry := h.mcpRuntimeRegistry()
 	if registry == nil || route == nil {
 		return
@@ -424,6 +455,22 @@ func (h *Handler) storeProgressNotification(route *mcproute.MCPRoute, token any,
 }
 
 func (h *Handler) writeRequestError(w http.ResponseWriter, r *http.Request, route *mcproute.MCPRoute, msg transport.Message, err error) error {
+	var boundary *cr.CallError
+	if errors.As(err, &boundary) {
+		code := -32000
+		status := http.StatusBadGateway
+		switch boundary.Category {
+		case "invalid_arguments", "unknown_tool":
+			code = -32602
+			status = http.StatusBadRequest
+		case "unsupported_capability":
+			code = -32601
+			status = http.StatusBadRequest
+		case "internal_error":
+			code = -32603
+		}
+		return writeMCPError(w, msg.ID, status, code, boundary.Message)
+	}
 	if errors.Is(err, context.Canceled) {
 		usage.SpanFromContext(r.Context()).SetExtension(usage.MCPExtension{
 			ResultStatus: "cancelled",
@@ -512,8 +559,8 @@ func optionalStringParam(params map[string]any, key string) (string, error) {
 
 func mapParam(params map[string]any, key string) (map[string]any, error) {
 	raw, ok := params[key]
-	if !ok || raw == nil {
-		return nil, nil
+	if !ok {
+		return map[string]any{}, nil
 	}
 	value, ok := raw.(map[string]any)
 	if !ok {
@@ -531,6 +578,11 @@ func numericParam(params map[string]any, key string, required bool) (float64, er
 		return 0, nil
 	}
 	value, ok := raw.(float64)
+	if n, isNumber := raw.(json.Number); isNumber {
+		var err error
+		value, err = n.Float64()
+		ok = err == nil
+	}
 	if !ok {
 		return 0, fmt.Errorf("%s must be a number", key)
 	}
@@ -572,7 +624,7 @@ func resolvedRouteID(route *mcproute.MCPRoute) string {
 	if routeID != "" {
 		return routeID
 	}
-	return "mcp:" + strings.TrimSpace(route.ServiceID)
+	return "mcp:" + strings.TrimSpace(route.ConnectorID)
 }
 
 func decodeCompletionParams(params map[string]any) (basemcp.CompletionReference, basemcp.CompletionArgument, map[string]string, error) {
@@ -672,7 +724,7 @@ func jsonRPCIDString(id any) string {
 	}
 }
 
-func captureMCPToolArgs(ctx context.Context, manager *mcpservice.Manager, serviceID string) bool {
+func captureMCPToolArgs(ctx context.Context, manager *connectorpkg.Manager, serviceID string) bool {
 	if manager == nil || strings.TrimSpace(serviceID) == "" {
 		return false
 	}

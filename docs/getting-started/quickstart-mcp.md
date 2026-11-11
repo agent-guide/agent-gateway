@@ -1,6 +1,6 @@
 # Quick Start: MCP Gateway
 
-This guide runs the MCP gateway with one upstream MCP service, one MCP route, one VirtualKey, and one verified end-to-end MCP request. All configuration is applied dynamically via `agwctl apply`.
+This guide runs the MCP gateway with one upstream MCP connector, one MCP route, one VirtualKey, and one verified end-to-end MCP request. All configuration is applied dynamically via `agwctl apply`.
 
 ## Prerequisites
 
@@ -16,7 +16,7 @@ make build
 
 ## 2. Create a Minimal Caddyfile
 
-No MCP services or routes are declared here — they are applied dynamically:
+No MCP connectors or routes are declared here — they are applied dynamically:
 
 ```caddy
 {
@@ -73,14 +73,16 @@ Use this when you have a remote MCP server reachable over HTTP:
 # gateway.bundle.mcp.yaml
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
-mcpServices:
+connectors:
   - id: mcp-main
-    name: Main MCP Service
-    transport: streamable_http
-    url: ${MCP_SERVICE_URL}
+    name: Main MCP connector
+    type: mcp
+    mcp:
+      transport: streamable_http
+      url: ${MCP_SERVICE_URL}
 mcpRoutes:
   - id: mcp-main-route
-    service_id: mcp-main
+    connector_id: mcp-main
     match_policy:
       path_prefix: /mcp
     auth_policy:
@@ -93,7 +95,7 @@ virtualKeys:
 
 Route ids must be slash-free. The route above sets an explicit `id` reused in
 `allowed_route_ids`. If you omit `id`, the gateway auto-generates a deterministic
-id `mcp:<service_id>:<path-slug>` (path prefix lowercased, non-alphanumeric runs
+id `mcp:<connector_id>:<path-slug>` (path prefix lowercased, non-alphanumeric runs
 collapsed to `-`, `/` → `root`) — e.g. `mcp:mcp-main:mcp` — which is predictable,
 so you can reference it directly instead of setting an explicit id.
 
@@ -109,18 +111,20 @@ npm install -g @modelcontextprotocol/server-filesystem
 # gateway.bundle.mcp.yaml
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
-mcpServices:
+connectors:
   - id: mcp-fs
-    name: Filesystem MCP Service
-    transport: stdio
-    command: npx
-    args:
-      - -y
-      - "@modelcontextprotocol/server-filesystem"
-      - /tmp
+    name: Filesystem MCP connector
+    type: mcp
+    mcp:
+      transport: stdio
+      command: npx
+      args:
+        - -y
+        - "@modelcontextprotocol/server-filesystem"
+        - /tmp
 mcpRoutes:
   - id: mcp-fs-route
-    service_id: mcp-fs
+    connector_id: mcp-fs
     match_policy:
       path_prefix: /mcp
     auth_policy:
@@ -149,7 +153,7 @@ Expected output:
 
 ```
 apply: gateway.bundle.mcp.yaml
-  create mcp_service mcp-main
+  create connector mcp-main
   create mcp_route mcp-main-route
   create virtual_key mcp-key
 summary: create=3 update=0 skip=0 error=0
@@ -160,14 +164,14 @@ summary: create=3 update=0 skip=0 error=0
 Confirm the service is registered and the upstream session is initialized:
 
 ```bash
-./agwctl mcp-service list
-./agwctl mcp-service session mcp-main   # or mcp-fs for Option B
+./agwctl connector list
+./agwctl connector session mcp-main   # or mcp-fs for Option B
 ```
 
 Discover tools exposed by the upstream:
 
 ```bash
-./agwctl mcp-service tools mcp-main
+./agwctl connector tools mcp-main
 ```
 
 ## 8. Send an MCP Request
@@ -201,13 +205,13 @@ For a complete Python-based end-to-end client, see [`examples/test_mcp_gateway_c
 ## Notes
 
 - The MCP dispatcher is enabled by the `mcp` directive inside `agent_route_dispatcher`. LLM routes and MCP routes share the same dispatcher and config store.
-- MCP route IDs are auto-generated as the deterministic, slash-free `mcp:<service_id>:<path-slug>` when `id` is omitted in the bundle (path prefix lowercased, non-alphanumeric runs collapsed to `-`, `/` → `root`).
-- The gateway initializes an upstream session on first use and caches it. Inspect session state with `agwctl mcp-service session <id>`.
+- MCP route IDs are auto-generated as the deterministic, slash-free `mcp:<connector_id>:<path-slug>` when `id` is omitted in the bundle (path prefix lowercased, non-alphanumeric runs collapsed to `-`, `/` → `root`).
+- The gateway initializes an upstream session on first use and caches it. Inspect session state with `agwctl connector session <id>`.
 - The Admin API has no built-in sessions; authentication is handled by the HTTP mount layer.
 - Run `agwctl export` to dump the current gateway state as a bundle YAML.
 
 ## Next
 
-- [mcp-gateway.md](../guides/mcp-gateway.md): MCP service and route configuration reference
+- [mcp-gateway.md](../guides/mcp-gateway.md): MCP connector and route configuration reference
 - [mcp-architecture.md](../architecture/mcp-architecture.md): MCP gateway architecture and design
 - [quickstart-llm.md](quickstart-llm.md): LLM gateway quick start

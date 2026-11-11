@@ -1,7 +1,10 @@
 package httpjson
 
 import (
+	"bytes"
 	"encoding/json"
+	"github.com/agent-guide/agent-gateway/internal/strictjson"
+	"io"
 	"net/http"
 )
 
@@ -20,7 +23,16 @@ func Error(w http.ResponseWriter, status int, message string) error {
 // Decode decodes a JSON request body into dest and closes the body.
 func Decode(r *http.Request, dest any) error {
 	defer r.Body.Close()
-	return json.NewDecoder(r.Body).Decode(dest)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return err
+	}
+	if _, err := strictjson.Parse(body, 4<<20, 64); err != nil {
+		return err
+	}
+	d := json.NewDecoder(bytes.NewReader(body))
+	d.UseNumber()
+	return d.Decode(dest)
 }
 
 // ErrorMessage returns the error field from a JSON error body when present.

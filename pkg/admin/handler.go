@@ -16,6 +16,7 @@ import (
 	builtinpkg "github.com/agent-guide/agent-gateway/pkg/agent/builtin"
 	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/credential"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/agentroute"
@@ -25,7 +26,6 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
-	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 	"go.uber.org/zap"
 )
 
@@ -42,7 +42,7 @@ type Handler struct {
 	sharedLLMRouteResolver   *llmroute.LLMRouteResolver
 	sharedMCPRouteResolver   *mcproute.MCPRouteResolver
 	sharedAgentRouteResolver *agentroute.AgentRouteResolver
-	sharedMCPServiceManager  *mcpservice.Manager
+	sharedConnectorManager   *connectorpkg.Manager
 	agentManager             *agentpkg.Manager
 	builtinHost              *builtinpkg.Host
 	virtualKeyManager        *virtualkeypkg.VirtualKeyManager
@@ -75,7 +75,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 	var sharedLLMRouteResolver *llmroute.LLMRouteResolver
 	var sharedMCPRouteResolver *mcproute.MCPRouteResolver
 	var sharedAgentRouteResolver *agentroute.AgentRouteResolver
-	var sharedMCPServiceManager *mcpservice.Manager
+	var sharedConnectorManager *connectorpkg.Manager
 	var agentManager *agentpkg.Manager
 	var builtinHost *builtinpkg.Host
 	var virtualKeyManager *virtualkeypkg.VirtualKeyManager
@@ -97,7 +97,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 		sharedLLMRouteResolver = agentGateway.LLMRouteResolver()
 		sharedMCPRouteResolver = agentGateway.MCPRouteResolver()
 		sharedAgentRouteResolver = agentGateway.AgentRouteResolver()
-		sharedMCPServiceManager = agentGateway.MCPServiceManager()
+		sharedConnectorManager = agentGateway.ConnectorManager()
 		agentManager = agentGateway.AgentManager()
 		builtinHost = agentGateway.BuiltinHost()
 		virtualKeyManager = agentGateway.VirtualKeyManager()
@@ -122,7 +122,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 		sharedLLMRouteResolver:   sharedLLMRouteResolver,
 		sharedMCPRouteResolver:   sharedMCPRouteResolver,
 		sharedAgentRouteResolver: sharedAgentRouteResolver,
-		sharedMCPServiceManager:  sharedMCPServiceManager,
+		sharedConnectorManager:   sharedConnectorManager,
 		agentManager:             agentManager,
 		builtinHost:              builtinHost,
 		virtualKeyManager:        virtualKeyManager,
@@ -218,11 +218,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mux.ServeHTTP(rr, r)
 }
 
-func (h *Handler) mcpServiceManager() (*mcpservice.Manager, error) {
-	if h.sharedMCPServiceManager == nil {
+func (h *Handler) connectorManager() (*connectorpkg.Manager, error) {
+	if h.sharedConnectorManager == nil {
 		return nil, fmt.Errorf("mcp service manager is not configured")
 	}
-	return h.sharedMCPServiceManager, nil
+	return h.sharedConnectorManager, nil
 }
 
 func (h *Handler) mcpRouteResolver() (*mcproute.MCPRouteResolver, error) {

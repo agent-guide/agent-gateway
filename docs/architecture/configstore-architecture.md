@@ -251,7 +251,7 @@ const (
 	StoreRoutes        = "routes"
 	StoreVirtualKeys   = "virtual_keys"
 	StoreManagedModels = "managed_models"
-	StoreMCPServices   = "mcp_services"
+	StoreConnectors   = "connectors"
 	StoreAgents        = "agents"
  StoreExtensions    = "extensions"
 )
@@ -356,15 +356,15 @@ store.Get(ctx, providerID, upstreamModel)
 store.Delete(ctx, providerID, upstreamModel)
 ```
 
-### 6.6 MCP Services
+### 6.6 MCP connectors
 
-- schema variable: `schema.MCPServiceSchema`
-- store name and table: `mcp_services`
+- schema variable: `schema.ConnectorSchema`
+- store name and table: `connectors`
 - primary key: `id`
-- tag value: `MCPServiceConfig.Transport`
+- tag value: `ConnectorConfig.Transport`
 - data column: `config`
 - timestamped: yes
-- decoded type: `*service.MCPServiceConfig`
+- decoded type: `*service.ConnectorConfig`
 
 ### 6.7 Agents
 

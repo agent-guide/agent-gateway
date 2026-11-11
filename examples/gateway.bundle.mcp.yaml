@@ -1,65 +1,49 @@
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
 
-# MCP bundle example — three upstream transport types
-#
-# Apply with:
-#   agwctl apply -f examples/gateway.bundle.mcp.yaml
-#
-# Required env vars (set before apply):
-#   MCP_HTTP_URL   — base URL of a Streamable HTTP MCP server
-#   MCP_HTTP_KEY   — API key for the Streamable HTTP server (omit auth block if not needed)
-#   MCP_SSE_URL    — SSE stream URL of a legacy SSE MCP server
-#   MCP_FILESYSTEM_ROOT — directory exposed by the optional stdio example
-
-mcpServices:
-
-  # ── Streamable HTTP upstream ────────────────────────────────────────────────
+# Configure MCP connectors through online Bundle apply:
+# agwctl apply -f examples/gateway.bundle.mcp.yaml
+# Set MCP_HTTP_URL and MCP_FILESYSTEM_ROOT before applying.
+# MCP auth/env may contain secrets; keep exported Bundles private.
+connectors:
   - id: mcp-http
-    name: HTTP MCP Service
-    transport: streamable_http
-    url: ${MCP_HTTP_URL}
-    auth:
-      type: api_key
-      # api_key: ${MCP_HTTP_KEY}
+    name: HTTP MCP connector
+    type: mcp
+    mcp:
+      transport: streamable_http
+      url: ${MCP_HTTP_URL}
+      auth:
+        type: api_key
+        # api_key: ${MCP_HTTP_KEY}
 
-  # ── Legacy SSE upstream ─────────────────────────────────────────────────────
-  # post_url defaults to <url with /sse replaced by /message> when omitted
+  # Legacy SSE is another MCP transport:
   # - id: mcp-sse
-  #   name: SSE MCP Service
-  #   transport: sse
-  #   url: ${MCP_SSE_URL}
+  #   name: SSE MCP connector
+  #   type: mcp
+  #   mcp:
+  #     transport: sse
+  #     url: ${MCP_SSE_URL}
 
-  # ── stdio subprocess upstream ───────────────────────────────────────────────
-  # Runs a local MCP server as a child process.
-  # Requires @modelcontextprotocol/server-filesystem to be installed:
-  #   npm install -g @modelcontextprotocol/server-filesystem
   - id: mcp-filesystem
-    name: Filesystem MCP Service (stdio)
-    transport: stdio
-    command: npx
-    args:
-      - -y
-      - "@modelcontextprotocol/server-filesystem"
-      - ${MCP_FILESYSTEM_ROOT}
-    env:
-      NODE_ENV: production
+    name: Filesystem MCP connector
+    type: mcp
+    mcp:
+      transport: stdio
+      command: npx
+      args:
+        - -y
+        - "@modelcontextprotocol/server-filesystem"
+        - ${MCP_FILESYSTEM_ROOT}
+      env:
+        NODE_ENV: production
 
 mcpRoutes:
-
-  - service_id: mcp-http
+  - connector_id: mcp-http
     match_policy:
       path_prefix: /mcp/http
     auth_policy:
       require_virtual_key: true
-
-  # - service_id: mcp-sse
-  #   match_policy:
-  #     path_prefix: /mcp/sse
-  #   auth_policy:
-  #     require_virtual_key: true
-
-  - service_id: mcp-filesystem
+  - connector_id: mcp-filesystem
     match_policy:
       path_prefix: /mcp/fs
     auth_policy:

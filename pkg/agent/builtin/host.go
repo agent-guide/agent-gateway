@@ -16,7 +16,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/pkg/agent"
-	"github.com/agent-guide/agent-gateway/pkg/mcp/einotool"
+	"github.com/agent-guide/agent-gateway/pkg/connector/einotool"
 )
 
 const (
@@ -37,10 +37,18 @@ type Config struct {
 // updated_at, so a definition update re-materializes on the next turn while
 // in-flight turns drain on the old graph.
 type Host struct {
-	agents   AgentSource
-	models   ChatModelResolver
-	tools    einotool.ToolCaller
-	observer usage.InteractionObserver
+	ctx       context.Context
+	cancel    context.CancelFunc
+	closed    bool
+	tracked   bool
+	versions  map[string]time.Time
+	work      sync.WaitGroup
+	closeOnce sync.Once
+	closeDone chan struct{}
+	agents    AgentSource
+	models    ChatModelResolver
+	tools     einotool.ToolCaller
+	observer  usage.InteractionObserver
 
 	mu       sync.Mutex
 	entries  map[string]*hostEntry
@@ -55,11 +63,12 @@ type Host struct {
 }
 
 type hostEntry struct {
-	updatedAt    time.Time
-	runner       *adk.Runner
-	topologyKind string
-	turnTimeout  time.Duration
-	turnSem      chan struct{}
+	connectorVersion string
+	updatedAt        time.Time
+	runner           *adk.Runner
+	topologyKind     string
+	turnTimeout      time.Duration
+	turnSem          chan struct{}
 
 	mu      sync.Mutex
 	turns   int
@@ -67,7 +76,8 @@ type hostEntry struct {
 }
 
 func NewHost(cfg Config) *Host {
-	return &Host{
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Host{ctx: ctx, cancel: cancel, versions: map[string]time.Time{}, closeDone: make(chan struct{}),
 		agents:      cfg.Agents,
 		models:      cfg.Models,
 		tools:       cfg.Tools,
@@ -136,6 +146,17 @@ func (h *Host) ServeTurn(ctx context.Context, agentID string, req TurnRequest, e
 	if h == nil {
 		return fmt.Errorf("builtin host is not configured")
 	}
+	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		return fmt.Errorf("builtin host closed")
+	}
+	h.work.Add(1)
+	h.mu.Unlock()
+	defer h.work.Done()
+	ctx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(h.ctx, cancel)
+	defer func() { stop(); cancel() }()
 	a, err := h.agents.Get(ctx, agentID)
 	if err != nil {
 		if errors.Is(err, agent.ErrAgentNotConfigured) {
@@ -304,7 +325,7 @@ func (h *Host) ServeTurn(ctx context.Context, agentID string, req TurnRequest, e
 		return runErr
 	}
 	if result.interrupt != nil {
-		return h.suspendTurn(ctx, a, handle, runID, requestID, userMsg, nil, result, runEmit)
+		return h.suspendTurn(ctx, a, entry, handle, runID, requestID, userMsg, nil, result, runEmit)
 	}
 	handle.commit(append([]*schema.Message{userMsg}, result.transcript...))
 	usage.SpanFromContext(ctx).SetExtension(usage.BuiltinExtension{ResultStatus: "success"})
@@ -315,7 +336,7 @@ func (h *Host) ServeTurn(ctx context.Context, agentID string, req TurnRequest, e
 // permission (fail-closed on capacity), releases the session, and tells the
 // client what needs deciding. priorTranscript carries messages accumulated by
 // earlier segments of the same suspended turn.
-func (h *Host) suspendTurn(ctx context.Context, a agent.Agent, handle *sessionHandle, runID, requestID string, userMsg *schema.Message, priorTranscript []*schema.Message, result turnResult, emit EventSink) error {
+func (h *Host) suspendTurn(ctx context.Context, a agent.Agent, entry *hostEntry, handle *sessionHandle, runID, requestID string, userMsg *schema.Message, priorTranscript []*schema.Message, result turnResult, emit EventSink) error {
 	calls := pendingCallsFromInterrupt(result.interrupt)
 	if requestID == "" || len(calls) == 0 {
 		// Only the approval gate interrupts in a builtin graph; anything else
@@ -333,24 +354,36 @@ func (h *Host) suspendTurn(ctx context.Context, a agent.Agent, handle *sessionHa
 	now := nowFunc()
 	dims, _ := usage.DimensionsFromContext(ctx)
 	pending := &pendingPermission{
-		requestID:     requestID,
-		agentID:       a.ID,
-		sessionID:     handle.sessionID(),
-		runID:         runID,
-		linkTraceID:   dims.TraceID,
-		linkSpanID:    dims.SpanID,
-		routeID:       dims.RouteID,
-		routeProtocol: dims.RouteProtocol,
-		virtualKeyID:  dims.VirtualKeyID,
-		agentDepth:    dims.AgentDepth,
-		updatedAt:     a.UpdatedAt,
-		createdAt:     now,
-		expiresAt:     now.Add(permissionTimeout(perms)),
-		calls:         calls,
-		userMsg:       userMsg,
-		transcript:    append(priorTranscript, result.transcript...),
+		requestID:        requestID,
+		agentID:          a.ID,
+		sessionID:        handle.sessionID(),
+		runID:            runID,
+		linkTraceID:      dims.TraceID,
+		linkSpanID:       dims.SpanID,
+		routeID:          dims.RouteID,
+		routeProtocol:    dims.RouteProtocol,
+		virtualKeyID:     dims.VirtualKeyID,
+		agentDepth:       dims.AgentDepth,
+		updatedAt:        a.UpdatedAt,
+		connectorVersion: entry.connectorVersion,
+		createdAt:        now,
+		expiresAt:        now.Add(permissionTimeout(perms)),
+		calls:            calls,
+		userMsg:          userMsg,
+		transcript:       append(priorTranscript, result.transcript...),
+	}
+	h.mu.Lock()
+	if h.closed || h.tracked && !h.versions[a.ID].Equal(a.UpdatedAt) {
+		h.mu.Unlock()
+		_ = h.checkpoints.Delete(context.Background(), requestID)
+		handle.release()
+		return fmt.Errorf("%w: builtin definition retired", ErrInvalidRequest)
 	}
 	capReached := h.permissions.register(pending, permissionMaxPending(perms))
+	if !capReached {
+		h.sessions.setPendingPermission(a.ID, handle.sessionID(), true)
+	}
+	h.mu.Unlock()
 	if capReached {
 		_ = h.checkpoints.Delete(context.Background(), requestID)
 		handle.release()
@@ -358,7 +391,6 @@ func (h *Host) suspendTurn(ctx context.Context, a agent.Agent, handle *sessionHa
 		_ = emit(TurnEvent{Event: EventError, Message: ErrPermissionCapacity.Error()})
 		return ErrPermissionCapacity
 	}
-	h.sessions.setPendingPermission(a.ID, handle.sessionID(), true)
 	handle.release()
 	span := usage.SpanFromContext(ctx)
 	span.AddAnnotation("permission_request_id", requestID)
@@ -370,6 +402,7 @@ func (h *Host) suspendTurn(ctx context.Context, a agent.Agent, handle *sessionHa
 		EventCounts:         result.eventCounts,
 	})
 	if err := emit(TurnEvent{Event: EventPermission, RequestID: requestID, Data: permissionEventData(pending)}); err != nil {
+		h.ExpirePermission(a.ID, requestID)
 		return err
 	}
 	return emit(TurnEvent{Event: EventDone, RequestID: requestID, StopReason: StopReasonPermissionRequired})
@@ -428,7 +461,7 @@ func (h *Host) servePermissionTurn(ctx context.Context, a agent.Agent, req TurnR
 		dropPending()
 		return fmt.Errorf("%w: permission request %q belongs to a different session", ErrInvalidRequest, requestID)
 	}
-	if !a.UpdatedAt.Equal(pending.updatedAt) {
+	if !a.UpdatedAt.Equal(pending.updatedAt) || pending.connectorVersion != h.connectorVersion(a) {
 		// A checkpoint must resume on the graph that produced it.
 		dropPending()
 		return fmt.Errorf("%w: agent definition changed; permission request %q is invalidated", ErrInvalidRequest, requestID)
@@ -455,6 +488,12 @@ func (h *Host) servePermissionTurn(ctx context.Context, a agent.Agent, req TurnR
 	if err != nil {
 		dropPending()
 		return err
+	}
+	// Materialization may observe a replacement after the initial version
+	// check. Resume only on the graph whose tools produced this checkpoint.
+	if entry.connectorVersion != pending.connectorVersion {
+		dropPending()
+		return fmt.Errorf("%w: connector definition changed; permission request %q is invalidated", ErrInvalidRequest, requestID)
 	}
 	turnCtx, cancel := context.WithTimeout(ctx, entry.turnTimeout)
 	defer cancel()
@@ -536,7 +575,7 @@ func (h *Host) servePermissionTurn(ctx context.Context, a agent.Agent, req TurnR
 	if result.interrupt != nil {
 		// The continued run hit another gated call: re-suspend under the same
 		// request id (the runner rewrote the checkpoint in place).
-		return h.suspendTurn(ctx, a, handle, pending.runID, requestID, pending.userMsg, pending.transcript, result, resumeEmit)
+		return h.suspendTurn(ctx, a, entry, handle, pending.runID, requestID, pending.userMsg, pending.transcript, result, resumeEmit)
 	}
 	_ = h.checkpoints.Delete(context.Background(), requestID)
 	transcript := make([]*schema.Message, 0, 1+len(pending.transcript)+len(result.transcript))
@@ -587,11 +626,11 @@ func pendingCallsFromInterrupt(info *adk.InterruptInfo) []pendingCall {
 			continue
 		}
 		calls = append(calls, pendingCall{
-			targetID:     ic.ID,
-			CallID:       pi.CallID,
-			MCPServiceID: pi.MCPServiceID,
-			ToolName:     pi.ToolName,
-			Arguments:    pi.Arguments,
+			targetID:    ic.ID,
+			CallID:      pi.CallID,
+			ConnectorID: pi.ConnectorID,
+			ToolName:    pi.ToolName,
+			Arguments:   pi.Arguments,
 		})
 	}
 	return calls
@@ -690,10 +729,15 @@ func (h *Host) ExpirePermission(agentID, requestID string) bool {
 // entry returns the cached materialization for the agent, rebuilding when the
 // definition changed (updated_at differs). In-flight turns keep the old entry.
 func (h *Host) entry(ctx context.Context, a agent.Agent) (*hostEntry, error) {
+	connectorVersion := h.connectorVersion(a)
 	h.mu.Lock()
+	if h.closed || h.tracked && !h.versions[a.ID].Equal(a.UpdatedAt) {
+		h.mu.Unlock()
+		return nil, fmt.Errorf("builtin definition retired")
+	}
 	existing := h.entries[a.ID]
 	h.mu.Unlock()
-	if existing != nil && existing.updatedAt.Equal(a.UpdatedAt) {
+	if existing != nil && existing.updatedAt.Equal(a.UpdatedAt) && existing.connectorVersion == connectorVersion {
 		return existing, nil
 	}
 	root, err := h.buildNode(ctx, a.ID, rootSpec(a), &a.Runtime.Builtin.Model, a.Runtime.Builtin, true)
@@ -716,20 +760,29 @@ func (h *Host) entry(ctx context.Context, a agent.Agent) (*hostEntry, error) {
 		topologyKind = agent.TopologyKindSingle
 	}
 	entry := &hostEntry{
-		updatedAt:    a.UpdatedAt,
-		runner:       adk.NewRunner(ctx, adk.RunnerConfig{Agent: root, EnableStreaming: true, CheckPointStore: h.checkpoints}),
-		topologyKind: topologyKind,
-		turnTimeout:  timeout,
-		turnSem:      make(chan struct{}, maxTurns),
-		buildAt:      time.Now().UTC(),
+		updatedAt:        a.UpdatedAt,
+		connectorVersion: connectorVersion,
+		runner:           adk.NewRunner(ctx, adk.RunnerConfig{Agent: root, EnableStreaming: true, CheckPointStore: h.checkpoints}),
+		topologyKind:     topologyKind,
+		turnTimeout:      timeout,
+		turnSem:          make(chan struct{}, maxTurns),
+		buildAt:          time.Now().UTC(),
 	}
 	h.mu.Lock()
 	// Re-check under the lock; a concurrent turn may have materialized the
 	// same definition already — prefer the existing entry so its semaphore
 	// stays authoritative.
-	if current := h.entries[a.ID]; current != nil && current.updatedAt.Equal(a.UpdatedAt) {
+	if current := h.entries[a.ID]; current != nil && current.updatedAt.Equal(a.UpdatedAt) && current.connectorVersion == connectorVersion {
 		h.mu.Unlock()
 		return current, nil
+	}
+	if connectorVersion != h.connectorVersion(a) {
+		h.mu.Unlock()
+		return nil, fmt.Errorf("connector generation changed during materialization")
+	}
+	if h.closed || h.tracked && !h.versions[a.ID].Equal(a.UpdatedAt) {
+		h.mu.Unlock()
+		return nil, fmt.Errorf("builtin definition retired during materialization")
 	}
 	h.entries[a.ID] = entry
 	h.mu.Unlock()
@@ -920,4 +973,11 @@ func usageEventData(msg *schema.Message) json.RawMessage {
 		return nil
 	}
 	return raw
+}
+
+func (h *Host) connectorVersion(a agent.Agent) string {
+	if source, ok := h.tools.(interface{ GenerationVector([]string) string }); ok {
+		return source.GenerationVector(a.Resources.ConnectorIDs)
+	}
+	return ""
 }

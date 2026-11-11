@@ -67,7 +67,7 @@ compile-time capability, runtime configuration.
     "system_prompt": "You are a triage agent...",
     "generation": { "max_tokens": 8192, "temperature": 0.2 },
     "tools": [
-      { "mcp_service_id": "filesystem-tools", "tools": ["read_file", "list_dir"] }
+      { "connector_id": "filesystem-tools", "tools": ["read_file", "list_dir"] }
     ],
     "topology": {
       "kind": "single",
@@ -111,10 +111,10 @@ Schema rules:
   exposes no retry seam — validated at apply time, backstopped at
   materialization for the inherited path).
 - **`tools` reference gateway-managed MCP services** and enter ADK via the
-  MCP → `InvokableTool` adapter over `pkg/mcp/service` — in-process, no HTTP
+  MCP → `InvokableTool` adapter over `pkg/connector` — in-process, no HTTP
   loopback. MCP tool policy applies exactly as it does for route-dispatched
   MCP traffic. Referenced services must appear in
-  `resources.mcp_service_ids`.
+  `resources.connector_ids`.
 - **`topology.kind`** enumerates what ADK exposes as parameterizable
   structure: `single`, `sequential`, `parallel`, `loop`, `supervisor`,
   `planexecute`, `deep`. `topology.max_iterations` bounds the kind's
@@ -241,7 +241,7 @@ Package: `pkg/agent/builtin`. The host owns:
 Dependency direction stays intact: `pkg/agent/builtin` depends on `eino/adk`,
 the two bridge adapters, and the runtime managers. The bridges themselves live
 in neutral packages (suggested: `pkg/llm/provider/einomodel` and
-`pkg/mcp/einotool`) so they are reusable without importing `pkg/agent`, and the
+`pkg/connector/einotool`) so they are reusable without importing `pkg/agent`, and the
 lower protocol layers still never import `pkg/agent`.
 
 ## 7. Execution surface
@@ -266,7 +266,7 @@ lower protocol layers still never import `pkg/agent`.
   on the route → agent index and is always exact.
 - Inner LLM calls flow through the `RoutedProvider` and produce
   `llm_usage_events` as usual; inner MCP tool calls flow through
-  `pkg/mcp/service` and produce `mcp_usage_events`; both inherit `agent_id`
+  `pkg/connector` and produce `mcp_usage_events`; both inherit `agent_id`
   from the turn context.
 - Turn-level events have their own additive event family (route kind
   `builtin`, a `builtin_usage_events` table following the same
@@ -323,7 +323,7 @@ it is why this feature adopts the Runner primitive.
   "mode": "auto_approve",
   "timeout_seconds": 600,
   "max_pending": 32,
-  "auto_approve_tools": ["<mcp_service_id>/<tool_name>", "..."]
+  "auto_approve_tools": ["<connector_id>/<tool_name>", "..."]
 }
 ```
 
@@ -348,7 +348,7 @@ subset of the ACP vocabulary). When a gated call interrupts:
    and `session_id`; the turn stream emits one `permission` event additionally
    carrying the top-level `request_id` (the checkpoint id, generated per turn),
    while its `data` contains `expires_at` and the pending tool calls — each
-   with `call_id` (the model's tool-call id), `mcp_service_id`, `name`, and
+   with `call_id` (the model's tool-call id), `connector_id`, `name`, and
    `arguments`; parallel tool calls in one assistant step interrupt together
    and appear as one list;
 2. the stream then ends with `done`, `stop_reason: "permission_required"`

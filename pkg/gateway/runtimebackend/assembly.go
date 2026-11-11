@@ -2,6 +2,7 @@ package runtimebackend
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -50,10 +51,12 @@ func Assemble(ctx context.Context, opts AssemblyOptions) (_ *Set, result error) 
 	if opts.ACPRuntime != nil {
 		server = opts.ACPRuntime
 	}
+	var builtinBackend *BuiltinBackend
 	acp := NewACPBackend(server, opts.Controls)
 	backends := []agentruntime.Backend{acp}
 	if set.Builtin != nil {
-		backends = append(backends, NewBuiltinBackend(set.Builtin, opts.Controls))
+		builtinBackend = NewBuiltinBackend(set.Builtin, opts.Controls)
+		backends = append(backends, builtinBackend)
 	}
 	http := agentruntime.Backend(NewHTTPBackend(set.HTTP, opts.Controls))
 	if opts.HTTPBackend != nil {
@@ -67,6 +70,57 @@ func Assemble(ctx context.Context, opts AssemblyOptions) (_ *Set, result error) 
 		return nil, fmt.Errorf("register agent runtime backends: %w", err)
 	}
 	if opts.Agents != nil {
+		if set.Builtin != nil {
+			previous := opts.Agents.Snapshot()
+			listener := func(ctx context.Context, agents []agentpkg.Agent) agentpkg.DefinitionCommit {
+				commit := set.Builtin.PrepareDefinitions(ctx, agents)
+				var changed []string
+				for _, old := range previous {
+					if old.Runtime.Type != agentpkg.RuntimeTypeBuiltin {
+						continue
+					}
+					same := false
+					for _, next := range agents {
+						if next.ID == old.ID && next.Runtime.Type == agentpkg.RuntimeTypeBuiltin && !next.Disabled && next.UpdatedAt.Equal(old.UpdatedAt) {
+							same = true
+							break
+						}
+					}
+					if !same {
+						changed = append(changed, old.ID)
+					}
+				}
+				return func() agentpkg.DefinitionCleanup {
+					cleanup := commit()
+					var claimed []func(context.Context) int
+					var continuations []func()
+					for _, id := range changed {
+						if opts.Controls.Permissions != nil {
+							claimed = append(claimed, opts.Controls.Permissions.ClaimAgent(id))
+						}
+						continuations = append(continuations, builtinBackend.claimAgentContinuations(id))
+					}
+					previous = agents
+					return func(ctx context.Context) {
+						for _, expire := range claimed {
+							expire(agentruntime.WithPermissionSource(ctx, "definition_update"))
+						}
+						for _, expire := range continuations {
+							expire()
+						}
+
+						if cleanup != nil {
+							cleanup(ctx)
+						}
+					}
+				}
+			}
+			opts.Agents.AddDefinitionListener(listener)
+			cleanup := listener(ctx, previous)()
+			if cleanup != nil {
+				cleanup(ctx)
+			}
+		}
 		opts.Agents.AddDefinitionListener(acp.PrepareRuntimeConfigs)
 		acp.RefreshRuntimeConfigs(ctx, opts.Agents.Snapshot())
 		opts.Agents.AddDefinitionListener(set.HTTP.PrepareRuntimeConfigs)
@@ -83,6 +137,12 @@ func (s *Set) CloseContext(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
-	s.once.Do(func() { s.ACP.Close(); s.err = s.HTTP.CloseContext(ctx) })
+	s.once.Do(func() {
+		if s.Builtin != nil {
+			s.err = s.Builtin.CloseContext(ctx)
+		}
+		s.ACP.Close()
+		s.err = errors.Join(s.err, s.HTTP.CloseContext(ctx))
+	})
 	return s.err
 }

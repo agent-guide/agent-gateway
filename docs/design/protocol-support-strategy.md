@@ -16,7 +16,7 @@ semantics, governance behavior, and observability contract.
 | OpenAI-compatible | Chat Completions and Responses HTTP APIs | `pkg/dispatcher/llmapi/openai` | LLM resource access |
 | Anthropic-compatible | Messages API; count-tokens is recognized but unsupported | shared Messages core plus `anthropic` profile | LLM resource access |
 | Claude Code-compatible | Messages-compatible `cc` profile with local count-tokens estimate | shared Messages core plus `cc` profile | Claude Code client ingress |
-| MCP | Streamable HTTP JSON-RPC ingress | dispatcher plus `pkg/mcp/service` | tool/resource/prompt access |
+| MCP | Streamable HTTP JSON-RPC ingress | dispatcher plus `pkg/connector` | tool/resource/prompt access |
 | Agent common turn | `protocol=agent` SSE turn API | `pkg/agent/runtime` backend selected by Agent | runtime-neutral Agent execution |
 | Native A2A | `protocol=a2a` A2A 1.0 JSON-RPC/SSE | dispatcher plus `pkg/a2a/proxy` | governed native HTTP Agent access |
 

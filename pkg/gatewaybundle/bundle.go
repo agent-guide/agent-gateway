@@ -5,14 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"os"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/agent-guide/agent-gateway/internal/strictjson"
+	"github.com/agent-guide/agent-gateway/pkg/extension"
+
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
+	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
 	agentroute "github.com/agent-guide/agent-gateway/pkg/gateway/agentroute"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
@@ -20,7 +23,6 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
-	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,17 +34,17 @@ const (
 var envVarPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 type GatewayBundle struct {
-	Extensions    []extension.Envelope          `json:"extensions,omitempty"`
-	APIVersion    string                        `json:"apiVersion"`
-	Kind          string                        `json:"kind"`
-	Providers     []provider.ProviderConfig     `json:"providers,omitempty"`
-	ManagedModels []modelcatalog.ManagedModel   `json:"managedModels,omitempty"`
-	LLMRoutes     []routecore.RouteConfig       `json:"llmRoutes,omitempty"`
-	VirtualKeys   []BundleVirtualKey            `json:"virtualKeys,omitempty"`
-	MCPServices   []mcpservice.MCPServiceConfig `json:"mcpServices,omitempty"`
-	MCPRoutes     []mcproute.MCPRoute           `json:"mcpRoutes,omitempty"`
-	AgentRoutes   []agentroute.AgentRouteConfig `json:"agentRoutes,omitempty"`
-	Agents        []agentpkg.Agent              `json:"agents,omitempty"`
+	Extensions    []extension.Envelope           `json:"extensions,omitempty"`
+	APIVersion    string                         `json:"apiVersion"`
+	Kind          string                         `json:"kind"`
+	Providers     []provider.ProviderConfig      `json:"providers,omitempty"`
+	ManagedModels []modelcatalog.ManagedModel    `json:"managedModels,omitempty"`
+	LLMRoutes     []routecore.RouteConfig        `json:"llmRoutes,omitempty"`
+	VirtualKeys   []BundleVirtualKey             `json:"virtualKeys,omitempty"`
+	Connectors    []connectorpkg.ConnectorConfig `json:"connectors,omitempty"`
+	MCPRoutes     []mcproute.MCPRoute            `json:"mcpRoutes,omitempty"`
+	AgentRoutes   []agentroute.AgentRouteConfig  `json:"agentRoutes,omitempty"`
+	Agents        []agentpkg.Agent               `json:"agents,omitempty"`
 }
 
 type BundleVirtualKey struct {
@@ -69,11 +71,15 @@ func LoadFile(path string) (*GatewayBundle, error) {
 }
 
 func DecodeYAML(data []byte) (*GatewayBundle, error) {
-	var raw any
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	var document yaml.Node
+	if err := yaml.Unmarshal(data, &document); err != nil {
 		return nil, fmt.Errorf("decode gateway bundle yaml: %w", err)
 	}
 
+	raw, err := yamlJSONValue(&document)
+	if err != nil {
+		return nil, err
+	}
 	normalized := normalizeYAMLValue(raw)
 	var extensions any
 	if root, ok := normalized.(map[string]any); ok {
@@ -162,7 +168,7 @@ func removeManagedTimestamps(value any) {
 	}
 	for _, family := range []string{
 		"providers", "managedModels", "llmRoutes", "virtualKeys",
-		"mcpServices", "mcpRoutes", "agents", "agentRoutes",
+		"connectors", "mcpRoutes", "agents", "agentRoutes",
 	} {
 		items, _ := root[family].([]any)
 		for _, item := range items {
@@ -188,6 +194,9 @@ func (b *GatewayBundle) ValidateForStaticConfig() error {
 	return b.validateStatic()
 }
 func (b *GatewayBundle) validateStatic() error {
+	if len(b.Connectors) > 0 {
+		return fmt.Errorf("connectors are not supported in static config; use Admin or online Bundle apply")
+	}
 	if err := b.validate(false); err != nil {
 		return err
 	}
@@ -321,21 +330,21 @@ func (b *GatewayBundle) validate(_ bool) error {
 		// allowed_route_ids are validated after every route family has been
 		// collected — virtual keys may restrict to routes of any kind.
 	}
-	mcpServiceIDs := map[string]struct{}{}
-	for i := range b.MCPServices {
-		b.MCPServices[i].Normalize()
-		id := b.MCPServices[i].ID
+	connectorIDs := map[string]struct{}{}
+	for i := range b.Connectors {
+		b.Connectors[i].Normalize()
+		id := b.Connectors[i].ID
 		if id == "" {
-			errs.Append(fmt.Errorf("mcpServices[%d].id is required", i))
+			errs.Append(fmt.Errorf("connectors[%d].id is required", i))
 			continue
 		}
-		if _, exists := mcpServiceIDs[id]; exists {
-			errs.Append(fmt.Errorf("mcpServices[%q]: duplicate id", id))
+		if _, exists := connectorIDs[id]; exists {
+			errs.Append(fmt.Errorf("connectors[%q]: duplicate id", id))
 		} else {
-			mcpServiceIDs[id] = struct{}{}
+			connectorIDs[id] = struct{}{}
 		}
-		if err := b.MCPServices[i].Validate(); err != nil {
-			errs.Append(fmt.Errorf("mcpServices[%q]: %w", id, err))
+		if err := b.Connectors[i].Validate(); err != nil {
+			errs.Append(fmt.Errorf("connectors[%q]: %w", id, err))
 		}
 	}
 	mcpRouteIDs := map[string]struct{}{}
@@ -357,8 +366,8 @@ func (b *GatewayBundle) validate(_ bool) error {
 		if b.MCPRoutes[i].Kind != mcproute.RouteKindMCP {
 			errs.Append(fmt.Errorf("mcpRoutes[%q]: kind must be %q", id, mcproute.RouteKindMCP))
 		}
-		if b.MCPRoutes[i].ServiceID == "" {
-			errs.Append(fmt.Errorf("mcpRoutes[%q]: service_id is required", id))
+		if b.MCPRoutes[i].ConnectorID == "" {
+			errs.Append(fmt.Errorf("mcpRoutes[%q]: connector_id is required", id))
 		}
 	}
 	agentIngressRouteIDs := map[string]struct{}{}
@@ -478,7 +487,7 @@ func (b *GatewayBundle) validate(_ bool) error {
 			}
 		}
 		checkRefs("provider_id", agent.Resources.ProviderIDs, providerIDs, "providers")
-		checkRefs("mcp_service_id", agent.Resources.MCPServiceIDs, mcpServiceIDs, "mcpServices")
+		checkRefs("connector_id", agent.Resources.ConnectorIDs, connectorIDs, "connectors")
 		checkRefs("virtual_key_id", agent.Resources.VirtualKeyIDs, virtualKeys, "virtualKeys")
 		checkRefs("llm_route_id", agent.Routes.LLMRouteIDs, routeIDs, "llmRoutes")
 		checkRefs("mcp_route_id", agent.Routes.MCPRouteIDs, mcpRouteIDs, "mcpRoutes")
@@ -750,4 +759,14 @@ func yamlNumbers(v any) any {
 		}
 	}
 	return v
+}
+
+func (b *GatewayBundle) UnmarshalJSON(data []byte) error {
+	type plain GatewayBundle
+	var p plain
+	if err := strictjson.Decode(data, &p, 64<<20, 256); err != nil {
+		return err
+	}
+	*b = GatewayBundle(p)
+	return nil
 }

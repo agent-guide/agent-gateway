@@ -6,21 +6,21 @@ import (
 	"net/url"
 
 	adminapi "github.com/agent-guide/agent-gateway/pkg/admin"
+	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
-	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 )
 
-type MCPServiceConfig = mcpservice.MCPServiceConfig
-type MCPServiceView = adminapi.MCPServiceView
+type ConnectorConfig = connectorpkg.ConnectorConfig
+type ConnectorView = adminapi.ConnectorView
 type MCPRoute = mcproute.MCPRoute
 type MCPRouteView = adminapi.MCPRouteView
 type MCPRuntimeView = adminapi.MCPDispatcherRuntimeView
 type MCPRuntimeInFlightRequest = mcpruntime.InFlightRequest
 type MCPRuntimeProgressNotification = mcpruntime.ProgressNotification
 type MCPRuntimeCompletedRequest = mcpruntime.CompletedRequest
-type MCPServiceSessionView = adminapi.GatewaySessionView
+type ConnectorSessionView = adminapi.GatewaySessionView
 type MCPTool = basemcp.Tool
 type MCPToolCallRequest = adminapi.MCPToolCallRequest
 type MCPToolResult = basemcp.ToolResult
@@ -31,117 +31,117 @@ type MCPResourceReadResult = basemcp.ResourceReadResult
 type MCPPrompt = basemcp.Prompt
 type MCPPromptGetRequest = adminapi.MCPPromptGetRequest
 type MCPPromptResult = basemcp.PromptResult
-type MCPServiceCapabilities = map[string]any
+type ConnectorCapabilities = map[string]any
 
-func (c *Client) ListMCPServices(ctx context.Context) ([]MCPServiceView, error) {
-	var resp itemsResponse[MCPServiceView]
-	if err := c.do(ctx, http.MethodGet, "/admin/mcp/services", nil, &resp, true, http.StatusOK); err != nil {
+func (c *Client) ListConnectors(ctx context.Context) ([]ConnectorView, error) {
+	var resp itemsResponse[ConnectorView]
+	if err := c.do(ctx, http.MethodGet, "/admin/connectors", nil, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return resp.Items, nil
 }
 
-func (c *Client) CreateMCPService(ctx context.Context, cfg MCPServiceConfig) (*MCPServiceView, error) {
-	var resp MCPServiceView
-	if err := c.do(ctx, http.MethodPost, "/admin/mcp/services", cfg, &resp, true, http.StatusCreated); err != nil {
+func (c *Client) CreateConnector(ctx context.Context, cfg ConnectorConfig) (*ConnectorView, error) {
+	var resp ConnectorView
+	if err := c.do(ctx, http.MethodPost, "/admin/connectors", cfg, &resp, true, http.StatusCreated); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-func (c *Client) GetMCPService(ctx context.Context, id string) (*MCPServiceView, error) {
-	var resp MCPServiceView
-	if err := c.do(ctx, http.MethodGet, "/admin/mcp/services/"+url.PathEscape(id), nil, &resp, true, http.StatusOK); err != nil {
+func (c *Client) GetConnector(ctx context.Context, id string) (*ConnectorView, error) {
+	var resp ConnectorView
+	if err := c.do(ctx, http.MethodGet, "/admin/connectors/"+url.PathEscape(id), nil, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-func (c *Client) UpdateMCPService(ctx context.Context, id string, cfg MCPServiceConfig) (*MCPServiceView, error) {
-	var resp MCPServiceView
-	if err := c.do(ctx, http.MethodPut, "/admin/mcp/services/"+url.PathEscape(id), cfg, &resp, true, http.StatusOK); err != nil {
+func (c *Client) UpdateConnector(ctx context.Context, id string, cfg ConnectorConfig) (*ConnectorView, error) {
+	var resp ConnectorView
+	if err := c.do(ctx, http.MethodPut, "/admin/connectors/"+url.PathEscape(id), cfg, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-func (c *Client) DeleteMCPService(ctx context.Context, id string) (*StatusResponse, error) {
+func (c *Client) DeleteConnector(ctx context.Context, id string) (*StatusResponse, error) {
 	var resp StatusResponse
-	if err := c.do(ctx, http.MethodDelete, "/admin/mcp/services/"+url.PathEscape(id), nil, &resp, true, http.StatusOK); err != nil {
+	if err := c.do(ctx, http.MethodDelete, "/admin/connectors/"+url.PathEscape(id), nil, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-func (c *Client) GetMCPServiceSession(ctx context.Context, id string) (*MCPServiceSessionView, error) {
+func (c *Client) GetConnectorSession(ctx context.Context, id string) (*ConnectorSessionView, error) {
 	var resp struct {
-		Session *MCPServiceSessionView `json:"session"`
+		Session *ConnectorSessionView `json:"session"`
 	}
-	if err := c.do(ctx, http.MethodGet, "/admin/mcp/services/"+url.PathEscape(id)+"/sessions", nil, &resp, true, http.StatusOK); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/admin/connectors/"+url.PathEscape(id)+"/sessions", nil, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return resp.Session, nil
 }
 
-func (c *Client) GetMCPServiceCapabilities(ctx context.Context, id string) (*MCPServiceCapabilities, error) {
-	var resp MCPServiceCapabilities
-	if err := c.do(ctx, http.MethodGet, "/admin/mcp/services/"+url.PathEscape(id)+"/capabilities", nil, &resp, true, http.StatusOK); err != nil {
+func (c *Client) GetConnectorCapabilities(ctx context.Context, id string) (*ConnectorCapabilities, error) {
+	var resp ConnectorCapabilities
+	if err := c.do(ctx, http.MethodGet, "/admin/connectors/"+url.PathEscape(id)+"/capabilities", nil, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-func (c *Client) ListMCPServiceTools(ctx context.Context, id string) ([]MCPTool, error) {
+func (c *Client) ListConnectorTools(ctx context.Context, id string) ([]MCPTool, error) {
 	var resp itemsResponse[MCPTool]
-	if err := c.do(ctx, http.MethodGet, "/admin/mcp/services/"+url.PathEscape(id)+"/tools", nil, &resp, true, http.StatusOK); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/admin/connectors/"+url.PathEscape(id)+"/tools", nil, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return resp.Items, nil
 }
 
-func (c *Client) CallMCPServiceTool(ctx context.Context, id string, req MCPToolCallRequest) (*MCPToolResult, error) {
+func (c *Client) CallConnectorTool(ctx context.Context, id string, req MCPToolCallRequest) (*MCPToolResult, error) {
 	var resp MCPToolResult
-	if err := c.do(ctx, http.MethodPost, "/admin/mcp/services/"+url.PathEscape(id)+"/tools/call", req, &resp, true, http.StatusOK); err != nil {
+	if err := c.do(ctx, http.MethodPost, "/admin/connectors/"+url.PathEscape(id)+"/tools/call", req, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-func (c *Client) ListMCPServiceResources(ctx context.Context, id string) ([]MCPResource, error) {
+func (c *Client) ListConnectorResources(ctx context.Context, id string) ([]MCPResource, error) {
 	var resp itemsResponse[MCPResource]
-	if err := c.do(ctx, http.MethodGet, "/admin/mcp/services/"+url.PathEscape(id)+"/resources", nil, &resp, true, http.StatusOK); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/admin/connectors/"+url.PathEscape(id)+"/resources", nil, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return resp.Items, nil
 }
 
-func (c *Client) ListMCPServiceResourceTemplates(ctx context.Context, id string) ([]MCPResourceTemplate, error) {
+func (c *Client) ListConnectorResourceTemplates(ctx context.Context, id string) ([]MCPResourceTemplate, error) {
 	var resp itemsResponse[MCPResourceTemplate]
-	if err := c.do(ctx, http.MethodGet, "/admin/mcp/services/"+url.PathEscape(id)+"/resource-templates", nil, &resp, true, http.StatusOK); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/admin/connectors/"+url.PathEscape(id)+"/resource-templates", nil, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return resp.Items, nil
 }
 
-func (c *Client) ReadMCPServiceResource(ctx context.Context, id string, req MCPResourceReadRequest) (*MCPResourceReadResult, error) {
+func (c *Client) ReadConnectorResource(ctx context.Context, id string, req MCPResourceReadRequest) (*MCPResourceReadResult, error) {
 	var resp MCPResourceReadResult
-	if err := c.do(ctx, http.MethodPost, "/admin/mcp/services/"+url.PathEscape(id)+"/resources/read", req, &resp, true, http.StatusOK); err != nil {
+	if err := c.do(ctx, http.MethodPost, "/admin/connectors/"+url.PathEscape(id)+"/resources/read", req, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-func (c *Client) ListMCPServicePrompts(ctx context.Context, id string) ([]MCPPrompt, error) {
+func (c *Client) ListConnectorPrompts(ctx context.Context, id string) ([]MCPPrompt, error) {
 	var resp itemsResponse[MCPPrompt]
-	if err := c.do(ctx, http.MethodGet, "/admin/mcp/services/"+url.PathEscape(id)+"/prompts", nil, &resp, true, http.StatusOK); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/admin/connectors/"+url.PathEscape(id)+"/prompts", nil, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return resp.Items, nil
 }
 
-func (c *Client) GetMCPServicePrompt(ctx context.Context, id string, req MCPPromptGetRequest) (*MCPPromptResult, error) {
+func (c *Client) GetConnectorPrompt(ctx context.Context, id string, req MCPPromptGetRequest) (*MCPPromptResult, error) {
 	var resp MCPPromptResult
-	if err := c.do(ctx, http.MethodPost, "/admin/mcp/services/"+url.PathEscape(id)+"/prompts/get", req, &resp, true, http.StatusOK); err != nil {
+	if err := c.do(ctx, http.MethodPost, "/admin/connectors/"+url.PathEscape(id)+"/prompts/get", req, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &resp, nil

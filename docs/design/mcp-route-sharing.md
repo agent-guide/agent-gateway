@@ -23,7 +23,7 @@ service ID, session ID or permission token establishes trusted identity.
 
 ## Concrete isolation constraint and handoff
 
-`pkg/mcp/service/session.go` stores both discovery sessions and GatewaySession
+`pkg/connector/session.go` stores both discovery sessions and GatewaySession
 metadata by service ID. `operations.go`, callMethodWithRetry, obtains that same
 cached discoveryClient for tools/call, resources/read and prompts/get. Streamable
 HTTP, SSE and stdio transports carry upstream session/process state. The dispatcher
@@ -39,7 +39,7 @@ complete security isolation guarantee. This refactor does not expand that suppor
 claim. Simply removing uniqueness would conceal the missing isolation contract.
 
 Handoff owner: MCP service/runtime maintainers, coordinating Agent and observability
-maintainers; destination: this Proposed design and pkg/mcp/service with higher assembly.
+maintainers; destination: this Proposed design and pkg/connector with higher assembly.
 
 The future MCP session work belongs to the MCP service runtime and higher assembly,
 with attribution changes coordinated with the Agent/observability surfaces. Keep

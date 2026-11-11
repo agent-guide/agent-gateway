@@ -1,4 +1,4 @@
-package service_test
+package connector_test
 
 import (
 	"context"
@@ -7,26 +7,26 @@ import (
 	"testing"
 
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
-	"github.com/agent-guide/agent-gateway/pkg/mcp/service"
+	"github.com/agent-guide/agent-gateway/pkg/connector"
 )
 
 // testConfigStore is a minimal in-memory ConfigStore for use in unit tests.
-// It stores *service.MCPServiceConfig objects keyed by ID.
+// It stores *connector.ConnectorConfig objects keyed by ID.
 type testConfigStore struct {
 	mu    sync.RWMutex
-	items map[string]*service.MCPServiceConfig
+	items map[string]*connector.ConnectorConfig
 }
 
 func newTestConfigStore(t *testing.T) configstore.ConfigStore {
 	t.Helper()
-	return &testConfigStore{items: make(map[string]*service.MCPServiceConfig)}
+	return &testConfigStore{items: make(map[string]*connector.ConnectorConfig)}
 }
 
-func (s *testConfigStore) unwrap(obj any) (*service.MCPServiceConfig, error) {
+func (s *testConfigStore) unwrap(obj any) (*connector.ConnectorConfig, error) {
 	if u, ok := obj.(configstore.ObjectUnwrapper); ok {
 		obj = u.ConfigStoreObject()
 	}
-	cfg, ok := obj.(*service.MCPServiceConfig)
+	cfg, ok := obj.(*connector.ConnectorConfig)
 	if !ok {
 		return nil, fmt.Errorf("testConfigStore: unexpected type %T", obj)
 	}
