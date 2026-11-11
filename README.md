@@ -95,7 +95,7 @@ evidence as traffic crosses Agent, model, and tool protocols.
 | Need | Gateway boundary |
 | --- | --- |
 | Expose existing Agents as internal services | Unified AgentRoutes, VirtualKey authentication, streaming turns, cancellation, permissions, sessions, and transcripts where the runtime supports them |
-| Govern model and tool access | OpenAI-, Anthropic-, and Claude Code-compatible LLM routes plus managed MCP connectors and MCP publishing routes |
+| Govern model and tool access | OpenAI-, Anthropic-, and Claude Code-compatible LLM routes plus managed MCP/HTTP API connectors and MCP publishing routes |
 | Connect remote Agents | Common-turn translation and governed native A2A Protocol 1.0 JSON-RPC ingress |
 | Operate one configuration surface | SQLite-backed Admin API, declarative Bundle validate/apply/export, and idempotent updates |
 | Inspect what happened | Persisted interactions, per-protocol metrics, Prometheus counters, and optional OpenTelemetry traces |
@@ -278,8 +278,9 @@ decisions are isolated by authenticated VirtualKey/route/runtime. Session listin
 retains native pagination and metadata, filtered to proven client ownership.
 Restart or bounded ownership-cache eviction requires a new client conversation.
 
-See the [connector runtime architecture](docs/architecture/connectors.md) for
-MCP connector management, execution and lifecycle.
+HTTP API tools can be configured without an upstream MCP server. See the
+[HTTP API connector guide](docs/guides/http-api-connectors.md) and
+[connector runtime architecture](docs/architecture/connectors.md).
 
 Connectors use an immutable `id` for references and an editable `name` for display;
 changing the display name preserves Agent and route references.

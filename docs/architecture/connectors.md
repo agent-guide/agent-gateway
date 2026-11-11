@@ -1,8 +1,8 @@
 # Connector runtime
 
 `pkg/connector` owns the `connectors` configuration collection and SQLite table.
-A connector has `type: mcp` with a nested `mcp` connection. Admin management is
-`/admin/connectors`,
+A connector has `type: mcp` with a nested `mcp` connection, or `type: http_api`
+with a nested `http_api` configuration. Admin management is `/admin/connectors`,
 Bundle definitions use `connectors`, and the root CLI command is `connector`.
 MCP publishing routes retain their protocol identity and target `connector_id`.
 Agent declarations use `resources.connector_ids`; builtin selections and
@@ -16,25 +16,48 @@ preserves Agent/route references, credential scopes and approval-entry strings.
 Tool `name` remains the protocol's callable identifier.
 
 `pkg/connector/runtime` defines generation leases, catalogs, tool calls and typed
-outcomes. MCP calls through a retained lease use its captured connection
-definition.
+outcomes. HTTP calls through a retained lease use its compiled Schema and mapping.
 Admission compares its execution token and object incarnation with the current
 snapshot. Replaced or deleted/recreated objects reject stale handles; display
-edits preserve the token. Disablement and pending-write checks also apply.
-Builtin materialization includes the connector generation
+edits preserve the token. Disablement, pending-write, credential and egress
+checks also apply. Builtin materialization includes the connector generation
 vector in its cache identity; approval resume rejects changed generations.
 
-MCP inline auth/env and inert `auto_auth` retain their previous semantics under
-the nested connection object. MCP logical tool usage retains its existing event
-schema and historical `service_id`.
+`pkg/connector/httpapi` validates the restricted JSON Schema subset and compiles
+GET/POST path, query and JSON-body mappings. Numbers stay lossless through
+argument parsing, validation, mapping and JSON responses. The executor does not
+retry HTTP requests. Known execution failures become safe tool-error results;
+a POST that may have been sent carries an unconfirmed-write explanation.
+
+Both hosts accept the local `http_api_policy_file` setting (standalone flag
+`--http-api-policy-file`). The default permits public HTTPS on port 443.
+Explicit policies can grant internal endpoints. Each invocation resolves and
+checks every DNS address, dials an admitted address and verifies the peer.
+Per-call transports disable connection reuse, proxies, redirects, compression
+and cookies. Coordinated global/connector admission counts waiting time against
+the call deadline without reserving active slots for queued work.
+
+HTTP credentials reference one explicit `api_key` credential with exact scope
+`connector:<id>` and empty Provider fields. Missing or revoked credentials do
+not invalidate stored definitions. State inspection computes local readiness;
+every execution rechecks the live credential. It does not use Provider
+selection, failover, OAuth refresh or scheduling. MCP inline auth/env and inert
+`auto_auth` retain their previous semantics under the nested connection object.
+
+Builtin and external MCP ingress remain the owners of logical tool usage.
+`MCPUsageEvent` retains its historical ServiceID/SQLite `service_id` mapping and
+adds nullable `connector_type` and typed `http_execution` JSON. HTTP summaries
+contain templates and byte/status/timing measures, without arguments, secrets,
+queries or response bodies. Optional OTLP `http_client_spans` exports a CLIENT
+child through the lifecycle exporter. It creates no usage row, public event or
+Prometheus metric family.
 
 Configuration writes compile before persistence and read authoritative records
 back. Unconfirmed connector outcomes gate new execution until mutation recovery
 verifies stored facts without replaying writes. Agent and MCP route references block execution-affecting edits and deletion
 under application coordination, including disabled objects and retained pending
-Agent references. Agent writes require existing connectors. MCP tool selections
-resolve against the remote catalog during builtin materialization. Connector
-Refresh uses the same reference and active-work guards;
+Agent references. Agent writes require existing connectors and configured HTTP
+tool selections. Connector Refresh uses the same reference and active-work guards;
 a rejected candidate preserves the last valid snapshot.
 
 Resources update independently. CLI apply uses normal per-object CRUD in
@@ -46,11 +69,11 @@ before removing the old object. Single-resource mutation inspection/recovery rem
 
 ## Mutation admission and lifecycle
 
-Name/description and semantically unchanged updates retain MCP sessions and
-execution tokens. Every mcp/audit change is an execution
+Name/description and semantically unchanged updates retain MCP sessions, compiled
+catalogs and execution tokens. Every mcp/http_api/audit change is an execution
 edit; id/type are immutable. Execution edits and deletion return conflicts while
 referenced or busy. Disablement remains available and blocks subsequent calls;
-MCP authentication remains owned by the configured connection.
+credential revocation is checked from current credential memory.
 
 The manager registers active work atomically with token/pending/closed checks,
 before queueing or network I/O. Every tool/resource/prompt operation, remote

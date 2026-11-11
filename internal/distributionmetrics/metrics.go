@@ -9,6 +9,6 @@ import (
 
 func From(c distribution.MetricsConfig) usage.Config {
 	return usage.Config{RetentionDays: c.RetentionDays, MaxAgentDepth: c.MaxAgentDepth, OTLP: usage.OTLPConfig{
-		Endpoint: c.OTLP.Endpoint, Protocol: c.OTLP.Protocol, Insecure: c.OTLP.Insecure, Headers: maps.Clone(c.OTLP.Headers), ServiceName: c.OTLP.ServiceName, TimeoutSeconds: c.OTLP.TimeoutSeconds, Components: c.OTLP.Components,
+		Endpoint: c.OTLP.Endpoint, Protocol: c.OTLP.Protocol, Insecure: c.OTLP.Insecure, Headers: maps.Clone(c.OTLP.Headers), ServiceName: c.OTLP.ServiceName, TimeoutSeconds: c.OTLP.TimeoutSeconds, Components: c.OTLP.Components, HTTPClientSpans: c.OTLP.HTTPClientSpans,
 	}}
 }

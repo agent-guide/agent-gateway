@@ -9,12 +9,16 @@ import (
 )
 
 func TestConnectorIdentityIsImmutableAndNameIsDisplayOnly(t *testing.T) {
-	for _, kind := range []string{"mcp"} {
+	for _, kind := range []string{"mcp", "http_api"} {
 		t.Run(kind, func(t *testing.T) {
 			ctx := t.Context()
 			manager := connector.NewManager(newTestConfigStore(t))
 			t.Cleanup(manager.Close)
 			cfg := connector.ConnectorConfig{ID: "Orders", Name: "Order system", Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportStdio, Command: "unused"}}
+			if kind == "http_api" {
+				cfg = httpConnector(t, "https://orders.example.com", "/lookup")
+				cfg.ID = "Orders"
+			}
 			if err := manager.Create(ctx, cfg); err != nil {
 				t.Fatal(err)
 			}

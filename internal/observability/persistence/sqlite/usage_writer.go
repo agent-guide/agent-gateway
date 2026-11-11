@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
@@ -28,7 +29,7 @@ var mcpUsageInsertColumns = []string{
 	"route_id", "route_kind", "route_protocol", "virtual_key_id", "success", "status_code", "error_type", "latency_ms",
 	"request_id", "service_id", "method", "tool_name", "presented_tool_name", "executed_tool_name",
 	"execution_mode", "policy_action", "resource_uri", "prompt_name", "completion_ref_type", "completion_argument",
-	"arg_count", "result_status", "cancelled", "tool_args_json", "agent_id", "run_id", "runtime_type",
+	"arg_count", "result_status", "cancelled", "tool_args_json", "agent_id", "run_id", "runtime_type", "connector_type", "http_execution",
 }
 
 var builtinUsageInsertColumns = []string{
@@ -67,12 +68,26 @@ func InsertLLMUsageEvent(db *gorm.DB, ev usage.LLMUsageEvent) error {
 }
 
 func InsertMCPUsageEvent(db *gorm.DB, ev usage.MCPUsageEvent) error {
+	if ev.ConnectorType != "" && ev.ConnectorType != "mcp" && ev.ConnectorType != "http_api" {
+		return fmt.Errorf("invalid connector type")
+	}
+	var summary any
+	if ev.HTTPExecution != nil {
+		if err := ev.HTTPExecution.Validate(); err != nil {
+			return err
+		}
+		b, err := json.Marshal(ev.HTTPExecution)
+		if err != nil {
+			return err
+		}
+		summary = string(b)
+	}
 	return db.Exec(usageInsertSQL("mcp_usage_events", mcpUsageInsertColumns),
 		ev.EventID, ev.TraceID, ev.SpanID, ev.ParentSpanID, ev.AgentDepth, unixMillis(ev.StartedAt), unixMillis(ev.FinishedAt),
 		ev.RouteID, ev.RouteKind, ev.RouteProtocol, ev.VirtualKeyID, boolInt(ev.Success), ev.StatusCode, ev.ErrorType, ev.LatencyMS,
 		ev.RequestID, ev.ServiceID, ev.Method, ev.ToolName, ev.PresentedToolName, ev.ExecutedToolName,
 		ev.ExecutionMode, ev.PolicyAction, ev.ResourceURI, ev.PromptName, ev.CompletionRefType, ev.CompletionArgument,
-		ev.ArgCount, ev.ResultStatus, boolInt(ev.Cancelled), truncatePayload(ev.ToolArgsJSON), nullString(ev.AgentID), nullString(ev.RunID), nullString(ev.RuntimeType),
+		ev.ArgCount, ev.ResultStatus, boolInt(ev.Cancelled), truncatePayload(ev.ToolArgsJSON), nullString(ev.AgentID), nullString(ev.RunID), nullString(ev.RuntimeType), nullString(ev.ConnectorType), summary,
 	).Error
 }
 

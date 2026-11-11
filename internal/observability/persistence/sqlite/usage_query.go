@@ -2,7 +2,9 @@ package sqlite
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -57,7 +59,31 @@ func (q *UsageQueries) ListEvents(kind string, opts usage.EventListOptions) (usa
 	if err != nil {
 		return usage.EventListResponse{}, err
 	}
-	return q.listRows("SELECT * FROM "+table, table, filters, opts)
+	response, err := q.listRows("SELECT * FROM "+table, table, filters, opts)
+	if err != nil {
+		return response, err
+	}
+	if kind == "mcp" {
+		for _, row := range response.Items {
+			if raw := row["http_execution"]; raw != nil {
+				var b []byte
+				switch v := raw.(type) {
+				case string:
+					b = []byte(v)
+				case []byte:
+					b = v
+				default:
+					return response, fmt.Errorf("invalid stored HTTP summary")
+				}
+				var h cr.HTTPExecution
+				if err := json.Unmarshal(b, &h); err != nil {
+					return response, err
+				}
+				row["http_execution"] = &h
+			}
+		}
+	}
+	return response, nil
 }
 
 func (q *UsageQueries) ListInteractions(opts usage.EventListOptions) (usage.EventListResponse, error) {
@@ -107,7 +133,7 @@ var (
 		COALESCE(SUM(cached_tokens),0) AS cached_tokens, COALESCE(SUM(reasoning_tokens),0) AS reasoning_tokens,
 		COALESCE(AVG(latency_ms),0) AS avg_latency_ms`
 
-	mcpGroups = map[string]string{
+	mcpGroups = map[string]string{"connector_type": "connector_type",
 		"route_id": "route_id", "service_id": "service_id", "virtual_key_id": "virtual_key_id", "method": "method", "tool_name": "tool_name", "result_status": "result_status", "run_id": "run_id", "runtime_type": "runtime_type",
 	}
 	mcpMeasures = `COUNT(*) AS request_count, COALESCE(SUM(success),0) AS success_count,
@@ -386,7 +412,7 @@ func eventTable(kind string) (string, map[string]string, error) {
 	case "mcp":
 		return "mcp_usage_events", map[string]string{
 			"route_id": "route_id", "service_id": "service_id", "virtual_key_id": "virtual_key_id",
-			"method": "method", "tool_name": "tool_name", "resource_uri": "resource_uri",
+			"connector_type": "connector_type", "method": "method", "tool_name": "tool_name", "resource_uri": "resource_uri",
 			"prompt_name": "prompt_name", "completion_ref_type": "completion_ref_type",
 			"completion_argument": "completion_argument", "result_status": "result_status",
 			"agent_id": "agent_id", "run_id": "run_id", "runtime_type": "runtime_type",

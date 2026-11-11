@@ -2,7 +2,9 @@ package usage
 
 import (
 	"context"
+	connectorruntime "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"sync/atomic"
+	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/attribution"
 	"github.com/agent-guide/agent-gateway/pkg/event"
@@ -61,11 +63,12 @@ type QueryService interface {
 }
 
 type UsageService struct {
-	pipeline    Pipeline
-	query       QueryService
-	observer    InteractionObserver
-	prom        PrometheusProvider
-	attribution *AgentAttribution
+	HTTPClientObserver func(context.Context, connectorruntime.HTTPExecution, time.Time)
+	pipeline           Pipeline
+	query              QueryService
+	observer           InteractionObserver
+	prom               PrometheusProvider
+	attribution        *AgentAttribution
 }
 
 func NewUsageService(pipeline Pipeline, query QueryService) *UsageService {

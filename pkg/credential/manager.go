@@ -650,3 +650,6 @@ func managedCredentialMapSnapshot(creds map[string]*ManagedCredential) []*Manage
 	}
 	return out
 }
+
+func IsConnectorCredentialScope(scope string) bool { return model.IsConnectorCredentialScope(scope) }
+func ConnectorCredentialScope(id string) string    { return model.ConnectorCredentialScope(id) }

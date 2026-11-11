@@ -328,7 +328,7 @@ func llmEvent(base InteractionEvent, ext LLMExtension) LLMUsageEvent {
 }
 
 func mcpEvent(base InteractionEvent, ext MCPExtension) MCPUsageEvent {
-	ev := MCPUsageEvent{InteractionEvent: base}
+	ev := MCPUsageEvent{InteractionEvent: base, ConnectorType: ext.ConnectorType, HTTPExecution: ext.HTTPExecution}
 	ev.RequestID = ext.RequestID
 	ev.ServiceID = ext.ServiceID
 	ev.Method = ext.Method

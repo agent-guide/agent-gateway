@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/strictjson"
+	"github.com/agent-guide/agent-gateway/pkg/connector/httpapi"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 )
 
@@ -18,19 +19,20 @@ const (
 	TransportStreamableHTTP = basemcp.TransportStreamableHTTP
 )
 
-// ConnectorConfig defines one gateway-managed MCP connector.
+// ConnectorConfig defines one MCP or HTTP API connector.
 type ConnectorConfig struct {
 	// ID is the case-sensitive, immutable identifier used by references and API paths.
 	ID string `json:"id"`
 	// Name is the mutable display name; it is neither unique nor a reference key.
-	Name        string      `json:"name"`
-	Type        string      `json:"type"`
-	MCP         *MCPConfig  `json:"mcp,omitempty"`
-	Audit       AuditConfig `json:"audit,omitempty"`
-	Disabled    bool        `json:"disabled"`
-	Description string      `json:"description,omitempty"`
-	CreatedAt   time.Time   `json:"created_at"`
-	UpdatedAt   time.Time   `json:"updated_at"`
+	Name        string          `json:"name"`
+	Type        string          `json:"type"`
+	MCP         *MCPConfig      `json:"mcp,omitempty"`
+	HTTPAPI     *httpapi.Config `json:"http_api,omitempty"`
+	Audit       AuditConfig     `json:"audit,omitempty"`
+	Disabled    bool            `json:"disabled"`
+	Description string          `json:"description,omitempty"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
 type MCPConfig struct {
@@ -100,8 +102,16 @@ func (c ConnectorConfig) Validate() error {
 		return fmt.Errorf("invalid connector id")
 	}
 	switch c.Type {
+	case "http_api":
+		if c.HTTPAPI == nil || c.MCP != nil {
+			return fmt.Errorf("http_api requires only http_api branch")
+		}
+		if c.Audit.CaptureToolArgs {
+			return fmt.Errorf("HTTP argument capture is unsupported")
+		}
+		return c.HTTPAPI.Validate()
 	case "mcp":
-		if c.MCP == nil {
+		if c.MCP == nil || c.HTTPAPI != nil {
 			return fmt.Errorf("mcp requires only mcp branch")
 		}
 	default:
@@ -124,6 +134,24 @@ func (c ConnectorConfig) Validate() error {
 		case "", "api_key", "basic", "bearer", "oauth2":
 		default:
 			return fmt.Errorf("unsupported auth type %q", c.MCP.AuthConfig.Type)
+		}
+	}
+	return nil
+}
+
+// ValidateToolSelection checks names resolvable from a configured HTTP catalog.
+// MCP catalogs remain remote and are checked at materialization time.
+func (c ConnectorConfig) ValidateToolSelection(names []string) error {
+	if c.HTTPAPI == nil {
+		return nil
+	}
+	available := make(map[string]bool, len(c.HTTPAPI.Tools))
+	for _, tool := range c.HTTPAPI.Tools {
+		available[tool.Name] = true
+	}
+	for _, name := range names {
+		if !available[strings.TrimSpace(name)] {
+			return fmt.Errorf("connector %q has no selected tool %q", c.ID, name)
 		}
 	}
 	return nil
@@ -153,6 +181,10 @@ func (c *ConnectorConfig) UnmarshalJSON(data []byte) error {
 	if typ == "mcp" {
 		if _, ok := obj["http_api"]; ok {
 			return fmt.Errorf("http_api branch forbidden")
+		}
+	} else if typ == "http_api" {
+		if _, ok := obj["mcp"]; ok {
+			return fmt.Errorf("mcp branch forbidden")
 		}
 	}
 	var p plain

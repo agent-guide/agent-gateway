@@ -810,9 +810,10 @@ interception; additional domain seams and their ownership are
 
 ## Connector execution
 
-Connector configuration, MCP session adapters and the builtin bridge live in
-`pkg/connector`. See [Connector runtime](connectors.md) for generation leases,
-session ownership, observation and the current publication boundary. MCP publishing targets use `connector_id`;
+Connector configuration, MCP session adapters, HTTP tool execution and the
+builtin bridge live in `pkg/connector`. See [Connector runtime](connectors.md)
+for generation leases, credential ownership, egress policy, observation and
+the current publication boundary. MCP publishing targets use `connector_id`;
 Agent declarations use `resources.connector_ids`.
 
 Connector identity is `id` (immutable, case-sensitive) plus `name` (editable,

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/extensionstore"
 	"github.com/agent-guide/agent-gateway/pkg/attribution"
@@ -23,6 +24,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
+	"github.com/agent-guide/agent-gateway/pkg/connector/httpapi"
 	"github.com/agent-guide/agent-gateway/pkg/credential"
 	credentialscheduler "github.com/agent-guide/agent-gateway/pkg/credential/scheduler"
 	agentroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/agentroute"
@@ -39,6 +41,8 @@ import (
 )
 
 type BootstrapOptions struct {
+	HTTPClientObserver  func(context.Context, httpapi.HTTPExecution, time.Time)
+	HTTPAPIPolicyFile   string
 	EventPublisher      event.Publisher
 	ExtensionRegistry   *extension.Registry
 	Distribution        distribution.Assembly
@@ -581,10 +585,21 @@ func (g *AgentGateway) configureConnectorManager(ctx context.Context, opts Boots
 	if err != nil {
 		return err
 	}
+	policy, err := httpapi.LoadPolicy(opts.HTTPAPIPolicyFile)
+	if err != nil {
+		return err
+	}
+	engine, err := httpapi.NewEngine(policy, opts.CredentialManager)
+	if err != nil {
+		return err
+	}
 	if store == nil {
+		engine.Close()
 		return nil
 	}
 	g.connectorManager = connectorpkg.NewManager(store)
+	engine.Observe = opts.HTTPClientObserver
+	g.connectorManager.ConfigureHTTP(engine)
 	g.control.connectors = g.connectorManager
 	g.connectorManager.Guard = g.control.connectorMutation
 	return g.connectorManager.Refresh(ctx)

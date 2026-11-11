@@ -343,14 +343,27 @@ func (c *controlPlane) agentMutation(ctx context.Context, action configmgr.Mutat
 }
 
 func (c *controlPlane) validateAgentConnectors(ctx context.Context, a agent.Agent) error {
+	configs := map[string]connectorpkg.ConnectorConfig{}
 	for _, id := range a.Resources.ConnectorIDs {
 		id = strings.TrimSpace(id)
 		if c.connectors == nil {
 			return fmt.Errorf("%w: connector %q", ErrDependencyNotConfigured, id)
 		}
-		_, err := c.connectors.Get(ctx, id)
+		cfg, err := c.connectors.Get(ctx, id)
 		if err != nil {
 			return fmt.Errorf("%w: connector %q: %w", ErrDependencyNotConfigured, id, err)
+		}
+		configs[id] = cfg
+	}
+	if a.Runtime.Builtin != nil {
+		for _, sel := range a.Runtime.Builtin.ToolSelections() {
+			cfg, ok := configs[strings.TrimSpace(sel.ConnectorID)]
+			if !ok {
+				continue
+			}
+			if err := cfg.ValidateToolSelection(sel.Tools); err != nil {
+				return fmt.Errorf("%w: %w", ErrDependencyNotConfigured, err)
+			}
 		}
 	}
 	return nil
@@ -394,7 +407,7 @@ func (c *controlPlane) credentialMutation(ctx context.Context, action configmgr.
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	check := func(cred *credential.Credential) error {
-		if credential.IsHTTPAgentCredentialScope(cred.ScopeValue()) {
+		if credential.IsHTTPAgentCredentialScope(cred.ScopeValue()) || credential.IsConnectorCredentialScope(cred.ScopeValue()) {
 			return nil
 		}
 		cfg, err := c.credentialProvider(ctx, cred.ProviderID)

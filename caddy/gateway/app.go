@@ -3,7 +3,6 @@ package gateway
 import (
 	"errors"
 	"fmt"
-
 	"github.com/agent-guide/agent-gateway/internal/distributionmetrics"
 	"github.com/agent-guide/agent-gateway/internal/distributionruntime"
 	"github.com/agent-guide/agent-gateway/internal/runtimeassembly"
@@ -49,7 +48,8 @@ type App struct {
 	LLMRoutes []routecore.RouteConfig `json:"llm_routes,omitempty"`
 	// Metrics configures observability retention, agent-chain governance, and
 	// optional OTLP span export of usage events.
-	Metrics distribution.MetricsConfig `json:"metrics,omitzero"`
+	HTTPAPIPolicyFile string                     `json:"http_api_policy_file,omitempty"`
+	Metrics           distribution.MetricsConfig `json:"metrics,omitzero"`
 
 	logger          *zap.Logger
 	credentialMgr   *credential.Manager
@@ -121,6 +121,8 @@ func (a *App) Provision(ctx caddy.Context) (provisionErr error) {
 	}
 	if err := a.agentGateway.Bootstrap(ctx, runtimegateway.BootstrapOptions{
 		ExtensionRegistry: registry, Distribution: assembly, EventPublisher: a.usageService,
+		HTTPClientObserver:  a.usageService.HTTPClientObserver,
+		HTTPAPIPolicyFile:   a.HTTPAPIPolicyFile,
 		StaticLLMRoutes:     a.LLMRoutes,
 		StaticProviders:     a.providers,
 		ConfigStoreBackend:  a.configBackend,

@@ -196,7 +196,7 @@ or a cross-cutting adapter for it (for example `caddy/admin`,
 - `pkg/acp/` — native ACP runtime (`codex`, `opencode`): pooling, sessions, permissions, transcripts → `pkg/acp/AGENTS.md`
 - `pkg/credential/` — cross-cutting credential model, persistence, scheduling, expiry detection, and external refresh transport → `pkg/credential/AGENTS.md`
 - `pkg/llm/` — provider interface/registry, built-in providers, and the `einomodel` eino bridge → `pkg/llm/AGENTS.md`
-- `pkg/connector/` — Connector model, generation leases, MCP session adapters and builtin bridge → `pkg/connector/AGENTS.md`
+- `pkg/connector/` — Connector model, catalogs, HTTP execution, MCP session adapters and builtin bridge → `pkg/connector/AGENTS.md`
 - `pkg/mcp/` — MCP protocol primitives, transports and ingress tracking → `pkg/mcp/AGENTS.md`
 - `pkg/a2a/` — A2A Protocol 1.0 JSON-RPC (Path B translating client/backend and Path A governed native proxy are implemented) → `pkg/a2a/AGENTS.md`
 - `pkg/configstore/` — generic config store/backends (persisted backend: `sqlite`; stores `providers`, `credentials`, `routes`, `connectors`, `agents`, `virtual_keys`, `managed_models`, `extensions`) → `pkg/configstore/AGENTS.md`
@@ -344,12 +344,16 @@ Stubbed families currently return `501 Not Implemented`:
 
 If you change module IDs, route semantics, provider registration, or Admin API paths, update this file, the affected nested `AGENTS.md`, and `README.md` in the same change.
 
-## Connectors
+## HTTP API connectors
 
 Connector domain rules live in `pkg/connector/AGENTS.md`. Connector `id` is
 immutable and case-sensitive; `name` is mutable, non-unique display text. There
 is no separate connector `slug`; updates reject differing body/path IDs.
-Static connector definitions are rejected. Legacy `mcp_services` tables require explicit
+Both hosts accept
+`http_api_policy_file` (standalone `--http-api-policy-file`) and optional OTLP
+`http_client_spans` (standalone `--metrics-otlp-http-client-spans`). HTTP API
+credentials use exact `connector:<id>` scope with empty Provider fields. Static
+connector definitions are rejected. Legacy `mcp_services` tables require explicit
 stopped-service conversion before either host or a store-opening CLI can start.
 Connector references from Agents and MCP routes prevent deletion, including
 disabled references. Agent writes require the connector to exist. Each resource

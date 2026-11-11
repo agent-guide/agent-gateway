@@ -1,8 +1,10 @@
 # Connector domain
 
-`pkg/connector` owns persisted `connectors`, connector management, neutral
-generation leases and MCP discovery/session adapters. `runtime/` imports neither
-Agents nor Admin/persistence. `einotool/` is the builtin adapter and emits no usage.
+`pkg/connector` owns persisted `connectors`, immutable HTTP tool catalogs,
+connector management, neutral generation leases and MCP discovery/session
+adapters. `runtime/` imports neither Agents nor Admin/persistence. `httpapi/`
+executes HTTP tools; it must not enter MCP reconnect/retry paths or depend on
+Agent definitions. `einotool/` is the shared builtin adapter and emits no usage.
 
 Connector `id` is the required, case-sensitive, immutable reference identity;
 `name` is mutable, non-unique display text. Do not introduce a `slug` alias or
@@ -11,18 +13,23 @@ ID; reject a different ID before guards, persistence or publication. Display
 renames preserve all references, credential scopes and approval-entry strings.
 Tool names have the protocol's separate callable-identity semantics.
 
-Root `type` selects `mcp` with a nested `mcp` connection. Removed flat connection
-fields and management names are errors, including null aliases. The offline
-conversion path is `scripts/repair-architecture-config --convert-connectors`;
-startup never migrates the old physical table. Preserve MCP transports, inline
-auth/env and inert auto_auth. HTTP API execution remains Proposed in the design.
+Root `type` selects exactly `mcp` plus `mcp`, or `http_api` plus `http_api`.
+Removed flat connection fields and management names are errors, including null
+aliases. The offline conversion path is `scripts/repair-architecture-config
+--convert-connectors`; startup never migrates the old physical table.
 
-Snapshots/catalogs are defensive, GC-managed memory; request paths never read
-ConfigStore. Do not add snapshot reference counting or multi-generation session
-drain merely to permit edits.
+Preserve MCP transports, inline auth/env and inert auto_auth. HTTP auth resolves
+one explicit credential on every call with exact `connector:<id>` ownership.
+Configuration validity does not require credential readiness. Secrets never
+enter catalogs, prepared clients, HTTP summaries or model-visible errors.
+
+HTTP tools share argument validation, mapping and results through immutable
+handles. Snapshots/catalogs are defensive, GC-managed memory; request paths never
+read ConfigStore. Do not add snapshot reference counting or multi-generation
+session drain merely to permit edits.
 
 The simplified design requires display-only name/description edits to preserve
-MCP sessions and execution/catalog generations. Reject every mcp/audit
+MCP sessions and execution/catalog generations. Reject every mcp/http_api/audit
 edit and deletion while referenced by an Agent/MCPRoute or busy with admitted/
 queued work, remote discovery or initialization, including direct Admin calls.
 Idle cached sessions and uninvoked handles do not themselves count as busy.
@@ -32,12 +39,15 @@ allowed edit. Explicit disablement/credential revocation remain admission
 controls. CloseContext stops admission, cancels work, closes owned sessions/processes and
 waits within the host budget; retain close/deadline errors and fence late publication.
 
-Managers own their network/process resources. Cache/checkpoint owners remove
+Readiness queries and execution consult current credential memory; no additional
+readiness notification/cache/reverse-index subsystem is required. Executors and
+managers own their network/process resources. Cache/checkpoint owners remove
 unused graphs and permissions; Go GC reclaims unreachable configuration objects.
 
 MCP upstream sessions remain connector-scoped, without caller isolation. Preserve
 Agent MCP-route uniqueness and historical event ServiceID/SQLite service_id.
-Logical observation belongs to builtin/MCP ingress. Do not change Prometheus labels or protected public event DTOs implicitly.
+Logical observation belongs to builtin/MCP ingress; HTTP child spans are tracing
+only. Do not change Prometheus labels or protected public event DTOs implicitly.
 
 The complete target is docs/design/connectors.md. Objects update independently;
 Bundle apply is sequential with partial success. Do not add cross-resource

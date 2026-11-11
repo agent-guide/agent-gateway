@@ -92,6 +92,8 @@ func MigrateUsageTables(db *gorm.DB) error {
 		column string
 	}{
 		{"llm_usage_events", "agent_id TEXT"},
+		{"mcp_usage_events", "connector_type TEXT CHECK (connector_type IS NULL OR connector_type IN ('mcp','http_api'))"},
+		{"mcp_usage_events", "http_execution TEXT CHECK (http_execution IS NULL OR (json_valid(http_execution) AND json_type(http_execution)='object'))"},
 		{"mcp_usage_events", "agent_id TEXT"},
 		{"acp_usage_events", "agent_id TEXT"},
 		{"llm_usage_events", "run_id TEXT"},

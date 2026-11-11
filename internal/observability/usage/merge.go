@@ -88,6 +88,13 @@ func mergeLLM(dst *LLMExtension, src LLMExtension) {
 }
 
 func mergeMCP(dst *MCPExtension, src MCPExtension) {
+	if src.ConnectorType != "" {
+		dst.ConnectorType = src.ConnectorType
+	}
+	if src.HTTPExecution != nil {
+		v := *src.HTTPExecution
+		dst.HTTPExecution = &v
+	}
 	if src.RequestID != "" {
 		dst.RequestID = src.RequestID
 	}

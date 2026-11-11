@@ -91,7 +91,7 @@ OpenTelemetry Collector 和 Grafana。Fixture 和允许本地匿名访问的 Gra
 | 需求 | 网关提供的边界 |
 | --- | --- |
 | 把现有 Agent 暴露为内部服务 | 统一的 AgentRoute、VirtualKey 鉴权、流式 Turn、取消、权限，以及 Runtime 支持时的 Session 和 Transcript |
-| 治理模型和工具访问 | 兼容 OpenAI、Anthropic 和 Claude Code 的 LLM 路由，以及统一管理的 MCP Connector 和 MCP 发布路由 |
+| 治理模型和工具访问 | 兼容 OpenAI、Anthropic 和 Claude Code 的 LLM 路由，以及统一管理的 MCP／HTTP API Connector 和 MCP 发布路由 |
 | 连接远程 Agent | 通用 Turn 转换和受治理的原生 A2A Protocol 1.0 JSON-RPC 入口 |
 | 使用一个配置入口运维 | SQLite 支撑的 Admin API、声明式 Bundle validate/apply/export 和幂等更新 |
 | 查看实际发生了什么 | 持久化 Interaction、分协议指标、Prometheus 计数器和可选 OpenTelemetry Trace |
@@ -242,7 +242,8 @@ ACP 线程、显式会话续接、转录和待处理权限绑定已认证的 Vir
 会话列表保留原生分页和元数据，并按已证明的客户端归属过滤；重启或有界归属缓存
 淘汰后，客户端需开启新会话。
 
-MCP Connector 的管理、执行和生命周期参见
+HTTP API 工具可以直接配置，无需另行部署 MCP Server。参见
+[HTTP API Connector 指南](docs/guides/http-api-connectors.md)和
 [Connector 运行架构](docs/architecture/connectors.md)。
 
 Connector 使用不可变的 `id` 作为引用标识，使用可修改的 `name` 作为展示名称；

@@ -61,6 +61,10 @@ func parseApp(d *caddyfile.Dispenser, existingVal any) (any, error) {
 			if err := parseRoute(d, app); err != nil {
 				return nil, err
 			}
+		case "http_api_policy_file":
+			if !d.AllArgs(&app.HTTPAPIPolicyFile) {
+				return nil, d.ArgErr()
+			}
 		case "metrics":
 			if err := parseMetrics(d, app); err != nil {
 				return nil, err
@@ -152,6 +156,11 @@ func parseMetricsOTLP(seg *caddyfile.Dispenser, app *App) error {
 				return seg.ArgErr()
 			}
 			app.Metrics.OTLP.Insecure = true
+		case "http_client_spans":
+			if seg.NextArg() {
+				return seg.ArgErr()
+			}
+			app.Metrics.OTLP.HTTPClientSpans = true
 		case "components":
 			if seg.NextArg() {
 				return seg.ArgErr()

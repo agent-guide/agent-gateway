@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agent-guide/agent-gateway/internal/strictjson"
+	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"io"
 	"net/http"
 	"strings"
-
-	"github.com/agent-guide/agent-gateway/internal/strictjson"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
@@ -233,6 +232,8 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 				}
 			}})
 			result = outcome.Result
+			ext.ConnectorType = lease.Descriptor().Type
+			ext.HTTPExecution = outcome.HTTP
 			if outcome.Failure != nil {
 				ext.ResultStatus = "error"
 				usage.SpanFromContext(r.Context()).AddAnnotation("error_type", outcome.Failure.Category)

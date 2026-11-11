@@ -12,6 +12,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	"github.com/agent-guide/agent-gateway/pkg/connector/httpapi"
 	"github.com/agent-guide/agent-gateway/pkg/mcp/transport"
 	"github.com/google/uuid"
 )
@@ -20,6 +21,7 @@ var ErrConnectorNotConfigured = errors.New("connector is not configured")
 
 type entry struct {
 	config      ConnectorConfig
+	catalog     *httpapi.Catalog
 	incarnation string
 	connect     chan struct{}
 	token       string
@@ -40,6 +42,7 @@ type Manager struct {
 	entries    map[string]*entry
 	loaded     bool
 	generation uint64
+	engine     *httpapi.Engine
 	// Guard is supplied by application coordination; it surrounds persistence
 	// and publication, including direct manager callers.
 	Guard            func(context.Context, string, *ConnectorConfig, func() error) error
@@ -51,9 +54,17 @@ type Manager struct {
 
 func NewManager(store configstore.ConfigStore) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Manager{ctx: ctx, cancel: cancel, active: map[string]int{}, changed: make(chan struct{}), closeDone: make(chan struct{}), store: store, pending: map[string]*pendingWrite{}, entries: map[string]*entry{}, discoverySession: map[string]*discoverySession{}, sessions: map[string]*GatewaySession{}}
+	engine, _ := httpapi.NewEngine(httpapi.DefaultPolicy(), nil)
+	return &Manager{ctx: ctx, cancel: cancel, active: map[string]int{}, changed: make(chan struct{}), closeDone: make(chan struct{}), store: store, pending: map[string]*pendingWrite{}, entries: map[string]*entry{}, engine: engine, discoverySession: map[string]*discoverySession{}, sessions: map[string]*GatewaySession{}}
 }
 
+// ConfigureHTTP installs host-owned policy and observers during assembly, before use.
+func (m *Manager) ConfigureHTTP(engine *httpapi.Engine) {
+	m.writeMu.Lock()
+	defer m.writeMu.Unlock()
+	m.engine.Close()
+	m.engine = engine
+}
 func cloneConfig(c ConnectorConfig) ConnectorConfig {
 	b, _ := json.Marshal(c)
 	var out ConnectorConfig
@@ -79,6 +90,16 @@ func (m *Manager) prepare(c ConnectorConfig) (*entry, error) {
 		return nil, e
 	}
 	v := &entry{config: c, incarnation: uuid.NewString(), token: uuid.NewString(), connect: make(chan struct{}, 1)}
+	if c.Type == "http_api" {
+		cat, e := httpapi.Compile(*c.HTTPAPI)
+		if e != nil {
+			return nil, e
+		}
+		if !m.engine.CanAdmit(cat) {
+			return nil, fmt.Errorf("HTTP destination denied by host policy")
+		}
+		v.catalog = cat
+	}
 	return v, nil
 }
 func (m *Manager) Refresh(ctx context.Context) error {
@@ -458,6 +479,14 @@ func (m *Manager) State(ctx context.Context, id string) (State, error) {
 	}
 	if v.config.Disabled {
 		s.Reasons = append(s.Reasons, "disabled")
+	}
+	if v.catalog != nil {
+		if !m.engine.Ready(id, v.catalog) {
+			s.Reasons = append(s.Reasons, "credential_unavailable")
+		}
+		if !m.engine.CanAdmit(v.catalog) {
+			s.Reasons = append(s.Reasons, "egress_denied")
+		}
 	}
 	if _, pending := m.PendingMutation(id); pending {
 		s.Reasons = append(s.Reasons, "mutation_pending")

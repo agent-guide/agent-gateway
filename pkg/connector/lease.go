@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
+	"github.com/agent-guide/agent-gateway/pkg/connector/httpapi"
 	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 	"github.com/google/uuid"
@@ -81,10 +84,15 @@ func (l *lease) listTools(ctx context.Context) (cr.ToolCatalog, error) {
 	if l.catalog == nil {
 		var tools []basemcp.Tool
 		var err error
-		var result listToolsResult
-		err = l.manager.callMethodWithRetryConfig(ctx, l.entry.config, "tools/list", map[string]any{}, &result, nil)
-		tools = result.Tools
-		token := uuid.NewString()
+		token := l.entry.token
+		if l.entry.catalog != nil {
+			tools = l.entry.catalog.Tools()
+		} else {
+			var result listToolsResult
+			err = l.manager.callMethodWithRetryConfig(ctx, l.entry.config, "tools/list", map[string]any{}, &result, nil)
+			tools = result.Tools
+			token = uuid.NewString()
+		}
 		if err != nil {
 			return cr.ToolCatalog{}, err
 		}
@@ -112,29 +120,64 @@ func (l *lease) CallTool(ctx context.Context, call cr.ToolCall) (out cr.CallOutc
 	if !found {
 		return out, &cr.CallError{Category: "unknown_tool", Message: "unknown tool"}
 	}
+	if l.entry.catalog == nil {
 
-	var progress chan UpstreamProgress
-	var done chan struct{}
-	if call.Progress != nil {
-		progress = make(chan UpstreamProgress, 64)
-		done = make(chan struct{})
-		go func() {
-			defer func() { _ = recover(); close(done) }()
-			for p := range progress {
-				call.Progress(cr.Progress{ProgressToken: p.ProgressToken, Progress: p.Progress, Total: p.Total, Message: p.Message})
-			}
-		}()
+		var progress chan UpstreamProgress
+		var done chan struct{}
+		if call.Progress != nil {
+			progress = make(chan UpstreamProgress, 64)
+			done = make(chan struct{})
+			go func() {
+				defer func() { _ = recover(); close(done) }()
+				for p := range progress {
+					call.Progress(cr.Progress{ProgressToken: p.ProgressToken, Progress: p.Progress, Total: p.Total, Message: p.Message})
+				}
+			}()
+		}
+		var result basemcp.ToolResult
+		err = l.manager.callMethodWithRetryConfig(ctx, l.entry.config, "tools/call", map[string]any{"name": call.Name, "arguments": call.Arguments}, &result, progress)
+		if err == nil {
+			out.Result = &result
+		}
+		if progress != nil {
+			close(progress)
+			<-done
+		}
+		return out, err
 	}
-	var result basemcp.ToolResult
-	err = l.manager.callMethodWithRetryConfig(ctx, l.entry.config, "tools/call", map[string]any{"name": call.Name, "arguments": call.Arguments}, &result, progress)
+	cctx, summary := httpapi.Capture(ctx)
+	defer func() {
+		if summary.Method != "" {
+			out.HTTP = summary
+		}
+		if recover() != nil {
+			out.Result = nil
+			err = &cr.CallError{Category: "internal_error", Message: "tool execution failed"}
+		}
+	}()
+	out.Result, err = l.manager.engine.Call(cctx, l.entry.config.ID, l.entry.catalog, call.Name, call.Arguments)
 	if err == nil {
-		out.Result = &result
+		return out, nil
 	}
-	if progress != nil {
-		close(progress)
-		<-done
+	var safe *httpapi.Error
+	if !errors.As(err, &safe) {
+		return out, &cr.CallError{Category: "internal_error", Message: "tool execution failed"}
 	}
-	return out, err
+	category := safe.Category
+	if category == "input_validation" {
+		return out, &cr.CallError{Category: "invalid_arguments", Message: "invalid tool arguments"}
+	}
+	if category == "unknown_tool" {
+		return out, &cr.CallError{Category: "unknown_tool", Message: "unknown tool"}
+	}
+	uncertain := summary.Method == "POST" && (summary.RequestBodyBytes > 0 || summary.StatusCode != nil)
+	message := fmt.Sprintf("HTTP tool failed (%s)", category)
+	if uncertain {
+		message += "; write outcome is unconfirmed; do not automatically retry"
+	}
+	out.Failure = &cr.ExecutionFailure{Category: category, Message: message, OutcomeUncertain: uncertain}
+	out.Result = &basemcp.ToolResult{IsError: true, Content: []any{map[string]any{"type": "text", "text": message}}}
+	return out, nil
 }
 
 var _ cr.Resolver = (*Manager)(nil)

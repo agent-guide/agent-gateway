@@ -5,14 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/agent-guide/agent-gateway/internal/strictjson"
+	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"os"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/agent-guide/agent-gateway/internal/strictjson"
-	"github.com/agent-guide/agent-gateway/pkg/extension"
 
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
@@ -331,6 +330,7 @@ func (b *GatewayBundle) validate(_ bool) error {
 		// collected — virtual keys may restrict to routes of any kind.
 	}
 	connectorIDs := map[string]struct{}{}
+	connectorConfigs := map[string]connectorpkg.ConnectorConfig{}
 	for i := range b.Connectors {
 		b.Connectors[i].Normalize()
 		id := b.Connectors[i].ID
@@ -342,6 +342,7 @@ func (b *GatewayBundle) validate(_ bool) error {
 			errs.Append(fmt.Errorf("connectors[%q]: duplicate id", id))
 		} else {
 			connectorIDs[id] = struct{}{}
+			connectorConfigs[id] = b.Connectors[i]
 		}
 		if err := b.Connectors[i].Validate(); err != nil {
 			errs.Append(fmt.Errorf("connectors[%q]: %w", id, err))
@@ -488,6 +489,15 @@ func (b *GatewayBundle) validate(_ bool) error {
 		}
 		checkRefs("provider_id", agent.Resources.ProviderIDs, providerIDs, "providers")
 		checkRefs("connector_id", agent.Resources.ConnectorIDs, connectorIDs, "connectors")
+		if agent.Runtime.Builtin != nil {
+			for _, sel := range agent.Runtime.Builtin.ToolSelections() {
+				if cfg, ok := connectorConfigs[sel.ConnectorID]; ok {
+					if err := cfg.ValidateToolSelection(sel.Tools); err != nil {
+						errs.Append(fmt.Errorf("agents[%q]: %w", id, err))
+					}
+				}
+			}
+		}
 		checkRefs("virtual_key_id", agent.Resources.VirtualKeyIDs, virtualKeys, "virtualKeys")
 		checkRefs("llm_route_id", agent.Routes.LLMRouteIDs, routeIDs, "llmRoutes")
 		checkRefs("mcp_route_id", agent.Routes.MCPRouteIDs, mcpRouteIDs, "mcpRoutes")

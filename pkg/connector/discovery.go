@@ -55,6 +55,12 @@ func (m *Manager) ListToolsPage(ctx context.Context, id string, cursor string) (
 		return nil, err
 	}
 	defer done()
+	if v.catalog != nil {
+		if cursor != "" {
+			return nil, fmt.Errorf("HTTP tools do not paginate")
+		}
+		return &basemcp.ToolListResult{Tools: v.catalog.Tools()}, nil
+	}
 	var result listToolsResult
 	if err := m.callMethodWithRetryConfig(ctx, v.config, "tools/list", paginationParams(cursor), &result, nil); err != nil {
 		return nil, err

@@ -45,6 +45,7 @@ type Options struct {
 	CredentialRefreshCommand string
 	CredentialRefreshArgs    []string
 	AdminBasicAuthHash       string
+	HTTPAPIPolicyFile        string
 	Metrics                  distribution.MetricsConfig
 	MaxLLMRequestBodyBytes   int64
 }
@@ -219,6 +220,8 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (_ 
 	lifecycle.Runtime = agentGateway.CloseContext
 	if err := agentGateway.Bootstrap(ctx, gateway.BootstrapOptions{
 		ExtensionRegistry: opts.Registry, Distribution: opts.Assembly, EventPublisher: usageService,
+		HTTPClientObserver:  usageService.HTTPClientObserver,
+		HTTPAPIPolicyFile:   opts.HTTPAPIPolicyFile,
 		StaticLLMRoutes:     staticConfig.LLMRoutes,
 		StaticProviders:     staticConfig.Providers,
 		ConfigStoreBackend:  configstoreBackend,

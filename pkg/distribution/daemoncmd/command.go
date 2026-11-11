@@ -37,6 +37,7 @@ type ServerOptions struct {
 	CredentialRefreshCommand string
 	CredentialRefreshArgs    []string
 	AdminBasicAuthHash       string
+	HTTPAPIPolicyFile        string
 	Metrics                  distribution.MetricsConfig
 	MaxLLMRequestBodyBytes   int64
 }
@@ -79,7 +80,7 @@ func NewCommand(assembly Options) *cobra.Command {
 			defer stop()
 			return server.Run(ctx, server.Options{
 				MaxLLMRequestBodyBytes: opts.MaxLLMRequestBodyBytes,
-				Registry:               registry, Assembly: assembly.Assembly, Addr: opts.Addr, AdminAddr: opts.AdminAddr, ConfigStorePath: opts.ConfigStorePath, StaticConfigPath: opts.StaticConfigPath, ProviderTypes: opts.ProviderTypes, CredentialRefreshCommand: opts.CredentialRefreshCommand, CredentialRefreshArgs: opts.CredentialRefreshArgs, AdminBasicAuthHash: opts.AdminBasicAuthHash, Metrics: opts.Metrics,
+				Registry:               registry, Assembly: assembly.Assembly, Addr: opts.Addr, AdminAddr: opts.AdminAddr, ConfigStorePath: opts.ConfigStorePath, StaticConfigPath: opts.StaticConfigPath, ProviderTypes: opts.ProviderTypes, CredentialRefreshCommand: opts.CredentialRefreshCommand, CredentialRefreshArgs: opts.CredentialRefreshArgs, AdminBasicAuthHash: opts.AdminBasicAuthHash, Metrics: opts.Metrics, HTTPAPIPolicyFile: opts.HTTPAPIPolicyFile,
 			})
 		},
 	}
@@ -92,6 +93,7 @@ func NewCommand(assembly Options) *cobra.Command {
 	rootCmd.Flags().StringArrayVar(&opts.ProviderTypes, "provider-type", opts.ProviderTypes, "provider type enabled for this process; repeat to allow multiple types")
 	rootCmd.Flags().StringVar(&opts.CredentialRefreshCommand, "credential-refresh-command", opts.CredentialRefreshCommand, "external credential refresh executable (default: agw-auth)")
 	rootCmd.Flags().StringArrayVar(&opts.CredentialRefreshArgs, "credential-refresh-arg", opts.CredentialRefreshArgs, "static argument for the credential refresh executable; repeat as needed (default: refresh)")
+	rootCmd.Flags().StringVar(&opts.HTTPAPIPolicyFile, "http-api-policy-file", opts.HTTPAPIPolicyFile, "local HTTP API connector egress policy JSON file")
 	rootCmd.Flags().IntVar(&opts.Metrics.RetentionDays, "metrics-retention-days", opts.Metrics.RetentionDays, "retention window in days for persisted usage events")
 	rootCmd.Flags().IntVar(&opts.Metrics.MaxAgentDepth, "max-agent-depth", opts.Metrics.MaxAgentDepth, "maximum inbound X-Agent-Depth allowed before rejecting a request; 0 disables enforcement")
 	rootCmd.Flags().StringVar(&opts.Metrics.OTLP.Endpoint, "metrics-otlp-endpoint", opts.Metrics.OTLP.Endpoint, "OTLP collector endpoint (host:port or URL) for exporting usage events as spans; empty disables export")
@@ -99,6 +101,7 @@ func NewCommand(assembly Options) *cobra.Command {
 	rootCmd.Flags().BoolVar(&opts.Metrics.OTLP.Insecure, "metrics-otlp-insecure", opts.Metrics.OTLP.Insecure, "disable TLS for the OTLP exporter")
 	rootCmd.Flags().StringToStringVar(&opts.Metrics.OTLP.Headers, "metrics-otlp-header", opts.Metrics.OTLP.Headers, "header sent with every OTLP export request as name=value; repeat for multiple headers")
 	rootCmd.Flags().StringVar(&opts.Metrics.OTLP.ServiceName, "metrics-otlp-service-name", opts.Metrics.OTLP.ServiceName, "OTel resource service.name for exported spans (default agent-gateway)")
+	rootCmd.Flags().BoolVar(&opts.Metrics.OTLP.HTTPClientSpans, "metrics-otlp-http-client-spans", opts.Metrics.OTLP.HTTPClientSpans, "export HTTP connector request tracing spans")
 	rootCmd.Flags().BoolVar(&opts.Metrics.OTLP.Components, "metrics-otlp-components", opts.Metrics.OTLP.Components, "additionally export one span per eino chat-model component call, nested under the interaction span")
 
 	rootCmd.AddCommand(&cobra.Command{Use: "manifest", Short: "Show linked capabilities", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {

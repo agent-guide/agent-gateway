@@ -21,6 +21,7 @@ const (
 // trace/span/parent ids, so the exporter reconstructs the interaction span
 // tree post-hoc instead of running a live tracer.
 type OTLPConfig struct {
+	HTTPClientSpans bool `json:"http_client_spans,omitempty"`
 	// Endpoint is the collector address as host:port, or a full URL
 	// (scheme://host:port). Empty disables export.
 	Endpoint string `json:"endpoint,omitempty"`

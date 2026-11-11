@@ -11,6 +11,9 @@ func (m *Manager) Initialize(ctx context.Context, id string) (map[string]any, er
 		return nil, err
 	}
 	defer done()
+	if v.catalog != nil {
+		return map[string]any{"protocolVersion": latestProtocolVersion, "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]any{"name": "agent-gateway", "version": "dev"}}, nil
+	}
 	client, _, err := m.discoveryClientConfig(ctx, v.config)
 	if err != nil {
 		return nil, err

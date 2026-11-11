@@ -11,6 +11,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	"github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
+	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
 func referenceConnector(id string) connector.ConnectorConfig {
@@ -114,6 +115,60 @@ func TestConnectorDeletionProtectsDisabledPublishingRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := g.RouteConfigManager().Delete(ctx, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.ConnectorManager().Delete(ctx, "tools"); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestHTTPToolRemovalUsesStagedIndependentUpdates(t *testing.T) {
+	g, _, _ := controlPlaneGateway(t)
+	ctx := t.Context()
+	var cfg connector.ConnectorConfig
+	if err := json.Unmarshal([]byte(`{"id":"tools","name":"Tools","type":"http_api","http_api":{"base_url":"https://example.org","tools":[{"name":"old","description":"Old tool","input_schema":{"type":"object"},"request":{"method":"GET","path":"/old"}},{"name":"new","description":"New tool","input_schema":{"type":"object"},"request":{"method":"GET","path":"/new"}}]}}`), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.ConnectorManager().Create(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.ProviderManager().CreateConfig(ctx, provider.ProviderConfig{Id: "model-provider", ProviderType: "openai"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.RouteConfigManager().Create(ctx, providerRoute("chat", "model-provider"), ""); err != nil {
+		t.Fatal(err)
+	}
+	a := agent.Agent{ID: "worker", Name: "Worker", Disabled: true, Runtime: agent.Runtime{Type: agent.RuntimeTypeBuiltin, Builtin: &agent.BuiltinRuntime{Model: agent.BuiltinModel{LLMRouteID: "chat"}, Topology: agent.BuiltinTopology{Kind: agent.TopologyKindSingle}, Tools: []agent.BuiltinToolSelection{{ConnectorID: "tools", Tools: []string{"old"}}}}}, Routes: agent.Routes{LLMRouteIDs: []string{"chat"}}, Resources: agent.Resources{ConnectorIDs: []string{"tools"}}}
+	if err := g.agentManager.Create(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	cfg.HTTPAPI.Tools = cfg.HTTPAPI.Tools[1:]
+	if err := g.ConnectorManager().Update(ctx, cfg.ID, cfg); !errors.Is(err, ErrResourceReferenced) {
+		t.Fatalf("selected tool removal accepted: %v", err)
+	}
+	stored, _ := g.ConnectorManager().Get(ctx, "tools")
+	if len(stored.HTTPAPI.Tools) != 2 {
+		t.Fatal("rejected update changed catalog")
+	}
+	a.Runtime.Builtin.Tools[0].Tools = []string{"missing"}
+	if err := g.agentManager.Update(ctx, a.ID, a); !errors.Is(err, ErrDependencyNotConfigured) {
+		t.Fatalf("unknown selection accepted: %v", err)
+	}
+	a.Runtime.Builtin.Tools[0].Tools = []string{"new"}
+	if err := g.agentManager.Update(ctx, a.ID, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.ConnectorManager().Update(ctx, cfg.ID, cfg); !errors.Is(err, ErrResourceReferenced) {
+		t.Fatalf("execution edit while referenced: %v", err)
+	}
+	if err := g.ConnectorManager().Delete(ctx, "tools"); !errors.Is(err, ErrResourceReferenced) {
+		t.Fatal("selected Connector deletion accepted")
+	}
+	a.Runtime.Builtin.Tools = nil
+	a.Resources.ConnectorIDs = nil
+	if err := g.agentManager.Update(ctx, a.ID, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.ConnectorManager().Update(ctx, cfg.ID, cfg); err != nil {
 		t.Fatal(err)
 	}
 	if err := g.ConnectorManager().Delete(ctx, "tools"); err != nil {
