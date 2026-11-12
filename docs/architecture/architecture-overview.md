@@ -477,6 +477,18 @@ accept but ignore `codex`. Anthropic, Gemini and Ollama ignore this option witho
 strict validation. This setting is distinct from route ingress protocol and ACP
 runtime type; see the [support matrix](../design/provider-compatibility.md).
 
+Responses function namespaces are lowered at the provider execution boundary,
+not in generic route selection. The Responses-via-Chat adapter automatically
+uses immutable per-execution tool maps; native Responses keeps the original
+structure unless `options.responses_tool_namespaces` is `flatten` (`openai`,
+`grok`, `codex`). Deterministic bounded aliases distinguish namespace/name pairs
+and unscoped functions. Tool choice and explicit call history use the same map;
+ordinary output, SSE items and final response restore client identities.
+Raw JSON is structurally patched so unknown fields survive and stale aliases
+cannot bypass restoration. No provider-global mapping or session store is used.
+Unsupported semantics are rejected before upstream execution; see
+[namespace compatibility](../design/provider-compatibility.md#responses-tool-namespaces).
+
 Responses streams require a terminal event. EOF or `[DONE]` without one is a
 truncated stream, even after valid partial output. The OpenAI ingress preserves
 those deltas, emits an SSE error and records a failed interaction while retaining

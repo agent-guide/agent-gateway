@@ -32,6 +32,9 @@ func New(config provider.ProviderConfig) (provider.Provider, error) {
 	}
 	config.BaseURL = strings.TrimRight(config.BaseURL, "/")
 	config.Network.Defaults()
+	if _, err := provider.ResponsesNamespaceMode(config.Options); err != nil {
+		return nil, err
+	}
 
 	compactMode, err := provider.CompactModeFromOptions(config.Options)
 	if err != nil {
@@ -113,15 +116,37 @@ func (p *Provider) ListModels(_ context.Context) ([]provider.ModelInfo, error) {
 
 func (p *Provider) CreateResponses(ctx context.Context, req *provider.ResponsesRequest) (*provider.ResponsesResponse, error) {
 	p.ensureBase()
+	if err := p.validateResponsesNamespaces(req); err != nil {
+		return nil, err
+	}
 	return p.Base.DoCreateResponses(ctx, sanitizeResponsesRequest(req, p.ccCompat))
 }
 
 func (p *Provider) StreamResponses(ctx context.Context, req *provider.ResponsesRequest) (*schema.StreamReader[*provider.ResponsesStreamEvent], error) {
 	p.ensureBase()
+	if err := p.validateResponsesNamespaces(req); err != nil {
+		return nil, err
+	}
 	return p.Base.DoStreamResponses(ctx, sanitizeResponsesRequest(req, p.ccCompat))
 }
 
+// Validate the original request before Codex compatibility filtering can hide
+// unsupported tools or choices. Base still owns the execution's alias mapping.
+func (p *Provider) validateResponsesNamespaces(req *provider.ResponsesRequest) error {
+	mode, err := provider.ResponsesNamespaceMode(p.ProviderConfig.Options)
+	if err != nil {
+		return err
+	}
+	if mode == "flatten" {
+		_, _, err = provider.FlattenResponsesNamespaces(req)
+	}
+	return err
+}
+
 func sanitizeResponsesRequest(req *provider.ResponsesRequest, ccCompat bool) *provider.ResponsesRequest {
+	copy := *req
+	req = &copy
+	req.Tools = append([]provider.ResponsesToolDefinition(nil), req.Tools...)
 	// The Codex CLI backend is not a standard OpenAI Responses endpoint. The
 	// real CLI omits max_output_tokens and always disables storage; preserve
 	// that wire shape to avoid backend 400s from otherwise valid gateway fields.
@@ -150,16 +175,23 @@ func sanitizeResponsesInput(input any) any {
 func sanitizeResponsesInputValue(input any, role string) any {
 	switch v := input.(type) {
 	case []any:
+		v = append([]any(nil), v...)
 		for i := range v {
 			v[i] = sanitizeResponsesInputValue(v[i], role)
 		}
 		return v
 	case []map[string]any:
+		v = append([]map[string]any(nil), v...)
 		for i := range v {
 			v[i] = sanitizeResponsesInputValue(v[i], role).(map[string]any)
 		}
 		return v
 	case map[string]any:
+		copy := make(map[string]any, len(v))
+		for k, value := range v {
+			copy[k] = value
+		}
+		v = copy
 		itemRole := role
 		if r, _ := v["role"].(string); strings.TrimSpace(r) != "" {
 			itemRole = r
@@ -185,6 +217,14 @@ func sanitizeResponsesInputValue(input any, role string) any {
 func sanitizeResponsesTools(tools []provider.ResponsesToolDefinition) []provider.ResponsesToolDefinition {
 	out := tools[:0]
 	for i := range tools {
+		if tools[i].Type == "namespace" {
+			group := tools[i]
+			group.Tools = sanitizeResponsesTools(append([]provider.ResponsesToolDefinition(nil), group.Tools...))
+			if len(group.Tools) > 0 {
+				out = append(out, group)
+			}
+			continue
+		}
 		fn := tools[i].Function
 		if fn == nil {
 			if isUnsupportedHostedTool(tools[i].Type) || isUnsupportedHostedTool(tools[i].Name) {
@@ -205,10 +245,43 @@ func sanitizeResponsesTools(tools []provider.ResponsesToolDefinition) []provider
 		if len(tools[i].Parameters) == 0 {
 			tools[i].Parameters = fn.Parameters
 		}
-		tools[i].Function = nil
-		out = append(out, tools[i])
+		out = append(out, normalizeResponsesFunction(tools[i]))
 	}
 	return out
+}
+
+// Move nested function fields onto the Responses tool without discarding
+// semantics unknown to the typed projection. Invalid JSON is retained so that
+// request marshaling reports it rather than sending a partially normalized tool.
+func normalizeResponsesFunction(tool provider.ResponsesToolDefinition) provider.ResponsesToolDefinition {
+	raw, err := json.Marshal(tool)
+	if err != nil {
+		return tool
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return tool
+	}
+	var function map[string]json.RawMessage
+	if json.Unmarshal(fields["function"], &function) != nil {
+		return tool
+	}
+	for key, value := range function {
+		// Known fields already use the sanitizer's top-level precedence.
+		if key != "name" && key != "description" && key != "parameters" {
+			fields[key] = value
+		}
+	}
+	delete(fields, "function")
+	raw, err = json.Marshal(fields)
+	if err != nil {
+		return tool
+	}
+	var normalized provider.ResponsesToolDefinition
+	if json.Unmarshal(raw, &normalized) != nil {
+		return tool
+	}
+	return normalized
 }
 
 func isUnsupportedHostedTool(toolType string) bool {
@@ -247,6 +320,13 @@ func filterUnsupportedHostedToolChoice(raw json.RawMessage) json.RawMessage {
 func filterClaudeCodeStatefulTools(tools []provider.ResponsesToolDefinition) []provider.ResponsesToolDefinition {
 	out := tools[:0]
 	for _, tool := range tools {
+		if tool.Type == "namespace" {
+			tool.Tools = filterClaudeCodeStatefulTools(append([]provider.ResponsesToolDefinition(nil), tool.Tools...))
+			if len(tool.Tools) > 0 {
+				out = append(out, tool)
+			}
+			continue
+		}
 		if isClaudeCodeStatefulTool(responsesToolName(tool)) {
 			continue
 		}
@@ -277,7 +357,25 @@ func filterUnavailableToolChoice(raw json.RawMessage, tools []provider.Responses
 	if name == "" {
 		return raw
 	}
+	var choice struct {
+		Namespace string `json:"namespace"`
+	}
+	_ = json.Unmarshal(raw, &choice)
 	for _, tool := range tools {
+		if tool.Type == "namespace" {
+			if choice.Namespace != "" && choice.Namespace != tool.Name {
+				continue
+			}
+			for _, child := range tool.Tools {
+				if responsesToolName(child) == name {
+					return raw
+				}
+			}
+			continue
+		}
+		if choice.Namespace != "" {
+			continue
+		}
 		if strings.EqualFold(strings.TrimSpace(responsesToolName(tool)), strings.TrimSpace(name)) {
 			return raw
 		}
@@ -343,6 +441,11 @@ func isClaudeCodeStatefulTool(name string) bool {
 }
 
 func sanitizeResponsesText(text map[string]any) map[string]any {
+	textCopy := make(map[string]any, len(text))
+	for k, v := range text {
+		textCopy[k] = v
+	}
+	text = textCopy
 	format, _ := text["format"].(map[string]any)
 	if len(format) == 0 {
 		return text
@@ -350,6 +453,12 @@ func sanitizeResponsesText(text map[string]any) map[string]any {
 	if typ, _ := format["type"].(string); typ != "json_schema" {
 		return text
 	}
+	formatCopy := make(map[string]any, len(format))
+	for k, v := range format {
+		formatCopy[k] = v
+	}
+	format = formatCopy
+	text["format"] = format
 	if strings.TrimSpace(stringFromAny(format["name"])) == "" {
 		format["name"] = "response"
 	}

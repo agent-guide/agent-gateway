@@ -443,6 +443,24 @@ func (c providerCredential) toCredential() *credential.Credential {
 	}
 }
 
+func TestNamespaceRestorationFailureDoesNotRepeatGeneration(t *testing.T) {
+	hits := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"output":[{"type":"function_call","name":"unknown","call_id":"c","arguments":"{}"}]}`)
+	}))
+	defer server.Close()
+	base := NewBase(provider.ProviderConfig{BaseURL: server.URL, Options: map[string]any{"responses_tool_namespaces": "flatten"}})
+	req := &provider.ResponsesRequest{Input: "inspect", Tools: []provider.ResponsesToolDefinition{{Type: "namespace", Name: "browser", Tools: []provider.ResponsesToolDefinition{{Type: "function", Name: "get_status"}}}}}
+	if _, err := base.DoCreateResponses(t.Context(), req); err == nil {
+		t.Fatal("accepted unknown alias")
+	}
+	if hits != 1 {
+		t.Fatalf("generation retried %d times", hits)
+	}
+}
+
 func TestResponsesStreamRequiresTerminalEvent(t *testing.T) {
 	for _, tc := range []struct {
 		name, payload     string

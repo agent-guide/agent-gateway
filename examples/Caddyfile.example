@@ -20,6 +20,12 @@
 # Unconfirmed Agent/Provider writes expose GET .../{id}/mutation and
 # POST .../{id}/recover under their Admin family; recovery does not replay writes.
 #
+# Responses-via-Chat automatically flattens ordinary function namespaces with
+# reversible aliases. Native Responses providers (openai/grok/codex) preserve
+# them by default; set `option responses_tool_namespaces flatten` in a provider
+# block only when its native endpoint requires flat tools. This mode requires
+# explicit input history and rejects previous_response_id and non-function tools.
+#
 # Caddy module IDs:
 # - agent_gateway
 # - http.handlers.agent_gateway_admin (directive: agent_gateway_admin)

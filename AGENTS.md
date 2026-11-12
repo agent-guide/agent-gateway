@@ -159,6 +159,15 @@ Responsibilities:
 - convert HTTP payloads into `provider.ChatRequest`
 - convert provider responses back to protocol-specific JSON or SSE
 
+Responses function namespaces use reversible execution-local flattening in
+Responses-via-Chat; native Responses defaults to preservation. Native endpoint
+providers `openai`, `grok`, and `codex` accept
+`options.responses_tool_namespaces` (`native` or `flatten`). Never deduplicate
+same-name tools across namespaces. Rewrite choice/history and restore ordinary,
+SSE and final response identities, including raw JSON. Flattening requires
+explicit input history, never `previous_response_id`; custom/deferred/search
+semantics require a native path. See `pkg/llm/AGENTS.md`.
+
 The `cc` handler is the Claude Code CLI-compatible Anthropic Messages profile.
 Its currently declared ingress difference is the local `count_tokens` estimate
 shim. Keep future Claude Code CLI-specific ingress validation/defaults in this

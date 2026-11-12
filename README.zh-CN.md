@@ -154,6 +154,12 @@ Claude Code 的使用方式不同：它是专用 `cc` Anthropic Messages 入口 
 - **分发模式：**用于 Caddy Runtime 的 `agw`、独立守护进程 `agwd`，以及负责
   管理和校验的 `agwctl`。
 
+Responses 函数工具的 namespace 会保留完整身份，不同分组可以包含同名函数。
+Responses 转 Chat 时自动使用可逆别名展开工具；原生 Responses 默认保留 namespace。
+对于要求扁平工具的原生端点，可在 `openai`、`grok`、`codex` Provider 上设置
+`options.responses_tool_namespaces: "flatten"`。
+支持的转换和明确拒绝的语义见[namespace 兼容契约](docs/design/provider-compatibility.md#responses-tool-namespaces)。
+
 不同上游的 Provider 实现和协议保真能力并不相同。选择生产路径前，请查阅
 [Provider 指南](docs/guides/providers.md)、
 [Provider 选项参考](docs/reference/provider-option-reference.md)和

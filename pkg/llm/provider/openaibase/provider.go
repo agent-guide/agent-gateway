@@ -130,8 +130,12 @@ func (b *Base) Embedding(ctx context.Context, req *provider.EmbeddingRequest) (*
 // DoCreateResponses sends a minimal OpenAI-compatible request to POST /responses.
 // Providers should expose this only when the upstream actually supports it.
 func (b *Base) DoCreateResponses(ctx context.Context, req *provider.ResponsesRequest) (*provider.ResponsesResponse, error) {
-	return provider.RetryProviderCall(b.ProviderConfig.Network, func() (*provider.ResponsesResponse, error) {
-		httpReq, err := b.newResponsesRequest(ctx, req)
+	prepared, names, err := b.prepareResponsesNamespaces(req)
+	if err != nil {
+		return nil, err
+	}
+	out, err := provider.RetryProviderCall(b.ProviderConfig.Network, func() (*provider.ResponsesResponse, error) {
+		httpReq, err := b.newResponsesRequest(ctx, prepared)
 		if err != nil {
 			return nil, err
 		}
@@ -157,12 +161,20 @@ func (b *Base) DoCreateResponses(ctx context.Context, req *provider.ResponsesReq
 		out.RawJSON = append(json.RawMessage(nil), bytes.TrimSpace(rawBody)...)
 		return &out, nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return names.RestoreResponse(out)
 }
 
 // DoStreamResponses opens a minimal OpenAI-compatible responses SSE stream.
 // Providers should expose this only when the upstream actually supports it.
 func (b *Base) DoStreamResponses(ctx context.Context, req *provider.ResponsesRequest) (*schema.StreamReader[*provider.ResponsesStreamEvent], error) {
-	httpReq, err := b.newResponsesRequest(ctx, req)
+	prepared, names, err := b.prepareResponsesNamespaces(req)
+	if err != nil {
+		return nil, err
+	}
+	httpReq, err := b.newResponsesRequest(ctx, prepared)
 	if err != nil {
 		return nil, err
 	}
@@ -179,12 +191,14 @@ func (b *Base) DoStreamResponses(ctx context.Context, req *provider.ResponsesReq
 
 	sr, sw := schema.Pipe[*provider.ResponsesStreamEvent](16)
 	go b.readResponsesStream(resp.Body, sw)
-	return sr, nil
+	return schema.StreamReaderWithConvert(sr, names.RestoreEvent), nil
 }
 
 func (b *Base) newResponsesRequest(ctx context.Context, req *provider.ResponsesRequest) (*http.Request, error) {
 	if req.Model == "" {
-		req.Model = b.DefaultModel
+		copy := *req
+		copy.Model = b.DefaultModel
+		req = &copy
 	}
 	baseURL := strings.TrimRight(b.ProviderConfig.BaseURL, "/")
 	body, err := json.Marshal(req)
@@ -358,4 +372,15 @@ func (b *Base) setHeaders(req *http.Request) {
 	for k, v := range b.Network.ExtraHeaders {
 		req.Header.Set(k, v)
 	}
+}
+
+func (b *Base) prepareResponsesNamespaces(req *provider.ResponsesRequest) (*provider.ResponsesRequest, *provider.ResponsesToolNames, error) {
+	mode, err := provider.ResponsesNamespaceMode(b.ProviderConfig.Options)
+	if err != nil {
+		return nil, nil, err
+	}
+	if mode == "flatten" {
+		return provider.FlattenResponsesNamespaces(req)
+	}
+	return req, nil, nil
 }
