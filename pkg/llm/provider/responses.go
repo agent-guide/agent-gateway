@@ -44,17 +44,19 @@ type ResponsesToolDefinition struct {
 	Description string
 	Parameters  json.RawMessage
 	Function    *ResponsesToolFunction
+	Tools       []ResponsesToolDefinition
 	// raw retains the original tool object so unknown server-tool fields
 	// (for example web_search filters) survive round-trip to upstream.
 	raw json.RawMessage
 }
 
 type responsesToolDefinitionWire struct {
-	Type        string                 `json:"type"`
-	Name        string                 `json:"name,omitempty"`
-	Description string                 `json:"description,omitempty"`
-	Parameters  json.RawMessage        `json:"parameters,omitempty"`
-	Function    *ResponsesToolFunction `json:"function,omitempty"`
+	Type        string                    `json:"type"`
+	Name        string                    `json:"name,omitempty"`
+	Description string                    `json:"description,omitempty"`
+	Parameters  json.RawMessage           `json:"parameters,omitempty"`
+	Function    *ResponsesToolFunction    `json:"function,omitempty"`
+	Tools       []ResponsesToolDefinition `json:"tools,omitempty"`
 }
 
 func (t *ResponsesToolDefinition) UnmarshalJSON(data []byte) error {
@@ -68,6 +70,7 @@ func (t *ResponsesToolDefinition) UnmarshalJSON(data []byte) error {
 		Description: decoded.Description,
 		Parameters:  decoded.Parameters,
 		Function:    decoded.Function,
+		Tools:       decoded.Tools,
 		raw:         append(json.RawMessage(nil), data...),
 	}
 	return nil
@@ -80,6 +83,7 @@ func (t ResponsesToolDefinition) MarshalJSON() ([]byte, error) {
 		Description: t.Description,
 		Parameters:  t.Parameters,
 		Function:    t.Function,
+		Tools:       t.Tools,
 	})
 	if err != nil {
 		return nil, err
@@ -87,7 +91,7 @@ func (t ResponsesToolDefinition) MarshalJSON() ([]byte, error) {
 	if len(t.raw) == 0 {
 		return known, nil
 	}
-	return overlayJSONObject(t.raw, known, "type", "name", "description", "parameters", "function")
+	return overlayJSONObject(t.raw, known, "type", "name", "description", "parameters", "function", "tools")
 }
 
 func overlayJSONObject(base, overlay json.RawMessage, typedKeys ...string) (json.RawMessage, error) {
@@ -118,6 +122,27 @@ type ResponsesToolFunction struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	Parameters  json.RawMessage `json:"parameters,omitempty"`
+	raw         json.RawMessage
+}
+
+func (f *ResponsesToolFunction) UnmarshalJSON(data []byte) error {
+	type wire ResponsesToolFunction
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*f = ResponsesToolFunction(decoded)
+	f.raw = append(json.RawMessage(nil), data...)
+	return nil
+}
+
+func (f ResponsesToolFunction) MarshalJSON() ([]byte, error) {
+	type wire ResponsesToolFunction
+	known, err := json.Marshal(wire(f))
+	if err != nil || len(f.raw) == 0 {
+		return known, err
+	}
+	return overlayJSONObject(f.raw, known, "name", "description", "parameters")
 }
 
 // ResponsesResponse mirrors the OpenAI-compatible Responses API envelope.
@@ -139,6 +164,7 @@ type ResponsesResponseOutput struct {
 	Content   []ResponsesResponseContentPart  `json:"content,omitempty"`
 	CallID    string                          `json:"call_id,omitempty"`
 	Name      string                          `json:"name,omitempty"`
+	Namespace string                          `json:"namespace,omitempty"`
 	Arguments string                          `json:"arguments,omitempty"`
 	Summary   []ResponsesReasoningSummaryPart `json:"summary,omitempty"`
 }

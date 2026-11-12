@@ -48,6 +48,9 @@ func New(config provider.ProviderConfig) (provider.Provider, error) {
 	}
 	config.BaseURL = strings.TrimRight(config.BaseURL, "/")
 	config.Network.Defaults()
+	if _, err := provider.ResponsesNamespaceMode(config.Options); err != nil {
+		return nil, err
+	}
 	if _, err := provider.CompactModeFromOptions(config.Options); err != nil {
 		return nil, err
 	}

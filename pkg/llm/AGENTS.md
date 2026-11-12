@@ -123,6 +123,38 @@ that replay it across tool turns must keep the same upstream provider and model;
 candidate switching requires a route/session-level affinity design before the
 signature can be forwarded safely.
 
+## Responses tool namespaces
+
+`responses_namespace.go` owns immutable execution-local mappings between
+(namespace, function name) and deterministic bounded aliases. Unscoped functions
+remain distinct from scoped functions. Never discard a duplicate local name
+across groups; reject duplicate full identities and ambiguous choices.
+Responses-via-Chat automatically lowers function namespaces. Native Responses
+(`openai`, `grok`, `codex`) preserves them by default and strictly validates
+`options.responses_tool_namespaces` (`native|flatten`) for endpoint-specific
+lowering. Do not infer support from a vendor hostname or retry a failed request
+in another format.
+
+Lower definitions, forced/allowed choices and explicit historical calls together;
+restore function identities in normal output, SSE items and final response,
+including echoed tool definitions and choices. A post-generation restoration
+error must stop both provider retries and routed credential/model fallback.
+Patch RawJSON structurally while retaining unknown fields; typed-only updates
+must not leave raw aliases on the wire. Preserve IDs, arguments and tool outputs.
+History-only identities never become callable. Keep names stable across tool
+reordering/removal, retries and candidates; never mutate caller requests or
+store maps on shared providers. Buffer only incomplete streamed identities with
+bounded pending data, reject unknown/incomplete aliases, and release on close.
+
+Only ordinary function namespaces are lowered. Reject custom, nested, deferred
+or hosted/search semantics, invalid namespaces and `previous_response_id` on
+this path. The Chat bridge also rejects strict or unknown function semantics
+that its shared tool model cannot represent; native lowering preserves strict
+and unknown ordinary function fields. Allowed-tool sets are lowered for native
+Responses but rejected by Chat if not representable. Ordinary portable function
+namespaces do not add native-only route requirements. Preserve native advanced
+tools on the default native path.
+
 ## Scoped execution helper
 
 `provider/einochat` shares Generate/non-stream retries/error conversion/response

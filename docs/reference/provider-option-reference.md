@@ -56,6 +56,25 @@ Extra outbound request shaping:
 - `header <name> <value>` adds a persistent extra HTTP header
 - `option <key> <value>` sets provider-specific options and is parsed as strings in the Caddyfile
 
+## Responses Tool Namespaces
+
+For native Responses providers `openai`, `grok`, and `codex`:
+
+- `option responses_tool_namespaces native` preserves namespace definitions
+  (default).
+- `option responses_tool_namespaces flatten` sends ordinary namespace functions
+  as unique flat function aliases and restores names/namespaces in responses.
+- Values are case-sensitive; other values and non-string values are rejected.
+- Flattening requires explicit `input` history; `previous_response_id` is rejected.
+- Custom tools, nested namespaces, deferred discovery and hosted/search tools
+  combined with namespace flattening are rejected.
+
+Responses-via-Chat providers flatten ordinary function namespaces automatically.
+The Chat bridge rejects strict or unknown function semantics it cannot preserve,
+and does not implement allowed-tool sets or tool search.
+This option controls namespace shaping, independently of `compact` and HTTP
+client headers. See [the conversion contract](../design/provider-compatibility.md#responses-tool-namespaces).
+
 ## Built-In Provider Defaults
 
 - `openai`: `https://api.openai.com/v1`

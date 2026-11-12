@@ -62,3 +62,57 @@ policy is a separate configuration-contract change requiring raw inspection,
 offline repair for existing data, and coordinated parser/import/export/example
 updates. The runtime must not grow dual-read aliases for an ordinary field
 rename, and unknown options must not be advertised as effective governance.
+
+
+## Responses tool namespaces
+
+Capability status: **Implemented** for ordinary function namespaces.
+
+Native Responses providers (`openai`, `grok`, `codex`) retain namespace tools by
+default. `options.responses_tool_namespaces` accepts exactly `native` (default)
+or `flatten`, allowing an operator to select flat functions for a specific
+endpoint. Provider names and hostnames do not establish protocol support.
+Responses-via-Chat always lowers namespaces because the shared Chat tool model
+has no namespace identity.
+
+The identity is a namespace/name pair, with unscoped functions distinct from
+scoped functions. All functions in a lowered request receive deterministic
+ASCII aliases under 64 characters. The alias digest uses a structured identity,
+not delimiter concatenation or list order. Collisions fail validation, and
+original identities/descriptions remain in tool descriptions for model context.
+Duplicate full identities and duplicate namespace declarations are rejected;
+local names can repeat across groups. No first-wins deduplication is allowed.
+
+One immutable execution-local map lowers definitions, tool choice and historical
+calls and restores output identities. An unqualified forced choice resolves to
+an exact unscoped function or a unique scoped match; ambiguity fails. Native
+allowed-tool sets use the same mapping; Chat rejects sets it cannot represent.
+Historical identities are reconstructed from explicit input independently of
+current definitions, without making removed tools callable. No session store,
+global mapping, per-request configuration lookup or speculative upstream retry
+is introduced. `previous_response_id` is rejected when namespace lowering is
+needed because server-owned history cannot be safely rewritten.
+
+Native response echoes
+restore grouped tool definitions and qualified choices as well. Restoration
+errors after successful generation stop routed credential/model fallback;
+they must never trigger another generation.
+
+Responses items expose both `name` and `namespace`. Restore them in ordinary
+output, item-added/item-done SSE events and final completed output. Raw payloads
+are structurally patched as well as projected into typed fields; unknown fields
+and exact JSON numbers survive. IDs, arguments and function outputs are not
+renamed. Unknown upstream aliases and incomplete streamed names fail explicitly.
+Chat name fragments are buffered until an entire callable alias is known; the
+pending buffer is bounded to 1 MiB across at most 4096 calls, with names capped
+at 64 bytes. A name is never published partially. Response restoration errors do
+not trigger a second upstream generation.
+
+Lowering is limited to ordinary functions: custom tools, nested namespaces,
+`defer_loading: true`, and hosted/search tools mixed into a lowered request
+fail before upstream execution. The shared Chat bridge additionally rejects
+`strict: true` and unknown function fields that it cannot express; native
+lowering preserves strict and other ordinary function fields. Native paths
+continue carrying advanced tool structures unchanged. Portable function
+namespace lowering does not require native-only routing capabilities; future
+native-only requirements belong in the existing atomic protocol feature system.

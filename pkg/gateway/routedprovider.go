@@ -466,6 +466,10 @@ const (
 )
 
 func (p *RoutedProvider) classifyFailure(err error) failureAction {
+	var restoration *provider.ResponsesRestorationError
+	if errors.As(err, &restoration) {
+		return failureStop
+	}
 	status := statuserr.StatusCode(err, http.StatusBadGateway)
 	switch status {
 	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:

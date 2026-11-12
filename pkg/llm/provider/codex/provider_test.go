@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	anthropicapi "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/anthropic"
@@ -793,4 +796,122 @@ func TestResponsesEventStreamToMessageStreamCompletesOnResponseCompleted(t *test
 	}
 
 	sw.Close()
+}
+
+func TestNamespaceChoiceAndSanitizationPreserveCaller(t *testing.T) {
+	var req provider.ResponsesRequest
+	raw := []byte(`{"model":"fixture","max_output_tokens":128,"input":[{"role":"assistant","content":[{"type":"input_text","text":"x"}]}],"tools":[{"type":"namespace","name":"computer","tools":[{"type":"function","name":"get_status"}]}],"tool_choice":{"type":"function","namespace":"computer","name":"get_status"}}`)
+	if err := json.Unmarshal(raw, &req); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := json.Marshal(&req)
+	out := sanitizeResponsesRequest(&req, false)
+	if string(out.ToolChoice) != string(req.ToolChoice) {
+		t.Fatalf("qualified choice dropped: %s", out.ToolChoice)
+	}
+	after, _ := json.Marshal(&req)
+	if string(before) != string(after) {
+		t.Fatal("sanitizer mutated caller")
+	}
+}
+
+func TestFlattenNamespacesValidatesBeforeCodexFiltering(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	prov, err := New(provider.ProviderConfig{BaseURL: server.URL, Options: map[string]any{"responses_tool_namespaces": "flatten"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := prov.(*Provider)
+	for _, stream := range []bool{false, true} {
+		var req provider.ResponsesRequest
+		if err := json.Unmarshal([]byte(`{"input":"inspect","tools":[{"type":"namespace","name":"browser","tools":[{"type":"function","name":"status"}]},{"type":"tool_search"}]}`), &req); err != nil {
+			t.Fatal(err)
+		}
+		before, _ := json.Marshal(req)
+		if stream {
+			_, err = p.StreamResponses(context.Background(), &req)
+		} else {
+			_, err = p.CreateResponses(context.Background(), &req)
+		}
+		if err == nil || !strings.Contains(err.Error(), "cannot flatten tool type tool_search") {
+			t.Fatalf("stream=%v: expected flatten validation error, got %v", stream, err)
+		}
+		after, _ := json.Marshal(req)
+		if !bytes.Equal(before, after) {
+			t.Fatal("validation mutated caller")
+		}
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("rejected requests reached upstream %d times", calls.Load())
+	}
+}
+
+func TestCodexNamespaceSanitizationRetainsNativeSemantics(t *testing.T) {
+	for _, mode := range []string{"native", "flatten"} {
+		for _, streaming := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%v", mode, streaming), func(t *testing.T) {
+				var captured provider.ResponsesRequest
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+						t.Error(err)
+					}
+					if streaming {
+						w.Header().Set("Content-Type", "text/event-stream")
+						io.WriteString(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"output\":[]}}\n\n")
+					} else {
+						io.WriteString(w, `{"id":"r","output":[]}`)
+					}
+				}))
+				defer server.Close()
+				prov, err := New(provider.ProviderConfig{BaseURL: server.URL, Options: map[string]any{"responses_tool_namespaces": mode, "compact": "cc"}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				p := prov.(*Provider)
+				var req provider.ResponsesRequest
+				raw := []byte(`{"input":"inspect","tools":[{"type":"namespace","name":"Agent","tools":[{"type":"function","name":"status"},{"type":"function","name":"Task"}]},{"type":"function","function":{"name":"lookup","strict":true,"future_field":9007199254740993}}],"tool_choice":{"type":"function","namespace":"Agent","name":"status"}}`)
+				if err := json.Unmarshal(raw, &req); err != nil {
+					t.Fatal(err)
+				}
+				before, _ := json.Marshal(req)
+				if streaming {
+					stream, err := p.StreamResponses(t.Context(), &req)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer stream.Close()
+					for {
+						_, err := stream.Recv()
+						if err == io.EOF {
+							break
+						}
+						if err != nil {
+							t.Fatal(err)
+						}
+					}
+				} else if _, err := p.CreateResponses(t.Context(), &req); err != nil {
+					t.Fatal(err)
+				}
+				after, _ := json.Marshal(req)
+				if !bytes.Equal(before, after) {
+					t.Fatal("mutated caller")
+				}
+				if len(captured.Tools) != 2 || len(captured.ToolChoice) == 0 {
+					t.Fatalf("lost namespace or choice: %+v", captured)
+				}
+				if mode == "native" && (captured.Tools[0].Name != "Agent" || len(captured.Tools[0].Tools) != 1 || captured.Tools[0].Tools[0].Name != "status") {
+					t.Fatalf("wrong group filtering: %+v", captured.Tools[0])
+				}
+				wire, _ := json.Marshal(captured.Tools[1])
+				if !strings.Contains(string(wire), `"strict":true`) || !strings.Contains(string(wire), `"future_field":9007199254740993`) || strings.Contains(string(wire), `"function":`) {
+					t.Fatalf("lost nested fields: %s", wire)
+				}
+			})
+		}
+	}
 }

@@ -19,7 +19,16 @@ import (
 // CreateResponsesViaChat adapts a Responses API request onto the provider Chat API.
 // Providers opt into this compatibility path explicitly by calling this helper.
 func CreateResponsesViaChat(ctx context.Context, prov Provider, req *ResponsesRequest) (*ResponsesResponse, error) {
-	chatReq, err := ResponsesToChatRequest(req)
+	flat, names, err := FlattenResponsesNamespaces(req)
+	if err != nil {
+		return nil, err
+	}
+	if names != nil {
+		if err := validateFlattenedChatTools(flat); err != nil {
+			return nil, err
+		}
+	}
+	chatReq, err := responsesToChatRequest(flat)
 	if err != nil {
 		return nil, err
 	}
@@ -27,14 +36,23 @@ func CreateResponsesViaChat(ctx context.Context, prov Provider, req *ResponsesRe
 	if err != nil {
 		return nil, err
 	}
-	return ResponsesFromChatResponse(resp, chatReq.Model), nil
+	return names.RestoreResponse(ResponsesFromChatResponse(resp, chatReq.Model))
 }
 
 // StreamResponsesViaChat adapts a streaming Responses API request onto the provider
 // Chat stream API. Providers opt into this compatibility path explicitly by
 // calling this helper.
 func StreamResponsesViaChat(ctx context.Context, prov Provider, req *ResponsesRequest) (*schema.StreamReader[*ResponsesStreamEvent], error) {
-	chatReq, err := ResponsesToChatRequest(req)
+	flat, names, err := FlattenResponsesNamespaces(req)
+	if err != nil {
+		return nil, err
+	}
+	if names != nil {
+		if err := validateFlattenedChatTools(flat); err != nil {
+			return nil, err
+		}
+	}
+	chatReq, err := responsesToChatRequest(flat)
 	if err != nil {
 		return nil, err
 	}
@@ -43,6 +61,7 @@ func StreamResponsesViaChat(ctx context.Context, prov Provider, req *ResponsesRe
 		return nil, err
 	}
 
+	stream = names.prepareChatStream(stream)
 	sr, sw := schema.Pipe[*ResponsesStreamEvent](16)
 	go func() {
 		defer stream.Close()
@@ -130,6 +149,9 @@ func StreamResponsesViaChat(ctx context.Context, prov Provider, req *ResponsesRe
 					outputIndex = len(resp.Output) - 1
 					toolOutputIndexByKey[key] = outputIndex
 					toolOutputIndexes = append(toolOutputIndexes, outputIndex)
+					// Arguments are published through deltas; the added item
+					// starts empty even when the first chat chunk buffered bytes.
+					item.Arguments = ""
 					sw.Send(ResponsesOutputItemAddedEvent(outputIndex, &item), nil)
 				} else {
 					mergeToolCallInto(&resp.Output[outputIndex], tc)
@@ -141,7 +163,7 @@ func StreamResponsesViaChat(ctx context.Context, prov Provider, req *ResponsesRe
 			resp.Usage = responsesUsageFromMessage(chunk)
 		}
 	}()
-	return sr, nil
+	return schema.StreamReaderWithConvert(sr, names.RestoreEvent), nil
 }
 
 // toolCallKey returns a key that is stable across streamed tool-call deltas.
@@ -176,6 +198,19 @@ func mergeToolCallInto(item *ResponsesResponseOutput, tc schema.ToolCall) {
 
 // ResponsesToChatRequest converts a minimal Responses API request into ChatRequest.
 func ResponsesToChatRequest(req *ResponsesRequest) (*ChatRequest, error) {
+	flat, names, err := FlattenResponsesNamespaces(req)
+	if err != nil {
+		return nil, err
+	}
+	if names != nil {
+		if err := validateFlattenedChatTools(flat); err != nil {
+			return nil, err
+		}
+	}
+	return responsesToChatRequest(flat)
+}
+
+func responsesToChatRequest(req *ResponsesRequest) (*ChatRequest, error) {
 	if req == nil {
 		return nil, statuserr.New(http.StatusBadRequest, "invalid request")
 	}
@@ -208,11 +243,18 @@ func ResponsesToChatRequest(req *ResponsesRequest) (*ChatRequest, error) {
 		opts = append(opts, einomodel.WithMaxTokens(req.MaxOutputTokens))
 	}
 	if len(req.Tools) > 0 {
+		for _, tool := range req.Tools {
+			if tool.Type != "" && tool.Type != "function" {
+				return nil, namespaceError("tool type " + tool.Type + " requires native Responses support")
+			}
+		}
 		opts = append(opts, einomodel.WithTools(responsesToolDefsToToolInfos(req.Tools)))
 	}
 	if len(req.ToolChoice) > 0 {
 		if tc, names, ok := parseResponsesToolChoice(req.ToolChoice); ok {
 			opts = append(opts, einomodel.WithToolChoice(tc, names...))
+		} else {
+			return nil, namespaceError("tool_choice cannot be represented by Chat")
 		}
 	}
 	if ctx := responsesRequestContextFromRequest(req); ctx != nil {

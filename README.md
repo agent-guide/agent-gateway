@@ -173,6 +173,14 @@ VirtualKey authorization remain independent. Admin deletion rejects LLM and MCP 
 still referenced by an Agent. The check and deletion are serialized with Agent
 writes, which validate resource route existence and kind.
 
+Responses function namespaces retain distinct tool identities, including same-name
+functions in different groups. Responses-via-Chat flattens them with reversible
+aliases. Native Responses preserves namespaces by default; native endpoint
+providers (`openai`, `grok`, `codex`) accept
+`options.responses_tool_namespaces: "flatten"` for endpoints requiring flat tools.
+See [namespace compatibility](docs/design/provider-compatibility.md#responses-tool-namespaces)
+for supported conversions and explicit rejection boundaries.
+
 Provider implementations and protocol fidelity vary by upstream. Check the
 [provider guide](docs/guides/providers.md),
 [provider option reference](docs/reference/provider-option-reference.md), and
