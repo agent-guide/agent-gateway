@@ -337,7 +337,7 @@ func (h *Handler) dispatchLLM(w http.ResponseWriter, r *http.Request, next NextH
 		if prepared != nil {
 			model = prepared.Model()
 		}
-		status := RequestBodyErrorStatus(err, 0)
+		status := RequestBodyErrorStatus(err, statuserr.StatusCode(err, http.StatusBadRequest))
 		message := ""
 		if status == http.StatusRequestEntityTooLarge {
 			var bodyErr *http.MaxBytesError

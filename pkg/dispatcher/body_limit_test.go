@@ -156,3 +156,29 @@ func TestLLMRequestBodyLimitRejectsNegativeConfiguration(t *testing.T) {
 		t.Fatal("negative limit accepted")
 	}
 }
+
+func TestLLMMalformedRequestReturnsBadRequest(t *testing.T) {
+	for _, endpoint := range []struct {
+		name, path string
+		api        dispatcher.LLMApiHandler
+	}{
+		{"chat", "/v1/chat/completions", openai.NewHandler()},
+		{"responses", "/v1/responses", openai.NewHandler()},
+		{"messages", "/v1/messages", anthropic.NewHandler(nil)},
+		{"cc", "/v1/messages", cc.NewHandler(nil)},
+		{"count-tokens", "/v1/messages/count_tokens", cc.NewHandler(nil)},
+	} {
+		t.Run(endpoint.name, func(t *testing.T) {
+			g := bodyLimitGateway(t, endpoint.api.Name())
+			for _, body := range []string{"not json", `{"model":`, `{} {}`} {
+				api := &bodyLimitAPI{LLMApiHandler: endpoint.api}
+				h := dispatcher.NewHandler(g, map[string]dispatcher.LLMApiHandler{api.Name(): api}, nil, dispatcher.HandlerOptions{})
+				w := httptest.NewRecorder()
+				h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/probe"+endpoint.path, strings.NewReader(body)))
+				if w.Code != http.StatusBadRequest || api.prepared {
+					t.Fatalf("body=%q: status=%d prepared=%t response=%s", body, w.Code, api.prepared, w.Body.String())
+				}
+			}
+		})
+	}
+}
