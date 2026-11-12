@@ -49,6 +49,9 @@ runtime structure belongs in `docs/architecture/architecture-overview.md`.
 - Parent inner LLM and MCP spans under the builtin turn span and retain
   `agent_id`/`run_id` correlation. Permission resume starts a new trace linked
   to the checkpoint-producing span.
+- Custom factories receive observed model/tool dependencies too; do not
+  double-wrap factory tool calls. Merge cumulative streaming token snapshots
+  by field so later partial usage cannot erase input/cache usage.
 - Turn events use the shared vocabulary subset: `session`, `delta`, `content`,
   `tool_call`, `usage`, `permission`, `done`, `error`.
 - Register custom Go agents with `builtin.RegisterFactory`. Blank-import each

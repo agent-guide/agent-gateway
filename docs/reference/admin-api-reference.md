@@ -387,6 +387,14 @@ startup and by a periodic background janitor.
 - `GET /admin/agents/{id}/sessions`
 - `GET /admin/agents/{id}/sessions/{session_id}/transcript`
 
+`GET /admin/agents/{id}/usage` accepts `from`, `to`, and `bucket` and
+returns `llm`, `timeseries.llm`, `mcp`, `acp`, and `builtin` groups when historical
+queries are available. `builtin` groups by `operation` (`turn` or `resume`) and
+includes request/turn, success/failure counts and average latency in milliseconds;
+permission-expiry diagnostics are excluded. Builtin model tokens are included in
+`llm`, attributed to the executing Agent, including calls through custom factory
+dependencies.
+
 Agents are first-class management objects that bind an operator-facing identity
 to one runtime backend. Managed local Agents own ACP runtime config directly;
 builtin Agents are materialized in process.

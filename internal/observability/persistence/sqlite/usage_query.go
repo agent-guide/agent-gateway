@@ -158,6 +158,13 @@ func (q *UsageQueries) ACPSummary(opts usage.BreakdownOptions) (usage.BreakdownR
 	return q.breakdown(`acp_usage_events`, opts, acpGroups, acpMeasures)
 }
 
+// BuiltinSummary excludes permission-expiry diagnostics, matching Summary and
+// the unified interaction aggregates. Resumes remain separate operations.
+func (q *UsageQueries) BuiltinSummary(opts usage.BreakdownOptions) (usage.BreakdownResponse, error) {
+	return q.breakdown(`(SELECT * FROM builtin_usage_events WHERE COALESCE(operation, '') <> 'permission_expire') builtin_usage_events`, opts,
+		map[string]string{"operation": "operation", "route_id": "route_id", "runtime_type": "runtime_type", "run_id": "run_id"}, acpMeasures)
+}
+
 var interactionGroups = map[string]string{
 	"route_kind": "route_kind", "route_protocol": "route_protocol", "route_id": "route_id",
 	"virtual_key_id": "virtual_key_id", "runtime_type": "runtime_type",

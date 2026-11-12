@@ -13,7 +13,9 @@ import (
 )
 
 // FactoryDeps hands a custom factory the same gateway-governed building
-// blocks the declarative materializer uses.
+// blocks the declarative materializer uses. Model and tool execution through
+// these dependencies automatically emits Agent-attributed child usage events;
+// factories must not add a second usage event for the same call.
 type FactoryDeps struct {
 	Models ChatModelResolver
 	Tools  einotool.ToolCaller
