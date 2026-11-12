@@ -914,7 +914,7 @@ func usageEventData(msg *schema.Message) json.RawMessage {
 	raw, err := json.Marshal(map[string]int{
 		"input_tokens":  u.PromptTokens,
 		"output_tokens": u.CompletionTokens,
-		"total_tokens":  u.TotalTokens,
+		"total_tokens":  max(u.TotalTokens, u.PromptTokens+u.CompletionTokens),
 	})
 	if err != nil {
 		return nil

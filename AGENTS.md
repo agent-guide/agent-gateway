@@ -306,7 +306,9 @@ Implemented families:
 - MCP: `/admin/mcp/services/...`, `/admin/mcp/routes/...`, `/admin/mcp/runtime/...` (discovery, execution, dispatcher runtime inspection)
 - ACP: `/admin/acp/runtime/...` (native diagnostics keyed by `agent_id`)
 - builtin: `/admin/builtin/runtime/...`
-- agents: `/admin/agents/...` plus unified route CRUD under `/admin/agents/routes`
+- agents: `/admin/agents/...` plus unified route CRUD under `/admin/agents/routes`;
+  per-Agent usage includes builtin turn/resume counts and latency alongside
+  attributed LLM tokens, MCP calls and ACP operations
 - Agent and Provider mutation inspection/recovery: `GET /admin/agents/{id}/mutation`,
   `POST /admin/agents/{id}/recover`, `GET /admin/llm/providers/{id}/mutation`, and
   `POST /admin/llm/providers/{id}/recover`. Unconfirmed outcomes block new

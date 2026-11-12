@@ -60,6 +60,9 @@ func (m *observedModel) Generate(ctx context.Context, input []*schema.Message, o
 		span.Finish(usage.InteractionOutcome{Success: false, StatusCode: 502})
 		return nil, err
 	}
+	var tokens modelTokenUsage
+	tokens.add(out)
+	span.SetExtension(tokens.extension())
 	span.Finish(usage.InteractionOutcome{Success: true, StatusCode: 200})
 	return out, nil
 }
@@ -79,7 +82,7 @@ func (m *observedModel) Stream(ctx context.Context, input []*schema.Message, opt
 	go func() {
 		defer stream.Close()
 		defer sw.Close()
-		var tokens usage.LLMExtension
+		var tokens modelTokenUsage
 		success := true
 		for {
 			msg, recvErr := stream.Recv()
@@ -91,26 +94,12 @@ func (m *observedModel) Stream(ctx context.Context, input []*schema.Message, opt
 				sw.Send(nil, recvErr)
 				break
 			}
-			if msg != nil && msg.ResponseMeta != nil && msg.ResponseMeta.Usage != nil {
-				u := msg.ResponseMeta.Usage
-				total := u.TotalTokens
-				if total == 0 {
-					total = u.PromptTokens + u.CompletionTokens
-				}
-				tokens = usage.LLMExtension{
-					InputTokens:     usage.Int(u.PromptTokens),
-					OutputTokens:    usage.Int(u.CompletionTokens),
-					TotalTokens:     usage.Int(total),
-					CachedTokens:    usage.Int(u.PromptTokenDetails.CachedTokens),
-					ReasoningTokens: usage.Int(u.CompletionTokensDetails.ReasoningTokens),
-					UsageFinalized:  usage.Bool(u.PromptTokens > 0 || u.CompletionTokens > 0),
-				}
-			}
+			tokens.add(msg)
 			if closed := sw.Send(msg, nil); closed {
 				break
 			}
 		}
-		span.SetExtension(tokens)
+		span.SetExtension(tokens.extension())
 		if success {
 			span.Finish(usage.InteractionOutcome{Success: true, StatusCode: 200})
 		} else {
@@ -119,6 +108,38 @@ func (m *observedModel) Stream(ctx context.Context, input []*schema.Message, opt
 		}
 	}()
 	return sr, nil
+}
+
+// Stream usage fields are cumulative snapshots and may arrive separately (for
+// example, Anthropic input at message_start and output at message_delta).
+// Keep each field's high water mark; summing snapshots would double-count.
+type modelTokenUsage struct {
+	input, output, total, cached, reasoning int
+	seen                                    bool
+}
+
+func (u *modelTokenUsage) add(msg *schema.Message) {
+	if msg == nil || msg.ResponseMeta == nil || msg.ResponseMeta.Usage == nil {
+		return
+	}
+	v := msg.ResponseMeta.Usage
+	u.seen = true
+	u.input = max(u.input, v.PromptTokens)
+	u.output = max(u.output, v.CompletionTokens)
+	u.total = max(u.total, v.TotalTokens, u.input+u.output)
+	u.cached = max(u.cached, v.PromptTokenDetails.CachedTokens)
+	u.reasoning = max(u.reasoning, v.CompletionTokensDetails.ReasoningTokens)
+}
+
+func (u modelTokenUsage) extension() usage.LLMExtension {
+	if !u.seen {
+		return usage.LLMExtension{}
+	}
+	return usage.LLMExtension{
+		InputTokens: usage.Int(u.input), OutputTokens: usage.Int(u.output), TotalTokens: usage.Int(u.total),
+		CachedTokens: usage.Int(u.cached), ReasoningTokens: usage.Int(u.reasoning),
+		UsageFinalized: usage.Bool(u.total > 0),
+	}
 }
 
 func (m *observedModel) WithTools(tools []*schema.ToolInfo) (einomodel.ToolCallingChatModel, error) {

@@ -165,7 +165,9 @@ runtime flow and dependency boundaries.
   standalone daemon, and `agwctl` for management and validation.
 
 LLM routes can be shared by multiple Agents and direct API clients. Builtin
-model calls retain the executing Agent identity for usage; direct LLM calls
+model calls, including custom factory dependencies, retain the executing Agent
+identity for usage. `/admin/agents/{id}/usage` includes builtin turn/resume
+statistics alongside attributed LLM tokens and MCP calls; direct LLM calls
 without that identity are counted only at route level. Agent entry routes and
 VirtualKey authorization remain independent. Admin deletion rejects LLM and MCP routes
 still referenced by an Agent. The check and deletion are serialized with Agent

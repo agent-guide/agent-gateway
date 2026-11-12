@@ -541,6 +541,12 @@ func (h *Handler) handleGetAgentUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out["acp"] = acp
+	builtin, err := h.usageQuery.BuiltinSummary(usage.BreakdownOptions{From: from, To: to, GroupBy: "operation", Attribution: attribution})
+	if err != nil {
+		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	out["builtin"] = builtin
 	_ = httpjson.Write(w, http.StatusOK, out)
 }
 

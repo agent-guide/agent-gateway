@@ -96,7 +96,7 @@ func (h *Host) buildNode(ctx context.Context, agentID string, spec nodeSpec, inh
 		if !ok {
 			return nil, fmt.Errorf("builtin agent factory %q is not registered in this build", spec.topology.Factory)
 		}
-		return factory(ctx, FactoryDeps{Models: h.models, Tools: h.tools}, def)
+		return factory(ctx, h.factoryDeps(agentID), def)
 	case agent.TopologyKindSequential, agent.TopologyKindParallel, agent.TopologyKindLoop:
 		children, err := h.buildChildren(ctx, agentID, spec, inheritModel, def)
 		if err != nil {

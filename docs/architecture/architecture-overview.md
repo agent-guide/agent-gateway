@@ -333,6 +333,8 @@ Current status:
 - `pkg/agent/`
   - the external agent control plane: the `Agent` model, `agents` store, unified `AgentRoute.agent_id` ingress, and runtime-neutral capability APIs
   - `pkg/agent/builtin/` is the in-process eino ADK host for `runtime.type = "builtin"` agents and executes behind the same AgentRoute contract as ACP
+  - declarative nodes and custom factory dependencies open Agent-attributed LLM/MCP child spans; streaming usage retains each cumulative token field across partial snapshots
+  - `/admin/agents/{id}/usage` includes builtin counts and latency grouped by turn/resume operation, excluding permission-expiry diagnostics; tokens remain in the attributed LLM groups
   - composes the protocol subsystems and observes them; the protocol packages do not depend on it
 - `pkg/a2a/`
   - A2A Protocol 1.0 Card, JSON-RPC, client, and governed proxy primitives

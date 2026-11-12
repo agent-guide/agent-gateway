@@ -327,6 +327,8 @@ type recordingUsageQuery struct {
 	seriesOpts    usage.TimeseriesOptions
 	breakdownOpts usage.BreakdownOptions
 	seriesErr     error
+	builtinOpts   usage.BreakdownOptions
+	builtinErr    error
 }
 
 func (q *recordingUsageQuery) Summary() (usage.Summary, error) { return usage.Summary{}, nil }
@@ -364,6 +366,10 @@ func (q *recordingUsageQuery) ACPBreakdown(usage.BreakdownOptions) (usage.Breakd
 }
 func (q *recordingUsageQuery) ACPSummary(usage.BreakdownOptions) (usage.BreakdownResponse, error) {
 	return usage.BreakdownResponse{}, nil
+}
+func (q *recordingUsageQuery) BuiltinSummary(opts usage.BreakdownOptions) (usage.BreakdownResponse, error) {
+	q.builtinOpts = opts
+	return usage.BreakdownResponse{GroupBy: opts.GroupBy, Items: []map[string]any{{"group_value": "turn", "request_count": int64(2)}}}, q.builtinErr
 }
 func (q *recordingUsageQuery) InteractionsTimeseries(opts usage.TimeseriesOptions) (usage.SeriesResponse, error) {
 	q.seriesOpts = opts
@@ -582,7 +588,7 @@ func TestAgentUsageIncludesAttributedLLMTimeseries(t *testing.T) {
 	}
 	query := &recordingUsageQuery{}
 	h := &Handler{agentManager: manager, usageQuery: query}
-	req := httptest.NewRequest(http.MethodGet, "/admin/agents/coding-agent/usage?bucket=day", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/agents/coding-agent/usage?bucket=day&from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z", nil)
 	req.SetPathValue("id", "coding-agent")
 	rec := httptest.NewRecorder()
 
@@ -600,6 +606,27 @@ func TestAgentUsageIncludesAttributedLLMTimeseries(t *testing.T) {
 	if len(query.seriesOpts.Attribution.RouteIDs) != 0 {
 		t.Fatalf("shared LLM routes must not establish attribution: %#v", query.seriesOpts.Attribution.RouteIDs)
 	}
+	if query.builtinOpts.From != "2026-01-01T00:00:00Z" || query.builtinOpts.To != "2026-01-02T00:00:00Z" || query.builtinOpts.GroupBy != "operation" || query.builtinOpts.Attribution == nil || query.builtinOpts.Attribution.AgentID != "coding-agent" {
+		t.Fatalf("builtin opts = %+v", query.builtinOpts)
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	var builtin usage.BreakdownResponse
+	if err := json.Unmarshal(body["builtin"], &builtin); err != nil {
+		t.Fatal(err)
+	}
+	if len(builtin.Items) != 1 || builtin.Items[0]["request_count"] != float64(2) {
+		t.Fatalf("builtin response = %+v", builtin)
+	}
+	query.builtinErr = errors.New("builtin query failed")
+	rec = httptest.NewRecorder()
+	h.handleGetAgentUsage(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("builtin failure status = %d", rec.Code)
+	}
+
 }
 
 func TestMetricsTimeseriesResolvesAgentAttribution(t *testing.T) {
