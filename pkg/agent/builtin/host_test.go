@@ -9,13 +9,12 @@ import (
 	"testing"
 	"time"
 
-	einomodel "github.com/cloudwego/eino/components/model"
-	"github.com/cloudwego/eino/schema"
-
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/pkg/agent"
-	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
+	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
+	einomodel "github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 )
 
 // fakeChatModel scripts a sequence of assistant replies; when asked with tool
@@ -112,19 +111,31 @@ func (s *fakeAgentSource) Get(_ context.Context, id string) (agent.Agent, error)
 	return a, nil
 }
 
-type fakeToolCaller struct {
+type fakeToolResolver struct {
 	tools  []basemcp.Tool
 	result *basemcp.ToolResult
 	calls  int
 }
 
-func (f *fakeToolCaller) ListTools(_ context.Context, _ string) ([]basemcp.Tool, error) {
-	return f.tools, nil
+func (f *fakeToolResolver) Acquire(_ context.Context, id string) (cr.Lease, error) {
+	return fakeToolLease{f: f, id: id}, nil
 }
 
-func (f *fakeToolCaller) CallTool(_ context.Context, _, _ string, _ map[string]any, _ chan<- connectorpkg.UpstreamProgress) (*basemcp.ToolResult, error) {
-	f.calls++
-	return f.result, nil
+type fakeToolLease struct {
+	f  *fakeToolResolver
+	id string
+}
+
+func (l fakeToolLease) Descriptor() cr.Descriptor {
+	return cr.Descriptor{ConnectorID: l.id, Type: "mcp"}
+}
+func (l fakeToolLease) Close() error { return nil }
+func (l fakeToolLease) ListTools(context.Context) (cr.ToolCatalog, error) {
+	return cr.ToolCatalog{Tools: l.f.tools}, nil
+}
+func (l fakeToolLease) CallTool(context.Context, cr.ToolCall) (cr.CallOutcome, error) {
+	l.f.calls++
+	return cr.CallOutcome{Result: l.f.result}, nil
 }
 
 func testAgent(id string) agent.Agent {
@@ -346,7 +357,7 @@ func TestServeTurnToolLoopProducesChildSpans(t *testing.T) {
 		}
 		return schema.AssistantMessage("file says hi", nil)
 	}}
-	tools := &fakeToolCaller{
+	tools := &fakeToolResolver{
 		tools: []basemcp.Tool{{Name: "read_file", Description: "Read a file", InputSchema: map[string]any{
 			"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}},
 		}}},

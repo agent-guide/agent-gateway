@@ -35,7 +35,7 @@ import (
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	einomodelbridge "github.com/agent-guide/agent-gateway/pkg/llm/provider/einomodel"
-	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
+	mcptracking "github.com/agent-guide/agent-gateway/pkg/mcp/tracking"
 	einocomponentmodel "github.com/cloudwego/eino/components/model"
 	"go.uber.org/zap"
 )
@@ -87,7 +87,7 @@ type AgentGateway struct {
 	credentialScheduler credentialscheduler.CredentialScheduler
 	modelCatalog        modelcatalog.Service
 	connectorManager    *connectorpkg.Manager
-	mcpRuntimeRegistry  *mcpruntime.Registry
+	mcpRuntimeRegistry  *mcptracking.Registry
 	agentManager        *agentpkg.Manager
 	backends            *runtimebackend.Set
 	runtimeRegistry     *agentruntime.Registry
@@ -107,7 +107,7 @@ type AgentGateway struct {
 func NewAgentGateway() *AgentGateway {
 	return &AgentGateway{
 		configured:         false,
-		mcpRuntimeRegistry: mcpruntime.NewRegistry(),
+		mcpRuntimeRegistry: mcptracking.NewRegistry(),
 		runtimeRegistry:    agentruntime.NewRegistry(),
 		runRegistry:        agentruntime.NewRunRegistry(),
 		permissionBroker:   agentruntime.NewPermissionBroker(),
@@ -257,7 +257,7 @@ func (g *AgentGateway) CloseContext(ctx context.Context) (result error) {
 		result = errors.Join(result, g.connectorManager.CloseContext(shutdown))
 	}
 	g.connectorManager = nil
-	g.mcpRuntimeRegistry = mcpruntime.NewRegistry()
+	g.mcpRuntimeRegistry = mcptracking.NewRegistry()
 	result = errors.Join(result, g.backends.CloseContext(shutdown))
 	g.backends = nil
 	g.agentManager = nil
@@ -355,7 +355,7 @@ func (g *AgentGateway) ConnectorManager() *connectorpkg.Manager {
 	return g.connectorManager
 }
 
-func (g *AgentGateway) MCPRuntimeRegistry() *mcpruntime.Registry {
+func (g *AgentGateway) MCPRuntimeRegistry() *mcptracking.Registry {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.mcpRuntimeRegistry

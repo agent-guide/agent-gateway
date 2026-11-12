@@ -13,7 +13,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/connector/httpapi"
-	"github.com/agent-guide/agent-gateway/pkg/mcp/transport"
+	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
 	"github.com/google/uuid"
 )
 
@@ -23,7 +23,7 @@ type entry struct {
 	config      ConnectorConfig
 	catalog     *httpapi.Catalog
 	incarnation string
-	connect     chan struct{}
+	mcpTarget   *connectormcp.Target
 	token       string
 }
 type Manager struct {
@@ -33,8 +33,7 @@ type Manager struct {
 	changed    chan struct{}
 	closed     bool
 	closeOnce  sync.Once
-	closeDone  chan struct{}
-	closeErr   error
+	closeDone  <-chan struct{}
 	store      configstore.ConfigStore
 	pending    map[string]*pendingWrite
 	writeMu    sync.Mutex
@@ -42,28 +41,27 @@ type Manager struct {
 	entries    map[string]*entry
 	loaded     bool
 	generation uint64
-	engine     *httpapi.Engine
+	httpEngine *httpapi.Engine
 	// Guard is supplied by application coordination; it surrounds persistence
 	// and publication, including direct manager callers.
-	Guard            func(context.Context, string, *ConnectorConfig, func() error) error
-	mu               sync.Mutex
-	discoverySession map[string]*discoverySession
-	sessionsMu       sync.RWMutex
-	sessions         map[string]*GatewaySession
+	Guard     func(context.Context, string, *ConnectorConfig, func() error) error
+	mcpEngine *connectormcp.Engine
 }
 
 func NewManager(store configstore.ConfigStore) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	engine, _ := httpapi.NewEngine(httpapi.DefaultPolicy(), nil)
-	return &Manager{ctx: ctx, cancel: cancel, active: map[string]int{}, changed: make(chan struct{}), closeDone: make(chan struct{}), store: store, pending: map[string]*pendingWrite{}, entries: map[string]*entry{}, engine: engine, discoverySession: map[string]*discoverySession{}, sessions: map[string]*GatewaySession{}}
+	m := &Manager{ctx: ctx, cancel: cancel, active: map[string]int{}, changed: make(chan struct{}), store: store, pending: map[string]*pendingWrite{}, entries: map[string]*entry{}, httpEngine: engine}
+	m.mcpEngine = connectormcp.NewEngine(m.withExclusiveSession)
+	return m
 }
 
 // ConfigureHTTP installs host-owned policy and observers during assembly, before use.
 func (m *Manager) ConfigureHTTP(engine *httpapi.Engine) {
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
-	m.engine.Close()
-	m.engine = engine
+	m.httpEngine.Close()
+	m.httpEngine = engine
 }
 func cloneConfig(c ConnectorConfig) ConnectorConfig {
 	b, _ := json.Marshal(c)
@@ -89,13 +87,16 @@ func (m *Manager) prepare(c ConnectorConfig) (*entry, error) {
 	if e := c.Validate(); e != nil {
 		return nil, e
 	}
-	v := &entry{config: c, incarnation: uuid.NewString(), token: uuid.NewString(), connect: make(chan struct{}, 1)}
+	v := &entry{config: c, incarnation: uuid.NewString(), token: uuid.NewString()}
+	if c.Type == "mcp" {
+		v.mcpTarget = connectormcp.NewTarget(c.ID, *c.MCP)
+	}
 	if c.Type == "http_api" {
 		cat, e := httpapi.Compile(*c.HTTPAPI)
 		if e != nil {
 			return nil, e
 		}
-		if !m.engine.CanAdmit(cat) {
+		if !m.httpEngine.CanAdmit(cat) {
 			return nil, fmt.Errorf("HTTP destination denied by host policy")
 		}
 		v.catalog = cat
@@ -106,7 +107,7 @@ func (m *Manager) Refresh(ctx context.Context) error {
 	if m == nil || m.store == nil {
 		return ErrConnectorNotConfigured
 	}
-	var retired []*discoverySession
+	var retired []*connectormcp.Session
 	err := m.mutate(ctx, "", nil, func() error {
 		m.writeMu.Lock()
 		defer m.writeMu.Unlock()
@@ -116,7 +117,7 @@ func (m *Manager) Refresh(ctx context.Context) error {
 		}
 		next := map[string]*entry{}
 		for _, item := range items {
-			cfg, err := decodeServiceConfigItem("", item)
+			cfg, err := decodeConnectorConfigItem("", item)
 			if err != nil {
 				return err
 			}
@@ -228,7 +229,7 @@ func (m *Manager) write(ctx context.Context, id string, c ConnectorConfig, updat
 	if err := c.Validate(); err != nil {
 		return err
 	}
-	var retired []*discoverySession
+	var retired []*connectormcp.Session
 	err := m.mutate(ctx, id, &c, func() error {
 		m.writeMu.Lock()
 		defer m.writeMu.Unlock()
@@ -293,7 +294,7 @@ func (m *Manager) write(ctx context.Context, id string, c ConnectorConfig, updat
 				callbackErr = err
 				return err
 			}
-			authoritative, err := decodeServiceConfigItem(id, item)
+			authoritative, err := decodeConnectorConfigItem(id, item)
 			if err != nil || !sameDefinition(authoritative, c) {
 				callbackErr = fmt.Errorf("connector readback mismatch")
 				return callbackErr
@@ -342,7 +343,7 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	if e := m.ensure(ctx); e != nil {
 		return e
 	}
-	var retired []*discoverySession
+	var retired []*connectormcp.Session
 	err := m.mutate(ctx, id, nil, func() error {
 		m.writeMu.Lock()
 		defer m.writeMu.Unlock()
@@ -407,16 +408,6 @@ func (m *Manager) Close() {
 	_ = m.CloseContext(ctx)
 }
 
-type discoverySession struct {
-	cancel          context.CancelFunc
-	transport       transport.Caller
-	configSignature string
-	protocolVersion string
-	initialize      initializeResult
-	initializedAt   time.Time
-	lastUsedAt      time.Time
-}
-
 type storedConnectorConfig struct {
 	cfg any
 	tag string
@@ -430,13 +421,13 @@ func (c storedConnectorConfig) ConfigStoreTag() string {
 	return c.tag
 }
 
-func decodeServiceConfigItem(id string, item any) (ConnectorConfig, error) {
+func decodeConnectorConfigItem(id string, item any) (ConnectorConfig, error) {
 	cfg, ok := item.(*ConnectorConfig)
 	if !ok || cfg == nil || cfg.ID == "" {
 		if id == "" {
 			id = "<unknown>"
 		}
-		return ConnectorConfig{}, fmt.Errorf("mcp service %q has unexpected type %T", id, item)
+		return ConnectorConfig{}, fmt.Errorf("connector %q has unexpected type %T", id, item)
 	}
 	cloned := cloneConfig(*cfg)
 	return cloned, nil
@@ -483,10 +474,10 @@ func (m *Manager) State(ctx context.Context, id string) (State, error) {
 		s.Reasons = append(s.Reasons, "disabled")
 	}
 	if v.catalog != nil {
-		if !m.engine.Ready(id, v.catalog) {
+		if !m.httpEngine.Ready(id, v.catalog) {
 			s.Reasons = append(s.Reasons, "credential_unavailable")
 		}
-		if !m.engine.CanAdmit(v.catalog) {
+		if !m.httpEngine.CanAdmit(v.catalog) {
 			s.Reasons = append(s.Reasons, "egress_denied")
 		}
 	}

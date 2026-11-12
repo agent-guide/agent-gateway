@@ -1309,3 +1309,53 @@ Related documents:
 - [Observability](observability.md): event and export contracts.
 - [Control-plane consistency](control-plane-consistency.md): references, publication, and recovery.
 - [Enterprise extension contract](enterprise-extension-contract.md): protected interfaces and external distribution compatibility.
+
+
+## MCP executor package boundary
+
+Status: **Implemented**. `pkg/connector/mcp` and `pkg/connector/httpapi`
+separate upstream execution from Connector control-plane management.
+`pkg/connector/runtime` remains the common tool execution contract;
+`pkg/mcp/tracking` remains the independent ingress request registry.
+
+| Package | Ownership |
+| --- | --- |
+| `pkg/connector` | Persisted definitions, reference guards, mutation recovery, snapshots, generation/incarnation validation, shared admission and dispatch |
+| `pkg/connector/runtime` | Resolver/Lease, tool catalogs, calls, progress, outcomes and HTTP summaries |
+| `pkg/connector/mcp` | MCP configuration, initialization, discovery, tool/resource/prompt/completion execution, progress decoding, connector-scoped sessions and inspection |
+| `pkg/connector/httpapi` | HTTP configuration, schema/mapping compilation and HTTP tool execution |
+| `pkg/mcp` and `pkg/mcp/transport` | Protocol DTOs and wire transports |
+| `pkg/mcp/tracking` | MCP ingress cancellation, progress and bounded completion history |
+
+Manager composes concrete MCP and HTTP engines. Neither executor imports the
+root Connector package, Agents, Admin transports or ConfigStore. MCP connection
+and authentication types belong to `pkg/connector/mcp`; the persisted Connector
+envelope embeds `mcp.Config` without changing its JSON shape. There are no legacy
+root type aliases or generic pluggable backend registry. Resource, prompt,
+completion and initialization capabilities remain typed MCP methods rather than
+expanding the common tool Lease with protocol-specific capabilities.
+
+Manager is the sole admission and mutation authority. It registers work before
+queueing, including discovery and initialization, then passes an immutable MCP
+Target to the engine. A display-only update or unchanged Refresh retains the
+Target and its connection semaphore. Execution edits/deletion reject references
+or busy work; allowed edits detach sessions before reopening admission. Stale
+leases fail generation/incarnation checks before reaching either executor.
+
+The MCP engine owns network/process resources and session metadata.
+`ExclusiveRetirement` lets it request session retirement for reconnect or idle
+expiry: Manager checks competing active work and runs the in-memory detachment
+under its snapshot lock. The engine invokes this callback without its own locks
+and closes detached resources after Manager releases the admission lock. A busy
+boolean queried separately from detachment would race with admission and is
+therefore insufficient. Network I/O never runs under control-plane locks.
+
+Shutdown closes admission and cancels Manager-owned calls, then fences engine
+publication and cancels session lifetimes. Session closure runs asynchronously;
+Manager waits for resources and admitted work within the caller's budget and
+returns aggregated close/deadline errors. Late initialization cannot publish a
+session. Configuration remains GC-managed, leases own no sockets, and upstream
+sessions remain connector-scoped without caller isolation or simultaneous
+execution generations. MCP retains its existing retry policy; HTTP never enters
+MCP reconnect/retry paths. Ingress and builtin adapters retain logical usage
+ownership, Admin URLs and usage DTOs remain unchanged.

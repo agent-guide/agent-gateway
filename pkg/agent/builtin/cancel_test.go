@@ -101,7 +101,7 @@ func TestServeTurnForceCancel(t *testing.T) {
 	host := NewHost(Config{
 		Agents: &fakeAgentSource{agents: map[string]agent.Agent{"triage": interactiveAgent("triage")}},
 		Models: &fakeModelResolver{model: model},
-		Tools:  fetchDocCaller("x"),
+		Tools:  fetchDocResolver("x"),
 	})
 
 	sink := &collectedEvents{}

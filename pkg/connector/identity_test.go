@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/agent-guide/agent-gateway/pkg/connector"
+	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
 )
 
 func TestConnectorIdentityIsImmutableAndNameIsDisplayOnly(t *testing.T) {
@@ -14,7 +15,7 @@ func TestConnectorIdentityIsImmutableAndNameIsDisplayOnly(t *testing.T) {
 			ctx := t.Context()
 			manager := connector.NewManager(newTestConfigStore(t))
 			t.Cleanup(manager.Close)
-			cfg := connector.ConnectorConfig{ID: "Orders", Name: "Order system", Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportStdio, Command: "unused"}}
+			cfg := connector.ConnectorConfig{ID: "Orders", Name: "Order system", Type: "mcp", MCP: &connectormcp.Config{Transport: connector.TransportStdio, Command: "unused"}}
 			if kind == "http_api" {
 				cfg = httpConnector(t, "https://orders.example.com", "/lookup")
 				cfg.ID = "Orders"

@@ -16,7 +16,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
-	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
+	mcptracking "github.com/agent-guide/agent-gateway/pkg/mcp/tracking"
 	"github.com/agent-guide/agent-gateway/pkg/mcp/transport"
 )
 
@@ -285,10 +285,10 @@ func TestHandleProgressNotificationStoresState(t *testing.T) {
 		t.Fatalf("expected one progress notification, got %#v", progresses)
 	}
 	progress := progresses[0]
-	if progress.ProgressTokenKey != mcpruntime.RouteProgressTokenKey("route-1", "progress-1") {
+	if progress.ProgressTokenKey != mcptracking.RouteProgressTokenKey("route-1", "progress-1") {
 		t.Fatal("expected progress notification to be recorded")
 	}
-	if progress.RequestKey != mcpruntime.RouteRequestKey("route-1", "req-2") {
+	if progress.RequestKey != mcptracking.RouteRequestKey("route-1", "req-2") {
 		t.Fatalf("unexpected request key: %q", progress.RequestKey)
 	}
 	if progress.Message != "working" {

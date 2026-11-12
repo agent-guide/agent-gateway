@@ -4,9 +4,7 @@ import (
 	"context"
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
-	mcpservice "github.com/agent-guide/agent-gateway/pkg/connector"
-	"github.com/agent-guide/agent-gateway/pkg/connector/einotool"
-	"github.com/agent-guide/agent-gateway/pkg/mcp"
+	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"github.com/cloudwego/eino/components/model"
 )
 
@@ -41,27 +39,43 @@ func (r factoryModels) ResolveChatModel(ctx context.Context, routeID, name strin
 }
 
 type factoryTools struct {
-	einotool.ToolCaller
+	cr.Resolver
 	observer usage.InteractionObserver
 	agentID  string
 }
 
-func (t factoryTools) CallTool(ctx context.Context, id, name string, args map[string]any, progress chan<- mcpservice.UpstreamProgress) (*mcp.ToolResult, error) {
-	span, ctx := t.observer.Begin(ctx, childDims(ctx, "mcp", "", t.agentID))
-	span.SetExtension(usage.MCPExtension{ServiceID: id, Method: "tools/call", ToolName: name})
-	result, err := t.ToolCaller.CallTool(ctx, id, name, args, progress)
-	finishFactoryTool(span, result, err)
-	return result, err
+func (t factoryTools) Acquire(ctx context.Context, id string) (cr.Lease, error) {
+	lease, err := t.Resolver.Acquire(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return factoryLease{Lease: lease, observer: t.observer, agentID: t.agentID}, nil
 }
 
-func finishFactoryTool(span usage.InteractionSpan, result *mcp.ToolResult, err error) {
-	failed := err != nil || (result != nil && result.IsError)
+type factoryLease struct {
+	cr.Lease
+	observer usage.InteractionObserver
+	agentID  string
+}
+
+func (t factoryLease) CallTool(ctx context.Context, call cr.ToolCall) (cr.CallOutcome, error) {
+	descriptor := t.Descriptor()
+	span, cctx := t.observer.Begin(ctx, childDims(ctx, "mcp", "", t.agentID))
+	span.SetExtension(usage.MCPExtension{ServiceID: descriptor.ConnectorID, ConnectorType: descriptor.Type, Method: "tools/call", ToolName: call.Name})
+	outcome, err := t.Lease.CallTool(cctx, call)
+	span.SetExtension(usage.MCPExtension{HTTPExecution: outcome.HTTP})
+	failed := err != nil || (outcome.Result != nil && outcome.Result.IsError) || outcome.Failure != nil
 	if failed {
-		span.AddAnnotation("error_type", "tool_call_failed")
+		category := "tool_call_failed"
+		if outcome.Failure != nil {
+			category = outcome.Failure.Category
+		}
+		span.AddAnnotation("error_type", category)
 		span.SetExtension(usage.MCPExtension{ResultStatus: "error"})
 		span.Finish(usage.InteractionOutcome{Success: false, StatusCode: 502})
-		return
+	} else {
+		span.SetExtension(usage.MCPExtension{ResultStatus: "success"})
+		span.Finish(usage.InteractionOutcome{Success: true, StatusCode: 200})
 	}
-	span.SetExtension(usage.MCPExtension{ResultStatus: "success"})
-	span.Finish(usage.InteractionOutcome{Success: true, StatusCode: 200})
+	return outcome, err
 }

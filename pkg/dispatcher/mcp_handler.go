@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/agent-guide/agent-gateway/internal/strictjson"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"io"
 	"net/http"
 	"strings"
@@ -14,7 +12,10 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
+	"github.com/agent-guide/agent-gateway/internal/strictjson"
 	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
+	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
+	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
@@ -219,7 +220,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 			zap.String("service_id", route.ConnectorID),
 			zap.String("tool_name", strings.TrimSpace(name)),
 		)
-		progressCh := make(chan connectorpkg.UpstreamProgress, 64)
+		progressCh := make(chan connectormcp.UpstreamProgress, 64)
 		lease, err := serviceManager.Acquire(requestCtx, route.ConnectorID)
 		var result *basemcp.ToolResult
 		if err == nil {
@@ -227,7 +228,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 			var outcome cr.CallOutcome
 			outcome, err = lease.CallTool(requestCtx, cr.ToolCall{Name: strings.TrimSpace(name), Arguments: args, Progress: func(p cr.Progress) {
 				select {
-				case progressCh <- connectorpkg.UpstreamProgress{ProgressToken: p.ProgressToken, Progress: p.Progress, Total: p.Total, Message: p.Message}:
+				case progressCh <- connectormcp.UpstreamProgress{ProgressToken: p.ProgressToken, Progress: p.Progress, Total: p.Total, Message: p.Message}:
 				default:
 				}
 			}})
@@ -271,7 +272,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 			zap.String("service_id", route.ConnectorID),
 			zap.String("resource_uri", strings.TrimSpace(uri)),
 		)
-		progressCh := make(chan connectorpkg.UpstreamProgress, 64)
+		progressCh := make(chan connectormcp.UpstreamProgress, 64)
 		result, err := serviceManager.ReadResource(requestCtx, route.ConnectorID, strings.TrimSpace(uri), progressCh)
 		close(progressCh)
 		h.drainUpstreamProgress(route, progressCh)
@@ -302,7 +303,7 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 			zap.String("service_id", route.ConnectorID),
 			zap.String("prompt_name", strings.TrimSpace(name)),
 		)
-		progressCh := make(chan connectorpkg.UpstreamProgress, 64)
+		progressCh := make(chan connectormcp.UpstreamProgress, 64)
 		result, err := serviceManager.GetPrompt(requestCtx, route.ConnectorID, strings.TrimSpace(name), args, progressCh)
 		close(progressCh)
 		h.drainUpstreamProgress(route, progressCh)
@@ -389,7 +390,7 @@ func (h *Handler) beginRequest(parent context.Context, route *mcproute.MCPRoute,
 
 // drainUpstreamProgress reads all buffered upstream progress notifications and
 // stores them in the runtime registry so they are visible via the admin API.
-func (h *Handler) drainUpstreamProgress(route *mcproute.MCPRoute, ch <-chan connectorpkg.UpstreamProgress) {
+func (h *Handler) drainUpstreamProgress(route *mcproute.MCPRoute, ch <-chan connectormcp.UpstreamProgress) {
 	registry := h.mcpRuntimeRegistry()
 	if registry == nil || route == nil {
 		return

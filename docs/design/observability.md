@@ -9,7 +9,7 @@ This document describes the current design for unified audit logging and usage m
 It covers reliable capture, persistence, and query of request-level events and aggregated usage statistics for the gateway traffic implemented today:
 
 - LLM routes through `agent_route_dispatcher.llm_apis.openai`, `agent_route_dispatcher.llm_apis.anthropic`, and `agent_route_dispatcher.llm_apis.cc`
-- MCP routes through `agent_route_dispatcher` with MCP enabled, `pkg/dispatcher/mcp_handler.go`, `pkg/connector`, and `pkg/mcp/runtime`
+- MCP routes through `agent_route_dispatcher` with MCP enabled, `pkg/dispatcher/mcp_handler.go`, `pkg/connector`, and `pkg/mcp/tracking`
 - ACP and builtin execution through unified AgentRoutes with Agent dispatch
   enabled, `pkg/dispatcher/agent_handler.go`, and the runtime selected by the
   target Agent
@@ -38,7 +38,7 @@ The current implementation baseline is:
 - Agent dispatch resolves `pkg/gateway/agentroute.AgentRouteConfig`, stamps the
   target Agent directly, and selects ACP, builtin, HTTP, or native A2A event
   handling from the route protocol and resolved `runtime.type`
-- MCP runtime inspection uses the in-memory registry in `pkg/mcp/runtime/registry.go`
+- MCP runtime inspection uses the in-memory registry in `pkg/mcp/tracking/registry.go`
 - ACP runtime inspection uses `pkg/acp/host.Manager`
 - the persisted config backend is SQLite through `pkg/configstore/sqlite`
 - Admin API handlers live under `pkg/admin`
@@ -101,7 +101,7 @@ Every completed MCP JSON-RPC request produces one persisted usage event containi
 - policy attribution: presented tool name, executed tool name, execution mode, policy action when MCP tool policy is implemented
 - argument metadata: argument count only; full argument capture is opt-in per service
 
-The existing in-memory ring buffer in `pkg/mcp/runtime/registry.go` remains a fast real-time inspection surface for in-flight requests, progress, and bounded completed history. Durable audit persistence is owned by the metrics usage event pipeline, not by `CompletedRequest`.
+The existing in-memory ring buffer in `pkg/mcp/tracking/registry.go` remains a fast real-time inspection surface for in-flight requests, progress, and bounded completed history. Durable audit persistence is owned by the metrics usage event pipeline, not by `CompletedRequest`.
 
 ### 4.3 ACP Observability
 
@@ -471,7 +471,7 @@ tool_args_json      null unless audit.capture_tool_args is enabled
 until MCP tool policy is implemented; that layer populates them through
 `InteractionSpan.SetExtension` (see `mcp-tool-policy.md`).
 
-The existing `CompletedRequest` struct in `pkg/mcp/runtime/registry.go` remains a runtime inspection record. It may gain small display-oriented fields if needed, but it is not the canonical persisted audit event and should not be consumed by the SQLite sink. The dispatcher constructs `MCPUsageEvent` from the resolved route, virtual key, parsed JSON-RPC request, method-specific params, cancellation state, and upstream outcome.
+The existing `CompletedRequest` struct in `pkg/mcp/tracking/registry.go` remains a runtime inspection record. It may gain small display-oriented fields if needed, but it is not the canonical persisted audit event and should not be consumed by the SQLite sink. The dispatcher constructs `MCPUsageEvent` from the resolved route, virtual key, parsed JSON-RPC request, method-specific params, cancellation state, and upstream outcome.
 
 ### 7.2 MCP Error Categories
 
@@ -802,7 +802,7 @@ The shared entry records route match, route disabled, and virtual key failures w
 - keep the existing `beginRequest` cleanup for runtime inspection
 - independently finish `MCPUsageEvent` through the metrics span on upstream success, upstream error, validation error, cancellation, or unsupported method
 
-`pkg/mcp/runtime/registry.go`:
+`pkg/mcp/tracking/registry.go`:
 
 - remains the runtime inspection registry for in-flight requests, progress notifications, cancellation, and bounded completed request history
 - should not become the canonical persisted metrics schema

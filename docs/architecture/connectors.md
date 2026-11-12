@@ -29,6 +29,23 @@ argument parsing, validation, mapping and JSON responses. The executor does not
 retry HTTP requests. Known execution failures become safe tool-error results;
 a POST that may have been sent carries an unconfirmed-write explanation.
 
+`pkg/connector/mcp` owns MCP configuration, typed discovery/execution methods,
+initialization, progress decoding, cached connector-scoped sessions and session
+inspection. Manager admits calls and delegates to its MCP engine using an
+immutable Target; display edits and unchanged Refresh retain that Target and its
+connection semaphore. Reconnect and idle expiry request exclusive retirement:
+Manager checks competing work and detaches the session under its admission lock,
+then the engine closes the resource outside the lock. The engine fences late
+session publication on shutdown and retains close errors; Manager waits for both
+engine resource closure and its admitted work within the shutdown budget.
+
+Wire transports live in `pkg/mcp/transport`. The separate `pkg/mcp/tracking`
+package records ingress requests, cancellation, progress and bounded in-memory
+history; it owns no upstream execution or sessions. Admin inspection keeps
+`/admin/mcp/runtime` URLs. MCP configuration and session inspection Go types now
+belong to `pkg/connector/mcp`; stored Connector JSON and Admin payloads retain
+their existing shape.
+
 Both hosts accept the local `http_api_policy_file` setting (standalone flag
 `--http-api-policy-file`). The default permits public HTTPS on port 443.
 Explicit policies can grant internal endpoints. Each invocation resolves and
@@ -96,3 +113,30 @@ the host budget. Connector/host CloseContext returns close errors and deadline
 failures; late initialization cannot publish into a closed manager. Stdio closure
 closes stdin, waits briefly, then kills and reaps a non-exiting child. Cached session
 inspection reports closure. Configuration memory needs no resource reference count.
+
+Builtin and custom-factory tool dependencies both use `runtime.Resolver` and
+retained `Lease` execution. Factory observation decorates the Lease, preserving
+execution identity and complete outcomes, including HTTP summaries and uncertain
+writes. Tool bridge construction closes its lease if catalog/schema selection fails.
+
+Internal MCP tool catalogs and unpaged Admin discovery collect all pages, bounded
+to 100 pages and 10,000 tools. Repeated cursors, cancellation, page failures or
+limit exhaustion reject the whole catalog; never cache a partial catalog. External
+MCP ListToolsPage preserves one-page cursor/nextCursor semantics.
+
+MCP transport selection only constructs a client. One shared startup path connects,
+negotiates initialization, checks cancellation and publishes the session. Startup
+owns cleanup until cache handoff; the cache owns both accepted and rejected
+publication cleanup. Engine shutdown cancels initialization, and failed startup
+retains close errors without closing the same candidate twice.
+
+`httpapi.Engine.CallTool` is the HTTP tool execution entry point and returns
+`runtime.CallOutcome`. It owns summary capture, safe error classification, panic
+containment and uncertain-write results. Root leases retain admission and catalog
+validation, then delegate; raw HTTP execution and capture are package-private.
+
+Manager names its composed engines `httpEngine` and `mcpEngine`, and each MCP
+entry retains `mcpTarget`. Within the MCP engine, `upstreamSessions` holds owned
+resources while `sessionViews` holds inspection records. Domain helpers and
+errors use Connector terminology; historical usage `ServiceID`/`service_id`
+remain the persisted event contract.

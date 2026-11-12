@@ -61,3 +61,7 @@ runtime structure belongs in `docs/architecture/architecture-overview.md`.
 - Register custom Go agents with `builtin.RegisterFactory`. Blank-import each
   factory package in `cmd/agw/main.go`, `cmd/agwd/main.go`, and
   `cmd/agwctl/main.go`.
+
+Builtin tool bridges and custom factory dependencies use `connector/runtime.Resolver`
+and retained `Lease` exclusively. Observation wraps the Lease and preserves its
+descriptor, catalog, generation rejection and full CallOutcome; no ToolCaller fallback.

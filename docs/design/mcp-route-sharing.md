@@ -23,7 +23,7 @@ service ID, session ID or permission token establishes trusted identity.
 
 ## Concrete isolation constraint and handoff
 
-`pkg/connector/session.go` stores both discovery sessions and GatewaySession
+`pkg/connector/mcp/session.go` stores both discovery sessions and GatewaySession
 metadata by service ID. `operations.go`, callMethodWithRetry, obtains that same
 cached discoveryClient for tools/call, resources/read and prompts/get. Streamable
 HTTP, SSE and stdio transports carry upstream session/process state. The dispatcher

@@ -4,7 +4,7 @@
 
 This page describes the implemented MCP gateway architecture. The gateway
 terminates the client-facing MCP session, applies route and VirtualKey policy,
-and acts as a protocol-aware MCP client toward an upstream service. It does not
+and acts as a protocol-aware MCP client toward an upstream MCP server. It does not
 use Caddy `reverse_proxy` as the MCP execution engine.
 
 Tool policy decisions that are not yet shipped are defined separately in
@@ -17,15 +17,17 @@ MCP client
   -> http.handlers.agent_route_dispatcher (mcp enabled)
   -> pkg/dispatcher.Handler.dispatchMCP
   -> pkg/gateway/mcproute resolver
-  -> pkg/connector.Manager
+  -> pkg/connector.Manager (admission and execution-generation checks)
+  -> pkg/connector/mcp.Engine (protocol execution and sessions)
   -> pkg/mcp/transport (streamable HTTP, stdio, or legacy SSE)
   -> upstream MCP server or local process
 ```
 
 The shared `pkg/gateway/routecore` manager persists and matches LLM, MCP, and
 Agent routes. `pkg/gateway/mcproute` projects an MCP route from that common
-record and resolves its target `connector_id`. `pkg/connector` owns protocol
-execution and gateway-visible sessions. `pkg/mcp/transport` owns only
+record and resolves its target `connector_id`. `pkg/connector` owns configuration and shared
+admission; `pkg/connector/mcp` owns protocol execution and gateway-visible
+sessions. `pkg/mcp/transport` owns only
 transport-specific connection, framing, upstream request ids, and session
 handles.
 
@@ -40,13 +42,13 @@ with other route families and use:
 - optional VirtualKey admission;
 - a target policy containing the MCP `connector_id`.
 
-Service definitions select one upstream transport:
+Connector definitions select one upstream transport:
 
 - Streamable HTTP with a URL and optional upstream authentication;
 - stdio with a command, arguments, and controlled process environment;
 - legacy HTTP+SSE with stream and POST endpoints.
 
-Services and routes participate in Admin CRUD, GatewayBundle validation,
+Connectors and routes participate in Admin CRUD, GatewayBundle validation,
 export, and idempotent apply. Runtime sessions and request history are not
 configuration objects.
 
@@ -57,7 +59,7 @@ HTTP JSON-RPC request
   -> route match
   -> VirtualKey validation and rate-limit admission
   -> MCP envelope and method validation
-  -> service resolution
+  -> connector resolution
   -> initialize or reuse the upstream session
   -> execute through the selected transport
   -> write the MCP JSON-RPC response
@@ -75,13 +77,13 @@ roots, and the supported notification set. Pagination cursors and upstream
 
 The Streamable HTTP client performs initialization, retains
 `Mcp-Session-Id`, accepts JSON or SSE responses, and injects configured
-upstream authentication. Initialized clients are cached by the service layer.
+upstream authentication. Initialized clients are cached by the connector engine.
 
 ### stdio
 
 The stdio transport starts a local MCP process with `exec.CommandContext`,
 exchanges framed JSON-RPC over its pipes, and ties process lifetime to the
-gateway-managed session. It is a first-class service transport, not an HTTP
+gateway-managed session. It is a first-class connector transport, not an HTTP
 proxy fallback.
 
 ### Legacy SSE
@@ -92,13 +94,14 @@ It exists for MCP servers using the older HTTP+SSE transport shape.
 
 ## Sessions
 
-`pkg/connector` owns the gateway session lifecycle. Transport clients own
+`pkg/connector/mcp` owns upstream session resources, while Manager coordinates
+admission, mutation exclusion and bounded shutdown. Transport clients own
 upstream handles such as `Mcp-Session-Id`, but raw upstream ids are not the
-gateway's sole session identity. This separation lets the service layer close
+gateway's sole session identity. This separation lets the connector engine close
 or replace transports without changing route identity.
 
 Initialized sessions exist for Streamable HTTP, stdio, and legacy SSE. The
-Admin API exposes service session inspection at:
+Admin API exposes connector session inspection at:
 
 ```text
 GET /admin/connectors/{id}/sessions
@@ -106,7 +109,7 @@ GET /admin/connectors/{id}/sessions
 
 ## Runtime Tracking
 
-The shared MCP runtime registry tracks:
+The shared `pkg/mcp/tracking` ingress registry tracks:
 
 - in-flight requests;
 - cancellation state;
@@ -130,7 +133,7 @@ downstream progress stream.
 
 The dispatcher terminates caller authentication. A VirtualKey is validated
 against the matched route before the service executes. Upstream credentials
-belong to the service transport and are not copied from caller
+belong to the connector transport and are not copied from caller
 `Authorization` or `x-api-key` headers.
 
 Transport implementations do not own route authorization or tool policy.

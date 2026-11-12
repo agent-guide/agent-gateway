@@ -10,17 +10,16 @@ import (
 	"testing"
 	"time"
 
-	einomodel "github.com/cloudwego/eino/components/model"
-	"github.com/cloudwego/eino/schema"
-
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
 	"github.com/agent-guide/agent-gateway/pkg/acp/hostconfig"
 	"github.com/agent-guide/agent-gateway/pkg/agent"
 	builtinhost "github.com/agent-guide/agent-gateway/pkg/agent/builtin"
 	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
-	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
+	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
+	einomodel "github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 )
 
 func inlineACPRuntime(cfg hostconfig.Config) *agent.ACPRuntime {
@@ -614,13 +613,20 @@ func (m *hitlModel) WithTools(tools []*schema.ToolInfo) (einomodel.ToolCallingCh
 
 type hitlTools struct{ calls int }
 
-func (t *hitlTools) ListTools(context.Context, string) ([]basemcp.Tool, error) {
-	return []basemcp.Tool{{Name: "fetch_doc", Description: "Fetch", InputSchema: map[string]any{"type": "object"}}}, nil
-}
+func (t *hitlTools) Acquire(context.Context, string) (cr.Lease, error) { return hitlLease{t}, nil }
 
-func (t *hitlTools) CallTool(context.Context, string, string, map[string]any, chan<- connectorpkg.UpstreamProgress) (*basemcp.ToolResult, error) {
-	t.calls++
-	return &basemcp.ToolResult{Content: []any{map[string]any{"type": "text", "text": "tool output"}}}, nil
+type hitlLease struct{ t *hitlTools }
+
+func (l hitlLease) Descriptor() cr.Descriptor {
+	return cr.Descriptor{ConnectorID: "tools", Type: "mcp"}
+}
+func (l hitlLease) Close() error { return nil }
+func (l hitlLease) ListTools(context.Context) (cr.ToolCatalog, error) {
+	return cr.ToolCatalog{Tools: []basemcp.Tool{{Name: "fetch_doc", Description: "Fetch", InputSchema: map[string]any{"type": "object"}}}}, nil
+}
+func (l hitlLease) CallTool(context.Context, cr.ToolCall) (cr.CallOutcome, error) {
+	l.t.calls++
+	return cr.CallOutcome{Result: &basemcp.ToolResult{Content: []any{map[string]any{"type": "text", "text": "tool output"}}}}, nil
 }
 
 func TestBuiltinBackendRealCheckpointResumePreservesCommonSequenceAndSpanLink(t *testing.T) {

@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/configmgr"
+	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
 	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 )
 
@@ -119,31 +119,24 @@ func (m *Manager) admit(ctx context.Context, id, token string) (*entry, context.
 	}
 	return v, callCtx, done, nil
 }
-func (m *Manager) detachSession(id string) *discoverySession {
-	m.mu.Lock()
-	s := m.discoverySession[id]
-	delete(m.discoverySession, id)
-	m.mu.Unlock()
-	if s != nil {
-		m.setGatewaySessionState(id, SessionStateClosed)
-	}
-	return s
+func (m *Manager) detachSession(id string) *connectormcp.Session { return m.mcpEngine.Detach(id) }
+func (m *Manager) closeSessions(sessions []*connectormcp.Session) {
+	m.mcpEngine.CloseSessions(sessions)
 }
-func (m *Manager) closeSessions(sessions []*discoverySession) {
-	for _, s := range sessions {
-		if s == nil {
-			continue
-		}
-		if s.cancel != nil {
-			s.cancel()
-		}
-		if err := s.transport.Close(); err != nil {
-			m.snapshotMu.Lock()
-			m.closeErr = errors.Join(m.closeErr, fmt.Errorf("MCP session close failed: %w", err))
-			m.snapshotMu.Unlock()
-		}
+
+func (m *Manager) GetGatewaySession(id string) *connectormcp.GatewaySession {
+	if m == nil {
+		return nil
 	}
+	return m.mcpEngine.GetGatewaySession(id)
 }
+func (m *Manager) ListGatewaySessions() []connectormcp.GatewaySession {
+	if m == nil {
+		return nil
+	}
+	return m.mcpEngine.ListGatewaySessions()
+}
+
 func (m *Manager) CloseContext(ctx context.Context) error {
 	if m == nil {
 		return nil
@@ -153,32 +146,20 @@ func (m *Manager) CloseContext(ctx context.Context) error {
 		m.closed = true
 		m.cancel()
 		m.snapshotMu.Unlock()
-		m.engine.Close()
-		m.mu.Lock()
-		var sessions []*discoverySession
-		for id, s := range m.discoverySession {
-			sessions = append(sessions, s)
-			delete(m.discoverySession, id)
-		}
-		m.mu.Unlock()
-		m.sessionsMu.Lock()
-		for _, session := range m.sessions {
-			session.State = SessionStateClosed
-		}
-		m.sessionsMu.Unlock()
-		go func() { m.closeSessions(sessions); close(m.closeDone) }()
+		m.httpEngine.Close()
+		m.closeDone = m.mcpEngine.BeginClose()
 	})
 	for {
 		m.snapshotMu.RLock()
 		n := len(m.active)
 		changed := m.changed
-		err := m.closeErr
+		err := m.mcpEngine.CloseError()
 		m.snapshotMu.RUnlock()
 		if n == 0 {
 			select {
 			case <-m.closeDone:
 				m.snapshotMu.RLock()
-				err = m.closeErr
+				err = m.mcpEngine.CloseError()
 				m.snapshotMu.RUnlock()
 				return err
 			case <-ctx.Done():
@@ -193,15 +174,15 @@ func (m *Manager) CloseContext(ctx context.Context) error {
 	}
 }
 
-// A failing call may reconnect only when no other call owns the old session.
-func (m *Manager) retireFailedSession(id string) bool {
+// withExclusiveSession atomically checks competing work and detaches a session.
+// detach is in-memory only and never reenters Manager. Network close follows
+// after this method releases snapshotMu.
+func (m *Manager) withExclusiveSession(id string, detach func()) bool {
 	m.snapshotMu.Lock()
-	if m.active[id] > 1 {
-		m.snapshotMu.Unlock()
+	defer m.snapshotMu.Unlock()
+	if m.closed || m.active[id] > 1 {
 		return false
 	}
-	s := m.detachSession(id)
-	m.snapshotMu.Unlock()
-	m.closeSessions([]*discoverySession{s})
+	detach()
 	return true
 }

@@ -10,12 +10,13 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	"github.com/agent-guide/agent-gateway/pkg/connector"
+	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
 func referenceConnector(id string) connector.ConnectorConfig {
-	return connector.ConnectorConfig{ID: id, Name: "Tools", Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportStdio, Command: "unused"}}
+	return connector.ConnectorConfig{ID: id, Name: "Tools", Type: "mcp", MCP: &connectormcp.Config{Transport: connector.TransportStdio, Command: "unused"}}
 }
 func referencingAgent(id, connectorID string) agent.Agent {
 	return agent.Agent{ID: id, Name: "Worker", Disabled: true, Runtime: agent.Runtime{Type: agent.RuntimeTypeACP, ACP: &agent.ACPRuntime{AgentType: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"}}}, Resources: agent.Resources{ConnectorIDs: []string{connectorID}}}

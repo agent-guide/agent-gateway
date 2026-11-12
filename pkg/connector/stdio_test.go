@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/connector"
+	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
 	"github.com/agent-guide/agent-gateway/pkg/mcp/transport"
 )
 
@@ -79,7 +80,7 @@ func runFakeMCPServer() {
 func newFakeStdioConfig(id string) connector.ConnectorConfig {
 	return connector.ConnectorConfig{
 		ID:   id,
-		Name: "fake-stdio-" + id, Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportStdio,
+		Name: "fake-stdio-" + id, Type: "mcp", MCP: &connectormcp.Config{Transport: connector.TransportStdio,
 			Command: os.Args[0],
 			// -test.run=^$ ensures the subprocess runs TestMain and exits before
 			// any test function is executed.
@@ -96,7 +97,7 @@ func newInMemoryManager(t *testing.T, cfgs ...connector.ConnectorConfig) *connec
 	ctx := context.Background()
 	for _, cfg := range cfgs {
 		if err := mgr.Create(ctx, cfg); err != nil {
-			t.Fatalf("create service %q: %v", cfg.ID, err)
+			t.Fatalf("create connector %q: %v", cfg.ID, err)
 		}
 	}
 	return mgr
@@ -192,7 +193,7 @@ func TestStdioSessionSurvivesInitializingRequestCompletion(t *testing.T) {
 	if err := manager.CloseContext(closeCtx); err != nil {
 		t.Fatal(err)
 	}
-	if session := manager.GetGatewaySession(cfg.ID); session == nil || session.State != connector.SessionStateClosed {
+	if session := manager.GetGatewaySession(cfg.ID); session == nil || session.State != connectormcp.SessionStateClosed {
 		t.Fatal("shutdown retained ready subprocess session")
 	}
 }

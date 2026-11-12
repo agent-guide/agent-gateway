@@ -132,7 +132,7 @@ func TestServeTurnReductionClearsOldToolOutputs(t *testing.T) {
 			Function: schema.FunctionCall{Name: "fetch_doc", Arguments: `{"id":"x"}`},
 		}})
 	}}
-	tools := &fakeToolCaller{
+	tools := &fakeToolResolver{
 		tools: []basemcp.Tool{{Name: "fetch_doc", Description: "Fetch a document", InputSchema: map[string]any{
 			"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}},
 		}}},
@@ -211,7 +211,7 @@ func TestServeTurnToolSearchGatesDynamicTools(t *testing.T) {
 			}})
 		}
 	}}
-	tools := &fakeToolCaller{
+	tools := &fakeToolResolver{
 		tools: []basemcp.Tool{{Name: "fetch_doc", Description: "Fetch a document", InputSchema: map[string]any{
 			"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}},
 		}}},

@@ -25,7 +25,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
-	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
+	mcptracking "github.com/agent-guide/agent-gateway/pkg/mcp/tracking"
 	"go.uber.org/zap"
 )
 
@@ -48,7 +48,7 @@ type Handler struct {
 	virtualKeyManager        *virtualkeypkg.VirtualKeyManager
 	providerManager          *gateway.ProviderManager
 	modelCatalog             modelcatalog.Service
-	mcpRuntimeRegistry       *mcpruntime.Registry
+	mcpRuntimeRegistry       *mcptracking.Registry
 	acpRuntimeManager        *acphost.Manager
 	runtimeRegistry          *agentruntime.Registry
 	runRegistry              *agentruntime.RunRegistry
@@ -81,7 +81,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 	var virtualKeyManager *virtualkeypkg.VirtualKeyManager
 	var providerManager *gateway.ProviderManager
 	var modelCatalogSvc modelcatalog.Service
-	var mcpRuntimeRegistry *mcpruntime.Registry
+	var mcpRuntimeRegistry *mcptracking.Registry
 	var acpRuntimeManager *acphost.Manager
 	var runtimeRegistry *agentruntime.Registry
 	var runRegistry *agentruntime.RunRegistry

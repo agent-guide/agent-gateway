@@ -153,19 +153,19 @@ func (m *observedModel) WithTools(tools []*schema.ToolInfo) (einomodel.ToolCalli
 
 // observedTool begins a child "mcp" span around every tool execution.
 type observedTool struct {
-	inner     tool.InvokableTool
-	observer  usage.InteractionObserver
-	serviceID string
-	toolName  string
-	agentID   string
+	inner       tool.InvokableTool
+	observer    usage.InteractionObserver
+	connectorID string
+	toolName    string
+	agentID     string
 }
 
-func newObservedTool(inner tool.BaseTool, observer usage.InteractionObserver, serviceID, toolName, agentID string) tool.BaseTool {
+func newObservedTool(inner tool.BaseTool, observer usage.InteractionObserver, connectorID, toolName, agentID string) tool.BaseTool {
 	invokable, ok := inner.(tool.InvokableTool)
 	if !ok || observer == nil {
 		return inner
 	}
-	return &observedTool{inner: invokable, observer: observer, serviceID: serviceID, toolName: toolName, agentID: agentID}
+	return &observedTool{inner: invokable, observer: observer, connectorID: connectorID, toolName: toolName, agentID: agentID}
 }
 
 func (t *observedTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
@@ -175,12 +175,13 @@ func (t *observedTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 func (t *observedTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
 	span, cctx := t.observer.Begin(ctx, childDims(ctx, "mcp", "", t.agentID))
 	span.SetExtension(usage.MCPExtension{
-		ServiceID: t.serviceID,
+		ServiceID: t.connectorID,
 		Method:    "tools/call",
 		ToolName:  t.toolName,
 	})
 	var out string
 	var err error
+	errorType := "tool_call_failed"
 	if typed, ok := t.inner.(interface {
 		RunWithOutcome(context.Context, string, ...tool.Option) (string, cr.CallOutcome, error)
 		ConnectorType() string
@@ -189,14 +190,14 @@ func (t *observedTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 		out, outcome, err = typed.RunWithOutcome(cctx, argumentsInJSON, opts...)
 		span.SetExtension(usage.MCPExtension{ConnectorType: typed.ConnectorType(), HTTPExecution: outcome.HTTP})
 		if outcome.Failure != nil {
-			span.AddAnnotation("error_type", outcome.Failure.Category)
+			errorType = outcome.Failure.Category
 		}
 	} else {
 		out, err = t.inner.InvokableRun(cctx, argumentsInJSON, opts...)
 	}
 	if err != nil {
 		span.SetExtension(usage.MCPExtension{ResultStatus: "error"})
-		span.AddAnnotation("error_type", "tool_call_failed")
+		span.AddAnnotation("error_type", errorType)
 		span.Finish(usage.InteractionOutcome{Success: false, StatusCode: 502})
 		return "", err
 	}

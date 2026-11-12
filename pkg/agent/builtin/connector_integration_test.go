@@ -23,13 +23,13 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-type changingGenerationCaller struct {
-	*fakeToolCaller
+type changingGenerationResolver struct {
+	*fakeToolResolver
 	generation string
 	afterRead  func()
 }
 
-func (c *changingGenerationCaller) GenerationVector([]string) string {
+func (c *changingGenerationResolver) GenerationVector([]string) string {
 	generation := c.generation
 	if f := c.afterRead; f != nil {
 		c.afterRead = nil
@@ -40,7 +40,7 @@ func (c *changingGenerationCaller) GenerationVector([]string) string {
 
 func TestPermissionResumeRejectsReplacementConnectorGraph(t *testing.T) {
 	a := interactiveAgent("gated")
-	tools := &changingGenerationCaller{fakeToolCaller: fetchDocCaller("replacement"), generation: "original"}
+	tools := &changingGenerationResolver{fakeToolResolver: fetchDocResolver("replacement"), generation: "original"}
 	host := NewHost(Config{Agents: &fakeAgentSource{agents: map[string]agent.Agent{a.ID: a}}, Models: &fakeModelResolver{model: gatedToolModel()}, Tools: tools})
 	defer host.CloseContext(context.Background())
 	session, payload := suspendOneTurn(t, host, a.ID)
@@ -66,7 +66,7 @@ func TestPermissionSuspensionKeepsExecutingGraphGeneration(t *testing.T) {
 	for _, rotateAt := range []int{1, 2} {
 		t.Run(fmt.Sprintf("interrupt-%d", rotateAt), func(t *testing.T) {
 			a := interactiveAgent("gated")
-			tools := &changingGenerationCaller{fakeToolCaller: fetchDocCaller("original"), generation: "original"}
+			tools := &changingGenerationResolver{fakeToolResolver: fetchDocResolver("original"), generation: "original"}
 			step := 0
 			model := &fakeChatModel{script: func([]*schema.Message) *schema.Message {
 				step++
@@ -196,7 +196,7 @@ func TestHTTPConnectorApprovalAndObservation(t *testing.T) {
 func TestBuiltinDefinitionRetiresGraphsAndOnlyOldPermissions(t *testing.T) {
 	a := interactiveAgent("gated")
 	source := &fakeAgentSource{agents: map[string]agent.Agent{a.ID: a}}
-	host := NewHost(Config{Agents: source, Models: &fakeModelResolver{model: gatedToolModel()}, Tools: fetchDocCaller("x")})
+	host := NewHost(Config{Agents: source, Models: &fakeModelResolver{model: gatedToolModel()}, Tools: fetchDocResolver("x")})
 	defer host.CloseContext(context.Background())
 	host.PrepareDefinitions(t.Context(), []agent.Agent{a})()
 	_, old := suspendOneTurn(t, host, a.ID)

@@ -283,7 +283,13 @@ Restart or bounded ownership-cache eviction requires a new client conversation.
 
 HTTP API tools can be configured without an upstream MCP server. See the
 [HTTP API connector guide](docs/guides/http-api-connectors.md) and
-[connector runtime architecture](docs/architecture/connectors.md).
+[connector runtime architecture](docs/architecture/connectors.md). MCP ingress
+request, cancellation and progress tracking lives in `pkg/mcp/tracking`; shared
+Connector execution contracts live in `pkg/connector/runtime`. The parallel
+`pkg/connector/mcp` and `pkg/connector/httpapi` packages own upstream execution;
+Connector Manager owns shared admission and configuration changes. Builtin and
+custom factory tools use the same generation-bound execution leases. Internal
+MCP tool discovery includes every page; external MCP clients control pagination.
 
 Connectors use an immutable `id` for references and an editable `name` for display;
 changing the display name preserves Agent and route references.

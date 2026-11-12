@@ -9,6 +9,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
 	"github.com/google/uuid"
 )
 
@@ -69,7 +70,7 @@ func (m *Manager) CheckExecution(id string) error {
 	return nil
 }
 func (m *Manager) Recover(ctx context.Context, id string) error {
-	var retired []*discoverySession
+	var retired []*connectormcp.Session
 	defer func() { m.closeSessions(retired) }()
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
@@ -102,7 +103,7 @@ func (m *Manager) Recover(ctx context.Context, id string) error {
 	} else if err != nil {
 		return fail()
 	} else {
-		cfg, err := decodeServiceConfigItem(id, item)
+		cfg, err := decodeConnectorConfigItem(id, item)
 		if err != nil {
 			return fail()
 		}

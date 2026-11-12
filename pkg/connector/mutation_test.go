@@ -12,6 +12,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
 	"github.com/agent-guide/agent-gateway/pkg/connector"
+	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
 )
 
 type pausedMutationStore struct {
@@ -41,7 +42,7 @@ func TestConnectorShutdownFencesRecoveryPublication(t *testing.T) {
 	store := &pausedRecoveryStore{uncertainStore: &uncertainStore{testConfigStore: newTestConfigStore(t).(*testConfigStore)}, readStarted: make(chan struct{}), release: make(chan struct{})}
 	manager := connector.NewManager(store)
 	t.Cleanup(manager.Close)
-	cfg := connector.ConnectorConfig{ID: "tools", Name: "Tools", Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportStdio, Command: "unused"}}
+	cfg := connector.ConnectorConfig{ID: "tools", Name: "Tools", Type: "mcp", MCP: &connectormcp.Config{Transport: connector.TransportStdio, Command: "unused"}}
 	if err := manager.Create(t.Context(), cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +102,7 @@ func TestConnectorShutdownFencesCommittedMutationPublication(t *testing.T) {
 			store := &pausedMutationStore{testConfigStore: newTestConfigStore(t).(*testConfigStore), persisted: make(chan struct{}), release: make(chan struct{})}
 			manager := connector.NewManager(store)
 			t.Cleanup(manager.Close)
-			cfg := connector.ConnectorConfig{ID: "tools", Name: "Tools", Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportStdio, Command: "unused"}}
+			cfg := connector.ConnectorConfig{ID: "tools", Name: "Tools", Type: "mcp", MCP: &connectormcp.Config{Transport: connector.TransportStdio, Command: "unused"}}
 			if err := manager.Refresh(t.Context()); err != nil {
 				t.Fatal(err)
 			}

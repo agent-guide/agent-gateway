@@ -9,7 +9,7 @@ import (
 	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
-	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
+	mcptracking "github.com/agent-guide/agent-gateway/pkg/mcp/tracking"
 )
 
 type ConnectorConfig = connectorpkg.ConnectorConfig
@@ -17,9 +17,9 @@ type ConnectorView = adminapi.ConnectorView
 type MCPRoute = mcproute.MCPRoute
 type MCPRouteView = adminapi.MCPRouteView
 type MCPRuntimeView = adminapi.MCPDispatcherRuntimeView
-type MCPRuntimeInFlightRequest = mcpruntime.InFlightRequest
-type MCPRuntimeProgressNotification = mcpruntime.ProgressNotification
-type MCPRuntimeCompletedRequest = mcpruntime.CompletedRequest
+type MCPRuntimeInFlightRequest = mcptracking.InFlightRequest
+type MCPRuntimeProgressNotification = mcptracking.ProgressNotification
+type MCPRuntimeCompletedRequest = mcptracking.CompletedRequest
 type ConnectorSessionView = adminapi.GatewaySessionView
 type MCPTool = basemcp.Tool
 type MCPToolCallRequest = adminapi.MCPToolCallRequest

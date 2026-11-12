@@ -6,13 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cloudwego/eino/components/tool"
-
-	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
+	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
+	"github.com/cloudwego/eino/components/tool"
 )
 
-type fakeCaller struct {
+type fakeResolver struct {
 	tools      []basemcp.Tool
 	listErr    error
 	callErr    error
@@ -22,16 +21,24 @@ type fakeCaller struct {
 	calledArgs map[string]any
 }
 
-func (f *fakeCaller) ListTools(_ context.Context, id string) ([]basemcp.Tool, error) {
+func (f *fakeResolver) Acquire(_ context.Context, id string) (cr.Lease, error) {
 	f.calledID = id
-	return f.tools, f.listErr
+	return fakeLease{f}, nil
 }
 
-func (f *fakeCaller) CallTool(_ context.Context, id string, name string, args map[string]any, _ chan<- connectorpkg.UpstreamProgress) (*basemcp.ToolResult, error) {
-	f.calledID = id
-	f.calledName = name
-	f.calledArgs = args
-	return f.result, f.callErr
+type fakeLease struct{ f *fakeResolver }
+
+func (l fakeLease) Descriptor() cr.Descriptor {
+	return cr.Descriptor{ConnectorID: l.f.calledID, Type: "mcp"}
+}
+func (l fakeLease) Close() error { return nil }
+func (l fakeLease) ListTools(context.Context) (cr.ToolCatalog, error) {
+	return cr.ToolCatalog{Tools: l.f.tools}, l.f.listErr
+}
+func (l fakeLease) CallTool(_ context.Context, call cr.ToolCall) (cr.CallOutcome, error) {
+	l.f.calledName = call.Name
+	l.f.calledArgs = call.Arguments
+	return cr.CallOutcome{Result: l.f.result}, l.f.callErr
 }
 
 func testTools() []basemcp.Tool {
@@ -50,7 +57,7 @@ func testTools() []basemcp.Tool {
 }
 
 func TestToolsWrapsAndFiltersByName(t *testing.T) {
-	caller := &fakeCaller{tools: testTools()}
+	caller := &fakeResolver{tools: testTools()}
 	tools, err := Tools(t.Context(), caller, "svc-1", "read_file")
 	if err != nil {
 		t.Fatalf("Tools() error = %v", err)
@@ -78,14 +85,14 @@ func TestToolsWrapsAndFiltersByName(t *testing.T) {
 }
 
 func TestToolsMissingAllowlistedNameFails(t *testing.T) {
-	caller := &fakeCaller{tools: testTools()}
+	caller := &fakeResolver{tools: testTools()}
 	if _, err := Tools(t.Context(), caller, "svc-1", "renamed_tool"); err == nil {
 		t.Fatal("Tools() error = nil, want missing-tool error")
 	}
 }
 
 func TestInvokableRunPassesArgsAndFlattensText(t *testing.T) {
-	caller := &fakeCaller{
+	caller := &fakeResolver{
 		tools: testTools(),
 		result: &basemcp.ToolResult{
 			Content: []any{
@@ -118,7 +125,7 @@ func TestInvokableRunPassesArgsAndFlattensText(t *testing.T) {
 }
 
 func TestInvokableRunToolErrorFailsClosed(t *testing.T) {
-	caller := &fakeCaller{
+	caller := &fakeResolver{
 		tools: testTools(),
 		result: &basemcp.ToolResult{
 			IsError: true,
@@ -136,7 +143,7 @@ func TestInvokableRunToolErrorFailsClosed(t *testing.T) {
 }
 
 func TestInvokableRunUpstreamErrorPropagates(t *testing.T) {
-	caller := &fakeCaller{tools: testTools(), callErr: errors.New("upstream down")}
+	caller := &fakeResolver{tools: testTools(), callErr: errors.New("upstream down")}
 	tools, err := Tools(t.Context(), caller, "svc-1", "read_file")
 	if err != nil {
 		t.Fatalf("Tools() error = %v", err)

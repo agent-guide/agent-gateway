@@ -21,7 +21,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
-	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
+	mcptracking "github.com/agent-guide/agent-gateway/pkg/mcp/tracking"
 	"go.uber.org/zap"
 )
 
@@ -423,7 +423,7 @@ func loggerOrNop(h *Handler) *zap.Logger {
 	return zap.NewNop()
 }
 
-func (h *Handler) mcpRuntimeRegistry() *mcpruntime.Registry {
+func (h *Handler) mcpRuntimeRegistry() *mcptracking.Registry {
 	if h == nil || h.gateway == nil {
 		return nil
 	}

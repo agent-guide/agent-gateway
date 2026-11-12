@@ -17,6 +17,7 @@ import (
 	configstoreschema "github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	configstoresqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
 	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
+	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
 	"github.com/agent-guide/agent-gateway/pkg/credential"
 	dispatcherpkg "github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
@@ -29,7 +30,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/deepseek"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
-	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
+	mcptracking "github.com/agent-guide/agent-gateway/pkg/mcp/tracking"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -910,7 +911,7 @@ func TestLLMRouteCreateRejectsClientManagedTimestamps(t *testing.T) {
 // segment.
 func TestMCPRouteAutoIDIsSlashFreeAndAddressable(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		connectorStore: &testConnectorStore{items: map[string]*connectorpkg.ConnectorConfig{"svc-main": {ID: "svc-main", Name: "tools", Type: "mcp", MCP: &connectorpkg.MCPConfig{Transport: connectorpkg.TransportStdio, Command: "unused"}}}},
+		connectorStore: &testConnectorStore{items: map[string]*connectorpkg.ConnectorConfig{"svc-main": {ID: "svc-main", Name: "tools", Type: "mcp", MCP: &connectormcp.Config{Transport: connectorpkg.TransportStdio, Command: "unused"}}}},
 		routeStore:     &testMCPRouteStore{items: map[string]*routecore.RouteConfig{}},
 		agentStore:     newAgentConfigStore(),
 	}, nil, nil, nil, nil), nil)
@@ -994,7 +995,7 @@ func TestMCPRouteCreateRejectsSlashID(t *testing.T) {
 
 func TestMCPRouteCRUD(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
-		connectorStore: &testConnectorStore{items: map[string]*connectorpkg.ConnectorConfig{"svc-main": {ID: "svc-main", Name: "tools", Type: "mcp", MCP: &connectorpkg.MCPConfig{Transport: connectorpkg.TransportStdio, Command: "unused"}}}},
+		connectorStore: &testConnectorStore{items: map[string]*connectorpkg.ConnectorConfig{"svc-main": {ID: "svc-main", Name: "tools", Type: "mcp", MCP: &connectormcp.Config{Transport: connectorpkg.TransportStdio, Command: "unused"}}}},
 		routeStore:     &testMCPRouteStore{items: map[string]*routecore.RouteConfig{}},
 	}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
@@ -1178,7 +1179,7 @@ func TestGetMCPDispatcherRuntime(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode runtime response: %v", err)
 	}
-	if len(resp.InFlight) != 1 || resp.InFlight[0].RequestKey != mcpruntime.RouteRequestKey(routeID, "req-1") {
+	if len(resp.InFlight) != 1 || resp.InFlight[0].RequestKey != mcptracking.RouteRequestKey(routeID, "req-1") {
 		t.Fatalf("unexpected in-flight payload: %#v", resp.InFlight)
 	}
 	if len(resp.Progress) != 1 || resp.Progress[0].Progress != 3 {
@@ -1208,7 +1209,7 @@ func TestListMCPDispatcherHistory(t *testing.T) {
 		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusOK)
 	}
 	var resp struct {
-		Items []mcpruntime.CompletedRequest `json:"items"`
+		Items []mcptracking.CompletedRequest `json:"items"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode history response: %v", err)
@@ -1226,7 +1227,7 @@ func TestListMCPDispatcherHistory(t *testing.T) {
 		t.Fatalf("unexpected status: got %d want %d", rec2.Code, http.StatusOK)
 	}
 	var resp2 struct {
-		Items []mcpruntime.CompletedRequest `json:"items"`
+		Items []mcptracking.CompletedRequest `json:"items"`
 	}
 	if err := json.NewDecoder(rec2.Body).Decode(&resp2); err != nil {
 		t.Fatalf("decode filtered history response: %v", err)

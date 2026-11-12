@@ -16,7 +16,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/pkg/agent"
-	"github.com/agent-guide/agent-gateway/pkg/connector/einotool"
+	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 )
 
 const (
@@ -28,7 +28,7 @@ const (
 type Config struct {
 	Agents   AgentSource
 	Models   ChatModelResolver
-	Tools    einotool.ToolCaller
+	Tools    cr.Resolver
 	Observer usage.InteractionObserver
 }
 
@@ -47,7 +47,7 @@ type Host struct {
 	closeDone chan struct{}
 	agents    AgentSource
 	models    ChatModelResolver
-	tools     einotool.ToolCaller
+	tools     cr.Resolver
 	observer  usage.InteractionObserver
 
 	mu       sync.Mutex

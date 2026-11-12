@@ -48,8 +48,8 @@ func gatedToolModel() *fakeChatModel {
 	}}
 }
 
-func fetchDocCaller(output string) *fakeToolCaller {
-	return &fakeToolCaller{
+func fetchDocResolver(output string) *fakeToolResolver {
+	return &fakeToolResolver{
 		tools: []basemcp.Tool{{Name: "fetch_doc", Description: "Fetch a document", InputSchema: map[string]any{
 			"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}},
 		}}},
@@ -122,7 +122,7 @@ func TestPermissionResumePreservesRunAndLinksOriginalSpan(t *testing.T) {
 	host := NewHost(Config{
 		Agents:   &fakeAgentSource{agents: map[string]agent.Agent{"gated": interactiveAgent("gated")}},
 		Models:   &fakeModelResolver{model: gatedToolModel()},
-		Tools:    fetchDocCaller("x"),
+		Tools:    fetchDocResolver("x"),
 		Observer: observer,
 	})
 	originalTraceID := "11111111111111111111111111111111"
@@ -165,7 +165,7 @@ func TestPermissionResumePropagatesRunToInnerUsage(t *testing.T) {
 	host := NewHost(Config{
 		Agents:   &fakeAgentSource{agents: map[string]agent.Agent{"gated": interactiveAgent("gated")}},
 		Models:   &fakeModelResolver{model: gatedToolModel()},
-		Tools:    fetchDocCaller("resumed tool output"),
+		Tools:    fetchDocResolver("resumed tool output"),
 		Observer: observer,
 	})
 	turnSpan, turnCtx := observer.Begin(t.Context(), usage.InteractionDimensions{
@@ -216,7 +216,7 @@ func TestPermissionResumePropagatesRunToInnerUsage(t *testing.T) {
 }
 
 func TestServeTurnInteractiveInterruptAndResumeAllow(t *testing.T) {
-	tools := fetchDocCaller("TOOL OUTPUT MARKER")
+	tools := fetchDocResolver("TOOL OUTPUT MARKER")
 	// Recording happens inside the script closure: with tools configured, ADK
 	// binds via WithTools and the bound copy does not share the root model's
 	// request log.
@@ -351,7 +351,7 @@ func TestServeTurnInteractiveDenyAndUnansweredAreRefused(t *testing.T) {
 			{ID: "call-b", Type: "function", Function: schema.FunctionCall{Name: "fetch_doc", Arguments: `{"id":"b"}`}},
 		})
 	}}
-	tools := fetchDocCaller("SHOULD NOT RUN")
+	tools := fetchDocResolver("SHOULD NOT RUN")
 	host := NewHost(Config{
 		Agents: &fakeAgentSource{agents: map[string]agent.Agent{"gated": interactiveAgent("gated")}},
 		Models: &fakeModelResolver{model: model},
@@ -398,7 +398,7 @@ func TestServeTurnPermissionCancelDiscardsTheTurn(t *testing.T) {
 	host := NewHost(Config{
 		Agents: &fakeAgentSource{agents: map[string]agent.Agent{"gated": interactiveAgent("gated")}},
 		Models: &fakeModelResolver{model: model},
-		Tools:  fetchDocCaller("x"),
+		Tools:  fetchDocResolver("x"),
 	})
 
 	sessionID, payload := suspendOneTurn(t, host, "gated")
@@ -430,7 +430,7 @@ func TestServeTurnPermissionExpiryFailsClosed(t *testing.T) {
 	host := NewHost(Config{
 		Agents:   &fakeAgentSource{agents: map[string]agent.Agent{"gated": interactiveAgent("gated")}},
 		Models:   &fakeModelResolver{model: gatedToolModel()},
-		Tools:    fetchDocCaller("x"),
+		Tools:    fetchDocResolver("x"),
 		Observer: observer,
 	})
 	turnSpan, turnCtx := observer.Begin(t.Context(), usage.InteractionDimensions{
@@ -484,7 +484,7 @@ func TestServeTurnPermissionDefinitionUpdateInvalidates(t *testing.T) {
 	host := NewHost(Config{
 		Agents: source,
 		Models: &fakeModelResolver{model: gatedToolModel()},
-		Tools:  fetchDocCaller("x"),
+		Tools:  fetchDocResolver("x"),
 	})
 	sessionID, payload := suspendOneTurn(t, host, "gated")
 
@@ -510,7 +510,7 @@ func TestServeTurnPermissionCapacityFailsClosed(t *testing.T) {
 	host := NewHost(Config{
 		Agents: &fakeAgentSource{agents: map[string]agent.Agent{"gated": a}},
 		Models: &fakeModelResolver{model: gatedToolModel()},
-		Tools:  fetchDocCaller("x"),
+		Tools:  fetchDocResolver("x"),
 	})
 	suspendOneTurn(t, host, "gated")
 
@@ -527,7 +527,7 @@ func TestServeTurnPermissionCapacityFailsClosed(t *testing.T) {
 func TestServeTurnAutoApproveToolsBypassTheGate(t *testing.T) {
 	a := interactiveAgent("gated")
 	a.Runtime.Builtin.Permissions.AutoApproveTools = []string{"docs/fetch_doc"}
-	tools := fetchDocCaller("AUTO OK")
+	tools := fetchDocResolver("AUTO OK")
 	host := NewHost(Config{
 		Agents: &fakeAgentSource{agents: map[string]agent.Agent{"gated": a}},
 		Models: &fakeModelResolver{model: gatedToolModel()},

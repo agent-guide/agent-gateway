@@ -196,8 +196,8 @@ or a cross-cutting adapter for it (for example `caddy/admin`,
 - `pkg/acp/` — native ACP runtime (`codex`, `opencode`): pooling, sessions, permissions, transcripts → `pkg/acp/AGENTS.md`
 - `pkg/credential/` — cross-cutting credential model, persistence, scheduling, expiry detection, and external refresh transport → `pkg/credential/AGENTS.md`
 - `pkg/llm/` — provider interface/registry, built-in providers, and the `einomodel` eino bridge → `pkg/llm/AGENTS.md`
-- `pkg/connector/` — Connector model, catalogs, HTTP execution, MCP session adapters and builtin bridge → `pkg/connector/AGENTS.md`
-- `pkg/mcp/` — MCP protocol primitives, transports and ingress tracking → `pkg/mcp/AGENTS.md`
+- `pkg/connector/` — Connector management and shared admission, `httpapi/` and `mcp/` execution engines, `runtime/` common tool contracts and builtin bridge → `pkg/connector/AGENTS.md`
+- `pkg/mcp/` — MCP protocol primitives, `transport/` wire transports and `tracking/` ingress request tracking → `pkg/mcp/AGENTS.md`
 - `pkg/a2a/` — A2A Protocol 1.0 JSON-RPC (Path B translating client/backend and Path A governed native proxy are implemented) → `pkg/a2a/AGENTS.md`
 - `pkg/configstore/` — generic config store/backends (persisted backend: `sqlite`; stores `providers`, `credentials`, `routes`, `connectors`, `agents`, `virtual_keys`, `managed_models`, `extensions`) → `pkg/configstore/AGENTS.md`
 - `pkg/agent/` — agent control plane (`pkg/agent/runtime` contracts, `Agent` model, route/service → agent index) → `pkg/agent/AGENTS.md`; builtin eino ADK host → `pkg/agent/builtin/AGENTS.md`
@@ -225,6 +225,7 @@ Cross-cutting invariants:
   blocks LLM routes and Provider credentials and atomically removes its
   ManagedModels; no sequential fallback or secret cascade is permitted.
 
+- builtin tool dependencies, including custom factories, use Connector Resolver/Lease; observation must preserve full outcomes and execution identity. Internal MCP catalogs require bounded complete pagination; ingress keeps single-page semantics.
 - dependency direction: `pkg/agent` composes the LLM/MCP/ACP/metrics surfaces; the lower protocol packages (`pkg/llm`, `pkg/mcp`, `pkg/acp`, `pkg/a2a`) must not depend on `pkg/agent`
 - no config-store reads in per-request hot paths (provider resolution, route matching); manager snapshots are refreshed on mutation
 - route publication rejects equal-score intersecting matches across all kinds

@@ -1,8 +1,6 @@
-// Package einotool adapts gateway-managed MCP services (pkg/connector) to
-// eino tools, so gateway-governed MCP tools are directly consumable by
-// in-process eino agents and graphs without an HTTP loopback. Resource
-// governance (service config, auth, allowlisting by the caller) stays in the
-// gateway; execution stays in eino.
+// Package einotool adapts gateway-managed Connectors to eino tools without an
+// HTTP loopback. Connector Manager owns configuration and admission; the MCP
+// and HTTP engines execute calls through retained runtime leases.
 //
 // The adapter is a pure bridge: it does not record MCP usage events. In-process
 // callers own their observability span; the builtin agent runtime (see
@@ -14,59 +12,45 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/agent-guide/agent-gateway/internal/strictjson"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"strings"
 
+	"github.com/agent-guide/agent-gateway/internal/strictjson"
+	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"github.com/eino-contrib/jsonschema"
-
-	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
-	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 )
 
-// ToolCaller is the slice of *connector.Manager the adapter needs. It is an
-// interface so tests can stub the MCP service layer.
-type ToolCaller interface {
-	ListTools(ctx context.Context, id string) ([]basemcp.Tool, error)
-	CallTool(ctx context.Context, id string, name string, args map[string]any, progressCh chan<- connectorpkg.UpstreamProgress) (*basemcp.ToolResult, error)
-}
-
-var _ ToolCaller = (*connectorpkg.Manager)(nil)
-
-// Tools lists the MCP service's tools and wraps each as an eino
+// Tools lists the Connector's tools and wraps each as an eino
 // InvokableTool. When names is non-empty it acts as an allowlist and every
 // listed name must exist — a missing tool is an error, not a silent skip, so
 // an agent definition referencing a renamed tool fails loudly at
 // materialization time.
-func Tools(ctx context.Context, caller ToolCaller, serviceID string, names ...string) ([]tool.BaseTool, error) {
-	if caller == nil {
+func Tools(ctx context.Context, resolver cr.Resolver, connectorID string, names ...string) ([]tool.BaseTool, error) {
+	if resolver == nil {
 		return nil, fmt.Errorf("einotool: tool caller is nil")
 	}
-	serviceID = strings.TrimSpace(serviceID)
-	if serviceID == "" {
-		return nil, fmt.Errorf("einotool: service id is empty")
+	connectorID = strings.TrimSpace(connectorID)
+	if connectorID == "" {
+		return nil, fmt.Errorf("einotool: connector id is empty")
 	}
-	var pinned cr.Lease
-	var listed []basemcp.Tool
-	var err error
-	if resolver, ok := caller.(cr.Resolver); ok {
-		pinned, err = resolver.Acquire(ctx, serviceID)
-		if err == nil {
-			var catalog cr.ToolCatalog
-			catalog, err = pinned.ListTools(ctx)
-			listed = catalog.Tools
-		}
-	} else {
-		listed, err = caller.ListTools(ctx, serviceID)
-	}
+	pinned, err := resolver.Acquire(ctx, connectorID)
 	if err != nil {
-		if pinned != nil {
+		return nil, err
+	}
+	complete := false
+	defer func() {
+		if !complete {
 			_ = pinned.Close()
 		}
-		return nil, fmt.Errorf("einotool: list tools of service %q: %w", serviceID, err)
+	}()
+	catalog, err := pinned.ListTools(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("einotool: list tools of connector %q: %w", connectorID, err)
 	}
+	listed := catalog.Tools
+
 	byName := make(map[string]basemcp.Tool, len(listed))
 	for _, t := range listed {
 		byName[t.Name] = t
@@ -78,7 +62,7 @@ func Tools(ctx context.Context, caller ToolCaller, serviceID string, names ...st
 		for _, name := range names {
 			t, ok := byName[strings.TrimSpace(name)]
 			if !ok {
-				return nil, fmt.Errorf("einotool: tool %q not found in service %q", name, serviceID)
+				return nil, fmt.Errorf("einotool: tool %q not found in connector %q", name, connectorID)
 			}
 			selected = append(selected, t)
 		}
@@ -87,19 +71,18 @@ func Tools(ctx context.Context, caller ToolCaller, serviceID string, names ...st
 	for _, t := range selected {
 		info, err := toolInfo(t)
 		if err != nil {
-			return nil, fmt.Errorf("einotool: tool %q of service %q: %w", t.Name, serviceID, err)
+			return nil, fmt.Errorf("einotool: tool %q of connector %q: %w", t.Name, connectorID, err)
 		}
-		out = append(out, &invokableTool{lease: pinned, caller: caller, serviceID: serviceID, name: t.Name, info: info})
+		out = append(out, &invokableTool{lease: pinned, name: t.Name, info: info})
 	}
+	complete = true
 	return out, nil
 }
 
 type invokableTool struct {
-	lease     cr.Lease
-	caller    ToolCaller
-	serviceID string
-	name      string
-	info      *schema.ToolInfo
+	lease cr.Lease
+	name  string
+	info  *schema.ToolInfo
 }
 
 var _ tool.InvokableTool = (*invokableTool)(nil)
@@ -113,10 +96,7 @@ func (t *invokableTool) InvokableRun(ctx context.Context, arguments string, opts
 	return text, err
 }
 func (t *invokableTool) ConnectorType() string {
-	if t.lease != nil {
-		return t.lease.Descriptor().Type
-	}
-	return "mcp"
+	return t.lease.Descriptor().Type
 }
 func (t *invokableTool) RunWithOutcome(ctx context.Context, arguments string, _ ...tool.Option) (string, cr.CallOutcome, error) {
 	var args map[string]any
@@ -134,12 +114,7 @@ func (t *invokableTool) RunWithOutcome(ctx context.Context, arguments string, _ 
 	if err != nil {
 		return "", cr.CallOutcome{}, &cr.CallError{Category: "invalid_arguments", Message: "invalid tool arguments"}
 	}
-	var outcome cr.CallOutcome
-	if t.lease != nil {
-		outcome, err = t.lease.CallTool(ctx, cr.ToolCall{Name: t.name, Arguments: args})
-	} else {
-		outcome.Result, err = t.caller.CallTool(ctx, t.serviceID, t.name, args, nil)
-	}
+	outcome, err := t.lease.CallTool(ctx, cr.ToolCall{Name: t.name, Arguments: args})
 	if err != nil {
 		return "", outcome, err
 	}

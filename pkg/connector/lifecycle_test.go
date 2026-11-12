@@ -15,6 +15,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/connector/httpapi"
+	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
 	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 )
 
@@ -109,7 +110,7 @@ func TestMCPInitializationIsBusyAndMetadataDoesNotReconnect(t *testing.T) {
 	defer s.Close()
 	m := connector.NewManager(newTestConfigStore(t))
 	defer m.Close()
-	cfg := connector.ConnectorConfig{ID: "tools", Name: "Tools", Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportStreamableHTTP, URL: s.URL}}
+	cfg := connector.ConnectorConfig{ID: "tools", Name: "Tools", Type: "mcp", MCP: &connectormcp.Config{Transport: connector.TransportStreamableHTTP, URL: s.URL}}
 	if err := m.Create(t.Context(), cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +183,7 @@ func TestCloseDuringInitializationCannotPublishSession(t *testing.T) {
 	}))
 	defer s.Close()
 	m := connector.NewManager(newTestConfigStore(t))
-	cfg := connector.ConnectorConfig{ID: "mcp", Name: "MCP", Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportStreamableHTTP, URL: s.URL}}
+	cfg := connector.ConnectorConfig{ID: "mcp", Name: "MCP", Type: "mcp", MCP: &connectormcp.Config{Transport: connector.TransportStreamableHTTP, URL: s.URL}}
 	if err := m.Create(t.Context(), cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +198,7 @@ func TestCloseDuringInitializationCannotPublishSession(t *testing.T) {
 	if err := <-done; err == nil {
 		t.Fatal("cancelled discovery succeeded")
 	}
-	if session := m.GetGatewaySession(cfg.ID); session != nil && session.State == connector.SessionStateReady {
+	if session := m.GetGatewaySession(cfg.ID); session != nil && session.State == connectormcp.SessionStateReady {
 		t.Fatal("late initialization published ready")
 	}
 }
@@ -288,6 +289,8 @@ func TestBusyRefreshRetainsPublishedExecution(t *testing.T) {
 	}
 }
 
+// A failure on a reused session may reconnect only after competing admitted work
+// completes. This exercises the Manager/Engine retirement boundary through HTTP.
 func TestMCPReconnectPreservesCompetingCall(t *testing.T) {
 	held, release := make(chan struct{}), make(chan struct{})
 	var initializations, lists atomic.Int32
@@ -334,7 +337,7 @@ func TestMCPReconnectPreservesCompetingCall(t *testing.T) {
 	defer server.Close()
 	manager := connector.NewManager(newTestConfigStore(t))
 	defer manager.Close()
-	cfg := connector.ConnectorConfig{ID: "tools", Name: "Tools", Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportStreamableHTTP, URL: server.URL}}
+	cfg := connector.ConnectorConfig{ID: "tools", Name: "Tools", Type: "mcp", MCP: &connectormcp.Config{Transport: connector.TransportStreamableHTTP, URL: server.URL}}
 	if err := manager.Create(t.Context(), cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +358,7 @@ func TestMCPReconnectPreservesCompetingCall(t *testing.T) {
 	if heldErr != nil {
 		t.Fatalf("competing call interrupted: %v", heldErr)
 	}
-	if initializations.Load() != 1 || during == nil || during.ID != before.ID || during.State != connector.SessionStateReady {
+	if initializations.Load() != 1 || during == nil || during.ID != before.ID || during.State != connectormcp.SessionStateReady {
 		t.Fatalf("shared session replaced: %#v", during)
 	}
 	// The next failure has sole ownership and may reconnect once.
@@ -365,5 +368,42 @@ func TestMCPReconnectPreservesCompetingCall(t *testing.T) {
 	after := manager.GetGatewaySession(cfg.ID)
 	if initializations.Load() != 2 || after == nil || after.ID == before.ID {
 		t.Fatalf("missing exclusive reconnect: %#v", after)
+	}
+}
+
+func TestMCPLeaseRetainsDisplayGenerationAndRejectsExecutionReplacement(t *testing.T) {
+	cfg := newFakeSSEConfig(t, "lease-generation")
+	manager := newInMemoryManager(t, cfg)
+	lease, err := manager.Acquire(t.Context(), cfg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Close()
+	if _, err = lease.ListTools(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	before := manager.GetGatewaySession(cfg.ID)
+	cfg.Name = "Renamed"
+	if err = manager.Update(t.Context(), cfg.ID, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err = manager.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = lease.ListTools(t.Context()); err != nil {
+		t.Fatalf("display edit invalidated lease: %v", err)
+	}
+	if got := manager.GetGatewaySession(cfg.ID); got.ID != before.ID {
+		t.Fatal("display edit/Refresh replaced session")
+	}
+	cfg.MCP.URL += "?revision=2"
+	if err = manager.Update(t.Context(), cfg.ID, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = lease.CallTool(t.Context(), cr.ToolCall{Name: "echo"}); err == nil {
+		t.Fatal("stale MCP lease executed")
+	}
+	if got := manager.GetGatewaySession(cfg.ID); got.State != connectormcp.SessionStateClosed {
+		t.Fatalf("old session not detached: %#v", got)
 	}
 }

@@ -314,9 +314,13 @@ local. See [scoped chat execution](../design/provider-chat-execution.md).
 Current status:
 
 - `pkg/mcp/`
-  - protocol types, transport clients, service runtime, and runtime registry are active
-  - `pkg/connector` manages `connectors`, discovery, execution, and session reuse
-  - `pkg/mcp/runtime` tracks in-flight requests and progress for the MCP dispatcher
+  - protocol DTOs, wire transports and ingress request tracking are active
+  - `pkg/connector` manages `connectors`, shared admission and execution generations
+  - `pkg/connector/mcp` owns MCP discovery, execution and upstream session reuse
+  - `pkg/connector/httpapi` executes HTTP API tools through `pkg/connector/runtime` contracts
+  - builtin and custom factory tools retain Resolver/Lease identity and full outcomes through observation
+  - internal MCP tool catalogs collect bounded complete pagination; ingress preserves client cursors
+  - `pkg/mcp/tracking` tracks in-flight requests and progress for the MCP dispatcher
   - `streamable_http`, `stdio`, and legacy `sse` are integrated upstream transports
 - `pkg/acp/`
   - Agent-owned runtime config, turn request/event types, agent SPI, stdio JSON-RPC transport, activity tracking, and Admin/dispatcher integration are active
@@ -540,7 +544,7 @@ HTTP request
   -> validate virtual key if required
   -> apply the VirtualKey's configured MCP admission backend
   -> decode JSON-RPC request
-  -> register in-flight request in pkg/mcp/runtime
+  -> register in-flight request in pkg/mcp/tracking
   -> resolve target MCP connector
   -> initialize or reuse upstream Streamable HTTP session
   -> invoke discovery or execution method on upstream MCP connector

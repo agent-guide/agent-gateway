@@ -1,4 +1,6 @@
-package runtime
+// Package tracking tracks MCP ingress requests, cancellation, progress and bounded
+// in-memory completion history. It does not execute upstream connector calls.
+package tracking
 
 import (
 	"context"
@@ -45,7 +47,7 @@ type ProgressNotification struct {
 	UpdatedAt        time.Time `json:"updated_at"`
 }
 
-// CompletedRequest is a durable record of a finished in-flight request.
+// CompletedRequest is an in-memory record of a finished in-flight request.
 type CompletedRequest struct {
 	RouteID      string    `json:"route_id"`
 	RequestID    any       `json:"request_id"`
@@ -68,7 +70,7 @@ func NewRegistry() *Registry {
 // BeginRequest registers a new in-flight request. The returned context is
 // cancelled when the cleanup func is called or when Cancel is invoked.
 // The cleanup func accepts an optional upstream error; pass nil on success.
-// It appends a CompletedRequest to the durable history ring buffer.
+// It appends a CompletedRequest to the in-memory history ring buffer.
 func (r *Registry) BeginRequest(parent context.Context, routeID string, requestID any, method string, progressToken any) (context.Context, func(error)) {
 	if requestID == nil {
 		return parent, func(error) {}

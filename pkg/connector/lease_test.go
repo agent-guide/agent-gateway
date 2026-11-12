@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +15,9 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/connector/httpapi"
+	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
 	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 )
 
 func httpConnector(t *testing.T, base, path string) connector.ConnectorConfig {
@@ -159,7 +160,7 @@ func TestUnconfirmedConnectorWriteIsGatedAndRecoveredWithoutReplay(t *testing.T)
 	store := &uncertainStore{testConfigStore: newTestConfigStore(t).(*testConfigStore)}
 	m := connector.NewManager(store)
 	defer m.Close()
-	cfg := connector.ConnectorConfig{ID: "docs", Name: "Docs", Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportStdio, Command: "unused"}}
+	cfg := connector.ConnectorConfig{ID: "docs", Name: "Docs", Type: "mcp", MCP: &connectormcp.Config{Transport: connector.TransportStdio, Command: "unused"}}
 	if err := m.Create(ctx, cfg); err != nil {
 		t.Fatal(err)
 	}

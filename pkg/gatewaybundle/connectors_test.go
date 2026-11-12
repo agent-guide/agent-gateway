@@ -7,6 +7,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/connector"
+	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
 )
 
 func TestBundleValidatesExplicitHTTPToolSelections(t *testing.T) {
@@ -41,7 +42,7 @@ func TestBundleValidatesExplicitHTTPToolSelections(t *testing.T) {
 			selection[0].Tools = []string{"missing"}
 			b.Connectors[0].Type = "mcp"
 			b.Connectors[0].HTTPAPI = nil
-			b.Connectors[0].MCP = &connector.MCPConfig{Transport: connector.TransportStdio, Command: "unused"}
+			b.Connectors[0].MCP = &connectormcp.Config{Transport: connector.TransportStdio, Command: "unused"}
 			if err := b.ValidateForConfigStore(); err != nil {
 				t.Fatalf("unknown remote MCP catalog rejected: %v", err)
 			}

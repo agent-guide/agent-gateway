@@ -5,19 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/agent-guide/agent-gateway/internal/strictjson"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
+	"github.com/agent-guide/agent-gateway/internal/strictjson"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
+	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
+	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
-	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
+	mcptracking "github.com/agent-guide/agent-gateway/pkg/mcp/tracking"
 )
 
 type MCPRouteView struct {
@@ -94,8 +95,8 @@ type ConnectorView struct {
 }
 
 type MCPDispatcherRuntimeView struct {
-	InFlight []mcpruntime.InFlightRequest      `json:"in_flight"`
-	Progress []mcpruntime.ProgressNotification `json:"progress"`
+	InFlight []mcptracking.InFlightRequest      `json:"in_flight"`
+	Progress []mcptracking.ProgressNotification `json:"progress"`
 }
 
 type MCPToolCallRequest struct {
@@ -563,7 +564,15 @@ func (h *Handler) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 			_ = httpjson.Error(w, http.StatusNotFound, "mcp service not found")
 			return
 		}
-		_ = httpjson.Error(w, http.StatusBadGateway, err.Error())
+		status := http.StatusBadGateway
+		var callErr *cr.CallError
+		if errors.As(err, &callErr) {
+			switch callErr.Category {
+			case "invalid_arguments", "unknown_tool", "unsupported_capability":
+				status = http.StatusBadRequest
+			}
+		}
+		_ = httpjson.Error(w, status, err.Error())
 		return
 	}
 	_ = httpjson.Write(w, http.StatusOK, result)
@@ -691,12 +700,12 @@ type GatewaySessionView struct {
 	ConnectorID       string                     `json:"connector_id"`
 	UpstreamSessionID string                     `json:"upstream_session_id,omitempty"`
 	Transport         connectorpkg.TransportType `json:"transport"`
-	State             connectorpkg.SessionState  `json:"state"`
+	State             connectormcp.SessionState  `json:"state"`
 	CreatedAt         time.Time                  `json:"created_at"`
 	LastUsedAt        time.Time                  `json:"last_used_at"`
 }
 
-func gatewaySessionView(s connectorpkg.GatewaySession) GatewaySessionView {
+func gatewaySessionView(s connectormcp.GatewaySession) GatewaySessionView {
 	masked := s.UpstreamSessionID
 	if len(masked) > 8 {
 		masked = masked[:8] + "****"

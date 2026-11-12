@@ -117,7 +117,7 @@ pkg/agent
   -> pkg/acp/host
   -> pkg/gateway/agentroute + pkg/gateway/llmroute + pkg/gateway/mcproute
   -> pkg/llm/provider + pkg/credential + pkg/gateway/modelcatalog
-  -> pkg/connector + pkg/mcp/runtime
+  -> pkg/connector + pkg/mcp/tracking
   -> pkg/gateway/virtualkey
   -> internal/observability/usage
 ```

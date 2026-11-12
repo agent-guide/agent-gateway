@@ -90,9 +90,7 @@ func (l *lease) listTools(ctx context.Context) (cr.ToolCatalog, error) {
 		if l.entry.catalog != nil {
 			tools = l.entry.catalog.Tools()
 		} else {
-			var result listToolsResult
-			err = l.manager.callMethodWithRetryConfig(ctx, l.entry.config, "tools/list", map[string]any{}, &result, nil)
-			tools = result.Tools
+			tools, err = l.manager.mcpEngine.ListTools(ctx, l.entry.mcpTarget)
 			token = uuid.NewString()
 		}
 		if err != nil {
@@ -123,31 +121,11 @@ func (l *lease) CallTool(ctx context.Context, call cr.ToolCall) (out cr.CallOutc
 		return out, &cr.CallError{Category: "unknown_tool", Message: "unknown tool"}
 	}
 	if l.entry.catalog == nil {
-
-		var progress chan UpstreamProgress
-		var done chan struct{}
-		if call.Progress != nil {
-			progress = make(chan UpstreamProgress, 64)
-			done = make(chan struct{})
-			go func() {
-				defer func() { _ = recover(); close(done) }()
-				for p := range progress {
-					call.Progress(cr.Progress{ProgressToken: p.ProgressToken, Progress: p.Progress, Total: p.Total, Message: p.Message})
-				}
-			}()
-		}
-		var result basemcp.ToolResult
-		err = l.manager.callMethodWithRetryConfig(ctx, l.entry.config, "tools/call", map[string]any{"name": call.Name, "arguments": call.Arguments}, &result, progress)
-		if err == nil {
-			out.Result = &result
-		}
-		if progress != nil {
-			close(progress)
-			<-done
-		}
+		out.Result, err = l.manager.mcpEngine.CallTool(ctx, l.entry.mcpTarget, call)
 		return out, err
 	}
-	return l.manager.engine.CallTool(ctx, l.entry.config.ID, l.entry.catalog, call)
+
+	return l.manager.httpEngine.CallTool(ctx, l.entry.config.ID, l.entry.catalog, call)
 }
 
 var _ cr.Resolver = (*Manager)(nil)

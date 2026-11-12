@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,6 +12,9 @@ import (
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/connector"
+	"github.com/agent-guide/agent-gateway/pkg/connector/httpapi"
+	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 )
 
 type uncertainConnectorStore struct {
@@ -37,7 +39,7 @@ func (s *uncertainConnectorStore) Get(ctx context.Context, keys ...any) (any, er
 func TestConnectorToolCallAdmissionStatuses(t *testing.T) {
 	for _, state := range []string{"missing", "disabled", "pending"} {
 		t.Run(state, func(t *testing.T) {
-			cfg := connector.ConnectorConfig{ID: "orders", Name: "Orders", Type: "mcp", Disabled: state == "disabled", MCP: &connector.MCPConfig{Transport: connector.TransportStdio, Command: "unused"}}
+			cfg := connector.ConnectorConfig{ID: "orders", Name: "Orders", Type: "mcp", Disabled: state == "disabled", MCP: &connectormcp.Config{Transport: connector.TransportStdio, Command: "unused"}}
 			store := &uncertainConnectorStore{testConnectorStore: &testConnectorStore{items: map[string]*connector.ConnectorConfig{}}}
 			if state != "missing" {
 				store.items[cfg.ID] = &cfg
@@ -71,7 +73,7 @@ func TestConnectorToolCallAdmissionStatuses(t *testing.T) {
 }
 
 func TestConnectorPendingReadsPreserveRecoveryBackoff(t *testing.T) {
-	cfg := connector.ConnectorConfig{ID: "orders", Name: "Orders", Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportStdio, Command: "unused"}}
+	cfg := connector.ConnectorConfig{ID: "orders", Name: "Orders", Type: "mcp", MCP: &connectormcp.Config{Transport: connector.TransportStdio, Command: "unused"}}
 	store := &uncertainConnectorStore{testConnectorStore: &testConnectorStore{items: map[string]*connector.ConnectorConfig{cfg.ID: &cfg}}}
 	gateway := newTestAgentGateway(&testConfigStore{connectorStore: store}, nil, nil, nil, nil)
 	t.Cleanup(gateway.Close)
@@ -112,6 +114,39 @@ func TestConnectorPendingReadsPreserveRecoveryBackoff(t *testing.T) {
 	}
 }
 
+func TestMCPRouteWritesPreserveConnectorRecoveryBackoff(t *testing.T) {
+	cfg := connector.ConnectorConfig{ID: "orders", Name: "Orders", Type: "mcp", MCP: &connectormcp.Config{Transport: connector.TransportStdio, Command: "unused"}}
+	store := &uncertainConnectorStore{testConnectorStore: &testConnectorStore{items: map[string]*connector.ConnectorConfig{cfg.ID: &cfg}}}
+	gateway := newTestAgentGateway(&testConfigStore{connectorStore: store, routeStore: &testMCPRouteStore{items: map[string]*routecore.RouteConfig{}}}, nil, nil, nil, nil)
+	t.Cleanup(gateway.Close)
+	handler := NewHandler(gateway, nil)
+	body := `{"id":"publish-orders","connector_id":"orders","match_policy":{"path_prefix":"/orders"}}`
+	created := httptest.NewRecorder()
+	handler.ServeHTTP(created, httptest.NewRequest(http.MethodPost, "/admin/mcp/routes", bytes.NewBufferString(body)))
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create initial route: HTTP %d: %s", created.Code, created.Body.String())
+	}
+	cfg.Description = "updated"
+	if err := gateway.ConnectorManager().Update(t.Context(), cfg.ID, cfg); !errors.Is(err, configmgr.ErrMutationPending) {
+		t.Fatalf("expected unconfirmed connector write: %v", err)
+	}
+	store.failRead = true
+	if err := gateway.ConnectorManager().Recover(t.Context(), cfg.ID); !errors.Is(err, configmgr.ErrMutationPending) {
+		t.Fatalf("expected recovery backoff: %v", err)
+	}
+	for _, method := range []string{http.MethodPost, http.MethodPut} {
+		path := "/admin/mcp/routes"
+		if method == http.MethodPut {
+			path += "/publish-orders"
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(method, path, bytes.NewBufferString(body)))
+		if response.Code != http.StatusServiceUnavailable || response.Header().Get("Retry-After") == "" {
+			t.Fatalf("%s lost connector recovery status: HTTP %d, Retry-After %q: %s", method, response.Code, response.Header().Get("Retry-After"), response.Body.String())
+		}
+	}
+}
+
 func TestDeleteMissingConnectorReturnsNotFound(t *testing.T) {
 	gateway := newTestAgentGateway(&testConfigStore{connectorStore: &testConnectorStore{}}, nil, nil, nil, nil)
 	t.Cleanup(gateway.Close)
@@ -125,8 +160,35 @@ func TestDeleteMissingConnectorReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestMissingConnectorDiscoveryReturnsNotFound(t *testing.T) {
+	gateway := newTestAgentGateway(&testConfigStore{connectorStore: &testConnectorStore{}}, nil, nil, nil, nil)
+	t.Cleanup(gateway.Close)
+	handler := NewHandler(gateway, nil)
+	for _, tc := range []struct{ path, body string }{
+		{"/capabilities", ""},
+		{"/tools", ""},
+		{"/resources", ""},
+		{"/resource-templates", ""},
+		{"/prompts", ""},
+		{"/resources/read", `{"uri":"resource://missing"}`},
+		{"/prompts/get", `{"name":"missing"}`},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			method := http.MethodGet
+			if tc.body != "" {
+				method = http.MethodPost
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(method, "/admin/connectors/missing"+tc.path, bytes.NewBufferString(tc.body)))
+			if response.Code != http.StatusNotFound {
+				t.Fatalf("missing connector: HTTP %d: %s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
 func TestConnectorUpdateIDContract(t *testing.T) {
-	cfg := connector.ConnectorConfig{ID: "orders", Name: "Orders", Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportStdio, Command: "unused"}}
+	cfg := connector.ConnectorConfig{ID: "orders", Name: "Orders", Type: "mcp", MCP: &connectormcp.Config{Transport: connector.TransportStdio, Command: "unused"}}
 	gateway := newTestAgentGateway(&testConfigStore{connectorStore: &testConnectorStore{items: map[string]*connector.ConnectorConfig{"orders": &cfg}}}, nil, nil, nil, nil)
 	t.Cleanup(gateway.Close)
 	handler := NewHandler(gateway, nil)
@@ -158,7 +220,7 @@ func TestConnectorUpdateIDContract(t *testing.T) {
 }
 
 func TestReferencedConnectorDeleteReturnsConflict(t *testing.T) {
-	cfg := connector.ConnectorConfig{ID: "orders", Name: "Orders", Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportStdio, Command: "unused"}}
+	cfg := connector.ConnectorConfig{ID: "orders", Name: "Orders", Type: "mcp", MCP: &connectormcp.Config{Transport: connector.TransportStdio, Command: "unused"}}
 	gateway := newTestAgentGateway(&testConfigStore{connectorStore: &testConnectorStore{items: map[string]*connector.ConnectorConfig{"orders": &cfg}}, agentStore: newAgentConfigStore()}, nil, nil, nil, nil)
 	t.Cleanup(gateway.Close)
 	a := agentpkg.Agent{ID: "worker", Name: "Worker", Disabled: true, Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeHTTP, HTTP: &agentpkg.HTTPRuntime{CardURL: "https://example.org/card", Protocol: "a2a"}}, Resources: agentpkg.Resources{ConnectorIDs: []string{"orders"}}}
@@ -182,62 +244,31 @@ func TestReferencedConnectorDeleteReturnsConflict(t *testing.T) {
 	}
 }
 
-func TestMissingConnectorDiscoveryReturnsNotFound(t *testing.T) {
-	gateway := newTestAgentGateway(&testConfigStore{connectorStore: &testConnectorStore{}}, nil, nil, nil, nil)
+func TestConnectorToolCallClientErrors(t *testing.T) {
+	var cfg connector.ConnectorConfig
+	if err := json.Unmarshal([]byte(`{"id":"orders","name":"Orders","type":"http_api","http_api":{"base_url":"https://example.com","tools":[{"name":"lookup","description":"Look up an order","input_schema":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false},"request":{"method":"GET","path":"/orders"}}]}}`), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	store := &testConnectorStore{items: map[string]*connector.ConnectorConfig{cfg.ID: &cfg}}
+	gateway := newTestAgentGateway(&testConfigStore{connectorStore: store}, nil, nil, nil, nil)
 	t.Cleanup(gateway.Close)
-	handler := NewHandler(gateway, nil)
-	for _, tc := range []struct{ path, body string }{
-		{"/capabilities", ""},
-		{"/tools", ""},
-		{"/resources", ""},
-		{"/resource-templates", ""},
-		{"/prompts", ""},
-		{"/resources/read", `{"uri":"resource://missing"}`},
-		{"/prompts/get", `{"name":"missing"}`},
+	// No upstream request may be made for either invalid call.
+	policy := httpapi.DefaultPolicy()
+	policy.DefaultAction = "deny"
+	engine, err := httpapi.NewEngine(policy, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway.ConnectorManager().ConfigureHTTP(engine)
+	for _, tc := range []struct{ body, category string }{
+		{`{"name":"missing","arguments":{}}`, "unknown_tool"},
+		{`{"name":"lookup","arguments":{}}`, "invalid_arguments"},
+		{`{"name":"lookup","arguments":{"id":42}}`, "invalid_arguments"},
 	} {
-		t.Run(tc.path, func(t *testing.T) {
-			method := http.MethodGet
-			if tc.body != "" {
-				method = http.MethodPost
-			}
-			response := httptest.NewRecorder()
-			handler.ServeHTTP(response, httptest.NewRequest(method, "/admin/connectors/missing"+tc.path, bytes.NewBufferString(tc.body)))
-			if response.Code != http.StatusNotFound {
-				t.Fatalf("missing connector: HTTP %d: %s", response.Code, response.Body.String())
-			}
-		})
-	}
-}
-
-func TestMCPRouteWritesPreserveConnectorRecoveryBackoff(t *testing.T) {
-	cfg := connector.ConnectorConfig{ID: "orders", Name: "Orders", Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportStdio, Command: "unused"}}
-	store := &uncertainConnectorStore{testConnectorStore: &testConnectorStore{items: map[string]*connector.ConnectorConfig{cfg.ID: &cfg}}}
-	gateway := newTestAgentGateway(&testConfigStore{connectorStore: store, routeStore: &testMCPRouteStore{items: map[string]*routecore.RouteConfig{}}}, nil, nil, nil, nil)
-	t.Cleanup(gateway.Close)
-	handler := NewHandler(gateway, nil)
-	body := `{"id":"publish-orders","connector_id":"orders","match_policy":{"path_prefix":"/orders"}}`
-	created := httptest.NewRecorder()
-	handler.ServeHTTP(created, httptest.NewRequest(http.MethodPost, "/admin/mcp/routes", bytes.NewBufferString(body)))
-	if created.Code != http.StatusCreated {
-		t.Fatalf("create initial route: HTTP %d: %s", created.Code, created.Body.String())
-	}
-	cfg.Description = "updated"
-	if err := gateway.ConnectorManager().Update(t.Context(), cfg.ID, cfg); !errors.Is(err, configmgr.ErrMutationPending) {
-		t.Fatalf("expected unconfirmed connector write: %v", err)
-	}
-	store.failRead = true
-	if err := gateway.ConnectorManager().Recover(t.Context(), cfg.ID); !errors.Is(err, configmgr.ErrMutationPending) {
-		t.Fatalf("expected recovery backoff: %v", err)
-	}
-	for _, method := range []string{http.MethodPost, http.MethodPut} {
-		path := "/admin/mcp/routes"
-		if method == http.MethodPut {
-			path += "/publish-orders"
-		}
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(method, path, bytes.NewBufferString(body)))
-		if response.Code != http.StatusServiceUnavailable || response.Header().Get("Retry-After") == "" {
-			t.Fatalf("%s lost connector recovery status: HTTP %d, Retry-After %q: %s", method, response.Code, response.Header().Get("Retry-After"), response.Body.String())
+		w := httptest.NewRecorder()
+		NewHandler(gateway, nil).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/admin/connectors/orders/tools/call", bytes.NewBufferString(tc.body)))
+		if w.Code != http.StatusBadRequest || !bytes.Contains(w.Body.Bytes(), []byte(tc.category)) {
+			t.Fatalf("%s: status=%d response=%s", tc.body, w.Code, w.Body.String())
 		}
 	}
 }

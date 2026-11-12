@@ -1,10 +1,14 @@
 # Connector domain
 
 `pkg/connector` owns persisted `connectors`, immutable HTTP tool catalogs,
-connector management, neutral generation leases and MCP discovery/session
-adapters. `runtime/` imports neither Agents nor Admin/persistence. `httpapi/`
-executes HTTP tools; it must not enter MCP reconnect/retry paths or depend on
-Agent definitions. `einotool/` is the shared builtin adapter and emits no usage.
+connector management and shared admission. `runtime/` defines common generation
+leases and tool execution contracts. Parallel `mcp/` and `httpapi/` packages own
+upstream execution; `mcp/` also owns MCP configuration, discovery and session
+resources. Neither executor nor `runtime/` imports this root package, Agents or
+Admin/persistence. HTTP execution must not enter MCP reconnect/retry paths.
+MCP exclusive retirement callbacks check competing work and detach sessions
+under Manager snapshotMu; close detached resources outside that lock. Display
+edits retain the immutable MCP Target and its connection semaphore. `einotool/` is the shared builtin adapter and emits no usage.
 
 Connector `id` is the required, case-sensitive, immutable reference identity;
 `name` is mutable, non-unique display text. Do not introduce a `slug` alias or
@@ -53,3 +57,25 @@ The complete target is docs/design/connectors.md. Objects update independently;
 Bundle apply is sequential with partial success. Do not add cross-resource
 transactions, composite publication, group endpoints or group recovery. Release
 references before deletion; retain per-resource pending-write protection.
+
+Builtin tool bridges and custom factory dependencies use `connector/runtime.Resolver`
+and retained `Lease` exclusively. Observation wraps the Lease and preserves its
+descriptor, catalog, generation rejection and full CallOutcome; no ToolCaller fallback.
+
+Internal MCP tool catalogs and unpaged Admin discovery collect all pages, bounded
+to 100 pages and 10,000 tools. Repeated cursors, cancellation, page failures or
+limit exhaustion reject the whole catalog; never cache a partial catalog. External
+MCP ListToolsPage preserves one-page cursor/nextCursor semantics.
+
+MCP transports share one initialization/publication path. Candidate cleanup has
+a single owner: startup until cache handoff, then Engine, including rejected
+publication. Preserve close errors and detach caller cancellation after success.
+
+HTTP CallTool owns summary capture, safe error mapping and uncertain-write
+CallOutcome construction. Root leases only validate identity/catalog, admit and
+dispatch; keep raw HTTP execution/capture private to httpapi.
+
+Use Connector terminology for domain helpers, identifiers and errors. Manager
+fields distinguish httpEngine/mcpEngine and MCP targets; the MCP engine separates
+upstreamSessions resources from sessionViews inspection data. Historical event
+ServiceID and SQLite service_id are intentionally retained.
