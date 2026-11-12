@@ -77,7 +77,7 @@ func (c *Credential) Validate() error {
 	if c == nil {
 		return fmt.Errorf("credential is nil")
 	}
-	httpAgentScope := IsHTTPAgentCredentialScope(c.ScopeValue())
+	httpAgentScope := IsHTTPAgentCredentialScope(c.ScopeValue()) || IsConnectorCredentialScope(c.ScopeValue())
 	if c.ProviderType == "" && !httpAgentScope {
 		return fmt.Errorf("credential provider_type is required")
 	}
@@ -85,7 +85,7 @@ func (c *Credential) Validate() error {
 		return fmt.Errorf("credential provider_id is required")
 	}
 	if httpAgentScope && (c.ProviderType != "" || c.ProviderID != "") {
-		return fmt.Errorf("HTTP Agent credentials must not set provider_type or provider_id")
+		return fmt.Errorf("non-provider credentials must not set provider_type or provider_id")
 	}
 	if c.Type == "" {
 		return fmt.Errorf("credential type is required")
@@ -113,6 +113,9 @@ func IsHTTPAgentCredentialScope(scope string) bool {
 
 func NormalizeCredentialScope(scope string) string {
 	scope = strings.TrimSpace(scope)
+	if len(scope) >= len(ConnectorCredentialScopePrefix) && strings.EqualFold(scope[:len(ConnectorCredentialScopePrefix)], ConnectorCredentialScopePrefix) {
+		return ConnectorCredentialScopePrefix + strings.TrimSpace(scope[len(ConnectorCredentialScopePrefix):])
+	}
 	if len(scope) >= len(HTTPAgentCredentialScopePrefix) && strings.EqualFold(scope[:len(HTTPAgentCredentialScopePrefix)], HTTPAgentCredentialScopePrefix) {
 		return HTTPAgentCredentialScopePrefix + strings.TrimSpace(scope[len(HTTPAgentCredentialScopePrefix):])
 	}
@@ -326,4 +329,17 @@ func (m *ModelState) Clone() *ModelState {
 		}
 	}
 	return &cp
+}
+
+const ConnectorCredentialScopePrefix = "connector:"
+
+func ConnectorCredentialScope(id string) string {
+	if strings.TrimSpace(id) == "" {
+		return ""
+	}
+	return ConnectorCredentialScopePrefix + strings.TrimSpace(id)
+}
+func IsConnectorCredentialScope(scope string) bool {
+	scope = NormalizeCredentialScope(scope)
+	return strings.HasPrefix(scope, ConnectorCredentialScopePrefix) && strings.TrimPrefix(scope, ConnectorCredentialScopePrefix) != ""
 }
