@@ -1,4 +1,4 @@
-package service_test
+package connector_test
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agent-guide/agent-gateway/pkg/mcp/service"
+	"github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/mcp/transport"
 )
 
@@ -144,18 +144,17 @@ func (s *streamableHTTPTestServer) handle(w http.ResponseWriter, r *http.Request
 
 // newStreamableHTTPTestConfig starts a fake Streamable HTTP MCP server and returns
 // its service config and a pointer to the server for inspection.
-func newStreamableHTTPTestConfig(t *testing.T, id string) (service.MCPServiceConfig, *streamableHTTPTestServer) {
+func newStreamableHTTPTestConfig(t *testing.T, id string) (connector.ConnectorConfig, *streamableHTTPTestServer) {
 	t.Helper()
 	srv := &streamableHTTPTestServer{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", srv.handle)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
-	cfg := service.MCPServiceConfig{
-		ID:        id,
-		Name:      "fake-http-" + id,
-		Transport: service.TransportStreamableHTTP,
-		URL:       ts.URL + "/mcp",
+	cfg := connector.ConnectorConfig{
+		ID:   id,
+		Name: "fake-http-" + id, Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportStreamableHTTP,
+			URL: ts.URL + "/mcp"},
 	}
 	return cfg, srv
 }
@@ -320,7 +319,7 @@ func TestManagerStreamableHTTPSessionIDCarried(t *testing.T) {
 // forwarded as an Authorization header on every request, including initialize.
 func TestManagerStreamableHTTPAuthHeader(t *testing.T) {
 	cfg, srv := newStreamableHTTPTestConfig(t, "http7")
-	cfg.AuthConfig = &service.AuthConfig{
+	cfg.MCP.AuthConfig = &connector.AuthConfig{
 		Type:   "bearer",
 		APIKey: "test-secret-key",
 	}

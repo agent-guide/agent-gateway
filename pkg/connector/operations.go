@@ -1,8 +1,9 @@
-package service
+package connector
 
 import (
 	"context"
 	"fmt"
+	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"strings"
 
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
@@ -21,18 +22,23 @@ type readResourceResult struct {
 	Contents []basemcp.ResourceContent `json:"contents"`
 }
 
-func (m *Manager) CallTool(ctx context.Context, id string, name string, args map[string]any, progressCh chan<- UpstreamProgress) (*basemcp.ToolResult, error) {
-	if name == "" {
-		return nil, fmt.Errorf("tool name is required")
-	}
-	var result basemcp.ToolResult
-	if err := m.callMethodWithRetry(ctx, id, "tools/call", map[string]any{
-		"name":      name,
-		"arguments": args,
-	}, &result, progressCh); err != nil {
+func (m *Manager) CallTool(ctx context.Context, id, name string, args map[string]any, progressCh chan<- UpstreamProgress) (*basemcp.ToolResult, error) {
+	lease, err := m.Acquire(ctx, id)
+	if err != nil {
 		return nil, err
 	}
-	return &result, nil
+	defer lease.Close()
+	call := cr.ToolCall{Name: name, Arguments: args}
+	if progressCh != nil {
+		call.Progress = func(p cr.Progress) {
+			select {
+			case progressCh <- UpstreamProgress{ProgressToken: p.ProgressToken, Progress: p.Progress, Total: p.Total, Message: p.Message}:
+			default:
+			}
+		}
+	}
+	out, err := lease.CallTool(ctx, call)
+	return out.Result, err
 }
 
 func (m *Manager) ReadResource(ctx context.Context, id string, uri string, progressCh chan<- UpstreamProgress) (*basemcp.ResourceReadResult, error) {
@@ -93,19 +99,32 @@ func (m *Manager) Complete(ctx context.Context, id string, ref basemcp.Completio
 }
 
 func (m *Manager) callMethodWithRetry(ctx context.Context, id string, method string, params map[string]any, dest any, progressCh chan<- UpstreamProgress) error {
-	client, reused, err := m.discoveryClient(ctx, id)
+	v, ctx, done, err := m.admit(ctx, id, "")
 	if err != nil {
 		return err
 	}
-	if err := callMethod(ctx, client, method, params, dest, progressCh); err == nil {
+	defer done()
+	return m.callMethodWithRetryConfig(ctx, v.config, method, params, dest, progressCh)
+}
+func (m *Manager) callMethodWithRetryConfig(ctx context.Context, cfg ConnectorConfig, method string, params map[string]any, dest any, progressCh chan<- UpstreamProgress) error {
+	id := cfg.ID
+
+	client, reused, err := m.discoveryClientConfig(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	err = callMethod(ctx, client, method, params, dest, progressCh)
+	if err == nil {
 		return nil
 	} else if !reused {
 		return err
 	}
 
 	// Reused session failed — invalidate and reconnect once.
-	m.invalidateDiscoverySession(id)
-	client, _, err = m.discoveryClient(ctx, id)
+	if !m.retireFailedSession(id) {
+		return err
+	}
+	client, _, err = m.discoveryClientConfig(ctx, cfg)
 	if err != nil {
 		m.setGatewaySessionState(id, SessionStateError)
 		return err

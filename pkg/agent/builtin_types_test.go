@@ -14,11 +14,11 @@ func validBuiltinAgent() Agent {
 			Builtin: &BuiltinRuntime{
 				Model:    BuiltinModel{LLMRouteID: "chat-main", Model: "smart"},
 				Topology: BuiltinTopology{Kind: TopologyKindSingle},
-				Tools:    []BuiltinToolSelection{{MCPServiceID: "fs", Tools: []string{"read_file"}}},
+				Tools:    []BuiltinToolSelection{{ConnectorID: "fs", Tools: []string{"read_file"}}},
 			},
 		},
 		Routes:    Routes{LLMRouteIDs: []string{"chat-main"}},
-		Resources: Resources{MCPServiceIDs: []string{"fs"}},
+		Resources: Resources{ConnectorIDs: []string{"fs"}},
 	}
 }
 
@@ -42,9 +42,9 @@ func TestBuiltinValidationRules(t *testing.T) {
 			wantErr: "must appear in routes.llm_route_ids",
 		},
 		{
-			name:    "tool service must be bound in resources.mcp_service_ids",
-			mutate:  func(a *Agent) { a.Resources.MCPServiceIDs = nil },
-			wantErr: "must appear in resources.mcp_service_ids",
+			name:    "tool service must be bound in resources.connector_ids",
+			mutate:  func(a *Agent) { a.Resources.ConnectorIDs = nil },
+			wantErr: "must appear in resources.connector_ids",
 		},
 		{
 			name:    "missing model route id",
@@ -85,7 +85,7 @@ func TestBuiltinValidationRules(t *testing.T) {
 			name: "planexecute planner must not carry tools",
 			mutate: func(a *Agent) {
 				a.Runtime.Builtin.Topology = BuiltinTopology{Kind: TopologyKindPlanExecute, PlanExecute: &BuiltinPlanExecute{
-					Planner: &BuiltinPlanExecuteRole{Tools: []BuiltinToolSelection{{MCPServiceID: "fs"}}},
+					Planner: &BuiltinPlanExecuteRole{Tools: []BuiltinToolSelection{{ConnectorID: "fs"}}},
 				}}
 			},
 			wantErr: "only the executor runs tools",
@@ -103,10 +103,10 @@ func TestBuiltinValidationRules(t *testing.T) {
 			name: "planexecute executor tool service must be bound",
 			mutate: func(a *Agent) {
 				a.Runtime.Builtin.Topology = BuiltinTopology{Kind: TopologyKindPlanExecute, PlanExecute: &BuiltinPlanExecute{
-					Executor: &BuiltinPlanExecuteRole{Tools: []BuiltinToolSelection{{MCPServiceID: "unbound-svc"}}},
+					Executor: &BuiltinPlanExecuteRole{Tools: []BuiltinToolSelection{{ConnectorID: "unbound-svc"}}},
 				}}
 			},
-			wantErr: "must appear in resources.mcp_service_ids",
+			wantErr: "must appear in resources.connector_ids",
 		},
 		{
 			name: "custom requires a registered factory",
@@ -229,7 +229,7 @@ func TestBuiltinValidationRules(t *testing.T) {
 			name: "toolsearch requires declared tools",
 			mutate: func(a *Agent) {
 				a.Runtime.Builtin.Tools = nil
-				a.Resources.MCPServiceIDs = nil
+				a.Resources.ConnectorIDs = nil
 				a.Runtime.Builtin.Middlewares = &BuiltinMiddlewares{ToolSearch: &BuiltinToolSearch{Enabled: true}}
 			},
 			wantErr: "toolsearch requires the definition to declare tools",
@@ -302,7 +302,7 @@ func TestBuiltinValidationRules(t *testing.T) {
 			mutate: func(a *Agent) {
 				a.Runtime.Builtin.Permissions = &BuiltinPermissions{Mode: PermissionModeInteractive, AutoApproveTools: []string{"read_file"}}
 			},
-			wantErr: "must be <mcp_service_id>/<tool_name>",
+			wantErr: "must be <connector_id>/<tool_name>",
 		},
 		{
 			name: "auto_approve_tools entries must resolve to declared tools",
@@ -343,7 +343,7 @@ func TestBuiltinPlanExecuteAndDeepValidate(t *testing.T) {
 	pe := validBuiltinAgent()
 	pe.Runtime.Builtin.Topology = BuiltinTopology{Kind: TopologyKindPlanExecute, MaxIterations: 5, PlanExecute: &BuiltinPlanExecute{
 		Planner:  &BuiltinPlanExecuteRole{Model: &BuiltinModel{LLMRouteID: "chat-main", Model: "planner"}},
-		Executor: &BuiltinPlanExecuteRole{Tools: []BuiltinToolSelection{{MCPServiceID: "fs"}}, MaxIterations: 8},
+		Executor: &BuiltinPlanExecuteRole{Tools: []BuiltinToolSelection{{ConnectorID: "fs"}}, MaxIterations: 8},
 	}}
 	pe.Normalize()
 	if err := pe.Validate(); err != nil {

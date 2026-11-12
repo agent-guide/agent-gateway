@@ -128,7 +128,7 @@ provider payload, resolves the logical model or direct provider target
 LLM protocol handler. The runtime `RoutedProvider` selects and, when required,
 refreshes an OAuth-backed credential before provider execution. With `mcp` or
 `agent` enabled the dispatcher also
-resolves those route kinds and dispatches to `pkg/mcp/service` or the
+resolves those route kinds and dispatches to `pkg/connector` or the
 registered `pkg/gateway/runtimebackend` ACP/builtin adapters, tracks in-flight turns, and
 stamps Agent identity on the interaction span. Subsystem detail:
 `pkg/gateway/AGENTS.md`, `pkg/acp/AGENTS.md`, `pkg/agent/AGENTS.md`.
@@ -196,9 +196,10 @@ or a cross-cutting adapter for it (for example `caddy/admin`,
 - `pkg/acp/` — native ACP runtime (`codex`, `opencode`): pooling, sessions, permissions, transcripts → `pkg/acp/AGENTS.md`
 - `pkg/credential/` — cross-cutting credential model, persistence, scheduling, expiry detection, and external refresh transport → `pkg/credential/AGENTS.md`
 - `pkg/llm/` — provider interface/registry, built-in providers, and the `einomodel` eino bridge → `pkg/llm/AGENTS.md`
-- `pkg/mcp/` — MCP service runtime and the `einotool` eino bridge → `pkg/mcp/AGENTS.md`
+- `pkg/connector/` — Connector model, generation leases, MCP session adapters and builtin bridge → `pkg/connector/AGENTS.md`
+- `pkg/mcp/` — MCP protocol primitives, transports and ingress tracking → `pkg/mcp/AGENTS.md`
 - `pkg/a2a/` — A2A Protocol 1.0 JSON-RPC (Path B translating client/backend and Path A governed native proxy are implemented) → `pkg/a2a/AGENTS.md`
-- `pkg/configstore/` — generic config store/backends (persisted backend: `sqlite`; stores `providers`, `credentials`, `routes`, `mcp_services`, `agents`, `virtual_keys`, `managed_models`, `extensions`) → `pkg/configstore/AGENTS.md`
+- `pkg/configstore/` — generic config store/backends (persisted backend: `sqlite`; stores `providers`, `credentials`, `routes`, `connectors`, `agents`, `virtual_keys`, `managed_models`, `extensions`) → `pkg/configstore/AGENTS.md`
 - `pkg/agent/` — agent control plane (`pkg/agent/runtime` contracts, `Agent` model, route/service → agent index) → `pkg/agent/AGENTS.md`; builtin eino ADK host → `pkg/agent/builtin/AGENTS.md`
 - `internal/observability/` — usage events, event pipeline, OTLP export, `einotap` → `internal/observability/AGENTS.md`
 - `pkg/dispatcher/llmapi/` — LLM protocol handler runtimes; see "Protocol handler modules" above
@@ -312,7 +313,7 @@ Implemented families:
   event publishers capture trusted request identity; Publish contexts cannot
   replace the event actor or correlation.
 - `GET /admin/manifest` and `GET /admin/extensions`, `GET|PUT|DELETE /admin/extensions/{module_id}` (reference-preserving module configuration)
-- MCP: `/admin/mcp/services/...`, `/admin/mcp/routes/...`, `/admin/mcp/runtime/...` (discovery, execution, dispatcher runtime inspection)
+- MCP: `/admin/connectors/...`, `/admin/mcp/routes/...`, `/admin/mcp/runtime/...` (discovery, execution, dispatcher runtime inspection)
 - ACP: `/admin/acp/runtime/...` (native diagnostics keyed by `agent_id`)
 - builtin: `/admin/builtin/runtime/...`
 - agents: `/admin/agents/...` plus unified route CRUD under `/admin/agents/routes`;
@@ -342,3 +343,25 @@ Stubbed families currently return `501 Not Implemented`:
 - `cmd/agw/main.go`: the definitive list of linked modules
 
 If you change module IDs, route semantics, provider registration, or Admin API paths, update this file, the affected nested `AGENTS.md`, and `README.md` in the same change.
+
+## Connectors
+
+Connector domain rules live in `pkg/connector/AGENTS.md`. Connector `id` is
+immutable and case-sensitive; `name` is mutable, non-unique display text. There
+is no separate connector `slug`; updates reject differing body/path IDs.
+Static connector definitions are rejected. Legacy `mcp_services` tables require explicit
+stopped-service conversion before either host or a store-opening CLI can start.
+Connector references from Agents and MCP routes prevent deletion, including
+disabled references. Agent writes require the connector to exist. Each resource
+updates independently; Bundle apply is sequential with partial success. Do not
+add cross-resource atomic publication, group endpoints or group recovery.
+Release references before deletion; keep single-resource mutation recovery.
+
+Connector execution edits/deletion reject references or active/queued calls,
+discovery and initialization. Name/description changes preserve sessions and
+execution generations. Admission and mutation exclusion share the snapshot lock;
+reference checks share application coordination, including Refresh. Preserve
+bounded CloseContext cancellation/waiting and late-publication fencing.
+Configuration snapshots use Go GC; no reference-counted
+lease retirement, multiple active session generations or additional credential
+readiness notification/index subsystem is required. Keep live revocation checks.

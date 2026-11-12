@@ -14,8 +14,8 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/pkg/agent"
+	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
-	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 )
 
 // fakeChatModel scripts a sequence of assistant replies; when asked with tool
@@ -122,7 +122,7 @@ func (f *fakeToolCaller) ListTools(_ context.Context, _ string) ([]basemcp.Tool,
 	return f.tools, nil
 }
 
-func (f *fakeToolCaller) CallTool(_ context.Context, _, _ string, _ map[string]any, _ chan<- mcpservice.UpstreamProgress) (*basemcp.ToolResult, error) {
+func (f *fakeToolCaller) CallTool(_ context.Context, _, _ string, _ map[string]any, _ chan<- connectorpkg.UpstreamProgress) (*basemcp.ToolResult, error) {
 	f.calls++
 	return f.result, nil
 }
@@ -353,8 +353,8 @@ func TestServeTurnToolLoopProducesChildSpans(t *testing.T) {
 		result: &basemcp.ToolResult{Content: []any{map[string]any{"type": "text", "text": "hi"}}},
 	}
 	a := testAgent("tooler")
-	a.Runtime.Builtin.Tools = []agent.BuiltinToolSelection{{MCPServiceID: "fs", Tools: []string{"read_file"}}}
-	a.Resources.MCPServiceIDs = []string{"fs"}
+	a.Runtime.Builtin.Tools = []agent.BuiltinToolSelection{{ConnectorID: "fs", Tools: []string{"read_file"}}}
+	a.Resources.ConnectorIDs = []string{"fs"}
 
 	events := &usage.InMemorySink{}
 	observer := usage.NewObserver(events)

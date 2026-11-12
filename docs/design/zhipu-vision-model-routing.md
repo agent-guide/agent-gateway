@@ -150,14 +150,16 @@ invoke the Vision MCP service.
 Vision is a separate gateway-managed MCP service:
 
 ```yaml
-mcpServices:
+connectors:
   - id: zhipu-vision
     name: Zhipu Coding Plan Vision
-    transport: stdio
-    command: npx
-    args:
-      - -y
-      - "REPLACE_WITH_ZHIPU_VISION_MCP_PACKAGE"
+    type: mcp
+    mcp:
+      transport: stdio
+      command: npx
+      args:
+        - -y
+        - "REPLACE_WITH_ZHIPU_VISION_MCP_PACKAGE"
 ```
 
 The Vision MCP package/command is deployment-specific. The placeholder above is

@@ -9,13 +9,13 @@ import (
 
 func TestRootCommandExposesGatewayResourcesDirectly(t *testing.T) {
 	direct := map[string]bool{
-		"agent":       false,
-		"apply":       false,
-		"credential":  false,
-		"llm-route":   false,
-		"mcp-service": false,
-		"provider":    false,
-		"virtualkey":  false,
+		"agent":      false,
+		"apply":      false,
+		"credential": false,
+		"llm-route":  false,
+		"connector":  false,
+		"provider":   false,
+		"virtualkey": false,
 	}
 	removed := map[string]struct{}{
 		"chat":      {},

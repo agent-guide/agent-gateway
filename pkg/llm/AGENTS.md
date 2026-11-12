@@ -45,7 +45,7 @@ builtin agent runtime — see `docs/design/builtin-agent-runtime.md` §11):
   `*gateway.RoutedProvider`, so credential scheduling, candidate fallback,
   and usage attribution apply) as an eino `model.ToolCallingChatModel`
 
-The sibling bridge `pkg/mcp/einotool` presents gateway-managed MCP tools as
+The sibling bridge `pkg/connector/einotool` presents gateway-managed MCP tools as
 eino `InvokableTool`s — see `pkg/mcp/AGENTS.md`.
 
 Self-implemented chat providers (`codex`, `claudecode`) fire the eino

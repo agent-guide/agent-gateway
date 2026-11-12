@@ -5,7 +5,7 @@
 ## Command Layout
 
 - gateway bundle operations and resources are direct top-level commands such as
-  `agwctl apply`, `agwctl agent`, `agwctl provider`, and `agwctl mcp-service`
+  `agwctl apply`, `agwctl agent`, `agwctl provider`, and `agwctl connector`
 - `agwctl caddy ...`
 
 ## Common Patterns

@@ -139,7 +139,7 @@ normal validation.
 
 ### 5.1 Target classification
 
-`provider.ProviderConfig` and `mcp/service.MCPServiceConfig` gain an explicit
+`provider.ProviderConfig` and `mcp/service.ConnectorConfig` gain an explicit
 classification:
 
 ```text

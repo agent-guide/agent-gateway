@@ -117,7 +117,7 @@ pkg/agent
   -> pkg/acp/host
   -> pkg/gateway/agentroute + pkg/gateway/llmroute + pkg/gateway/mcproute
   -> pkg/llm/provider + pkg/credential + pkg/gateway/modelcatalog
-  -> pkg/mcp/service + pkg/mcp/runtime
+  -> pkg/connector + pkg/mcp/runtime
   -> pkg/gateway/virtualkey
   -> internal/observability/usage
 ```
@@ -158,7 +158,7 @@ Stored shape:
   },
   "resources": {
     "provider_ids": ["openrouter-main"],
-    "mcp_service_ids": ["filesystem-tools"],
+    "connector_ids": ["filesystem-tools"],
     "virtual_key_ids": ["coding-agent-key"]
   },
   "policy": {
@@ -363,7 +363,7 @@ Current resource-field inventory:
 | Field | Management and definition use | Execution constraint |
 | --- | --- | --- |
 | `resources.provider_ids` | Normalized IDs; Bundle reference checks and Admin resource inventory with existence reporting | No per-request provider authorization; builtin model selection uses its declared LLM route |
-| `resources.mcp_service_ids` | Normalized IDs; Bundle reference checks and Admin inventory; builtin tool definitions, including nested topology/role tools, must reference declared services | Validated builtin definitions constrain their tool selections; no general ACP/HTTP callback entitlement check |
+| `resources.connector_ids` | Normalized IDs; Bundle reference checks and Admin inventory; builtin tool definitions, including nested topology/role tools, must reference declared services | Validated builtin definitions constrain their tool selections; no general ACP/HTTP callback entitlement check |
 | `resources.virtual_key_ids` | Normalized IDs; Bundle reference checks and Admin inventory | No automatic key ownership or authorization binding; dispatcher validates the key actually supplied |
 
 Bundle reference checks apply to resource families included in the Bundle;

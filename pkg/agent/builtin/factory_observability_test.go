@@ -6,8 +6,8 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/pkg/agent"
+	"github.com/agent-guide/agent-gateway/pkg/connector/einotool"
 	"github.com/agent-guide/agent-gateway/pkg/mcp"
-	"github.com/agent-guide/agent-gateway/pkg/mcp/einotool"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
@@ -38,7 +38,7 @@ func TestCustomFactoryProducesChildUsage(t *testing.T) {
 	}}
 	a := testAgent("custom-agent")
 	a.Runtime.Builtin.Topology = agent.BuiltinTopology{Kind: agent.TopologyKindCustom, Factory: name}
-	a.Resources.MCPServiceIDs = []string{"service"}
+	a.Resources.ConnectorIDs = []string{"service"}
 	events := &usage.InMemorySink{}
 	observer := usage.NewObserver(events)
 	host := NewHost(Config{Agents: &fakeAgentSource{agents: map[string]agent.Agent{a.ID: a}}, Models: &fakeModelResolver{model: model}, Tools: &fakeToolCaller{tools: []mcp.Tool{{Name: "lookup"}}, result: &mcp.ToolResult{}}, Observer: observer})

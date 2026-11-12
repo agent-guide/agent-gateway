@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
+	mcpservice "github.com/agent-guide/agent-gateway/pkg/connector"
+	"github.com/agent-guide/agent-gateway/pkg/connector/einotool"
 	"github.com/agent-guide/agent-gateway/pkg/mcp"
-	"github.com/agent-guide/agent-gateway/pkg/mcp/einotool"
-	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 	"github.com/cloudwego/eino/components/model"
 )
 

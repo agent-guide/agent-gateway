@@ -8,13 +8,13 @@ import (
 
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/credential"
 	credmodel "github.com/agent-guide/agent-gateway/pkg/credential/model"
 	modelcatalog "github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	routecore "github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
-	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 )
 
 func RegisterDefaultStores(backend configstore.ConfigStoreBackend) error {
@@ -28,7 +28,7 @@ func RegisterDefaultStores(backend configstore.ConfigStoreBackend) error {
 		RouteSchema,
 		VirtualKeySchema,
 		ManagedModelSchema,
-		MCPServiceSchema,
+		ConnectorSchema,
 		AgentSchema,
 	}
 	for _, storeSchema := range schemas {
@@ -154,22 +154,22 @@ var ManagedModelSchema = configstore.StoreSchema{
 	},
 }
 
-var MCPServiceSchema = configstore.StoreSchema{
-	Name:              StoreMCPServices,
+var ConnectorSchema = configstore.StoreSchema{
+	Name:              StoreConnectors,
 	Kind:              "mcp service",
-	Table:             "mcp_services",
+	Table:             "connectors",
 	PrimaryKeyColumns: []string{"id"},
 	TagColumn:         "tag",
 	DataColumn:        "config",
 	Timestamped:       true,
 	Codec: typedJSONCodec{
 		kind:     "mcp service",
-		decode:   mcpservice.DecodeStoredMCPServiceConfig,
-		validate: validateMCPServiceObject,
+		decode:   connectorpkg.DecodeStoredConnectorConfig,
+		validate: validateConnectorObject,
 	},
 	Metadata: configstore.MetadataFuncs{
 		PrimaryKeyFunc: primaryKeyFromStringFields("ID"),
-		TagFunc:        requiredTagFromStringField("Transport", "transport"),
+		TagFunc:        requiredTagFromStringField("Type", "type"),
 	},
 }
 
@@ -297,11 +297,11 @@ func validateManagedModelObject(obj any) error {
 	}
 }
 
-func validateMCPServiceObject(obj any) error {
+func validateConnectorObject(obj any) error {
 	switch value := unwrapConfigObject(obj).(type) {
-	case mcpservice.MCPServiceConfig:
+	case connectorpkg.ConnectorConfig:
 		return value.Validate()
-	case *mcpservice.MCPServiceConfig:
+	case *connectorpkg.ConnectorConfig:
 		if value == nil {
 			return fmt.Errorf("mcp service object is nil")
 		}

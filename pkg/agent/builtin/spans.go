@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+
 	"io"
 
 	einomodel "github.com/cloudwego/eino/components/model"

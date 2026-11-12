@@ -24,7 +24,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	"github.com/agent-guide/agent-gateway/pkg/agent"
-	"github.com/agent-guide/agent-gateway/pkg/mcp/einotool"
+	"github.com/agent-guide/agent-gateway/pkg/connector/einotool"
 )
 
 // nodeSpec unifies the root definition and inline sub-agent definitions for
@@ -468,24 +468,29 @@ func (h *Host) resolveTools(ctx context.Context, agentID string, selections []ag
 			autoApproved[entry] = struct{}{}
 		}
 	}
+	seen := map[string]string{}
 	var out []tool.BaseTool
 	for _, sel := range selections {
-		tools, err := einotool.Tools(ctx, h.tools, sel.MCPServiceID, sel.Tools...)
+		tools, err := einotool.Tools(ctx, h.tools, sel.ConnectorID, sel.Tools...)
 		if err != nil {
 			return nil, err
 		}
 		for _, t := range tools {
 			info, err := t.Info(ctx)
 			if err != nil {
-				return nil, fmt.Errorf("tool info of service %q: %w", sel.MCPServiceID, err)
+				return nil, fmt.Errorf("tool info of service %q: %w", sel.ConnectorID, err)
 			}
-			wrapped := newObservedTool(t, h.observer, sel.MCPServiceID, info.Name, agentID)
+			if source, ok := seen[info.Name]; ok {
+				return nil, fmt.Errorf("tool name %q collides between connectors %q and %q", info.Name, source, sel.ConnectorID)
+			}
+			seen[info.Name] = sel.ConnectorID
+			wrapped := newObservedTool(t, h.observer, sel.ConnectorID, info.Name, agentID)
 			// The approval gate wraps outermost, so interrupted and denied
 			// calls never open an MCP child span; allowlisted tools skip the
 			// gate entirely.
 			if permissions.Interactive() {
-				if _, bypass := autoApproved[sel.MCPServiceID+"/"+info.Name]; !bypass {
-					wrapped = newGatedTool(wrapped, sel.MCPServiceID, info.Name)
+				if _, bypass := autoApproved[sel.ConnectorID+"/"+info.Name]; !bypass {
+					wrapped = newGatedTool(wrapped, sel.ConnectorID, info.Name)
 				}
 			}
 			out = append(out, wrapped)

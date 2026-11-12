@@ -3,9 +3,11 @@ package gateway
 import (
 	"errors"
 	"fmt"
+
 	"github.com/agent-guide/agent-gateway/internal/distributionmetrics"
 	"github.com/agent-guide/agent-gateway/internal/distributionruntime"
 	"github.com/agent-guide/agent-gateway/internal/runtimeassembly"
+	"github.com/agent-guide/agent-gateway/internal/strictjson"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 
 	"github.com/caddyserver/caddy/v2"
@@ -271,4 +273,14 @@ var (
 // Cleanup also handles Caddy validation and failed provisioning.
 func (a *App) Cleanup() error {
 	return a.Stop()
+}
+
+func (a *App) UnmarshalJSON(data []byte) error {
+	type plain App
+	var p plain
+	if err := strictjson.Decode(data, &p, 64<<20, 256); err != nil {
+		return err
+	}
+	*a = App(p)
+	return nil
 }

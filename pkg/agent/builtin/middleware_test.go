@@ -139,8 +139,8 @@ func TestServeTurnReductionClearsOldToolOutputs(t *testing.T) {
 		result: &basemcp.ToolResult{Content: []any{map[string]any{"type": "text", "text": bigOutput}}},
 	}
 	a := testAgent("reducer")
-	a.Runtime.Builtin.Tools = []agent.BuiltinToolSelection{{MCPServiceID: "docs", Tools: []string{"fetch_doc"}}}
-	a.Resources.MCPServiceIDs = []string{"docs"}
+	a.Runtime.Builtin.Tools = []agent.BuiltinToolSelection{{ConnectorID: "docs", Tools: []string{"fetch_doc"}}}
+	a.Resources.ConnectorIDs = []string{"docs"}
 	a.Runtime.Builtin.Middlewares = &agent.BuiltinMiddlewares{Reduction: &agent.BuiltinReduction{
 		Enabled:           true,
 		MaxTokensForClear: 200,
@@ -218,8 +218,8 @@ func TestServeTurnToolSearchGatesDynamicTools(t *testing.T) {
 		result: &basemcp.ToolResult{Content: []any{map[string]any{"type": "text", "text": "DOC BODY"}}},
 	}
 	a := testAgent("searcher")
-	a.Runtime.Builtin.Tools = []agent.BuiltinToolSelection{{MCPServiceID: "docs", Tools: []string{"fetch_doc"}}}
-	a.Resources.MCPServiceIDs = []string{"docs"}
+	a.Runtime.Builtin.Tools = []agent.BuiltinToolSelection{{ConnectorID: "docs", Tools: []string{"fetch_doc"}}}
+	a.Resources.ConnectorIDs = []string{"docs"}
 	a.Runtime.Builtin.Middlewares = &agent.BuiltinMiddlewares{ToolSearch: &agent.BuiltinToolSearch{Enabled: true}}
 	host := NewHost(Config{
 		Agents: &fakeAgentSource{agents: map[string]agent.Agent{"searcher": a}},

@@ -313,7 +313,7 @@ the Pipeline output.
 ### 5.2 MCP Step
 
 An `mcp` step invokes one tool on one gateway-managed MCP service. Its handler
-calls `pkg/mcp/service.Manager` directly and does not issue a request through an
+calls `pkg/connector.Manager` directly and does not issue a request through an
 MCP ingress route.
 
 A step may declare bounded `for_each` fan-out. Child results retain input order
@@ -391,7 +391,7 @@ pkg/dispatcher
 
 assembly
   - LLM handler       -> pkg/gateway
-  - MCP handler       -> pkg/mcp/service
+  - MCP handler       -> pkg/connector
   - transform registry
 ```
 

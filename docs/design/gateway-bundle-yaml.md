@@ -113,7 +113,7 @@ Configuration-type objects are:
 - `managedModels`
 - `llmRoutes`
 - `virtualKeys`
-- `mcpServices`
+- `connectors`
 - `mcpRoutes`
 - `agents`
 - `agentRoutes`
@@ -219,16 +219,18 @@ virtualKeys:
     allowed_route_ids:
       - chat-prod
 
-mcpServices:
+connectors:
   - id: tools
     name: Tools
-    transport: stdio
-    command: ./tools-server
+    type: mcp
+    mcp:
+      transport: stdio
+      command: ./tools-server
 
 mcpRoutes:
   - id: mcp-tools
     kind: mcp
-    service_id: tools
+    connector_id: tools
     match_policy:
       path_prefix: /mcp/tools
 
@@ -262,7 +264,7 @@ The current implemented bundle path covers:
 - `managedModels`
 - `llmRoutes`
 - `virtualKeys`
-- `mcpServices`
+- `connectors`
 - `mcpRoutes`
 - `agents`
 - `agentRoutes`
@@ -362,7 +364,7 @@ Current object application order:
 2. `providers`
 3. `managedModels`
 4. `llmRoutes`
-5. `mcpServices`
+5. `connectors`
 6. `mcpRoutes`
 7. `agents`
 8. `agentRoutes`

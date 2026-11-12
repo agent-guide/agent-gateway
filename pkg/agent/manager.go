@@ -447,3 +447,11 @@ func agentMCPRouteIDs(a Agent) map[string]struct{} {
 	}
 	return out
 }
+
+// WithMutationLock allows the application coordinator to validate dependencies
+// and publish related resources in the same lock order as Agent writes.
+func (m *Manager) WithMutationLock(fn func() error) error {
+	m.writeMu.Lock()
+	defer m.writeMu.Unlock()
+	return fn()
+}

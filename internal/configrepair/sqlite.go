@@ -20,7 +20,7 @@ var tables = []struct {
 	keys                  []string
 }{
 	{"providers", "providers", "config", []string{"id"}}, {"routes", "routes", "config", []string{"id"}},
-	{"agents", "agents", "config", []string{"id"}}, {"mcp_services", "mcp_services", "config", []string{"id"}},
+	{"agents", "agents", "config", []string{"id"}}, {"mcp_services", "mcp_services", "config", []string{"id"}}, {"connectors", "connectors", "config", []string{"id"}},
 	{"virtual_keys", "virtual_keys", "config", []string{"id"}}, {"credentials", "cliauth_credentials", "data", []string{"id"}},
 	{"managed_models", "model_configs", "data", []string{"provider_id", "upstream_model"}},
 	{"extensions", "extensions", "config", []string{"module_id"}},
@@ -149,8 +149,8 @@ func RepairSQLite(ctx context.Context, db *sql.DB, backup string, stopped bool, 
 		}
 	}
 	for _, op := range operations {
-		if op.Family != "routes" && op.Family != "agents" {
-			return fmt.Errorf("repair only supports routes and agents")
+		if op.Family != "routes" && op.Family != "agents" && op.Family != "connectors" && op.Family != "mcp_services" {
+			return fmt.Errorf("repair only supports routes, agents and connector records")
 		}
 		if op.Action == "delete" {
 			if _, err := tx.ExecContext(ctx, `DELETE FROM `+op.Family+` WHERE id=?`, op.ID); err != nil {

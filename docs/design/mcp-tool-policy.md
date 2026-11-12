@@ -19,7 +19,7 @@ This document extends the MCP gateway architecture described in `architecture/mc
 
 The current implementation baseline is:
 
-- MCP routing and dispatch through `pkg/dispatcher/mcp_handler.go` and `pkg/mcp/service`
+- MCP routing and dispatch through `pkg/dispatcher/mcp_handler.go` and `pkg/connector`
 - MCP route config in `pkg/gateway/mcproute/`
 - Admin API in `pkg/admin`
 
@@ -72,7 +72,7 @@ Later phases extend route-level policy into route-level tool replacement, where 
               │ tools/list              │ tools/call
               ▼                         ▼
    ┌──────────────────────┐   ┌──────────────────────┐
-   │ pkg/mcp/service      │   │ pkg/mcp/service      │
+   │ pkg/connector      │   │ pkg/connector      │
    │ ListToolsForRoute()  │   │ CallToolForRoute()   │
    │  1. fetch upstream   │   │  1. resolve alias    │
    │  2. apply filter     │   │  2. check allow set  │
@@ -241,7 +241,7 @@ Policy ownership is route-level, so the dispatcher must carry the selected route
 Execution flow:
 
 - `pkg/dispatcher/mcp_handler.go`: resolve the route, then call policy-aware helpers using both `route` and `service_id`
-- `pkg/mcp/service/`: host reusable pure functions for filtering, alias resolution, and override application
+- `pkg/connector/`: host reusable pure functions for filtering, alias resolution, and override application
 - transport clients remain unchanged
 
 Route-aware methods on the service manager:
@@ -478,12 +478,12 @@ pkg/gateway/mcproute/
     tool_policy.go   ToolPolicy, ToolOverride types
     types.go         tool_policy field added to MCPRoute and MCPRoute
 
-pkg/mcp/service/
+pkg/connector/
     tool_policy.go   route-aware filter, alias resolution, and override helpers
                      ListToolsForRoute(), CallToolForRoute()
 ```
 
-`ToolPolicy` and `ToolOverride` are defined in `pkg/gateway/mcproute/` because they are part of the route config model. The pure helper functions for applying the policy live in `pkg/mcp/service/` because they operate on MCP protocol objects and may be reused across dispatch contexts.
+`ToolPolicy` and `ToolOverride` are defined in `pkg/gateway/mcproute/` because they are part of the route config model. The pure helper functions for applying the policy live in `pkg/connector/` because they operate on MCP protocol objects and may be reused across dispatch contexts.
 
 ## 9. Integration Points
 
@@ -493,7 +493,7 @@ pkg/mcp/service/
 - the route-aware helpers apply filtering, alias resolution, and override application before delegating to the underlying service manager methods
 - on `tools/call`, if the tool is denied, return JSON-RPC error `-32601` without forwarding
 
-`pkg/mcp/service/manager.go`:
+`pkg/connector/manager.go`:
 - keep service-only RPC methods (`ListToolsPage`, `CallTool`) unchanged
 - add `ListToolsForRoute` and `CallToolForRoute` as route-aware wrappers that apply `ToolPolicy` before calling service-only methods
 - later synthetic-tool phase: resolve presented tool names to forwarded, wrapped, or synthetic executors via a synthetic tool registry

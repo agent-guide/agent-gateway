@@ -30,6 +30,7 @@ Current design pages:
 - [virtual-key-rate-limiting.md](virtual-key-rate-limiting.md)
 - [gateway-bundle-yaml.md](gateway-bundle-yaml.md)
 - [mcp-tool-policy.md](mcp-tool-policy.md)
+- [connectors.md](connectors.md) — Proposed HTTP API/MCP Connector model, exact configuration and egress policy, generation leases, coordinated Bundle mutation/recovery, MCP service migration and observability
 - [mcp-route-sharing.md](mcp-route-sharing.md) — Proposed handoff pending caller-scoped stateful MCP sessions
 - [memory.md](memory.md)
 - [observability.md](observability.md)

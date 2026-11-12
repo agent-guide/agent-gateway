@@ -9,7 +9,7 @@ This document describes the current design for unified audit logging and usage m
 It covers reliable capture, persistence, and query of request-level events and aggregated usage statistics for the gateway traffic implemented today:
 
 - LLM routes through `agent_route_dispatcher.llm_apis.openai`, `agent_route_dispatcher.llm_apis.anthropic`, and `agent_route_dispatcher.llm_apis.cc`
-- MCP routes through `agent_route_dispatcher` with MCP enabled, `pkg/dispatcher/mcp_handler.go`, `pkg/mcp/service`, and `pkg/mcp/runtime`
+- MCP routes through `agent_route_dispatcher` with MCP enabled, `pkg/dispatcher/mcp_handler.go`, `pkg/connector`, and `pkg/mcp/runtime`
 - ACP and builtin execution through unified AgentRoutes with Agent dispatch
   enabled, `pkg/dispatcher/agent_handler.go`, and the runtime selected by the
   target Agent
@@ -34,7 +34,7 @@ The current implementation baseline is:
 - all protocols first resolve a shared `routecore.RouteConfig` through `AgentGateway.Match`
 - `Handler.Dispatch` resolves and validates the VirtualKey before dispatching by `routecore.RouteKind`
 - LLM dispatch resolves `pkg/gateway/llmroute.LLMRoute` and calls the selected LLM API handler
-- MCP dispatch resolves `pkg/gateway/mcproute.MCPRoute` and calls `pkg/mcp/service`
+- MCP dispatch resolves `pkg/gateway/mcproute.MCPRoute` and calls `pkg/connector`
 - Agent dispatch resolves `pkg/gateway/agentroute.AgentRouteConfig`, stamps the
   target Agent directly, and selects ACP, builtin, HTTP, or native A2A event
   handling from the route protocol and resolved `runtime.type`
@@ -144,7 +144,7 @@ path.
    llmapi/...       mcp_handler.go    agent_handler.go
         │                │                │
         ▼                ▼                ▼
- pkg/gateway/      pkg/mcp/service   pkg/acp/host
+ pkg/gateway/      pkg/connector   pkg/acp/host
  RoutedProvider
         │                │                │
         └────────────────┼────────────────┘
@@ -807,9 +807,9 @@ The shared entry records route match, route disabled, and virtual key failures w
 - remains the runtime inspection registry for in-flight requests, progress notifications, cancellation, and bounded completed request history
 - should not become the canonical persisted metrics schema
 
-`pkg/mcp/service/types.go`:
+`pkg/connector/types.go`:
 
-- add optional `AuditConfig` to `MCPServiceConfig` if verbose tool argument capture is implemented
+- add optional `AuditConfig` to `ConnectorConfig` if verbose tool argument capture is implemented
 
 ### 12.4 ACP Path
 
@@ -859,7 +859,7 @@ Fields stored as stable identifiers only:
 - MCP `service_id`
 - `route_id`
 
-MCP tool argument storage is off by default and must be explicitly enabled per service via `audit.capture_tool_args`. Because this is persisted configuration, the field must be part of `pkg/mcp/service.MCPServiceConfig` rather than an undocumented sidecar shape.
+MCP tool argument storage is off by default and must be explicitly enabled per service via `audit.capture_tool_args`. Because this is persisted configuration, the field must be part of `pkg/connector.ConnectorConfig` rather than an undocumented sidecar shape.
 
 ACP permission params may contain sensitive command details and are not stored.
 Any future permission argument capture must be opt-in and separate from the

@@ -9,6 +9,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/agent-guide/agent-gateway/internal/strictjson"
 	"net"
 	"net/url"
 	"strings"
@@ -94,11 +95,11 @@ type Routes struct {
 	MCPRouteIDs []string `json:"mcp_route_ids,omitempty"`
 }
 
-// Resources declares management relationships. MCPServiceIDs also validates
+// Resources declares management relationships. ConnectorIDs also validates
 // builtin tool definitions; it is not a cross-runtime authorization mechanism.
 type Resources struct {
 	ProviderIDs   []string `json:"provider_ids,omitempty"`
-	MCPServiceIDs []string `json:"mcp_service_ids,omitempty"`
+	ConnectorIDs  []string `json:"connector_ids,omitempty"`
 	VirtualKeyIDs []string `json:"virtual_key_ids,omitempty"`
 }
 
@@ -159,7 +160,7 @@ func (a *Agent) Normalize() {
 	a.Routes.LLMRouteIDs = normalizeIDs(a.Routes.LLMRouteIDs)
 	a.Routes.MCPRouteIDs = normalizeIDs(a.Routes.MCPRouteIDs)
 	a.Resources.ProviderIDs = normalizeIDs(a.Resources.ProviderIDs)
-	a.Resources.MCPServiceIDs = normalizeIDs(a.Resources.MCPServiceIDs)
+	a.Resources.ConnectorIDs = normalizeIDs(a.Resources.ConnectorIDs)
 	a.Resources.VirtualKeyIDs = normalizeIDs(a.Resources.VirtualKeyIDs)
 }
 
@@ -335,4 +336,14 @@ func normalizeIDs(ids []string) []string {
 		out = append(out, id)
 	}
 	return out
+}
+
+func (r *Resources) UnmarshalJSON(data []byte) error {
+	type plain Resources
+	var p plain
+	if err := strictjson.Decode(data, &p, 4<<20, 64); err != nil {
+		return err
+	}
+	*r = Resources(p)
+	return nil
 }

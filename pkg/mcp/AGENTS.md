@@ -1,19 +1,11 @@
-# pkg/mcp — AGENTS.md
+# MCP protocol
 
-Scope: the MCP service runtime (`pkg/mcp/service/`) and the eino tool bridge
-(`pkg/mcp/einotool/`). Paths are repository-root relative; the root
-`AGENTS.md` global rules apply.
+`pkg/mcp` defines protocol primitives; `transport/` owns upstream wire transports
+and `runtime/` owns ingress request/progress/history tracking. Connector models,
+management, MCP session adapters and the builtin bridge live in `pkg/connector`;
+read its AGENTS.md before changing those implementations or cross-cutting adapters.
 
-- The MCP architecture (service config, discovery, execution, dispatcher
-  integration) is documented in `docs/architecture/mcp-architecture.md`.
-- MCP routes live in `pkg/gateway/mcproute/` — see `pkg/gateway/AGENTS.md`.
-- `pkg/mcp/einotool`: presents gateway-managed MCP service tools
-  (`pkg/mcp/service`) as eino `InvokableTool`s; selecting tools by name is
-  fail-closed (a missing tool is an error, not a silent skip). It is one of
-  the PB0 prerequisites of the builtin agent runtime — see
-  `docs/design/builtin-agent-runtime.md` §11.
-
-MCP service discoveryClient is currently service-scoped and reused for execution.
-It is not partitioned by Agent, VirtualKey or client. Do not remove Agent MCP-route
-uniqueness or advertise caller-isolated sharing without the session/credential
-work and tests specified in docs/design/mcp-route-sharing.md (Proposed handoff).
+MCP publishing routes retain kind/protocol `mcp` and target `connector_id`.
+Protocol packages must not depend on Agent definitions. Upstream MCP sessions
+remain connector-scoped; do not claim caller-isolated sharing or remove Agent
+MCP-route uniqueness without implementing docs/design/mcp-route-sharing.md.

@@ -149,7 +149,7 @@ func TestDecodeStoredAgentRoute(t *testing.T) {
 func TestDecodeTargetAgentIDRejectsForeignTargetKind(t *testing.T) {
 	// A foreign target-policy kind on a kind=agent route fails closed instead
 	// of silently lending its agent_id to attribution or target validation.
-	if _, err := DecodeTargetAgentID(json.RawMessage(`{"kind":"mcp-service","agent_id":"reviewer"}`)); err == nil {
+	if _, err := DecodeTargetAgentID(json.RawMessage(`{"kind":"connector","agent_id":"reviewer"}`)); err == nil {
 		t.Fatal("foreign target policy kind was accepted")
 	}
 	// The canonical shape and a kind-less policy still decode.

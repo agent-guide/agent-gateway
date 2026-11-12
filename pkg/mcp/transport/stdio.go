@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
+	"sync"
+	"time"
 )
 
 // matchID compares two JSON-RPC ID values after normalising through JSON
@@ -25,12 +28,15 @@ func matchID(a, b any) bool {
 
 // StdioTransport implements MCP transport over stdio (local process).
 type StdioTransport struct {
-	command string
-	args    []string
-	env     []string
-	cmd     *exec.Cmd
-	stdin   io.WriteCloser
-	out     chan *Message
+	closeOnce sync.Once
+	closeErr  error
+	done      chan struct{}
+	command   string
+	args      []string
+	env       []string
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	out       chan *Message
 }
 
 // NewStdioTransport creates a new stdio transport.
@@ -40,6 +46,7 @@ func NewStdioTransport(command string, args, env []string) *StdioTransport {
 		args:    args,
 		env:     env,
 		out:     make(chan *Message, 64),
+		done:    make(chan struct{}),
 	}
 }
 
@@ -67,25 +74,46 @@ func (t *StdioTransport) Connect(ctx context.Context) error {
 }
 
 func (t *StdioTransport) readLoop(r io.Reader) {
+	defer close(t.out)
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		var msg Message
 		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
 			continue
 		}
-		t.out <- &msg
+		select {
+		case t.out <- &msg:
+		case <-t.done:
+			return
+		}
 	}
-	close(t.out)
 }
 
 func (t *StdioTransport) Close() error {
-	if t.stdin != nil {
-		t.stdin.Close()
-	}
-	if t.cmd != nil {
-		return t.cmd.Wait()
-	}
-	return nil
+	t.closeOnce.Do(func() {
+		close(t.done)
+		if t.stdin != nil {
+			_ = t.stdin.Close()
+		}
+		if t.cmd == nil {
+			return
+		}
+		done := make(chan error, 1)
+		go func() { done <- t.cmd.Wait() }()
+		select {
+		case t.closeErr = <-done:
+		case <-time.After(time.Second):
+			if t.cmd.Process != nil {
+				_ = t.cmd.Process.Kill()
+			}
+			t.closeErr = <-done
+		}
+		var exited *exec.ExitError
+		if errors.As(t.closeErr, &exited) || errors.Is(t.closeErr, context.Canceled) {
+			t.closeErr = nil
+		}
+	})
+	return t.closeErr
 }
 
 func (t *StdioTransport) Send(ctx context.Context, msg *Message) error {

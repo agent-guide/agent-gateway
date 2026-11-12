@@ -1,4 +1,4 @@
-package service
+package connector
 
 import (
 	"context"
@@ -50,8 +50,13 @@ func (m *Manager) ListTools(ctx context.Context, id string) ([]basemcp.Tool, err
 }
 
 func (m *Manager) ListToolsPage(ctx context.Context, id string, cursor string) (*basemcp.ToolListResult, error) {
+	v, ctx, done, err := m.admit(ctx, id, "")
+	if err != nil {
+		return nil, err
+	}
+	defer done()
 	var result listToolsResult
-	if err := m.callMethodWithRetry(ctx, id, "tools/list", paginationParams(cursor), &result, nil); err != nil {
+	if err := m.callMethodWithRetryConfig(ctx, v.config, "tools/list", paginationParams(cursor), &result, nil); err != nil {
 		return nil, err
 	}
 	return &basemcp.ToolListResult{Tools: result.Tools, NextCursor: result.NextCursor}, nil

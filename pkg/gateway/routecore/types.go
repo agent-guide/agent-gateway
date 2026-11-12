@@ -34,7 +34,7 @@ type RouteTargetPolicyKind string
 const (
 	RouteTargetPolicyKindDirectProvider RouteTargetPolicyKind = "direct-provider"
 	RouteTargetPolicyKindLogicalModel   RouteTargetPolicyKind = "logical-model"
-	RouteTargetPolicyKindMCPService     RouteTargetPolicyKind = "mcp-service"
+	RouteTargetPolicyKindConnector      RouteTargetPolicyKind = "connector"
 	RouteTargetPolicyKindAgent          RouteTargetPolicyKind = "agent"
 )
 

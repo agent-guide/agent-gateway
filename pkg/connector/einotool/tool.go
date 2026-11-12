@@ -1,4 +1,4 @@
-// Package einotool adapts gateway-managed MCP services (pkg/mcp/service) to
+// Package einotool adapts gateway-managed MCP services (pkg/connector) to
 // eino tools, so gateway-governed MCP tools are directly consumable by
 // in-process eino agents and graphs without an HTTP loopback. Resource
 // governance (service config, auth, allowlisting by the caller) stays in the
@@ -14,24 +14,26 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/agent-guide/agent-gateway/internal/strictjson"
+	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"strings"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"github.com/eino-contrib/jsonschema"
 
+	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
-	mcpservice "github.com/agent-guide/agent-gateway/pkg/mcp/service"
 )
 
-// ToolCaller is the slice of *service.Manager the adapter needs. It is an
+// ToolCaller is the slice of *connector.Manager the adapter needs. It is an
 // interface so tests can stub the MCP service layer.
 type ToolCaller interface {
 	ListTools(ctx context.Context, id string) ([]basemcp.Tool, error)
-	CallTool(ctx context.Context, id string, name string, args map[string]any, progressCh chan<- mcpservice.UpstreamProgress) (*basemcp.ToolResult, error)
+	CallTool(ctx context.Context, id string, name string, args map[string]any, progressCh chan<- connectorpkg.UpstreamProgress) (*basemcp.ToolResult, error)
 }
 
-var _ ToolCaller = (*mcpservice.Manager)(nil)
+var _ ToolCaller = (*connectorpkg.Manager)(nil)
 
 // Tools lists the MCP service's tools and wraps each as an eino
 // InvokableTool. When names is non-empty it acts as an allowlist and every
@@ -46,8 +48,23 @@ func Tools(ctx context.Context, caller ToolCaller, serviceID string, names ...st
 	if serviceID == "" {
 		return nil, fmt.Errorf("einotool: service id is empty")
 	}
-	listed, err := caller.ListTools(ctx, serviceID)
+	var pinned cr.Lease
+	var listed []basemcp.Tool
+	var err error
+	if resolver, ok := caller.(cr.Resolver); ok {
+		pinned, err = resolver.Acquire(ctx, serviceID)
+		if err == nil {
+			var catalog cr.ToolCatalog
+			catalog, err = pinned.ListTools(ctx)
+			listed = catalog.Tools
+		}
+	} else {
+		listed, err = caller.ListTools(ctx, serviceID)
+	}
 	if err != nil {
+		if pinned != nil {
+			_ = pinned.Close()
+		}
 		return nil, fmt.Errorf("einotool: list tools of service %q: %w", serviceID, err)
 	}
 	byName := make(map[string]basemcp.Tool, len(listed))
@@ -72,12 +89,13 @@ func Tools(ctx context.Context, caller ToolCaller, serviceID string, names ...st
 		if err != nil {
 			return nil, fmt.Errorf("einotool: tool %q of service %q: %w", t.Name, serviceID, err)
 		}
-		out = append(out, &invokableTool{caller: caller, serviceID: serviceID, name: t.Name, info: info})
+		out = append(out, &invokableTool{lease: pinned, caller: caller, serviceID: serviceID, name: t.Name, info: info})
 	}
 	return out, nil
 }
 
 type invokableTool struct {
+	lease     cr.Lease
 	caller    ToolCaller
 	serviceID string
 	name      string
@@ -90,22 +108,46 @@ func (t *invokableTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 	return t.info, nil
 }
 
-func (t *invokableTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...tool.Option) (string, error) {
+func (t *invokableTool) InvokableRun(ctx context.Context, arguments string, opts ...tool.Option) (string, error) {
+	text, _, err := t.RunWithOutcome(ctx, arguments, opts...)
+	return text, err
+}
+func (t *invokableTool) ConnectorType() string {
+	if t.lease != nil {
+		return t.lease.Descriptor().Type
+	}
+	return "mcp"
+}
+func (t *invokableTool) RunWithOutcome(ctx context.Context, arguments string, _ ...tool.Option) (string, cr.CallOutcome, error) {
 	var args map[string]any
-	if trimmed := strings.TrimSpace(argumentsInJSON); trimmed != "" {
-		if err := json.Unmarshal([]byte(trimmed), &args); err != nil {
-			return "", fmt.Errorf("einotool: tool %q arguments are not a JSON object: %w", t.name, err)
+	if strings.TrimSpace(arguments) == "" {
+		arguments = "{}"
+	}
+	v, err := strictjson.Parse([]byte(arguments), 1<<20, 64)
+	if err == nil {
+		var ok bool
+		args, ok = v.(map[string]any)
+		if !ok {
+			err = fmt.Errorf("arguments must be object")
 		}
 	}
-	result, err := t.caller.CallTool(ctx, t.serviceID, t.name, args, nil)
 	if err != nil {
-		return "", fmt.Errorf("einotool: call tool %q of service %q: %w", t.name, t.serviceID, err)
+		return "", cr.CallOutcome{}, &cr.CallError{Category: "invalid_arguments", Message: "invalid tool arguments"}
 	}
-	rendered := renderToolResult(result)
-	if result != nil && result.IsError {
-		return "", fmt.Errorf("einotool: tool %q reported an error: %s", t.name, rendered)
+	var outcome cr.CallOutcome
+	if t.lease != nil {
+		outcome, err = t.lease.CallTool(ctx, cr.ToolCall{Name: t.name, Arguments: args})
+	} else {
+		outcome.Result, err = t.caller.CallTool(ctx, t.serviceID, t.name, args, nil)
 	}
-	return rendered, nil
+	if err != nil {
+		return "", outcome, err
+	}
+	rendered := renderToolResult(outcome.Result)
+	if outcome.Result != nil && outcome.Result.IsError {
+		return "", outcome, fmt.Errorf("tool %q: %s", t.name, rendered)
+	}
+	return rendered, outcome, nil
 }
 
 func toolInfo(t basemcp.Tool) (*schema.ToolInfo, error) {

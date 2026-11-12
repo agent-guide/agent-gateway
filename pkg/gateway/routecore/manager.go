@@ -284,6 +284,11 @@ func DecodeStoredRouteConfig(data []byte) (any, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("decode route config: %w", err)
 	}
+	if cfg.Kind == RouteKindMCP {
+		if err := ValidateMCPTargetFields(cfg.ID, cfg.TargetPolicy); err != nil {
+			return nil, err
+		}
+	}
 	if cfg.Kind == RouteKindLLM {
 		if err := ValidateLLMTargetFields(cfg.ID, cfg.TargetPolicy); err != nil {
 			return nil, err

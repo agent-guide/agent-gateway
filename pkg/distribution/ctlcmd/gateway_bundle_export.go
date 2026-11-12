@@ -34,7 +34,7 @@ func (s *commandState) runGatewayExport(ctx context.Context, path string) error 
 	if err != nil {
 		return err
 	}
-	mcpServices, err := client.ListMCPServices(ctx)
+	connectors, err := client.ListConnectors(ctx)
 	if err != nil {
 		return err
 	}
@@ -76,8 +76,8 @@ func (s *commandState) runGatewayExport(ctx context.Context, path string) error 
 	for _, item := range virtualKeys {
 		bundle.VirtualKeys = append(bundle.VirtualKeys, gatewaybundle.BundleVirtualKeyFromRuntime(item.VirtualKey))
 	}
-	for _, item := range mcpServices {
-		bundle.MCPServices = append(bundle.MCPServices, item.MCPServiceConfig)
+	for _, item := range connectors {
+		bundle.Connectors = append(bundle.Connectors, item.ConnectorConfig)
 	}
 	for _, item := range mcpRoutes {
 		bundle.MCPRoutes = append(bundle.MCPRoutes, item.MCPRoute)
@@ -128,8 +128,8 @@ func sortGatewayBundle(bundle *gatewaybundle.GatewayBundle) {
 	sort.Slice(bundle.VirtualKeys, func(i, j int) bool {
 		return bundle.VirtualKeys[i].ID < bundle.VirtualKeys[j].ID
 	})
-	sort.Slice(bundle.MCPServices, func(i, j int) bool {
-		return bundle.MCPServices[i].ID < bundle.MCPServices[j].ID
+	sort.Slice(bundle.Connectors, func(i, j int) bool {
+		return bundle.Connectors[i].ID < bundle.Connectors[j].ID
 	})
 	sort.Slice(bundle.MCPRoutes, func(i, j int) bool {
 		return bundle.MCPRoutes[i].ID < bundle.MCPRoutes[j].ID

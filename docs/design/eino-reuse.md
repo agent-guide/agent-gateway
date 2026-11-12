@@ -31,7 +31,7 @@ packages.
 | `eino/schema` | `Message`, `ToolCall`, `ToolInfo`, `ResponseMeta`, `TokenUsage`, `StreamReader`/`Pipe`, tool-choice constants, multimodal input parts |
 | `eino/components/model` | `ToolCallingChatModel`, `Option`, common options, `WrapImplSpecificOptFn`/`GetImplSpecificOptions` (carries gateway-specific request context inside option lists) |
 | `eino/callbacks` | the observability tap (§4.1): a global handler in `internal/observability/einotap`, plus the aspect functions fired by the self-implemented providers |
-| `eino/components/tool` | `InvokableTool`, implemented by the MCP bridge `pkg/mcp/einotool` (§5.3) |
+| `eino/components/tool` | `InvokableTool`, implemented by the MCP bridge `pkg/connector/einotool` (§5.3) |
 | `eino/adk` | `Runner`, `ChatModelAgent`, sequential/parallel/loop workflows, checkpoint resume, and operator cancellation for the builtin runtime (§5) |
 | `eino/adk/prebuilt` | supervisor, planexecute, and deep builtin topologies |
 | `eino/adk/middlewares` | agentsmd, summarization, skill, plantask, dynamic tool search, reduction, and patchtoolcalls |
@@ -286,7 +286,7 @@ Two neutral bridge libraries connect gateway resources to ADK:
   `provider.Provider`—preferably a `RoutedProvider`—as an eino
   `model.ToolCallingChatModel`, preserving credential scheduling, route
   candidate fallback, and usage attribution.
-- `pkg/mcp/einotool` presents gateway-managed MCP service tools as eino
+- `pkg/connector/einotool` presents gateway-managed MCP service tools as eino
   `InvokableTool` values. Name selection is fail-closed: a missing selected
   tool is a materialization error.
 

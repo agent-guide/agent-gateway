@@ -1,4 +1,4 @@
-package service
+package connector
 
 import (
 	"context"
@@ -6,7 +6,12 @@ import (
 )
 
 func (m *Manager) Initialize(ctx context.Context, id string) (map[string]any, error) {
-	client, _, err := m.discoveryClient(ctx, id)
+	v, ctx, done, err := m.admit(ctx, id, "")
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	client, _, err := m.discoveryClientConfig(ctx, v.config)
 	if err != nil {
 		return nil, err
 	}

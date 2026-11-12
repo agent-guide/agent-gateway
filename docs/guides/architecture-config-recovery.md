@@ -22,7 +22,7 @@ direct Provider targets, and standalone static bundles cannot contain
 `virtualKeys`, `managedModels`, or `extensions`. Database-backed logical-model
 routes and those persisted resource families remain supported.
 
-Agent `resources` declarations may retain deleted Provider, MCP service, or
+Agent `resources` declarations may retain deleted Provider, MCP connector, or
 VirtualKey IDs. HTTP Agent `auth_ref` may likewise retain a revoked credential;
 runtime readiness and execution enforce credential eligibility. These retained
 links do not block offline repair. Agent route dependencies and ingress targets
@@ -62,10 +62,12 @@ unenforced Agent budget:
 ]
 ```
 
-Supported families are `routes` and `agents`. `replace` supplies a complete
-raw record in `data`, with the same ID. Route replacement uses the persisted
+Supported families are `routes`, `agents`, and database-backed `connectors`.
+Use the legacy `mcp_services` family with `--convert-connectors` when repairing
+rows during the stopped-service conversion described below. `replace` supplies
+a complete raw record in `data`, with the same ID. Route replacement uses the persisted
 envelope (`kind`, `protocol`, `match_policy`, `auth_policy`, and `target_policy`),
-including `target_policy.service_id` or `target_policy.agent_id` for those
+including `target_policy.connector_id` or `target_policy.agent_id` for those
 route kinds. Omitted record fields are not merged with old values.
 
 `convert-target` classifies the original raw fields before normalization:
@@ -120,3 +122,26 @@ verify its normal health and route behavior. To restore, stop the service,
 restore the pre-repair database as a standalone SQLite file (do not retain
 stale `-wal`/`-shm` companions), or restore the static backup, and inspect again
 before restarting. Backups can contain credentials; retain them privately.
+
+## Convert the legacy MCP service layout
+
+Stop all processes using the SQLite file. Keep the backup private: legacy MCP
+inline authentication and environment values may contain secrets. Run:
+
+```sh
+scripts/repair-architecture-config --db /path/gateway.db --convert-connectors \
+  --backup /path/gateway.before-connectors.db --service-stopped
+```
+
+The conversion validates the prospective configuration, atomically renames the
+physical table to `connectors`, nests MCP connection fields, and rewrites stored
+Agent and MCP-route references and target discriminators. It preserves IDs,
+metadata and inline auth/env/auto_auth without creating credentials. Failure
+rolls back the complete conversion. A pre-existing target table is a conflict;
+inspect and explicitly repair it before converting. Startup/Refresh never
+perform this conversion or read old formats as aliases.
+
+For damaged legacy rows, add `--repair /path/operations.json` to the same
+conversion command. Explicit `replace`/`delete` operations address the old
+`mcp_services` family; repairs, reference conversion, validation and table cutover
+then share one transaction and backup. No partially repaired layout is published.

@@ -260,7 +260,7 @@ type BuiltinDefinitionSummary struct {
 	LLMRouteID           string   `json:"llm_route_id"`
 	Model                string   `json:"model,omitempty"`
 	TopologyKind         string   `json:"topology_kind"`
-	ToolServiceIDs       []string `json:"tool_service_ids,omitempty"`
+	ToolConnectorIDs     []string `json:"tool_connector_ids,omitempty"`
 	MaxConcurrentTurns   int      `json:"max_concurrent_turns,omitempty"`
 	TurnTimeoutSeconds   int      `json:"turn_timeout_seconds,omitempty"`
 	SummarizationEnabled bool     `json:"summarization_enabled"`
@@ -340,7 +340,7 @@ func (h *Handler) assembleBuiltinWorkspace(ctx context.Context, ws *AgentWorkspa
 			TopologyKind: kind,
 		}
 		for _, sel := range b.Tools {
-			view.Definition.ToolServiceIDs = append(view.Definition.ToolServiceIDs, sel.MCPServiceID)
+			view.Definition.ToolConnectorIDs = append(view.Definition.ToolConnectorIDs, sel.ConnectorID)
 		}
 		if b.Limits != nil {
 			view.Definition.MaxConcurrentTurns = b.Limits.MaxConcurrentTurns
@@ -562,7 +562,7 @@ type agentResourcesView struct {
 // than an echo of the raw id lists. exists=false flags a dangling reference.
 type agentResolvedResources struct {
 	Providers   []resourceRef `json:"providers"`
-	MCPServices []resourceRef `json:"mcp_services"`
+	Connectors  []resourceRef `json:"connectors"`
 	VirtualKeys []resourceRef `json:"virtual_keys"`
 	LLMRoutes   []resourceRef `json:"llm_routes"`
 	MCPRoutes   []resourceRef `json:"mcp_routes"`
@@ -591,7 +591,7 @@ func (h *Handler) handleGetAgentResources(w http.ResponseWriter, r *http.Request
 func (h *Handler) resolveAgentResources(ctx context.Context, a agentpkg.Agent) *agentResolvedResources {
 	out := &agentResolvedResources{
 		Providers:   []resourceRef{},
-		MCPServices: []resourceRef{},
+		Connectors:  []resourceRef{},
 		VirtualKeys: []resourceRef{},
 		LLMRoutes:   []resourceRef{},
 		MCPRoutes:   []resourceRef{},
@@ -607,17 +607,17 @@ func (h *Handler) resolveAgentResources(ctx context.Context, a agentpkg.Agent) *
 		}
 		out.Providers = append(out.Providers, ref)
 	}
-	for _, id := range a.Resources.MCPServiceIDs {
+	for _, id := range a.Resources.ConnectorIDs {
 		ref := resourceRef{ID: id}
-		if h.sharedMCPServiceManager != nil {
-			if cfg, err := h.sharedMCPServiceManager.Get(ctx, id); err == nil {
+		if h.sharedConnectorManager != nil {
+			if cfg, err := h.sharedConnectorManager.Get(ctx, id); err == nil {
 				ref.Exists = true
-				ref.Kind = string(cfg.Transport)
+				ref.Kind = cfg.Type
 				ref.Disabled = cfg.Disabled
 				ref.Detail = cfg.Name
 			}
 		}
-		out.MCPServices = append(out.MCPServices, ref)
+		out.Connectors = append(out.Connectors, ref)
 	}
 	for _, id := range a.Resources.VirtualKeyIDs {
 		ref := resourceRef{ID: id}

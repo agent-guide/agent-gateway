@@ -72,7 +72,7 @@ func snapshotTestAgent(id string) Agent {
 		Runtime: Runtime{Type: RuntimeTypeACP, ACP: &ACPRuntime{
 			AgentType: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"}, Env: map[string]string{"OWNER": id},
 		}},
-		Resources: Resources{MCPServiceIDs: []string{"docs"}},
+		Resources: Resources{ConnectorIDs: []string{"docs"}},
 	}
 }
 
@@ -88,12 +88,12 @@ func TestGetSnapshotDeepCloneMutationIsolation(t *testing.T) {
 	// Mutate every reference-typed field on the returned value; the committed
 	// generation must be unaffected.
 	got.Runtime.ACP.Env["OWNER"] = "mutated"
-	got.Resources.MCPServiceIDs[0] = "mutated"
+	got.Resources.ConnectorIDs[0] = "mutated"
 	again, ok := m.GetSnapshot("a1")
 	if !ok {
 		t.Fatal("second GetSnapshot returned ok=false")
 	}
-	if again.Runtime.ACP.Env["OWNER"] != "a1" || again.Resources.MCPServiceIDs[0] != "docs" {
+	if again.Runtime.ACP.Env["OWNER"] != "a1" || again.Resources.ConnectorIDs[0] != "docs" {
 		t.Fatalf("snapshot was corrupted by caller mutation: %+v", again)
 	}
 	for _, a := range m.Snapshot() {

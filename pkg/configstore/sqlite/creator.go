@@ -72,7 +72,10 @@ func Open(ctx context.Context, cfg Config, logger *zap.Logger) (*SQLiteConfigSto
 	return configstoreBackend, nil
 }
 
-func (s *SQLiteConfigStoreCreator) Open(_ context.Context) error {
+func (s *SQLiteConfigStoreCreator) Open(ctx context.Context) error {
+	if err := PreflightLegacyAgentRuntime(ctx, s.SQLitePath); err != nil {
+		return err
+	}
 	if s.logger == nil {
 		s.logger = zap.NewNop()
 	}

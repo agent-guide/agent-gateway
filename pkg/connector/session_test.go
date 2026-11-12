@@ -1,4 +1,4 @@
-package service_test
+package connector_test
 
 import (
 	"context"
@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agent-guide/agent-gateway/pkg/mcp/service"
+	"github.com/agent-guide/agent-gateway/pkg/connector"
 )
 
 // newFakeStreamableHTTPConfig creates a minimal streamable-HTTP MCP test server and
 // returns its service config. The server assigns an upstream session ID via the
 // MCP-Session-Id response header on the initialize call.
-func newFakeStreamableHTTPConfig(t *testing.T, id string) service.MCPServiceConfig {
+func newFakeStreamableHTTPConfig(t *testing.T, id string) connector.ConnectorConfig {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
@@ -24,11 +24,10 @@ func newFakeStreamableHTTPConfig(t *testing.T, id string) service.MCPServiceConf
 	})
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
-	return service.MCPServiceConfig{
-		ID:        id,
-		Name:      "fake-http-" + id,
-		Transport: service.TransportStreamableHTTP,
-		URL:       ts.URL + "/mcp",
+	return connector.ConnectorConfig{
+		ID:   id,
+		Name: "fake-http-" + id, Type: "mcp", MCP: &connector.MCPConfig{Transport: connector.TransportStreamableHTTP,
+			URL: ts.URL + "/mcp"},
 	}
 }
 
@@ -47,13 +46,13 @@ func TestManagerGatewaySessionReadyAfterConnect(t *testing.T) {
 	if s == nil {
 		t.Fatal("expected non-nil session")
 	}
-	if s.State != service.SessionStateReady {
+	if s.State != connector.SessionStateReady {
 		t.Errorf("expected state ready, got %q", s.State)
 	}
-	if s.ServiceID != cfg.ID {
-		t.Errorf("expected service_id %q, got %q", cfg.ID, s.ServiceID)
+	if s.ConnectorID != cfg.ID {
+		t.Errorf("expected connector_id %q, got %q", cfg.ID, s.ConnectorID)
 	}
-	if s.Transport != service.TransportSSE {
+	if s.Transport != connector.TransportSSE {
 		t.Errorf("expected transport sse, got %q", s.Transport)
 	}
 	if s.ID == "" {
@@ -85,7 +84,7 @@ func TestManagerGatewaySessionClosedAfterInvalidation(t *testing.T) {
 	if s == nil {
 		t.Fatal("expected session entry to persist after delete")
 	}
-	if s.State != service.SessionStateClosed {
+	if s.State != connector.SessionStateClosed {
 		t.Errorf("expected state closed, got %q", s.State)
 	}
 }
@@ -108,7 +107,9 @@ func TestManagerGatewaySessionNewIDOnReconnect(t *testing.T) {
 
 	// Update the service config to force invalidation + reconnect.
 	updated := cfg
-	updated.Description = "changed"
+	connection := *cfg.MCP
+	updated.MCP = &connection
+	updated.MCP.URL += "?revision=2"
 	if err := mgr.Update(ctx, cfg.ID, updated); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -124,7 +125,7 @@ func TestManagerGatewaySessionNewIDOnReconnect(t *testing.T) {
 	if s2.ID == s1.ID {
 		t.Error("expected a new gateway session ID after reconnect, got the same one")
 	}
-	if s2.State != service.SessionStateReady {
+	if s2.State != connector.SessionStateReady {
 		t.Errorf("expected state ready after reconnect, got %q", s2.State)
 	}
 }
@@ -144,7 +145,7 @@ func TestManagerGatewaySessionUpstreamSessionID(t *testing.T) {
 	if s == nil {
 		t.Fatal("expected non-nil session")
 	}
-	if s.State != service.SessionStateReady {
+	if s.State != connector.SessionStateReady {
 		t.Errorf("expected ready, got %q", s.State)
 	}
 	// The fake server sets MCP-Session-Id: upstream-session-abc123.
@@ -174,7 +175,7 @@ func TestManagerListGatewaySessionsAllServices(t *testing.T) {
 	}
 
 	sA := mgr.GetGatewaySession(cfgA.ID)
-	if sA == nil || sA.ServiceID != cfgA.ID {
+	if sA == nil || sA.ConnectorID != cfgA.ID {
 		t.Errorf("expected session for service A, got %v", sA)
 	}
 }

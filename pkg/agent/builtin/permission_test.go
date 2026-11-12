@@ -21,8 +21,8 @@ import (
 // permissions.
 func interactiveAgent(id string) agent.Agent {
 	a := testAgent(id)
-	a.Runtime.Builtin.Tools = []agent.BuiltinToolSelection{{MCPServiceID: "docs", Tools: []string{"fetch_doc"}}}
-	a.Resources.MCPServiceIDs = []string{"docs"}
+	a.Runtime.Builtin.Tools = []agent.BuiltinToolSelection{{ConnectorID: "docs", Tools: []string{"fetch_doc"}}}
+	a.Resources.ConnectorIDs = []string{"docs"}
 	a.Runtime.Builtin.Permissions = &agent.BuiltinPermissions{Mode: agent.PermissionModeInteractive}
 	return a
 }
@@ -249,7 +249,7 @@ func TestServeTurnInteractiveInterruptAndResumeAllow(t *testing.T) {
 		t.Fatalf("tool calls before decision = %d, want 0", tools.calls)
 	}
 	call := payload.Calls[0]
-	if call.ToolName != "fetch_doc" || call.MCPServiceID != "docs" || call.CallID == "" {
+	if call.ToolName != "fetch_doc" || call.ConnectorID != "docs" || call.CallID == "" {
 		t.Fatalf("pending call = %+v, want fetch_doc on docs with a call id", call)
 	}
 

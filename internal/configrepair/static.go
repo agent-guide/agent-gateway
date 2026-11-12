@@ -66,7 +66,7 @@ func (d *StaticDocument) Records() ([]Record, error) {
 				}
 			}
 			if kind == "mcp" || kind == "agent" {
-				field := "service_id"
+				field := "connector_id"
 				if kind == "agent" {
 					field = "agent_id"
 				}
@@ -111,7 +111,7 @@ func (d *StaticDocument) Records() ([]Record, error) {
 	}
 	for _, f := range []struct{ key, family, kind string }{
 		{"llmRoutes", "routes", "llm"}, {"mcpRoutes", "routes", "mcp"}, {"agentRoutes", "routes", "agent"},
-		{"agents", "agents", ""}, {"providers", "providers", ""}, {"mcpServices", "mcp_services", ""}, {"virtualKeys", "virtual_keys", ""},
+		{"agents", "agents", ""}, {"providers", "providers", ""}, {"connectors", "connectors", ""}, {"virtualKeys", "virtual_keys", ""},
 		{"managedModels", "managed_models", ""}, {"extensions", "extensions", ""},
 	} {
 		key := f.key
@@ -161,7 +161,7 @@ func (d *StaticDocument) Encode(records []Record) ([]byte, error) {
 				if err != nil {
 					return nil, err
 				}
-				field := "service_id"
+				field := "connector_id"
 				if kind == "agent" {
 					field = "agent_id"
 				}

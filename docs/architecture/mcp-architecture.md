@@ -17,28 +17,28 @@ MCP client
   -> http.handlers.agent_route_dispatcher (mcp enabled)
   -> pkg/dispatcher.Handler.dispatchMCP
   -> pkg/gateway/mcproute resolver
-  -> pkg/mcp/service.Manager
+  -> pkg/connector.Manager
   -> pkg/mcp/transport (streamable HTTP, stdio, or legacy SSE)
   -> upstream MCP server or local process
 ```
 
 The shared `pkg/gateway/routecore` manager persists and matches LLM, MCP, and
 Agent routes. `pkg/gateway/mcproute` projects an MCP route from that common
-record and resolves its target `service_id`. `pkg/mcp/service` owns protocol
+record and resolves its target `connector_id`. `pkg/connector` owns protocol
 execution and gateway-visible sessions. `pkg/mcp/transport` owns only
 transport-specific connection, framing, upstream request ids, and session
 handles.
 
 ## Configuration And Storage
 
-MCP services are stored in `mcp_services`. MCP routes share the `routes` store
+MCP connectors are stored in `connectors`. MCP routes share the `routes` store
 with other route families and use:
 
 - `kind: mcp`;
 - `protocol: mcp`;
 - host, path-prefix, and method match policy;
 - optional VirtualKey admission;
-- a target policy containing the MCP `service_id`.
+- a target policy containing the MCP `connector_id`.
 
 Service definitions select one upstream transport:
 
@@ -92,7 +92,7 @@ It exists for MCP servers using the older HTTP+SSE transport shape.
 
 ## Sessions
 
-`pkg/mcp/service` owns the gateway session lifecycle. Transport clients own
+`pkg/connector` owns the gateway session lifecycle. Transport clients own
 upstream handles such as `Mcp-Session-Id`, but raw upstream ids are not the
 gateway's sole session identity. This separation lets the service layer close
 or replace transports without changing route identity.
@@ -101,7 +101,7 @@ Initialized sessions exist for Streamable HTTP, stdio, and legacy SSE. The
 Admin API exposes service session inspection at:
 
 ```text
-GET /admin/mcp/services/{id}/sessions
+GET /admin/connectors/{id}/sessions
 ```
 
 ## Runtime Tracking

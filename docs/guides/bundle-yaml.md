@@ -11,7 +11,7 @@ Bundle YAML is the declarative configuration format for gateway objects such as:
 - managed models
 - LLM routes
 - VirtualKeys
-- MCP services
+- MCP connectors
 - MCP routes
 - registered extension envelopes
 
@@ -168,7 +168,7 @@ Common top-level sections:
 - `managedModels`
 - `llmRoutes`
 - `virtualKeys`
-- `mcpServices`
+- `connectors`
 - `mcpRoutes`
 - `agents`
 - `agentRoutes`

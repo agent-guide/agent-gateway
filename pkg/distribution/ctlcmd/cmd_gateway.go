@@ -56,7 +56,7 @@ func (s *commandState) initGateway() {
 						"managed_models": len(bundle.ManagedModels),
 						"llm_routes":     len(bundle.LLMRoutes),
 						"virtual_keys":   len(bundle.VirtualKeys),
-						"mcp_services":   len(bundle.MCPServices),
+						"connectors":     len(bundle.Connectors),
 						"mcp_routes":     len(bundle.MCPRoutes),
 						"agent_routes":   len(bundle.AgentRoutes),
 						"agents":         len(bundle.Agents),
@@ -215,55 +215,55 @@ func (s *commandState) initGateway() {
 			return s.printJSON(item)
 		},
 	}
-	s.gatewayMCPServiceCmd = &cobra.Command{
-		Use:   "mcp-service",
+	s.gatewayConnectorCmd = &cobra.Command{
+		Use:   "connector",
 		Short: "Manage gateway MCP services",
 	}
-	s.gatewayMCPServiceListCmd = &cobra.Command{
+	s.gatewayConnectorListCmd = &cobra.Command{
 		Use:   "list",
 		Short: "List all MCP services",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			items, err := s.newGatewayClient().ListMCPServices(cmd.Context())
+			items, err := s.newGatewayClient().ListConnectors(cmd.Context())
 			if err != nil {
 				return err
 			}
 			if s.outputFormat == "json" {
 				return s.printJSON(items)
 			}
-			s.printGatewayMCPServicesTable(items)
+			s.printGatewayConnectorsTable(items)
 			return nil
 		},
 	}
-	s.gatewayMCPServiceGetCmd = &cobra.Command{
-		Use:   "get <mcp-service-id>",
+	s.gatewayConnectorGetCmd = &cobra.Command{
+		Use:   "get <connector-id>",
 		Short: "Get one MCP service",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			item, err := s.newGatewayClient().GetMCPService(cmd.Context(), args[0])
+			item, err := s.newGatewayClient().GetConnector(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
 			return s.printJSON(item)
 		},
 	}
-	s.gatewayMCPServiceDeleteCmd = &cobra.Command{
-		Use:   "delete <mcp-service-id>",
+	s.gatewayConnectorDeleteCmd = &cobra.Command{
+		Use:   "delete <connector-id>",
 		Short: "Delete an MCP service",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, err := s.newGatewayClient().DeleteMCPService(cmd.Context(), args[0])
+			resp, err := s.newGatewayClient().DeleteConnector(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
 			return s.printJSON(resp)
 		},
 	}
-	s.gatewayMCPServiceSessionCmd = &cobra.Command{
-		Use:   "session <mcp-service-id>",
+	s.gatewayConnectorSessionCmd = &cobra.Command{
+		Use:   "session <connector-id>",
 		Short: "Get the active gateway session for an MCP service",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			item, err := s.newGatewayClient().GetMCPServiceSession(cmd.Context(), args[0])
+			item, err := s.newGatewayClient().GetConnectorSession(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -274,24 +274,24 @@ func (s *commandState) initGateway() {
 			return nil
 		},
 	}
-	s.gatewayMCPServiceCapabilitiesCmd = &cobra.Command{
-		Use:   "capabilities <mcp-service-id>",
+	s.gatewayConnectorCapabilitiesCmd = &cobra.Command{
+		Use:   "capabilities <connector-id>",
 		Short: "Get the upstream initialize payload for an MCP service",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			item, err := s.newGatewayClient().GetMCPServiceCapabilities(cmd.Context(), args[0])
+			item, err := s.newGatewayClient().GetConnectorCapabilities(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
 			return s.printJSON(item)
 		},
 	}
-	s.gatewayMCPServiceToolsCmd = &cobra.Command{
-		Use:   "tools <mcp-service-id>",
+	s.gatewayConnectorToolsCmd = &cobra.Command{
+		Use:   "tools <connector-id>",
 		Short: "List tools exposed by an MCP service",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			items, err := s.newGatewayClient().ListMCPServiceTools(cmd.Context(), args[0])
+			items, err := s.newGatewayClient().ListConnectorTools(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -302,8 +302,8 @@ func (s *commandState) initGateway() {
 			return nil
 		},
 	}
-	s.gatewayMCPServiceToolCallCmd = &cobra.Command{
-		Use:   "tool-call <mcp-service-id> <tool-name>",
+	s.gatewayConnectorToolCallCmd = &cobra.Command{
+		Use:   "tool-call <connector-id> <tool-name>",
 		Short: "Call a tool exposed by an MCP service",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -311,7 +311,7 @@ func (s *commandState) initGateway() {
 			if err != nil {
 				return err
 			}
-			item, err := s.newGatewayClient().CallMCPServiceTool(cmd.Context(), args[0], adminclient.MCPToolCallRequest{
+			item, err := s.newGatewayClient().CallConnectorTool(cmd.Context(), args[0], adminclient.MCPToolCallRequest{
 				Name:      args[1],
 				Arguments: arguments,
 			})
@@ -321,12 +321,12 @@ func (s *commandState) initGateway() {
 			return s.printJSON(item)
 		},
 	}
-	s.gatewayMCPServiceResourcesCmd = &cobra.Command{
-		Use:   "resources <mcp-service-id>",
+	s.gatewayConnectorResourcesCmd = &cobra.Command{
+		Use:   "resources <connector-id>",
 		Short: "List resources exposed by an MCP service",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			items, err := s.newGatewayClient().ListMCPServiceResources(cmd.Context(), args[0])
+			items, err := s.newGatewayClient().ListConnectorResources(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -337,12 +337,12 @@ func (s *commandState) initGateway() {
 			return nil
 		},
 	}
-	s.gatewayMCPServiceResourceTemplatesCmd = &cobra.Command{
-		Use:   "resource-templates <mcp-service-id>",
+	s.gatewayConnectorResourceTemplatesCmd = &cobra.Command{
+		Use:   "resource-templates <connector-id>",
 		Short: "List resource templates exposed by an MCP service",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			items, err := s.newGatewayClient().ListMCPServiceResourceTemplates(cmd.Context(), args[0])
+			items, err := s.newGatewayClient().ListConnectorResourceTemplates(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -353,12 +353,12 @@ func (s *commandState) initGateway() {
 			return nil
 		},
 	}
-	s.gatewayMCPServiceResourceReadCmd = &cobra.Command{
-		Use:   "resource-read <mcp-service-id> <resource-uri>",
+	s.gatewayConnectorResourceReadCmd = &cobra.Command{
+		Use:   "resource-read <connector-id> <resource-uri>",
 		Short: "Read one resource exposed by an MCP service",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			item, err := s.newGatewayClient().ReadMCPServiceResource(cmd.Context(), args[0], adminclient.MCPResourceReadRequest{
+			item, err := s.newGatewayClient().ReadConnectorResource(cmd.Context(), args[0], adminclient.MCPResourceReadRequest{
 				URI: args[1],
 			})
 			if err != nil {
@@ -367,12 +367,12 @@ func (s *commandState) initGateway() {
 			return s.printJSON(item)
 		},
 	}
-	s.gatewayMCPServicePromptsCmd = &cobra.Command{
-		Use:   "prompts <mcp-service-id>",
+	s.gatewayConnectorPromptsCmd = &cobra.Command{
+		Use:   "prompts <connector-id>",
 		Short: "List prompts exposed by an MCP service",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			items, err := s.newGatewayClient().ListMCPServicePrompts(cmd.Context(), args[0])
+			items, err := s.newGatewayClient().ListConnectorPrompts(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -383,8 +383,8 @@ func (s *commandState) initGateway() {
 			return nil
 		},
 	}
-	s.gatewayMCPServicePromptGetCmd = &cobra.Command{
-		Use:   "prompt-get <mcp-service-id> <prompt-name>",
+	s.gatewayConnectorPromptGetCmd = &cobra.Command{
+		Use:   "prompt-get <connector-id> <prompt-name>",
 		Short: "Get one prompt from an MCP service",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -392,7 +392,7 @@ func (s *commandState) initGateway() {
 			if err != nil {
 				return err
 			}
-			item, err := s.newGatewayClient().GetMCPServicePrompt(cmd.Context(), args[0], adminclient.MCPPromptGetRequest{
+			item, err := s.newGatewayClient().GetConnectorPrompt(cmd.Context(), args[0], adminclient.MCPPromptGetRequest{
 				Name:      args[1],
 				Arguments: arguments,
 			})
@@ -751,14 +751,14 @@ func (s *commandState) initGateway() {
 	s.gatewayCredentialListCmd.Flags().StringVar(&s.gatewayCredentialProviderType, "provider-type", "", "filter credentials by provider type")
 	s.gatewayCredentialListCmd.Flags().StringVar(&s.gatewayCredentialProviderID, "provider-id", "", "filter credentials by provider ID")
 	s.gatewayMCPRuntimeHistoryCmd.Flags().StringVar(&s.gatewayMCPRuntimeRouteID, "route-id", "", "filter completed MCP requests by route ID")
-	s.gatewayMCPServiceToolCallCmd.Flags().StringVar(&s.gatewayMCPToolArguments, "arguments", "", "JSON object passed as tool arguments")
-	s.gatewayMCPServicePromptGetCmd.Flags().StringVar(&s.gatewayMCPPromptArguments, "arguments", "", "JSON object passed as prompt arguments")
+	s.gatewayConnectorToolCallCmd.Flags().StringVar(&s.gatewayMCPToolArguments, "arguments", "", "JSON object passed as tool arguments")
+	s.gatewayConnectorPromptGetCmd.Flags().StringVar(&s.gatewayMCPPromptArguments, "arguments", "", "JSON object passed as prompt arguments")
 	s.gatewayValidateCmd.Flags().StringVarP(&s.gatewayBundleFile, "file", "f", "", "path to gateway bundle YAML file")
 	s.gatewayApplyCmd.Flags().StringVarP(&s.gatewayBundleFile, "file", "f", "", "path to gateway bundle YAML file")
 	s.gatewayExportCmd.Flags().StringVarP(&s.gatewayExportFile, "file", "f", "", "write bundle YAML to this file instead of stdout")
 	s.gatewayProviderCmd.AddCommand(s.gatewayProviderListCmd, s.gatewayProviderGetCmd, s.gatewayProviderDeleteCmd, s.gatewayProviderEnableCmd, s.gatewayProviderDisableCmd)
 	s.gatewayLLMRouteCmd.AddCommand(s.gatewayLLMRouteListCmd, s.gatewayLLMRouteGetCmd, s.gatewayLLMRouteDeleteCmd, s.gatewayLLMRouteEnableCmd, s.gatewayLLMRouteDisableCmd)
-	s.gatewayMCPServiceCmd.AddCommand(s.gatewayMCPServiceListCmd, s.gatewayMCPServiceGetCmd, s.gatewayMCPServiceDeleteCmd, s.gatewayMCPServiceSessionCmd, s.gatewayMCPServiceCapabilitiesCmd, s.gatewayMCPServiceToolsCmd, s.gatewayMCPServiceToolCallCmd, s.gatewayMCPServiceResourcesCmd, s.gatewayMCPServiceResourceTemplatesCmd, s.gatewayMCPServiceResourceReadCmd, s.gatewayMCPServicePromptsCmd, s.gatewayMCPServicePromptGetCmd)
+	s.gatewayConnectorCmd.AddCommand(s.gatewayConnectorListCmd, s.gatewayConnectorGetCmd, s.gatewayConnectorDeleteCmd, s.gatewayConnectorSessionCmd, s.gatewayConnectorCapabilitiesCmd, s.gatewayConnectorToolsCmd, s.gatewayConnectorToolCallCmd, s.gatewayConnectorResourcesCmd, s.gatewayConnectorResourceTemplatesCmd, s.gatewayConnectorResourceReadCmd, s.gatewayConnectorPromptsCmd, s.gatewayConnectorPromptGetCmd)
 	s.gatewayMCPRouteCmd.AddCommand(s.gatewayMCPRouteListCmd, s.gatewayMCPRouteGetCmd, s.gatewayMCPRouteDeleteCmd)
 	s.gatewayMCPRuntimeCmd.AddCommand(s.gatewayMCPRuntimeGetCmd, s.gatewayMCPRuntimeInFlightCmd, s.gatewayMCPRuntimeProgressCmd, s.gatewayMCPRuntimeHistoryCmd)
 	s.gatewayVirtualKeyCmd.AddCommand(s.gatewayVirtualKeyListCmd, s.gatewayVirtualKeyGetCmd, s.gatewayVirtualKeyDeleteCmd, s.gatewayVirtualKeyEnableCmd, s.gatewayVirtualKeyDisableCmd)
@@ -768,5 +768,5 @@ func (s *commandState) initGateway() {
 	s.gatewayModelsCmd.AddCommand(s.gatewayModelsDiscoveredCmd, s.gatewayModelsManagedCmd)
 	s.gatewayProviderTypesCmd.AddCommand(s.gatewayProviderTypesListCmd)
 	s.gatewayLLMAPIHandlerTypesCmd.AddCommand(s.gatewayLLMAPIHandlerTypesListCmd)
-	s.rootCmd.AddCommand(s.gatewayValidateCmd, s.gatewayApplyCmd, s.gatewayExportCmd, s.gatewayProviderCmd, s.gatewayLLMRouteCmd, s.gatewayMCPServiceCmd, s.gatewayMCPRouteCmd, s.gatewayMCPRuntimeCmd, s.gatewayVirtualKeyCmd, s.gatewayCredentialCmd, s.gatewayProviderTypesCmd, s.gatewayLLMAPIHandlerTypesCmd, s.gatewayModelsCmd)
+	s.rootCmd.AddCommand(s.gatewayValidateCmd, s.gatewayApplyCmd, s.gatewayExportCmd, s.gatewayProviderCmd, s.gatewayLLMRouteCmd, s.gatewayConnectorCmd, s.gatewayMCPRouteCmd, s.gatewayMCPRuntimeCmd, s.gatewayVirtualKeyCmd, s.gatewayCredentialCmd, s.gatewayProviderTypesCmd, s.gatewayLLMAPIHandlerTypesCmd, s.gatewayModelsCmd)
 }

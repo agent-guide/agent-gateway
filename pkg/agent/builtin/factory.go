@@ -9,7 +9,7 @@ import (
 	"github.com/cloudwego/eino/adk"
 
 	"github.com/agent-guide/agent-gateway/pkg/agent"
-	"github.com/agent-guide/agent-gateway/pkg/mcp/einotool"
+	"github.com/agent-guide/agent-gateway/pkg/connector/einotool"
 )
 
 // FactoryDeps hands a custom factory the same gateway-governed building

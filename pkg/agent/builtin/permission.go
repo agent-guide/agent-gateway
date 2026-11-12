@@ -30,10 +30,10 @@ var nowFunc = time.Now
 // attaches to its interrupt. It travels inside the checkpoint (gob), so the
 // type is registered for serialization.
 type permissionInterruptInfo struct {
-	CallID       string
-	MCPServiceID string
-	ToolName     string
-	Arguments    string
+	CallID      string
+	ConnectorID string
+	ToolName    string
+	Arguments   string
 }
 
 // permissionDecision is the per-call resume payload. It is delivered
@@ -88,10 +88,10 @@ func (t *gatedTool) InvokableRun(ctx context.Context, argumentsInJSON string, op
 	// First run, or a resume that targets a different interrupt point: pause
 	// (or re-pause, preserving this call's pending state) for a decision.
 	return "", compose.Interrupt(ctx, &permissionInterruptInfo{
-		CallID:       compose.GetToolCallID(ctx),
-		MCPServiceID: t.serviceID,
-		ToolName:     t.toolName,
-		Arguments:    argumentsInJSON,
+		CallID:      compose.GetToolCallID(ctx),
+		ConnectorID: t.serviceID,
+		ToolName:    t.toolName,
+		Arguments:   argumentsInJSON,
 	})
 }
 
@@ -132,11 +132,11 @@ func (s *memCheckPointStore) Delete(_ context.Context, checkPointID string) erro
 // pendingCall is one gated tool call awaiting a decision.
 type pendingCall struct {
 	// targetID is the InterruptCtx address id — the ResumeParams.Targets key.
-	targetID     string
-	CallID       string `json:"call_id"`
-	MCPServiceID string `json:"mcp_service_id"`
-	ToolName     string `json:"name"`
-	Arguments    string `json:"arguments,omitempty"`
+	targetID    string
+	CallID      string `json:"call_id"`
+	ConnectorID string `json:"connector_id"`
+	ToolName    string `json:"name"`
+	Arguments   string `json:"arguments,omitempty"`
 }
 
 // pendingPermission is one suspended turn: the checkpoint id doubles as the
@@ -159,12 +159,13 @@ type pendingPermission struct {
 	// updatedAt guards materialization identity: a checkpoint must resume on
 	// the graph that produced it, so a definition update invalidates the
 	// pending permission.
-	updatedAt  time.Time
-	expiresAt  time.Time
-	createdAt  time.Time
-	calls      []pendingCall
-	userMsg    *schema.Message
-	transcript []*schema.Message
+	connectorVersion string
+	updatedAt        time.Time
+	expiresAt        time.Time
+	createdAt        time.Time
+	calls            []pendingCall
+	userMsg          *schema.Message
+	transcript       []*schema.Message
 }
 
 // permissionRegistry is the backend-owned opaque continuation store. Entries
@@ -285,10 +286,10 @@ type PendingPermissionView struct {
 
 // PendingPermissionCall is the admin/SSE view of one gated tool call.
 type PendingPermissionCall struct {
-	CallID       string `json:"call_id"`
-	MCPServiceID string `json:"mcp_service_id"`
-	ToolName     string `json:"name"`
-	Arguments    string `json:"arguments,omitempty"`
+	CallID      string `json:"call_id"`
+	ConnectorID string `json:"connector_id"`
+	ToolName    string `json:"name"`
+	Arguments   string `json:"arguments,omitempty"`
 }
 
 func (r *permissionRegistry) list() []PendingPermissionView {
@@ -313,10 +314,10 @@ func pendingView(p *pendingPermission) PendingPermissionView {
 	}
 	for _, c := range p.calls {
 		view.Calls = append(view.Calls, PendingPermissionCall{
-			CallID:       c.CallID,
-			MCPServiceID: c.MCPServiceID,
-			ToolName:     c.ToolName,
-			Arguments:    c.Arguments,
+			CallID:      c.CallID,
+			ConnectorID: c.ConnectorID,
+			ToolName:    c.ToolName,
+			Arguments:   c.Arguments,
 		})
 	}
 	return view

@@ -44,6 +44,10 @@
 	}
 
 	agent_gateway {
+	# Admin-managed connectors use immutable id and editable display name.
+	# Execution edits/deletion require no Agent/MCP route references or active work.
+	# Display-only edits preserve sessions; disablement/revocation remain available.
+
 		config_store sqlite {
 			path ./data/configstore.db
 		}
