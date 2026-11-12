@@ -2,6 +2,8 @@ package runtimeassembly
 
 import (
 	"context"
+	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/observability/einotap"
 	"github.com/agent-guide/agent-gateway/internal/observability/otelexport"
@@ -29,6 +31,7 @@ func NewUsage(backend configstore.ConfigStoreBackend, logger *zap.Logger, cfg us
 		return usage.NewUsageService(pipeline.NewEventPipeline(4096), nil)
 	}
 	promSink := pipeline.NewPrometheusSink()
+	var httpObserver func(context.Context, cr.HTTPExecution, time.Time)
 	sinks := []pipeline.Sink{sink, promSink}
 	if otlp := cfg.Normalized().OTLP; otlp.Enabled() {
 		exporter, err := otelexport.New(context.Background(), otlp)
@@ -38,6 +41,9 @@ func NewUsage(backend configstore.ConfigStoreBackend, logger *zap.Logger, cfg us
 			}
 		} else {
 			sinks = append(sinks, pipeline.NewOpenTelemetrySink(exporter))
+			if otlp.HTTPClientSpans {
+				httpObserver = exporter.ObserveHTTP
+			}
 			if otlp.Components {
 				otelexport.EnableComponentTap(exporter)
 			}
@@ -49,6 +55,7 @@ func NewUsage(backend configstore.ConfigStoreBackend, logger *zap.Logger, cfg us
 		}
 	}
 	svc := usage.NewUsageService(pipeline.NewEventPipeline(4096, sinks...), query)
+	svc.HTTPClientObserver = httpObserver
 	svc.AttachPrometheus(promSink)
 	return svc
 }

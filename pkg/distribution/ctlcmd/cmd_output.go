@@ -155,6 +155,8 @@ func (s *commandState) printGatewayConnectorsTable(items []adminclient.Connector
 		if item.MCP != nil {
 			endpoint = item.MCP.URL
 			transport = string(item.MCP.Transport)
+		} else if item.HTTPAPI != nil {
+			endpoint = item.HTTPAPI.BaseURL
 		}
 		if item.MCP != nil && item.MCP.Transport == "stdio" {
 			endpoint = item.MCP.Command

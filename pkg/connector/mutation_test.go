@@ -182,3 +182,58 @@ func TestDeleteMissingConnectorDoesNotCreatePendingMutation(t *testing.T) {
 		})
 	}
 }
+
+func TestHTTPConnectorPersistsDefaultLimits(t *testing.T) {
+	for _, transactional := range []bool{false, true} {
+		name := "memory"
+		if transactional {
+			name = "sqlite"
+		}
+		t.Run(name, func(t *testing.T) {
+			store := newTestConfigStore(t)
+			if transactional {
+				creator, err := sqlite.Open(t.Context(), sqlite.Config{SQLitePath: t.TempDir() + "/config.db"}, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				backend := configstore.NewBackend(creator)
+				t.Cleanup(func() { _ = backend.Close() })
+				if err := backend.Register(schema.StoreConnectors, schema.ConnectorSchema); err != nil {
+					t.Fatal(err)
+				}
+				store, err = backend.Get(schema.StoreConnectors)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			manager := connector.NewManager(store)
+			t.Cleanup(manager.Close)
+			cfg := httpConnector(t, "https://orders.example.com", "/lookup")
+			cfg.HTTPAPI.TimeoutMS = 0
+			cfg.HTTPAPI.MaxResponseBytes = 0
+			for _, action := range []string{"create", "update"} {
+				var err error
+				if action == "create" {
+					err = manager.Create(t.Context(), cfg)
+				} else {
+					cfg.Description = "updated"
+					err = manager.Update(t.Context(), cfg.ID, cfg)
+				}
+				if err != nil {
+					t.Fatalf("%s with omitted limits: %v", action, err)
+				}
+				stored, err := store.Get(t.Context(), cfg.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := stored.(*connector.ConnectorConfig)
+				if got.HTTPAPI.TimeoutMS != 10000 || got.HTTPAPI.MaxResponseBytes != 1<<20 {
+					t.Fatalf("%s persisted unnormalized limits: %+v", action, got.HTTPAPI)
+				}
+				if _, pending := manager.PendingMutation(cfg.ID); pending {
+					t.Fatal("default limits require recovery")
+				}
+			}
+		})
+	}
+}

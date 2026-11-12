@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	configstoreschema "github.com/agent-guide/agent-gateway/pkg/configstore/schema"
+	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
@@ -17,6 +19,32 @@ import (
 	mcpruntime "github.com/agent-guide/agent-gateway/pkg/mcp/runtime"
 	"github.com/agent-guide/agent-gateway/pkg/mcp/transport"
 )
+
+func TestMCPBoundaryFailuresRecordErrorResult(t *testing.T) {
+	for _, category := range []string{"invalid_arguments", "unknown_tool", "connector_unavailable", "generation_unavailable", "mutation_pending", "internal_error", "unsupported_capability"} {
+		t.Run(category, func(t *testing.T) {
+			events := &usage.InMemorySink{}
+			span, ctx := usage.NewObserver(events).Begin(t.Context(), usage.InteractionDimensions{RouteKind: "mcp"})
+			span.SetExtension(usage.MCPExtension{Method: "tools/call", ResultStatus: "success"})
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/mcp", nil).WithContext(ctx)
+			if err := (&Handler{}).writeRequestError(response, request, nil, transport.Message{ID: 1}, &cr.CallError{Category: category, Message: "rejected"}); err != nil {
+				t.Fatal(err)
+			}
+			if category == "mutation_pending" && !strings.Contains(response.Body.String(), `"code":-32000`) {
+				t.Fatalf("pending mutation has incorrect MCP mapping: %s", response.Body.String())
+			}
+			span.Finish(usage.InteractionOutcome{Success: false, StatusCode: response.Code})
+			if len(events.Events) != 1 {
+				t.Fatalf("events=%d", len(events.Events))
+			}
+			event := events.Events[0].(usage.MCPUsageEvent)
+			if event.Success || event.ResultStatus != "error" {
+				t.Fatalf("failed call recorded as success: %+v", event)
+			}
+		})
+	}
+}
 
 func TestMCPRequestBodyLimitStatus(t *testing.T) {
 	gw := gateway.NewAgentGateway()

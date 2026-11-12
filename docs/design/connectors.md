@@ -1,18 +1,15 @@
 # Connectors: HTTP APIs, MCP, and Tool Publishing
 
-Capability status: **Implemented** for the connector model, MCP adapters,
-management surfaces, explicit offline conversion and lifecycle contract.
-HTTP API execution, its configuration, credentials, egress policy and HTTP
-observation contracts below are **Proposed**. See
+Capability status: **Implemented**. The connector model, HTTP executor,
+builtin/MCP adapters, management surfaces, explicit offline conversion,
+observation and simplified lifecycle contract are implemented. See
 [current runtime architecture](../architecture/connectors.md).
 
-Connector is the domain object for integrating external capabilities. Its
-implemented type is MCP connector; HTTP API connector is proposed. Builtin Agents
-can invoke a
+Connector is the domain object for integrating external capabilities. Its two
+types are HTTP API connector and MCP connector. Builtin Agents can invoke a
 connector's tools in process, and MCP publishing routes can expose those same
 capabilities to external clients. This document defines the full target
-contracts. MCP configuration examples are supported; HTTP API examples describe
-the proposed contract. Each resource is updated independently.
+contracts. Configuration examples for individual connectors are supported. Each resource is updated independently.
 
 ## 1. Background and Goals
 

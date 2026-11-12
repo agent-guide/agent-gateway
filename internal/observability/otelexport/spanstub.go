@@ -96,6 +96,7 @@ func mcpSpanStub(ev usage.MCPUsageEvent) (tracetest.SpanStub, error) {
 	}
 	attrs := commonAttributes(ev.InteractionEvent)
 	attrs = appendString(attrs, "agw.mcp.service_id", ev.ServiceID)
+	attrs = appendString(attrs, "agw.connector.type", ev.ConnectorType)
 	attrs = appendString(attrs, "agw.mcp.method", ev.Method)
 	attrs = appendString(attrs, "agw.mcp.tool_name", ev.ToolName)
 	attrs = appendString(attrs, "agw.mcp.result_status", ev.ResultStatus)

@@ -184,7 +184,7 @@ func (h *Handler) buildCredentialForCreate(ctx context.Context, req credentialCr
 		return nil, fmt.Errorf("type is required")
 	}
 	scope := strings.TrimSpace(req.Scope)
-	if credential.IsHTTPAgentCredentialScope(scope) {
+	if credential.IsHTTPAgentCredentialScope(scope) || credential.IsConnectorCredentialScope(scope) {
 		if credentialType != credential.TypeAPIKey && credentialType != credential.TypeOAuthToken {
 			return nil, fmt.Errorf("unsupported credential type %q", credentialType)
 		}
@@ -255,14 +255,14 @@ func (h *Handler) buildCredentialForUpdate(existing *credential.ManagedCredentia
 	if requestedType := strings.ToLower(strings.TrimSpace(req.Type)); requestedType != "" && requestedType != existing.Type {
 		return nil, fmt.Errorf("credential type cannot be changed from %q to %q", existing.Type, requestedType)
 	}
-	if credential.IsHTTPAgentCredentialScope(existing.Scope) {
+	if credential.IsHTTPAgentCredentialScope(existing.Scope) || credential.IsConnectorCredentialScope(existing.Scope) {
 		if strings.TrimSpace(req.ProviderType) != "" || strings.TrimSpace(req.ProviderID) != "" {
 			return nil, fmt.Errorf("HTTP Agent credentials must not set provider_type or provider_id")
 		}
 		updated := existing.Credential.Clone()
 		updated.Label, updated.Disabled = req.Label, req.Disabled
 		if scope := strings.TrimSpace(req.Scope); scope != "" {
-			if !credential.IsHTTPAgentCredentialScope(scope) {
+			if !(credential.IsHTTPAgentCredentialScope(scope) || credential.IsConnectorCredentialScope(scope)) {
 				return nil, fmt.Errorf("HTTP Agent credential scope must remain an http-agent scope")
 			}
 			updated.Scope = scope

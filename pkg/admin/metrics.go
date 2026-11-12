@@ -121,13 +121,13 @@ func (h *Handler) handleLLMMetricsBreakdown(w http.ResponseWriter, r *http.Reque
 
 func (h *Handler) handleListMCPMetricsEvents(w http.ResponseWriter, r *http.Request) {
 	h.handleListMetricsEvents(w, r, "mcp", []string{
-		"route_id", "service_id", "virtual_key_id", "method", "tool_name", "resource_uri", "prompt_name", "result_status",
+		"connector_type", "route_id", "service_id", "virtual_key_id", "method", "tool_name", "resource_uri", "prompt_name", "result_status",
 		"completion_ref_type", "completion_argument",
 	})
 }
 
 func (h *Handler) handleMCPMetricsTimeseries(w http.ResponseWriter, r *http.Request) {
-	opts, err := metricTimeseriesOptions(r, []string{"route_id", "service_id", "virtual_key_id", "method", "tool_name", "result_status"})
+	opts, err := metricTimeseriesOptions(r, []string{"connector_type", "route_id", "service_id", "virtual_key_id", "method", "tool_name", "result_status"})
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
@@ -146,7 +146,7 @@ func (h *Handler) handleMCPMetricsTimeseries(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *Handler) handleMCPMetricsBreakdown(w http.ResponseWriter, r *http.Request) {
-	opts, err := metricBreakdownOptions(r, []string{"route_id", "service_id", "virtual_key_id", "method", "tool_name", "result_status"})
+	opts, err := metricBreakdownOptions(r, []string{"connector_type", "route_id", "service_id", "virtual_key_id", "method", "tool_name", "result_status"})
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return

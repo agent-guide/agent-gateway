@@ -1,0 +1,42 @@
+apiVersion: gateway.agw/v1alpha1
+kind: GatewayBundle
+
+# Supply a public HTTPS API origin, with no credentials/query/fragment.
+# Provision api_key credential "orders-token" separately with scope
+# connector:order-api and no provider_type/provider_id. Until then the
+# connector is stored but unready. This Bundle contains no HTTP API secret.
+connectors:
+  - id: order-api
+    name: Order API
+    type: http_api
+    http_api:
+      base_url: ${ORDERS_API_URL}
+      auth:
+        type: bearer
+        credential_ref: orders-token
+      tools:
+        - name: get_order
+          description: Look up order status by order ID
+          input_schema:
+            type: object
+            properties:
+              order_id:
+                type: string
+                minLength: 1
+            required: [order_id]
+            additionalProperties: false
+          request:
+            method: GET
+            path: /orders/{order_id}
+            path_params:
+              order_id:
+                argument: order_id
+          response:
+            select: /data
+mcpRoutes:
+  - id: orders-tools
+    connector_id: order-api
+    match_policy:
+      path_prefix: /mcp/orders
+    auth_policy:
+      require_virtual_key: true

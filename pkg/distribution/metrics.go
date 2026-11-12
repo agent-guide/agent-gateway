@@ -9,11 +9,12 @@ type MetricsConfig struct {
 
 // OTLPConfig configures the existing usage exporter. Empty Endpoint disables it.
 type OTLPConfig struct {
-	Endpoint       string            `json:"endpoint,omitempty"`
-	Protocol       string            `json:"protocol,omitempty"`
-	Insecure       bool              `json:"insecure,omitempty"`
-	Headers        map[string]string `json:"headers,omitempty"`
-	ServiceName    string            `json:"service_name,omitempty"`
-	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`
-	Components     bool              `json:"components,omitempty"`
+	HTTPClientSpans bool              `json:"http_client_spans,omitempty"`
+	Endpoint        string            `json:"endpoint,omitempty"`
+	Protocol        string            `json:"protocol,omitempty"`
+	Insecure        bool              `json:"insecure,omitempty"`
+	Headers         map[string]string `json:"headers,omitempty"`
+	ServiceName     string            `json:"service_name,omitempty"`
+	TimeoutSeconds  int               `json:"timeout_seconds,omitempty"`
+	Components      bool              `json:"components,omitempty"`
 }

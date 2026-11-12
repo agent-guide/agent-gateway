@@ -334,7 +334,8 @@ Gateway exposes the single common RouteConfigManager; route-kind resolvers
 share that manager rather than retaining duplicate per-kind manager getters.
 
 Connector deletion checks both Agent connector declarations and MCP publishing
-route targets under shared coordination. Agent writes require existing connectors. References from disabled objects and
+route targets under shared coordination. Agent writes require existing connectors
+and valid explicit HTTP tool selections. References from disabled objects and
 pending retained Agent generations remain protected. Resource CRUD and Bundle
 apply are independent, sequential updates; no group publication/recovery exists.
 

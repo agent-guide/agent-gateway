@@ -2,7 +2,7 @@ package builtin
 
 import (
 	"context"
-
+	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"io"
 
 	einomodel "github.com/cloudwego/eino/components/model"
@@ -179,7 +179,21 @@ func (t *observedTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 		Method:    "tools/call",
 		ToolName:  t.toolName,
 	})
-	out, err := t.inner.InvokableRun(cctx, argumentsInJSON, opts...)
+	var out string
+	var err error
+	if typed, ok := t.inner.(interface {
+		RunWithOutcome(context.Context, string, ...tool.Option) (string, cr.CallOutcome, error)
+		ConnectorType() string
+	}); ok {
+		var outcome cr.CallOutcome
+		out, outcome, err = typed.RunWithOutcome(cctx, argumentsInJSON, opts...)
+		span.SetExtension(usage.MCPExtension{ConnectorType: typed.ConnectorType(), HTTPExecution: outcome.HTTP})
+		if outcome.Failure != nil {
+			span.AddAnnotation("error_type", outcome.Failure.Category)
+		}
+	} else {
+		out, err = t.inner.InvokableRun(cctx, argumentsInJSON, opts...)
+	}
 	if err != nil {
 		span.SetExtension(usage.MCPExtension{ResultStatus: "error"})
 		span.AddAnnotation("error_type", "tool_call_failed")

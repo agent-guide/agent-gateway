@@ -143,3 +143,16 @@ func TestConsumerSourceImportsOnlyPublicCommunityPackages(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestHTTPClientSpanConfigIsPublicAndSurvivesCommandCloning(t *testing.T) {
+	opts := daemoncmd.Options{Assembly: Runtime(), Server: daemoncmd.ServerOptions{Metrics: distribution.MetricsConfig{OTLP: distribution.OTLPConfig{HTTPClientSpans: true}}}}
+	command := daemoncmd.NewCommand(opts)
+	value, err := command.Flags().GetBool("metrics-otlp-http-client-spans")
+	if err != nil || !value {
+		t.Fatalf("public HTTP client spans flag: %v %v", value, err)
+	}
+	raw, err := json.Marshal(opts.Server.Metrics.OTLP)
+	if err != nil || !strings.Contains(string(raw), `"http_client_spans":true`) {
+		t.Fatalf("public config serialization: %s %v", raw, err)
+	}
+}

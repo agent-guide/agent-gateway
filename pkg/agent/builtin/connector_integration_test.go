@@ -5,10 +5,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/pkg/agent"
+	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	configschema "github.com/agent-guide/agent-gateway/pkg/configstore/schema"
+	"github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
+	"github.com/agent-guide/agent-gateway/pkg/connector"
+	"github.com/agent-guide/agent-gateway/pkg/connector/httpapi"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -99,6 +110,88 @@ func TestPermissionSuspensionKeepsExecutingGraphGeneration(t *testing.T) {
 	}
 }
 
+// Exercise the real persisted catalog and executor inside ADK checkpoint/resume.
+func TestHTTPConnectorApprovalAndObservation(t *testing.T) {
+	for _, decision := range []string{"allow", "deny"} {
+		t.Run(decision, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				if r.URL.Query().Get("id") != "x" {
+					t.Error("lost argument mapping")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, `{"value":"HTTP TOOL MARKER"}`)
+			}))
+			defer server.Close()
+			creator, err := sqlite.Open(t.Context(), sqlite.Config{SQLitePath: t.TempDir() + "/config.db"}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			backend := configstore.NewBackend(creator)
+			defer backend.Close()
+			if err := backend.Register(configschema.StoreConnectors, configschema.ConnectorSchema); err != nil {
+				t.Fatal(err)
+			}
+			store, _ := backend.Get(configschema.StoreConnectors)
+			manager := connector.NewManager(store)
+			p := httpapi.DefaultPolicy()
+			p.Rules = []httpapi.Rule{{Action: "allow", Schemes: []string{"http"}, Hosts: []string{"127.0.0.1"}, Ports: []int{server.Listener.Addr().(*net.TCPAddr).Port}, CIDRs: []string{"127.0.0.1/32"}}}
+			engine, err := httpapi.NewEngine(p, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manager.ConfigureHTTP(engine)
+			defer manager.Close()
+			var cfg connector.ConnectorConfig
+			raw := fmt.Sprintf(`{"id":"docs","name":"Documents","type":"http_api","http_api":{"base_url":%q,"tools":[{"name":"fetch_doc","description":"Fetch a document","input_schema":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]},"request":{"method":"GET","path":"/docs","query":{"id":{"argument":"id"}}}}]}}`, server.URL)
+			if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+				t.Fatal(err)
+			}
+			if err := manager.Create(t.Context(), cfg); err != nil {
+				t.Fatal(err)
+			}
+			events := &usage.InMemorySink{}
+			a := interactiveAgent("gated")
+			host := NewHost(Config{Agents: &fakeAgentSource{agents: map[string]agent.Agent{a.ID: a}}, Models: &fakeModelResolver{model: gatedToolModel()}, Tools: manager, Observer: usage.NewObserver(events)})
+			defer host.CloseContext(context.Background())
+			host.PrepareDefinitions(t.Context(), []agent.Agent{a})()
+			session, payload := suspendOneTurn(t, host, a.ID)
+			if calls.Load() != 0 {
+				t.Fatal("approval interrupt sent HTTP request")
+			}
+			out := &collectedEvents{}
+			if err := host.ServeTurn(t.Context(), a.ID, TurnRequest{SessionID: session, Permission: &TurnPermission{RequestID: payload.RequestID, Decisions: []TurnPermissionDecision{{CallID: payload.Calls[0].CallID, Outcome: decision}}}}, out.sink); err != nil {
+				t.Fatal(err)
+			}
+			expected := int32(0)
+			if decision == "allow" {
+				expected = 1
+			}
+			if calls.Load() != expected {
+				t.Fatalf("HTTP calls=%d, want %d", calls.Load(), expected)
+			}
+			logical := 0
+			for _, event := range events.Events {
+				if ev, ok := event.(usage.MCPUsageEvent); ok {
+					logical++
+					if ev.ConnectorType != "http_api" || ev.HTTPExecution == nil || ev.ServiceID != "docs" {
+						t.Fatalf("missing HTTP observation: %+v", ev)
+					}
+				}
+			}
+			if logical != int(expected) {
+				t.Fatalf("logical events=%d, want %d", logical, expected)
+			}
+			if decision == "allow" {
+				content := out.byName(EventContent)
+				if len(content) == 0 || !strings.Contains(content[len(content)-1].Text, "HTTP TOOL MARKER") {
+					t.Fatalf("tool response lost: %+v", content)
+				}
+			}
+		})
+	}
+}
 
 func TestBuiltinDefinitionRetiresGraphsAndOnlyOldPermissions(t *testing.T) {
 	a := interactiveAgent("gated")

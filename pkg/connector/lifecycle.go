@@ -153,6 +153,7 @@ func (m *Manager) CloseContext(ctx context.Context) error {
 		m.closed = true
 		m.cancel()
 		m.snapshotMu.Unlock()
+		m.engine.Close()
 		m.mu.Lock()
 		var sessions []*discoverySession
 		for id, s := range m.discoverySession {

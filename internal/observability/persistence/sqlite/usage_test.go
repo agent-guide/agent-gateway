@@ -626,7 +626,7 @@ func TestAgentAttributionDoesNotUseHistoricalACPServiceID(t *testing.T) {
 		t.Fatalf("insert acp: %v", err)
 	}
 	// Untagged MCP event whose service_id COLLIDES with the agent's ACP service id
-	// (acp_services and mcp_services are separate stores with no global id
+	// (acp_services and connectors are separate stores with no global id
 	// uniqueness). The ACP-scoped service arm must never credit it to the agent.
 	if err := InsertMCPUsageEvent(db, usage.MCPUsageEvent{
 		InteractionEvent: usage.InteractionEvent{EventID: "mcp-collision", SpanID: "s2", StartedAt: now, FinishedAt: now, RouteID: "mcp-route", RouteKind: "mcp", Success: true, StatusCode: 200},

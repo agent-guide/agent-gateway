@@ -315,3 +315,26 @@ func TestCaddyfileRejectsExtensionConfiguration(t *testing.T) {
 		t.Fatalf("expected extension rejection, got %v", err)
 	}
 }
+
+func TestParseHTTPConnectorHostSettings(t *testing.T) {
+	d := caddyfile.NewTestDispenser(`agent_gateway {
+ http_api_policy_file /etc/agw/http.json
+ metrics {
+  otlp {
+   endpoint localhost:4317
+   http_client_spans
+  }
+ }
+}`)
+	value, err := parseApp(d, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var app App
+	if err := json.Unmarshal(value.(httpcaddyfile.App).Value, &app); err != nil {
+		t.Fatal(err)
+	}
+	if app.HTTPAPIPolicyFile != "/etc/agw/http.json" || !app.Metrics.OTLP.HTTPClientSpans {
+		t.Fatal("HTTP connector settings lost")
+	}
+}
