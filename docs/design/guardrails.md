@@ -162,7 +162,7 @@ deployment responsibilities.
 ### 5.2 Checker dependencies
 
 A model-backed check names a normal LLM route as `checker_route_id`. Every
-provider reachable through that route's direct-provider or logical-model target
+provider reachable through that route's concrete or logical model targets
 policy must be classified `internal` when the check can inspect protected
 content. This validation includes every logical-model candidate that fallback
 could select; one external or unclassified provider invalidates the enforcing

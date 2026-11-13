@@ -35,7 +35,7 @@ var _ einomodel.ToolCallingChatModel = (*ChatModel)(nil)
 // New wraps a gateway provider as an eino chat model. defaultModel is used
 // when neither the bound nor the per-call options carry a model name; for a
 // RoutedProvider it is the route target name (logical model in model-target
-// routes, upstream model in direct-provider routes).
+// routes, including concrete ProviderModel targets).
 func New(p provider.Provider, defaultModel string) (*ChatModel, error) {
 	if p == nil {
 		return nil, fmt.Errorf("einomodel: provider is nil")

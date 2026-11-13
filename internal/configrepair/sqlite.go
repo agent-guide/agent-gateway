@@ -22,7 +22,8 @@ var tables = []struct {
 	{"providers", "providers", "config", []string{"id"}}, {"routes", "routes", "config", []string{"id"}},
 	{"agents", "agents", "config", []string{"id"}}, {"mcp_services", "mcp_services", "config", []string{"id"}}, {"connectors", "connectors", "config", []string{"id"}},
 	{"virtual_keys", "virtual_keys", "config", []string{"id"}}, {"credentials", "cliauth_credentials", "data", []string{"id"}},
-	{"managed_models", "model_configs", "data", []string{"provider_id", "upstream_model"}},
+	{"provider_models", "model_configs", "data", []string{"provider_id", "upstream_model"}},
+	{"logical_models", "logical_models", "data", []string{"id"}},
 	{"extensions", "extensions", "config", []string{"module_id"}},
 }
 
@@ -148,9 +149,55 @@ func RepairSQLite(ctx context.Context, db *sql.DB, backup string, stopped bool, 
 			byKey[r.Family+"/"+r.ID] = r
 		}
 	}
+	// New logical records are inserted in the same transaction as route extraction.
+	original := map[string]bool{}
+	for _, r := range records {
+		original[r.Family+"/"+r.ID] = true
+	}
+	for _, r := range next {
+		if r.Family == "provider_models" && !r.Static && !original[r.Family+"/"+r.ID] {
+			if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS model_configs (provider_id TEXT NOT NULL,upstream_model TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(provider_id,upstream_model))`); err != nil {
+				return err
+			}
+			var key []string
+			if err := json.Unmarshal([]byte(r.ID), &key); err != nil || len(key) != 2 {
+				return fmt.Errorf("invalid ProviderModel key")
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO model_configs (provider_id,upstream_model,data) VALUES (?,?,?)`, key[0], key[1], string(r.Data)); err != nil {
+				return err
+			}
+			continue
+		}
+		if r.Family != "logical_models" || r.Static || original[r.Family+"/"+r.ID] {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS logical_models (id TEXT PRIMARY KEY, data TEXT NOT NULL)`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO logical_models (id,data) VALUES (?,?)`, r.ID, string(r.Data)); err != nil {
+			return err
+		}
+	}
 	for _, op := range operations {
-		if op.Family != "routes" && op.Family != "agents" && op.Family != "connectors" && op.Family != "mcp_services" {
+		if op.Family != "routes" && op.Family != "agents" && op.Family != "connectors" && op.Family != "mcp_services" && op.Family != "logical_models" && op.Family != "provider_models" {
 			return fmt.Errorf("repair only supports routes, agents and connector records")
+		}
+		if op.Family == "provider_models" {
+			var key []string
+			if err := json.Unmarshal([]byte(op.ID), &key); err != nil || len(key) != 2 {
+				return fmt.Errorf("provider model repair requires compound JSON identity")
+			}
+			if op.Action == "delete" {
+				if _, err := tx.ExecContext(ctx, `DELETE FROM model_configs WHERE provider_id=? AND upstream_model=?`, key[0], key[1]); err != nil {
+					return err
+				}
+			} else {
+				r := byKey[op.Family+"/"+op.ID]
+				if _, err := tx.ExecContext(ctx, `UPDATE model_configs SET data=? WHERE provider_id=? AND upstream_model=?`, string(r.Data), key[0], key[1]); err != nil {
+					return err
+				}
+			}
+			continue
 		}
 		if op.Action == "delete" {
 			if _, err := tx.ExecContext(ctx, `DELETE FROM `+op.Family+` WHERE id=?`, op.ID); err != nil {
@@ -159,6 +206,12 @@ func RepairSQLite(ctx context.Context, db *sql.DB, backup string, stopped bool, 
 			continue
 		}
 		r := byKey[op.Family+"/"+op.ID]
+		if op.Family == "logical_models" {
+			if _, err := tx.ExecContext(ctx, `UPDATE logical_models SET data=? WHERE id=?`, string(r.Data), op.ID); err != nil {
+				return err
+			}
+			continue
+		}
 		var fields struct {
 			Kind    string `json:"kind"`
 			Runtime struct {

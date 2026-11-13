@@ -83,16 +83,13 @@ Current default route behavior is:
 - `credential_type_order`: `api_key`, then `oauth_token`
 - `credential_selector`: `round_robin`
 
-For direct-provider routes, the default credential scope order is:
+All model routes use the same default scope expansion:
 
+- `model_custom` (the selected ProviderModel's optional credential scope)
 - `provider_id`
 
-For logical-model routes, if the route still uses the default provider-scope-only setting, the runtime expands that to:
-
-- `model_custom`
-- `provider_id`
-
-That means logical-model routes can try a model-specific managed-model scope first, then fall back to the provider scope.
+This applies to concrete model exposure and candidates selected through a
+LogicalModel. Credential selection settings remain route-owned.
 
 ## Provider `api_key` Versus Managed Credentials
 

@@ -24,7 +24,8 @@ Current store names:
 - `connectors`
 - `agents`
 - `virtual_keys`
-- `managed_models`
+- `provider_models` — concrete models, persisted in `model_configs`
+- `logical_models` — independent candidate selection definitions
 - `extensions` — reference-preserving module envelopes; the sole source of internal extension configuration
 
 Current persisted backend:

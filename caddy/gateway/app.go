@@ -20,6 +20,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/credential"
 	credentialscheduler "github.com/agent-guide/agent-gateway/pkg/credential/scheduler"
 	runtimegateway "github.com/agent-guide/agent-gateway/pkg/gateway"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
@@ -31,6 +32,8 @@ func init() {
 // App is the Caddy app module for the Agent Gateway.
 // It owns the shared gateway services and their configuration lifecycle.
 type App struct {
+	ProviderModels []modelcatalog.ProviderModel `json:"provider_models,omitempty"`
+	LogicalModels  []modelcatalog.LogicalModel  `json:"logical_models,omitempty"`
 	// Providers lists the configured LLM providers.
 	Providers map[string]provider.ProviderConfig `json:"providers,omitempty"`
 	// ConfigStore configures persistent admin/auth state storage.
@@ -121,19 +124,21 @@ func (a *App) Provision(ctx caddy.Context) (provisionErr error) {
 	}
 	if err := a.agentGateway.Bootstrap(ctx, runtimegateway.BootstrapOptions{
 		ExtensionRegistry: registry, Distribution: assembly, EventPublisher: a.usageService,
-		HTTPClientObserver:  a.usageService.HTTPClientObserver,
-		HTTPAPIPolicyFile:   a.HTTPAPIPolicyFile,
-		StaticLLMRoutes:     a.LLMRoutes,
-		StaticProviders:     a.providers,
-		ConfigStoreBackend:  a.configBackend,
-		CredentialManager:   a.credentialMgr,
-		CredentialScheduler: a.credentialSched,
-		UsageObserver:       a.usageService.Observer(),
-		UsageQuery:          a.usageService.Query(),
-		UsageStats:          a.usageService,
-		UsagePrometheus:     a.usageService.Prometheus(),
-		UsageConfig:         distributionmetrics.From(a.Metrics).Normalized(),
-		Logger:              a.logger,
+		HTTPClientObserver:   a.usageService.HTTPClientObserver,
+		HTTPAPIPolicyFile:    a.HTTPAPIPolicyFile,
+		StaticLLMRoutes:      a.LLMRoutes,
+		StaticProviderModels: a.ProviderModels,
+		StaticLogicalModels:  a.LogicalModels,
+		StaticProviders:      a.providers,
+		ConfigStoreBackend:   a.configBackend,
+		CredentialManager:    a.credentialMgr,
+		CredentialScheduler:  a.credentialSched,
+		UsageObserver:        a.usageService.Observer(),
+		UsageQuery:           a.usageService.Query(),
+		UsageStats:           a.usageService,
+		UsagePrometheus:      a.usageService.Prometheus(),
+		UsageConfig:          distributionmetrics.From(a.Metrics).Normalized(),
+		Logger:               a.logger,
 	}); err != nil {
 		return fmt.Errorf("configure agent gateway: %w", err)
 	}

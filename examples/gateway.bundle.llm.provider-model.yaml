@@ -1,13 +1,13 @@
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
 
-# Direct-provider routes bind one route to one provider. The request model is
-# forwarded as the upstream model; when it is omitted, the provider's
-# default_model is used.
+# Concrete ProviderModels fix the upstream binding. Clients select an explicitly
+# exposed route name; an omitted model uses the route default. Provider defaults
+# never select or expand route model access.
 #
 # This file enables the DeepSeek API-key example. To use another profile,
-# uncomment its provider block and update the three annotated route fields:
-# protocol, provider_id, and credential_type_order.
+# update its ProviderModel declaration and route model reference, along with
+# the route protocol and credential_type_order.
 providers:
   - id: deepseek-main
     provider_type: deepseek
@@ -95,6 +95,14 @@ providers:
   #   options:
   #     compact: cc
 
+providerModels:
+  - provider_id: deepseek-main
+    upstream_model: deepseek-v4-pro
+    enabled: true
+    capability_overrides:
+      streaming: true
+      tools: true
+
 llmRoutes:
   - id: chat
     # Use cc for the claudecode-cli profile; the other profiles use openai.
@@ -108,15 +116,18 @@ llmRoutes:
     auth_policy:
       require_virtual_key: true
     target_policy:
-      provider_target:
-        # Set this to the id of the enabled provider profile above.
-        provider_id: deepseek-main
+      type: models
+      default_model: deepseek-v4-pro
+      model_targets:
+        - kind: provider-model
+          provider_id: deepseek-main
+          upstream_model: deepseek-v4-pro
       # Profiles provisioned by agw-auth use oauth_token instead.
       credential_type_order:
         - api_key
 
 virtualKeys:
-  - id: vk-llm-direct-provider
+  - id: vk-llm-provider-model
     tag: local-test
     allowed_route_ids:
       - chat

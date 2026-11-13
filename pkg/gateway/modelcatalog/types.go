@@ -1,7 +1,11 @@
 package modelcatalog
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"github.com/agent-guide/agent-gateway/internal/strictjson"
+	"strings"
 	"time"
 
 	credmodel "github.com/agent-guide/agent-gateway/pkg/credential/model"
@@ -27,7 +31,8 @@ type ProviderModelSnapshot struct {
 	LastError     string                     `json:"last_error,omitempty"`
 }
 
-type ManagedModel struct {
+type ProviderModel struct {
+	ReadOnly            bool                        `json:"read_only,omitempty"`
 	ProviderID          string                      `json:"provider_id"`
 	UpstreamModel       string                      `json:"upstream_model"`
 	CredentialScope     string                      `json:"credential_scope,omitempty"`
@@ -35,38 +40,63 @@ type ManagedModel struct {
 	CapabilityOverrides *provider.ModelCapabilities `json:"capability_overrides,omitempty"`
 }
 
-type ResolvedManagedModel struct {
-	ManagedModel
+type ResolvedProviderModel struct {
+	ProviderModel
 	Snapshot     *ProviderModelSnapshot     `json:"snapshot,omitempty"`
 	Capabilities provider.ModelCapabilities `json:"capabilities,omitempty"`
 }
 
-func (m *ManagedModel) Normalize() {
+func (m *ProviderModel) Normalize() {
 	if m == nil {
 		return
 	}
+	m.ProviderID = strings.TrimSpace(m.ProviderID)
+	m.UpstreamModel = strings.TrimSpace(m.UpstreamModel)
 	if scope := credmodel.NormalizeCredentialScope(m.CredentialScope); scope != "" {
 		m.CredentialScope = scope
 	} else {
 		m.CredentialScope = ""
 	}
-	if !m.Enabled && m.CapabilityOverrides == nil {
-		m.Enabled = true
-	}
 }
 
-func (m *ManagedModel) ModelStorageKey() (string, string) {
+func (m *ProviderModel) ModelStorageKey() (string, string) {
 	if m == nil {
 		return "", ""
 	}
 	return m.ProviderID, m.UpstreamModel
 }
 
-func DecodeStoredManagedModel(data []byte) (any, error) {
-	var model ManagedModel
-	if err := json.Unmarshal(data, &model); err != nil {
+func DecodeStoredProviderModel(data []byte) (any, error) {
+	var model ProviderModel
+	if err := decodeModelJSON(data, &model); err != nil {
 		return nil, err
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, err
+	}
+	if value, ok := fields["enabled"]; !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+		return nil, fmt.Errorf("ProviderModel enabled must be an explicit boolean; repair existing data with scripts/repair-architecture-config")
+	}
 	model.Normalize()
+	if err := model.Validate(); err != nil {
+		return nil, err
+	}
 	return &model, nil
+}
+
+func (m ProviderModel) Validate() error {
+	if m.ProviderID == "" || m.UpstreamModel == "" {
+		return fmt.Errorf("provider_id and upstream_model are required")
+	}
+	return nil
+}
+
+func decodeModelJSON(data []byte, value any) error {
+	if _, err := strictjson.Parse(data, 4<<20, 64); err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(value)
 }

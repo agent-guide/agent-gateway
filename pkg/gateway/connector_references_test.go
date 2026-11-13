@@ -11,6 +11,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	"github.com/agent-guide/agent-gateway/pkg/connector"
 	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
@@ -133,6 +134,9 @@ func TestHTTPToolRemovalUsesStagedIndependentUpdates(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := g.ProviderManager().CreateConfig(ctx, provider.ProviderConfig{Id: "model-provider", ProviderType: "openai"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.ModelCatalog().CreateProviderModel(ctx, modelcatalog.ProviderModel{ProviderID: "model-provider", UpstreamModel: "gpt-4.1", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	if err := g.RouteConfigManager().Create(ctx, providerRoute("chat", "model-provider"), ""); err != nil {

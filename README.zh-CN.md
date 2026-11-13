@@ -24,17 +24,19 @@ Code 和 MCP 的入口。
 无需启动 Admin 的离线配置检查与显式修复流程，参见
 [配置恢复指南](docs/guides/architecture-config-recovery.md)。
 
-LLM 直连目标仅使用 `target_policy.provider_target.provider_id`；已移除的外层
-`target_policy.provider_id` 必须在加载前显式转换。
+LLM Route 使用 `model_targets` 显式暴露已登记的 ProviderModel 和 LogicalModel。
+已移除的 Provider 直连目标需要通过离线工具，指定允许的模型列表后转换。
 
 Agent 尚未执行预算限制，因此拒绝非 null 的 `policy.budget`；加载配置前必须
 显式移除已有预算配置。
 
 删除 Provider 前必须移除其 LLM 路由引用，并删除或重新绑定其凭证；所属
-ManagedModel 会在同一个 SQLite 事务中清理。
+ProviderModel 会在同一个 SQLite 事务中清理。
 
 在线写入结果未确认时，通过 `GET .../{id}/mutation` 检查，并使用
 `POST .../{id}/recover` 恢复，参见[写入恢复指南](docs/guides/configuration-mutation-recovery.md)。
+
+`GET /v1/models` 仅返回当前路由显式暴露的模型名称，无需默认模型，也不查询上游。
 
 ## 无需模型 Provider Key 即可试用
 
@@ -145,7 +147,7 @@ Claude Code 的使用方式不同：它是专用 `cc` Anthropic Messages 入口 
 
 - **Agent Runtime：**原生 ACP Pool 和生命周期管理、托管 builtin Agent 的进程内
   eino ADK Host，以及 HTTP/A2A 转换和原生入口。
-- **资源网关：**直连 Provider 或 Logical Model 的 LLM 路由、MCP 发现和执行、
+- **资源网关：**具体模型与逻辑模型的显式暴露、MCP 发现和执行、
   Credential、VirtualKey，以及按领域区分的准入限流。
 - **运维：**SQLite 持久化、Admin API、声明式 Bundle、持久化 Usage Event、
   Interaction 视图、Prometheus 指标和可选 OTLP 导出。
@@ -153,6 +155,15 @@ Claude Code 的使用方式不同：它是专用 `cc` Anthropic Messages 入口 
   `cc` Profile、MCP、通用 Agent Turn 和 A2A Protocol 1.0 JSON-RPC。
 - **分发模式：**用于 Caddy Runtime 的 `agw`、独立守护进程 `agwd`，以及负责
   管理和校验的 `agwctl`。
+
+LLM Route 通过对外模型名称，显式暴露 ProviderModel（具体上游绑定）和独立的
+LogicalModel（共享候选选择与 fallback）。同一路由不能混用两类目标；ProviderModel
+路由只允许一个 Provider，并使用真实模型名。别名与跨 Provider 选择由 LogicalModel
+承担。所有模型访问均解析到显式登记的模型。
+通过 `/admin/llm/models/provider`、`/admin/llm/models/logical`，或 Bundle 的
+`providerModels`、`logicalModels` 管理模型。参见
+[模型路由指南](docs/guides/logical-model-routing.md)与
+[完整示例](examples/gateway.bundle.llm.logical-model.yaml)。
 
 Responses 函数工具的 namespace 会保留完整身份，不同分组可以包含同名函数。
 Responses 转 Chat 时自动使用可逆别名展开工具；原生 Responses 默认保留 namespace。

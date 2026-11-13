@@ -51,10 +51,14 @@ func (b *countedBody) Read(p []byte) (int, error) {
 func bodyLimitGateway(t *testing.T, protocol string) *gateway.AgentGateway {
 	t.Helper()
 	g := gateway.NewAgentGateway()
-	if err := g.Bootstrap(t.Context(), gateway.BootstrapOptions{StaticLLMRoutes: []routecore.RouteConfig{{
+	if err := g.Bootstrap(t.Context(), gateway.BootstrapOptions{StaticProviderModels: fixtureProviderModels([]routecore.RouteConfig{{
 		ID: "body-limit", Kind: routecore.RouteKindLLM, Protocol: routecore.RouteProtocol(protocol),
 		MatchPolicy:  routecore.RouteMatchPolicy{PathPrefix: "/probe"},
-		TargetPolicy: []byte(`{"provider_target":{"provider_id":"must-not-resolve"}}`),
+		TargetPolicy: []byte(`{"default_model":"gpt-4.1","model_targets":[{"name":"gpt-4.1","kind":"provider-model","provider_id":"must-not-resolve","upstream_model":"gpt-4.1"}]}`),
+	}}, nil), StaticLLMRoutes: []routecore.RouteConfig{{
+		ID: "body-limit", Kind: routecore.RouteKindLLM, Protocol: routecore.RouteProtocol(protocol),
+		MatchPolicy:  routecore.RouteMatchPolicy{PathPrefix: "/probe"},
+		TargetPolicy: []byte(`{"default_model":"gpt-4.1","model_targets":[{"name":"gpt-4.1","kind":"provider-model","provider_id":"must-not-resolve","upstream_model":"gpt-4.1"}]}`),
 	}}}); err != nil {
 		t.Fatal(err)
 	}

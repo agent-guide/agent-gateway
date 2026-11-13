@@ -35,7 +35,7 @@ The main layers are:
 - `pkg/configstore/`
   - defines the generic runtime interfaces, shared errors, schema primitives, backend factory registration, backend opening, schema registration, and store lookup
 - `pkg/configstore/schema/`
-  - defines store-name constants and the built-in schemas for providers, credentials, routes, virtual keys, and managed models
+  - defines store-name constants and the built-in schemas for providers, credentials, routes, virtual keys, and provider models
 - `pkg/configstore/sqlite/`
   - implements the SQLite JSON backend creator and schema-bound generic store
 - `internal/observability/persistence/sqlite/`
@@ -250,7 +250,8 @@ const (
 	StoreCredentials   = "credentials"
 	StoreRoutes        = "routes"
 	StoreVirtualKeys   = "virtual_keys"
-	StoreManagedModels = "managed_models"
+	StoreProviderModels = "provider_models"
+ StoreLogicalModels = "logical_models"
 	StoreConnectors   = "connectors"
 	StoreAgents        = "agents"
  StoreExtensions    = "extensions"
@@ -336,9 +337,9 @@ store.GetByIndex(ctx, "key", key)
 
 ### 6.5 Managed Models
 
-- schema variable: `schema.ManagedModelSchema`
-- store name: `managed_models`
-- kind: `managed model`
+- schema variable: `schema.ProviderModelSchema`
+- store name: `provider_models`
+- kind: `provider model`
 - table: `model_configs`
 - primary key:
   - `provider_id`
@@ -347,9 +348,9 @@ store.GetByIndex(ctx, "key", key)
 - data column: `data`
 - secondary indexes: none
 - timestamped: no
-- decoded type: `*modelcatalog.ManagedModel`
+- decoded type: `*modelcatalog.ProviderModel`
 
-Managed models are addressed with ordered composite keys:
+Provider models are addressed with ordered composite keys:
 
 ```go
 store.Get(ctx, providerID, upstreamModel)
@@ -426,7 +427,7 @@ Registration order:
 2. `schema.CredentialSchema`
 3. `schema.RouteSchema`
 4. `schema.VirtualKeySchema`
-5. `schema.ManagedModelSchema`
+5. `schema.ProviderModelSchema`
 
 After registration, runtime packages retrieve stores with:
 
@@ -622,7 +623,8 @@ During provisioning:
 - routes: `schema.StoreRoutes`
 - virtual keys: `schema.StoreVirtualKeys`
 - providers: `schema.StoreProviders`
-- managed models: `schema.StoreManagedModels`
+- provider models: `schema.StoreProviderModels`
+- logical models: `schema.StoreLogicalModels`
 - extension envelopes: `schema.StoreExtensions` via the internal persistence adapter
 
 The gateway combines these dynamic stores with static Caddyfile-provided providers, routes, and models during bootstrap.
@@ -635,7 +637,7 @@ Managers consume generic stores:
 - route management lists routes by tag or tag prefix
 - virtual key management gets bearer keys by the `key` secondary index
 - credential management lists credentials through tag-prefix queries
-- model catalog management addresses managed models by composite key
+- model catalog management addresses provider models by composite key
 
 ## 11. Extension Contract
 
@@ -662,3 +664,8 @@ The generic `ConfigStore` interface is the default persistence boundary. Per-obj
 - Secondary index lookups are only valid for indexes declared in `IndexColumns`.
 - Composite primary keys must preserve the order declared in `PrimaryKeyColumns`.
 - Missing reads and missing updates normalize to `configstore.ErrNotFound`.
+
+Independent LogicalModels use `logical_models` (store and physical table), `id`
+as their primary key and JSON `data`. ProviderModels retain the compound key in
+`model_configs`. Model catalog startup and mutations publish in-memory snapshots;
+request resolution never reads these stores or triggers discovery.

@@ -9,7 +9,7 @@ The current primary LLM path is:
 2. `agent_route_dispatcher` matches an incoming HTTP request to a route
 3. the route's `protocol` selects the protocol adapter (`openai` or `anthropic`)
 4. the gateway validates the VirtualKey
-5. in logical-model routes, the model catalog resolves the logical model to one concrete `(provider_id, upstream_model)` binding
+5. model exposure routes resolve an explicit ProviderModel or independent LogicalModel reference to one concrete `(provider_id, upstream_model)` binding
 6. the credential manager invokes the configured external refresh command for an expiring `oauth_token` credential when required
 7. the selected provider executes `Generate` or `Stream`
 
@@ -199,7 +199,7 @@ or a cross-cutting adapter for it (for example `caddy/admin`,
 - `pkg/connector/` — Connector management and shared admission, `httpapi/` and `mcp/` execution engines, `runtime/` common tool contracts and builtin bridge → `pkg/connector/AGENTS.md`
 - `pkg/mcp/` — MCP protocol primitives, `transport/` wire transports and `tracking/` ingress request tracking → `pkg/mcp/AGENTS.md`
 - `pkg/a2a/` — A2A Protocol 1.0 JSON-RPC (Path B translating client/backend and Path A governed native proxy are implemented) → `pkg/a2a/AGENTS.md`
-- `pkg/configstore/` — generic config store/backends (persisted backend: `sqlite`; stores `providers`, `credentials`, `routes`, `connectors`, `agents`, `virtual_keys`, `managed_models`, `extensions`) → `pkg/configstore/AGENTS.md`
+- `pkg/configstore/` — generic config store/backends (persisted backend: `sqlite`; stores `providers`, `credentials`, `routes`, `connectors`, `agents`, `virtual_keys`, `provider_models`, `logical_models`, `extensions`) → `pkg/configstore/AGENTS.md`
 - `pkg/agent/` — agent control plane (`pkg/agent/runtime` contracts, `Agent` model, route/service → agent index) → `pkg/agent/AGENTS.md`; builtin eino ADK host → `pkg/agent/builtin/AGENTS.md`
 - `internal/observability/` — usage events, event pipeline, OTLP export, `einotap` → `internal/observability/AGENTS.md`
 - `pkg/dispatcher/llmapi/` — LLM protocol handler runtimes; see "Protocol handler modules" above
@@ -223,7 +223,7 @@ Cross-cutting invariants:
   and writes, including direct callers and Bundle. Lock order is Agent writeMu,
   coordinator, Route writeMu, then local store/cache locks. Provider deletion
   blocks LLM routes and Provider credentials and atomically removes its
-  ManagedModels; no sequential fallback or secret cascade is permitted.
+  ProviderModels; no sequential fallback or secret cascade is permitted.
 
 - builtin tool dependencies, including custom factories, use Connector Resolver/Lease; observation must preserve full outcomes and execution identity. Internal MCP catalogs require bounded complete pagination; ingress keeps single-page semantics.
 - dependency direction: `pkg/agent` composes the LLM/MCP/ACP/metrics surfaces; the lower protocol packages (`pkg/llm`, `pkg/mcp`, `pkg/acp`, `pkg/a2a`) must not depend on `pkg/agent`
@@ -254,7 +254,7 @@ HTTP request
   -> if execution is local: serve without provider/candidate/credential resolution
   -> otherwise: filter candidates by generic capabilities and AST-derived atomic protocol features
   -> if route uses model targets: resolve the requested route model name to one concrete binding and rewrite request model
-  -> else: use route.target_policy.provider_target.provider_id
+  -> concrete targets resolve their registered ProviderModel binding
   -> select a credential and invoke the external refresher when close to expiry
   -> resolve provider instance
   -> provider.Chat(...) or provider.StreamChat(...)
@@ -263,7 +263,7 @@ HTTP request
 
 Key detail: provider resolution happens after protocol parsing only for
 `execution=provider`; the request `model` means route target name in model-target
-mode and upstream model name in direct-provider mode.
+mode; no request may bypass explicit model exposure.
 
 ## Caddyfile Shape
 
@@ -284,6 +284,7 @@ Important current directives:
   refresh; request admission always uses the current prepared handle
 - `provider_types` is startup-only provider type availability; when omitted all registered provider types are enabled
 - providers use `provider_type <name>`
+- LLM `type: models` routes expose named `provider-model` references (Provider ID + upstream model) or `logical-model` references (`logical_model_id`). ProviderModels and LogicalModels are independent catalog resources; scheduling and fallback belong to LogicalModel. Model registration never implicitly expands route exposure. Caddyfile/Caddy JSON and standalone static Bundles support model declarations and references. Static models are read-only through Admin; static/dynamic identity conflicts fail loading. Old inline logical definitions require offline `extract-models` repair.
 - LLM routes use `protocol <openai|anthropic|cc>`, MCP routes use `protocol mcp`, and Agent ingress routes use `protocol agent` or `protocol a2a` (HTTP Agent native Path A; see `docs/design/http-agent-runtime.md`)
 - `agent_route_dispatcher` uses `llm_api <name>`, `mcp`, and `agent`
 - dispatcher `max_llm_request_body_bytes` (Caddyfile/Caddy JSON) and standalone
@@ -293,18 +294,20 @@ Important current directives:
   This transport setting includes `count_tokens` and is independent of other
   protocol/Admin limits, Provider network settings and VirtualKey admission.
 - auth uses `virtualkey`, not `local_api_key`
-- direct-provider targets store only `target_policy.provider_target.provider_id`;
-  the removed outer `target_policy.provider_id` is rejected, including empty or
-  null values. Convert existing data explicitly with the offline recovery tool.
+- Provider-only targets (`direct-provider`, `provider_target`, outer `provider_id`) are rejected. Offline `convert-target` requires an explicit `data.models` allowlist and transactionally creates ProviderModels plus route references; no model is inferred from Provider defaults. Static model input reaches both hosts via `StaticProviderModels` and `StaticLogicalModels`.
 - Agent `policy.budget` must be absent or null: non-null budgets are unsupported
   and rejected on writes and stored loading/Refresh. Agent depth remains a
   builtin-host check, independent of the process-level dispatcher depth limit.
+
+Expanded LLM routes use `TargetPolicy *llmroute.RouteModelPolicy`; the shared
+`routecore.RouteConfig` keeps raw target JSON for all route kinds.
+LLM route JSON writes reject unknown fields, including nested match/auth fields; use `match_policy`. An empty match is a catch-all.
 
 ## Admin API Notes
 
 Implemented families:
 
-- LLM: `/admin/llm/providers/...`, `/admin/llm/provider_types` (read-only listing), `/admin/llm/api_handler_types`, `/admin/llm/routes/...`, `/admin/llm/models/providers/{provider_id}/discovered`, `/admin/llm/models/providers/{provider_id}/refresh`, `/admin/llm/models/managed/...`
+- LLM: `/admin/llm/providers/...`, `/admin/llm/provider_types` (read-only listing), `/admin/llm/api_handler_types`, `/admin/llm/routes/...`, `/admin/llm/models/providers/{provider_id}/discovered`, `/admin/llm/models/providers/{provider_id}/refresh`, `/admin/llm/models/provider/...`, `/admin/llm/models/logical/...`
 - `/admin/virtual_keys/...`, `/admin/credentials/...`
 - Contributed Admin subroutes are declared by `Factory.AdminRoutes` and handled
   by prepared `AdminContributor` resources only under `/admin/extensions/<module_id>/...`;
@@ -370,3 +373,11 @@ bounded CloseContext cancellation/waiting and late-publication fencing.
 Configuration snapshots use Go GC; no reference-counted
 lease retirement, multiple active session generations or additional credential
 readiness notification/index subsystem is required. Keep live revocation checks.
+
+LLM data-plane model listing returns only route-visible target names from the published policy; it never invokes upstream discovery and requires no default model.
+
+LLM routes must use one model target kind. ProviderModel targets share one Provider
+and use real upstream model names; omitted target names derive from upstream_model,
+and differing aliases are rejected. LogicalModel routes own the exposed logical
+references; cross-provider selection and aliases belong to LogicalModels. Never
+mix target kinds. Caddyfile concrete syntax is `target model <provider-id> <upstream-model>`.

@@ -23,9 +23,9 @@ func TestCaddyAdapterPreservesTransactionRollback(t *testing.T) {
 	}
 	sentinel := errors.New("rollback through Caddy")
 	entered := false
-	err = adapter.Transaction(t.Context(), []string{schema.StoreProviders, schema.StoreManagedModels}, func(stores map[string]configstore.ConfigStore) error {
+	err = adapter.Transaction(t.Context(), []string{schema.StoreProviders, schema.StoreProviderModels}, func(stores map[string]configstore.ConfigStore) error {
 		entered = true
-		if stores[schema.StoreProviders] == nil || stores[schema.StoreManagedModels] == nil {
+		if stores[schema.StoreProviders] == nil || stores[schema.StoreProviderModels] == nil {
 			t.Fatal("missing transaction stores")
 		}
 		return sentinel

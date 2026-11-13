@@ -113,12 +113,26 @@ func Validate(records []Record) error {
 			}
 		case "credentials":
 			_, err = schema.CredentialSchema.Codec.Decode(r.Data)
-		case "managed_models":
-			var v modelcatalog.ManagedModel
-			err = json.Unmarshal(r.Data, &v)
-			b.ManagedModels = append(b.ManagedModels, v)
+		case "provider_models":
+			var v modelcatalog.ProviderModel
+			var decoded any
+			decoded, err = modelcatalog.DecodeStoredProviderModel(r.Data)
+			if err != nil {
+				break
+			}
+			v = *decoded.(*modelcatalog.ProviderModel)
+			b.ProviderModels = append(b.ProviderModels, v)
 			if r.StaticInput {
-				staticBundle.ManagedModels = append(staticBundle.ManagedModels, v)
+				staticBundle.ProviderModels = append(staticBundle.ProviderModels, v)
+			}
+		case "logical_models":
+			var value any
+			value, err = modelcatalog.DecodeStoredLogicalModel(r.Data)
+			if err == nil {
+				b.LogicalModels = append(b.LogicalModels, *value.(*modelcatalog.LogicalModel))
+				if r.StaticInput {
+					staticBundle.LogicalModels = append(staticBundle.LogicalModels, *value.(*modelcatalog.LogicalModel))
+				}
 			}
 		case "extensions":
 			if r.StaticInput {
@@ -163,14 +177,43 @@ func Validate(records []Record) error {
 		if err != nil {
 			return err
 		}
+		// Keep the dereference safe independently of the earlier Bundle validation.
+		if err := r.ValidateDefinition(); err != nil {
+			return err
+		}
 		for _, id := range r.TargetPolicy.ProviderIDs() {
 			if err := check("route "+r.ID, "providers", id); err != nil {
 				return err
 			}
 		}
 	}
-	for _, model := range b.ManagedModels {
-		if err := check("managed model "+recordKey([]string{model.ProviderID, model.UpstreamModel}), "providers", model.ProviderID); err != nil {
+	for _, cfg := range b.LLMRoutes {
+		r, err := llmroute.NewLLMRouteFromConfig(cfg)
+		if err != nil {
+			return err
+		}
+		if p := r.TargetPolicy; p != nil {
+			for _, t := range p.ModelTargets {
+				family, id := "logical_models", t.LogicalModelID
+				if t.Kind == "provider-model" {
+					family = "provider_models"
+					id = recordKey([]string{t.ProviderID, t.UpstreamModel})
+				}
+				if err := check("route "+r.ID, family, id); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	for _, m := range b.LogicalModels {
+		for _, v := range m.Candidates {
+			if err := check("logical model "+m.ID, "provider_models", recordKey([]string{v.ProviderID, v.UpstreamModel})); err != nil {
+				return err
+			}
+		}
+	}
+	for _, model := range b.ProviderModels {
+		if err := check("provider model "+recordKey([]string{model.ProviderID, model.UpstreamModel}), "providers", model.ProviderID); err != nil {
 			return err
 		}
 	}

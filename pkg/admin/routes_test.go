@@ -65,6 +65,43 @@ func newTestAgentGateway(configStoreBackend configstore.ConfigStoreBackend, _ an
 		}
 		staticLLMRoutes = append(staticLLMRoutes, cfg)
 	}
+	if mock, ok := configStoreBackend.(*testConfigStore); ok && mock.modelStore == nil {
+		models := &testModelStore{items: map[string]*modelcatalog.ProviderModel{}}
+		if mock.providerStore != nil {
+			items, _ := mock.providerStore.List(context.Background())
+			for _, item := range items {
+				v, ok := item.(*provider.ProviderConfig)
+				if !ok {
+					continue
+				}
+				id := v.Id
+				models.items[id+"\x00gpt-4.1"] = &modelcatalog.ProviderModel{ProviderID: id, UpstreamModel: "gpt-4.1", Enabled: true}
+			}
+		}
+		var configs []routecore.RouteConfig
+		if mock.routeStore != nil {
+			if store, ok := mock.routeStore.(*testRouteStore); ok {
+				for _, cfg := range store.items {
+					configs = append(configs, *cfg)
+				}
+			}
+		}
+		configs = append(configs, staticLLMRoutes...)
+		for _, cfg := range configs {
+			r, err := llmroutepkg.NewLLMRouteFromConfig(cfg)
+			if err != nil {
+				continue
+			}
+			if policy := r.TargetPolicy; policy != nil {
+				for _, target := range policy.ModelTargets {
+					if target.Kind == "provider-model" {
+						models.items[target.ProviderID+"\x00"+target.UpstreamModel] = &modelcatalog.ProviderModel{ProviderID: target.ProviderID, UpstreamModel: target.UpstreamModel, Enabled: true}
+					}
+				}
+			}
+		}
+		mock.modelStore = models
+	}
 	agentGateway := gateway.NewAgentGateway()
 	if err := agentGateway.Bootstrap(context.Background(), gateway.BootstrapOptions{
 		ConfigStoreBackend: configStoreBackend,
@@ -90,7 +127,9 @@ func (s *testConfigStore) Get(name string) (configstore.ConfigStore, error) {
 		return s.connectorStore, nil
 	case configstoreschema.StoreVirtualKeys:
 		return s.virtualKeyStore, nil
-	case configstoreschema.StoreManagedModels:
+	case configstoreschema.StoreLogicalModels:
+		return nil, nil
+	case configstoreschema.StoreProviderModels:
 		return s.modelStore, nil
 	case configstoreschema.StoreAgents:
 		return s.agentStore, nil
@@ -102,7 +141,7 @@ func (s *testConfigStore) Get(name string) (configstore.ConfigStore, error) {
 }
 
 type testModelStore struct {
-	items map[string]*modelcatalog.ManagedModel
+	items map[string]*modelcatalog.ProviderModel
 }
 
 func (s *testModelStore) List(_ context.Context) ([]any, error) {
@@ -134,16 +173,16 @@ func (s *testModelStore) Get(_ context.Context, keyParts ...any) (any, error) {
 }
 
 func (s *testModelStore) Create(_ context.Context, obj any) error {
-	item, ok := obj.(*modelcatalog.ManagedModel)
+	item, ok := obj.(*modelcatalog.ProviderModel)
 	if !ok {
 		return errors.New("unexpected type")
 	}
 	if s.items == nil {
-		s.items = map[string]*modelcatalog.ManagedModel{}
+		s.items = map[string]*modelcatalog.ProviderModel{}
 	}
 	key := item.ProviderID + "\x00" + item.UpstreamModel
 	if _, exists := s.items[key]; exists {
-		return errors.New("managed model already exists")
+		return errors.New("provider model already exists")
 	}
 	cloned := *item
 	s.items[key] = &cloned
@@ -151,12 +190,12 @@ func (s *testModelStore) Create(_ context.Context, obj any) error {
 }
 
 func (s *testModelStore) Update(_ context.Context, obj any) error {
-	item, ok := obj.(*modelcatalog.ManagedModel)
+	item, ok := obj.(*modelcatalog.ProviderModel)
 	if !ok {
 		return errors.New("unexpected type")
 	}
 	if s.items == nil {
-		s.items = map[string]*modelcatalog.ManagedModel{}
+		s.items = map[string]*modelcatalog.ProviderModel{}
 	}
 	key := item.ProviderID + "\x00" + item.UpstreamModel
 	if _, exists := s.items[key]; !exists {
@@ -183,7 +222,7 @@ type testRouteStore struct {
 	tags  map[string]string
 }
 
-func testAdminRoute(cfg llmroutepkg.RouteConfig, protocol llmroutepkg.RouteProtocol, targetPolicy llmroutepkg.RouteTargetPolicy) llmroutepkg.LLMRoute {
+func testAdminRoute(cfg llmroutepkg.RouteConfig, protocol llmroutepkg.RouteProtocol, targetPolicy *llmroutepkg.RouteModelPolicy) llmroutepkg.LLMRoute {
 	cfg.Protocol = protocol
 	return llmroutepkg.LLMRoute{
 		RouteMetadata: cfg.Metadata(),
@@ -658,8 +697,8 @@ func TestLLMRouteCRUD(t *testing.T) {
 
 	createBody, err := json.Marshal(llmroutepkg.LLMRoute{
 		RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
-		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
+		TargetPolicy: &llmroutepkg.RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai", UpstreamModel: "gpt-4.1"}},
 		},
 	})
 	if err != nil {
@@ -707,8 +746,8 @@ func TestLLMRouteCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode route config: %v", err)
 	}
-	directPolicy, ok := llmroutepkg.DirectProviderPolicyOf(gotCfg.TargetPolicy)
-	if !ok || directPolicy.ProviderTarget.ProviderID != "openai" {
+	directPolicy := gotCfg.TargetPolicy
+	if directPolicy == nil || directPolicy.ModelTargets[0].ProviderID != "openai" {
 		t.Fatalf("unexpected target_policy: %#v", gotCfg.TargetPolicy)
 	}
 	if got.Source != "store" || got.ReadOnly {
@@ -836,8 +875,8 @@ func TestLLMRouteUpdatePreservesCreatedAt(t *testing.T) {
 					CreatedAt: createdAt,
 					UpdatedAt: updatedAt,
 				},
-				TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
+				TargetPolicy: &llmroutepkg.RouteModelPolicy{
+					DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai", UpstreamModel: "gpt-4.1"}},
 				},
 			}),
 		}, tags: map[string]string{"chat-prod": defaultLLMRouteTag}},
@@ -846,8 +885,8 @@ func TestLLMRouteUpdatePreservesCreatedAt(t *testing.T) {
 
 	updateBody, err := json.Marshal(llmroutepkg.LLMRoute{
 		RouteMetadata: llmroutepkg.RouteMetadata{Protocol: llmroutepkg.RouteProtocolOpenAI},
-		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "anthropic"},
+		TargetPolicy: &llmroutepkg.RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "anthropic", UpstreamModel: "gpt-4.1"}},
 		},
 	})
 	if err != nil {
@@ -886,8 +925,8 @@ func TestLLMRouteCreateRejectsClientManagedTimestamps(t *testing.T) {
 			Protocol:  llmroutepkg.RouteProtocolOpenAI,
 			CreatedAt: time.Now().UTC(),
 		},
-		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
+		TargetPolicy: &llmroutepkg.RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai", UpstreamModel: "gpt-4.1"}},
 		},
 	})
 	if err != nil {
@@ -1078,8 +1117,8 @@ func TestListRoutesExcludesMCPRoutesFromSharedStore(t *testing.T) {
 					Protocol:    llmroutepkg.RouteProtocolOpenAI,
 					MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/v1"},
 				},
-				TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
+				TargetPolicy: &llmroutepkg.RouteModelPolicy{
+					DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}},
 				},
 			}),
 			"mcp-route-1": mustMCPRouteConfig(t, mcproute.MCPRoute{
@@ -1121,8 +1160,8 @@ func TestListMCPRoutesExcludesLLMRoutesFromSharedStore(t *testing.T) {
 					Protocol:    llmroutepkg.RouteProtocolOpenAI,
 					MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/v1"},
 				},
-				TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
+				TargetPolicy: &llmroutepkg.RouteModelPolicy{
+					DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}},
 				},
 			}),
 			"mcp-route-1": mustMCPRouteConfig(t, mcproute.MCPRoute{
@@ -1572,8 +1611,8 @@ func TestLLMRouteEnableDisable(t *testing.T) {
 		routeStore: &testRouteStore{items: map[string]*routecore.RouteConfig{
 			"chat-prod": mustRouteConfig(t, llmroutepkg.LLMRoute{
 				RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
-				TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
+				TargetPolicy: &llmroutepkg.RouteModelPolicy{
+					DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai", UpstreamModel: "gpt-4.1"}},
 				},
 			}),
 		}},
@@ -1963,12 +2002,12 @@ func TestProviderDeleteRejectsStaticProvider(t *testing.T) {
 	}
 }
 
-func TestProviderDeleteRemovesManagedModelsForProvider(t *testing.T) {
+func TestProviderDeleteRemovesProviderModelsForProvider(t *testing.T) {
 	providerStore := &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
 		"openai-main":   {Id: "openai-main", ProviderType: "openai"},
 		"deepseek-main": {Id: "deepseek-main", ProviderType: "deepseek"},
 	}}
-	modelStore := &testModelStore{items: map[string]*modelcatalog.ManagedModel{
+	modelStore := &testModelStore{items: map[string]*modelcatalog.ProviderModel{
 		"openai-main\x00gpt-4.1": {
 			ProviderID:    "openai-main",
 			UpstreamModel: "gpt-4.1",
@@ -1999,7 +2038,7 @@ func TestProviderDeleteRemovesManagedModelsForProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	providers, _ := backend.Get(configstoreschema.StoreProviders)
-	models, _ := backend.Get(configstoreschema.StoreManagedModels)
+	models, _ := backend.Get(configstoreschema.StoreProviderModels)
 	for _, item := range providerStore.items {
 		if err := providers.Create(t.Context(), item); err != nil {
 			t.Fatal(err)
@@ -2025,13 +2064,13 @@ func TestProviderDeleteRemovesManagedModelsForProvider(t *testing.T) {
 		t.Fatal("provider openai-main was not deleted")
 	}
 	if _, err := models.Get(t.Context(), "openai-main", "gpt-4.1"); !errors.Is(err, configstore.ErrNotFound) {
-		t.Fatal("managed model openai-main/gpt-4.1 was not deleted")
+		t.Fatal("provider model openai-main/gpt-4.1 was not deleted")
 	}
 	if _, err := models.Get(t.Context(), "openai-main", "gpt-4.1-mini"); !errors.Is(err, configstore.ErrNotFound) {
-		t.Fatal("managed model openai-main/gpt-4.1-mini was not deleted")
+		t.Fatal("provider model openai-main/gpt-4.1-mini was not deleted")
 	}
 	if _, err := models.Get(t.Context(), "deepseek-main", "deepseek-v4-pro"); err != nil {
-		t.Fatal("managed model for another provider was deleted")
+		t.Fatal("provider model for another provider was deleted")
 	}
 }
 
@@ -2039,7 +2078,7 @@ func TestProviderDeleteRejectsRouteReferences(t *testing.T) {
 	providerStore := &testProviderConfigStore{items: map[string]*provider.ProviderConfig{
 		"openai-main": {Id: "openai-main", ProviderType: "openai"},
 	}}
-	modelStore := &testModelStore{items: map[string]*modelcatalog.ManagedModel{
+	modelStore := &testModelStore{items: map[string]*modelcatalog.ProviderModel{
 		"openai-main\x00gpt-4.1": {
 			ProviderID:    "openai-main",
 			UpstreamModel: "gpt-4.1",
@@ -2053,15 +2092,11 @@ func TestProviderDeleteRejectsRouteReferences(t *testing.T) {
 				Kind:     routecore.RouteKindLLM,
 				Protocol: routecore.RouteProtocolOpenAI,
 			},
-			TargetPolicy: &llmroutepkg.RouteLogicalModelTargetPolicy{
-				DefaultModel: "chat-default",
+			TargetPolicy: &llmroutepkg.RouteModelPolicy{
+				DefaultModel: "gpt-4.1",
 				ModelTargets: []llmroutepkg.RouteModelTarget{{
-					Name: "chat-default",
-					Candidates: []llmroutepkg.RouteModelCandidate{{
-						ProviderID:    "openai-main",
-						UpstreamModel: "gpt-4.1",
-						Weight:        100,
-					}},
+					Name: "gpt-4.1",
+					Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1",
 				}},
 			},
 		}),
@@ -2085,7 +2120,7 @@ func TestProviderDeleteRejectsRouteReferences(t *testing.T) {
 		t.Fatal("referenced provider was deleted")
 	}
 	if _, ok := modelStore.items["openai-main\x00gpt-4.1"]; !ok {
-		t.Fatal("managed model for referenced provider was deleted")
+		t.Fatal("provider model for referenced provider was deleted")
 	}
 	if !strings.Contains(rec.Body.String(), "chat") {
 		t.Fatalf("response body %q does not mention referencing route", rec.Body.String())
@@ -2170,17 +2205,17 @@ func TestLLMRouteGetReadsStaticRouteConfigManager(t *testing.T) {
 	store := &testRouteStore{
 		items: map[string]*routecore.RouteConfig{
 			"chat-dynamic": mustRouteConfig(t, llmroutepkg.LLMRoute{
-				RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-dynamic", MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/dynamic"}},
-				TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
+				RouteMetadata: llmroutepkg.RouteMetadata{Protocol: routecore.RouteProtocolOpenAI, ID: "chat-dynamic", MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/dynamic"}},
+				TargetPolicy: &llmroutepkg.RouteModelPolicy{
+					DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai", UpstreamModel: "gpt-4.1"}},
 				},
 			}),
 		},
 	}
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []llmroutepkg.LLMRoute{{
-		RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-prod"},
-		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "anthropic"},
+		RouteMetadata: llmroutepkg.RouteMetadata{Protocol: routecore.RouteProtocolOpenAI, ID: "chat-prod"},
+		TargetPolicy: &llmroutepkg.RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "anthropic", UpstreamModel: "gpt-4.1"}},
 		},
 	}}, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
@@ -2210,17 +2245,17 @@ func TestLLMRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 	store := &testRouteStore{
 		items: map[string]*routecore.RouteConfig{
 			"chat-dynamic": mustRouteConfig(t, llmroutepkg.LLMRoute{
-				RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-dynamic"},
-				TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-					ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
+				RouteMetadata: llmroutepkg.RouteMetadata{Protocol: routecore.RouteProtocolOpenAI, ID: "chat-dynamic"},
+				TargetPolicy: &llmroutepkg.RouteModelPolicy{
+					DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai", UpstreamModel: "gpt-4.1"}},
 				},
 			}),
 		},
 	}
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, []llmroutepkg.LLMRoute{{
-		RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-static", MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/static"}},
-		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "anthropic"},
+		RouteMetadata: llmroutepkg.RouteMetadata{Protocol: routecore.RouteProtocolOpenAI, ID: "chat-static", MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/static"}},
+		TargetPolicy: &llmroutepkg.RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "anthropic", UpstreamModel: "gpt-4.1"}},
 		},
 	}}, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
@@ -2256,10 +2291,10 @@ func TestLLMRouteListMarksStaticRoutesAsReadOnly(t *testing.T) {
 	}
 }
 
-func TestManagedModelViewIncludesResolvedAndSnapshotFields(t *testing.T) {
+func TestProviderModelViewIncludesResolvedAndSnapshotFields(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{
 		modelStore: &testModelStore{
-			items: map[string]*modelcatalog.ManagedModel{
+			items: map[string]*modelcatalog.ProviderModel{
 				"openai-main\x00gpt-4.1-mini": {
 					ProviderID:    "openai-main",
 					UpstreamModel: "gpt-4.1-mini",
@@ -2283,7 +2318,7 @@ func TestManagedModelViewIncludesResolvedAndSnapshotFields(t *testing.T) {
 	}), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/llm/models/managed/openai-main/gpt-4.1-mini", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/llm/models/provider/openai-main/gpt-4.1-mini", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -2292,9 +2327,9 @@ func TestManagedModelViewIncludesResolvedAndSnapshotFields(t *testing.T) {
 		t.Fatalf("unexpected get status: got %d want %d", rec.Code, http.StatusOK)
 	}
 
-	var got ManagedConcreteModelView
+	var got ProviderModelView
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
-		t.Fatalf("decode managed model view: %v", err)
+		t.Fatalf("decode provider model view: %v", err)
 	}
 	if got.ProviderType != "openai" {
 		t.Fatalf("ProviderType = %q, want openai", got.ProviderType)
@@ -2310,13 +2345,13 @@ func TestManagedModelViewIncludesResolvedAndSnapshotFields(t *testing.T) {
 	}
 }
 
-func TestCreateManagedModelUsesStoreCreate(t *testing.T) {
+func TestCreateProviderModelUsesStoreCreate(t *testing.T) {
 	store := &testModelStore{}
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{providerStore: providerFixtures("openai-main"), modelStore: store}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body := bytes.NewBufferString(`{"provider_id":"openai-main","upstream_model":"gpt-4.1","enabled":true}`)
-	req := httptest.NewRequest(http.MethodPost, "/admin/llm/models/managed", body)
+	req := httptest.NewRequest(http.MethodPost, "/admin/llm/models/provider", body)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -2326,13 +2361,13 @@ func TestCreateManagedModelUsesStoreCreate(t *testing.T) {
 		t.Fatalf("unexpected create status: got %d want %d body=%s", rec.Code, http.StatusCreated, rec.Body.String())
 	}
 	if _, ok := store.items["openai-main\x00gpt-4.1"]; !ok {
-		t.Fatalf("managed model was not created")
+		t.Fatalf("provider model was not created")
 	}
 }
 
-func TestUpdateManagedModelUsesStoreUpdate(t *testing.T) {
+func TestUpdateProviderModelUsesStoreUpdate(t *testing.T) {
 	store := &testModelStore{
-		items: map[string]*modelcatalog.ManagedModel{
+		items: map[string]*modelcatalog.ProviderModel{
 			"openai-main\x00gpt-4.1": {
 				ProviderID:    "openai-main",
 				UpstreamModel: "gpt-4.1",
@@ -2344,7 +2379,7 @@ func TestUpdateManagedModelUsesStoreUpdate(t *testing.T) {
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body := bytes.NewBufferString(`{"enabled":true}`)
-	req := httptest.NewRequest(http.MethodPut, "/admin/llm/models/managed/openai-main/gpt-4.1", body)
+	req := httptest.NewRequest(http.MethodPut, "/admin/llm/models/provider/openai-main/gpt-4.1", body)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -2354,16 +2389,16 @@ func TestUpdateManagedModelUsesStoreUpdate(t *testing.T) {
 		t.Fatalf("unexpected update status: got %d want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	if !store.items["openai-main\x00gpt-4.1"].Enabled {
-		t.Fatalf("managed model was not updated")
+		t.Fatalf("provider model was not updated")
 	}
 }
 
-func TestUpdateManagedModelReturnsNotFoundWhenMissing(t *testing.T) {
+func TestUpdateProviderModelReturnsNotFoundWhenMissing(t *testing.T) {
 	handler := NewHandler(newTestAgentGateway(&testConfigStore{providerStore: providerFixtures("openai-main"), modelStore: &testModelStore{}}, nil, nil, nil, nil), nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
 	body := bytes.NewBufferString(`{"enabled":true}`)
-	req := httptest.NewRequest(http.MethodPut, "/admin/llm/models/managed/openai-main/gpt-4.1", body)
+	req := httptest.NewRequest(http.MethodPut, "/admin/llm/models/provider/openai-main/gpt-4.1", body)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -2601,4 +2636,31 @@ func providerFixtures(ids ...string) configstore.ConfigStore {
 		items[id] = &provider.ProviderConfig{Id: id, ProviderType: "openai"}
 	}
 	return &testProviderConfigStore{items: items}
+}
+
+func TestLLMRouteWritesRejectUnknownFields(t *testing.T) {
+	store := &testRouteStore{items: map[string]*routecore.RouteConfig{}}
+	handler := NewHandler(newTestAgentGateway(&testConfigStore{routeStore: store}, nil, nil, nil, nil), nil)
+	token := loginForTest(t, handler, "admin", "secret-pass")
+	for _, method := range []string{http.MethodPost, http.MethodPut} {
+		for _, field := range []string{`"match":{"path_prefix":"/typo"}`, `"match_policy":{"path_prefx":"/typo"}`, `"auth_policy":{"require_virtual_kee":true}`} {
+			t.Run(method+field, func(t *testing.T) {
+				path := "/admin/llm/routes"
+				if method == http.MethodPut {
+					path += "/typo"
+				}
+				body := `{"id":"typo","protocol":"openai",` + field + `,"target_policy":{"type":"models","model_targets":[{"kind":"provider-model","provider_id":"p","upstream_model":"m"}]}}`
+				req := httptest.NewRequest(method, path, strings.NewReader(body))
+				req.Header.Set("Authorization", "Bearer "+token)
+				rec := httptest.NewRecorder()
+				handler.ServeHTTP(rec, req)
+				if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "unknown field") {
+					t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+				}
+				if len(store.items) != 0 {
+					t.Fatal("invalid route was persisted")
+				}
+			})
+		}
+	}
 }

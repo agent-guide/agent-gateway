@@ -2,7 +2,6 @@ package modelcatalog
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -15,17 +14,23 @@ import (
 )
 
 type Service interface {
+	RefreshModels(ctx context.Context) error
+	ListLogicalModels(ctx context.Context) ([]LogicalModel, error)
+	GetLogicalModel(ctx context.Context, id string) (*LogicalModel, bool, error)
+	CreateLogicalModel(ctx context.Context, model LogicalModel) error
+	UpdateLogicalModel(ctx context.Context, model LogicalModel) error
+	DeleteLogicalModel(ctx context.Context, id string) error
 	RefreshProvider(ctx context.Context, providerID string) error
-	ListManagedModels(ctx context.Context, filter ManagedModelFilter) ([]ManagedModel, error)
-	GetManagedModel(ctx context.Context, providerID string, upstreamModel string) (*ManagedModel, bool, error)
-	GetResolvedManagedModel(ctx context.Context, providerID string, upstreamModel string) (*ResolvedManagedModel, bool, error)
-	CreateManagedModel(ctx context.Context, model ManagedModel) error
-	UpdateManagedModel(ctx context.Context, model ManagedModel) error
-	DeleteManagedModel(ctx context.Context, providerID string, upstreamModel string) error
+	ListProviderModels(ctx context.Context, filter ProviderModelFilter) ([]ProviderModel, error)
+	GetProviderModel(ctx context.Context, providerID string, upstreamModel string) (*ProviderModel, bool, error)
+	GetResolvedProviderModel(ctx context.Context, providerID string, upstreamModel string) (*ResolvedProviderModel, bool, error)
+	CreateProviderModel(ctx context.Context, model ProviderModel) error
+	UpdateProviderModel(ctx context.Context, model ProviderModel) error
+	DeleteProviderModel(ctx context.Context, providerID string, upstreamModel string) error
 	ListProviderSnapshots(ctx context.Context, providerID string) ([]ProviderModelSnapshot, error)
 }
 
-type ManagedModelFilter struct {
+type ProviderModelFilter struct {
 	ProviderID string
 }
 
@@ -34,28 +39,40 @@ type providerResolver interface {
 }
 
 type service struct {
-	mu sync.RWMutex
+	staticProviderModels map[[2]string]ProviderModel
+	staticLogicalModels  map[string]LogicalModel
+	initialError         error
+	validateGeneration   func(context.Context, []ProviderModel, []LogicalModel) error
+	mu                   sync.RWMutex
+	writeMu              sync.Mutex
+	models               map[[2]string]ProviderModel
+	logicalModels        map[string]LogicalModel
+	logicalStore         configstore.ConfigStore
+	logicalGuard         configmgr.MutationGuard[LogicalModel]
 
 	store       configstore.ConfigStore
 	providerMgr providerResolver
 	snapshots   map[string][]ProviderModelSnapshot
 	epochs      map[string]uint64
 	logger      *zap.Logger
-	guard       configmgr.MutationGuard[ManagedModel]
+	guard       configmgr.MutationGuard[ProviderModel]
 }
 
-func NewService(store configstore.ConfigStore, providerMgr providerResolver, logger *zap.Logger, guards ...configmgr.MutationGuard[ManagedModel]) Service {
+func NewService(store configstore.ConfigStore, providerMgr providerResolver, logger *zap.Logger, guards ...configmgr.MutationGuard[ProviderModel]) Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	return &service{
-		guard:       configmgr.SelectMutationGuard(guards),
+	s := &service{
+		guard:  configmgr.SelectMutationGuard(guards),
+		models: map[[2]string]ProviderModel{}, logicalModels: map[string]LogicalModel{},
 		store:       store,
 		providerMgr: providerMgr,
 		snapshots:   map[string][]ProviderModelSnapshot{},
 		epochs:      map[string]uint64{},
 		logger:      logger,
 	}
+	s.initialError = s.RefreshModels(context.Background())
+	return s
 }
 
 func (s *service) RefreshProvider(ctx context.Context, providerID string) error {
@@ -166,12 +183,19 @@ func (s *service) ListProviderSnapshots(ctx context.Context, providerID string) 
 	return nil, nil
 }
 
-func (s *service) ListManagedModels(ctx context.Context, filter ManagedModelFilter) ([]ManagedModel, error) {
-	managed, err := s.loadManagedModels(ctx)
-	if err != nil {
+func (s *service) ListProviderModels(ctx context.Context, filter ProviderModelFilter) ([]ProviderModel, error) {
+	s.mu.RLock()
+	if s.initialError != nil {
+		err := s.initialError
+		s.mu.RUnlock()
 		return nil, err
 	}
-	items := make([]ManagedModel, 0, len(managed))
+	managed := make([]ProviderModel, 0, len(s.models))
+	for _, m := range s.models {
+		managed = append(managed, cloneProviderModel(m))
+	}
+	s.mu.RUnlock()
+	items := make([]ProviderModel, 0, len(managed))
 	for _, item := range managed {
 		if filter.ProviderID != "" && item.ProviderID != filter.ProviderID {
 			continue
@@ -187,31 +211,40 @@ func (s *service) ListManagedModels(ctx context.Context, filter ManagedModelFilt
 	return items, nil
 }
 
-func (s *service) GetManagedModel(ctx context.Context, providerID string, upstreamModel string) (*ManagedModel, bool, error) {
-	managed, ok, err := s.getManagedModel(ctx, providerID, upstreamModel)
+func (s *service) GetProviderModel(ctx context.Context, providerID string, upstreamModel string) (*ProviderModel, bool, error) {
+	managed, ok, err := s.getProviderModel(ctx, providerID, upstreamModel)
 	if err != nil || !ok {
 		return nil, ok, err
 	}
 	return &managed, true, nil
 }
 
-func (s *service) GetResolvedManagedModel(ctx context.Context, providerID string, upstreamModel string) (*ResolvedManagedModel, bool, error) {
-	managed, ok, err := s.getManagedModel(ctx, providerID, upstreamModel)
+func (s *service) GetResolvedProviderModel(ctx context.Context, providerID string, upstreamModel string) (*ResolvedProviderModel, bool, error) {
+	managed, ok, err := s.getProviderModel(ctx, providerID, upstreamModel)
 	if err != nil || !ok {
 		return nil, ok, err
 	}
-	resolved, err := s.resolvedManagedModel(ctx, managed)
+	resolved, err := s.resolvedProviderModel(ctx, managed)
 	if err != nil {
 		return nil, false, err
 	}
 	return &resolved, true, nil
 }
 
-func (s *service) CreateManagedModel(ctx context.Context, model ManagedModel) error {
-	return configmgr.GuardMutation(s.guard, ctx, configmgr.MutationCreate, model.ProviderID, &model, func(ctx context.Context) error { return s.createManagedModel(ctx, model) })
+func (s *service) CreateProviderModel(ctx context.Context, model ProviderModel) error {
+	model.Normalize()
+	if _, ok := s.staticProviderModels[[2]string{model.ProviderID, model.UpstreamModel}]; ok {
+		return ErrStaticModelReadOnly
+	}
+	model.ReadOnly = false
+	model = cloneProviderModel(model)
+	model.Normalize()
+	return configmgr.GuardMutation(s.guard, ctx, configmgr.MutationCreate, model.ProviderID, &model, func(ctx context.Context) error { return s.createProviderModel(ctx, model) })
 }
 
-func (s *service) createManagedModel(ctx context.Context, model ManagedModel) error {
+func (s *service) createProviderModel(ctx context.Context, model ProviderModel) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	model.Normalize()
 	if model.ProviderID == "" || model.UpstreamModel == "" {
 		return fmt.Errorf("provider_id and upstream_model are required")
@@ -219,14 +252,29 @@ func (s *service) createManagedModel(ctx context.Context, model ManagedModel) er
 	if s.store == nil {
 		return fmt.Errorf("model store is not configured")
 	}
-	return s.store.Create(ctx, &model)
+	if err := s.store.Create(ctx, &model); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.models[[2]string{model.ProviderID, model.UpstreamModel}] = cloneProviderModel(model)
+	s.mu.Unlock()
+	return nil
 }
 
-func (s *service) UpdateManagedModel(ctx context.Context, model ManagedModel) error {
-	return configmgr.GuardMutation(s.guard, ctx, configmgr.MutationUpdate, model.ProviderID, &model, func(ctx context.Context) error { return s.updateManagedModel(ctx, model) })
+func (s *service) UpdateProviderModel(ctx context.Context, model ProviderModel) error {
+	model.Normalize()
+	if _, ok := s.staticProviderModels[[2]string{model.ProviderID, model.UpstreamModel}]; ok {
+		return ErrStaticModelReadOnly
+	}
+	model.ReadOnly = false
+	model = cloneProviderModel(model)
+	model.Normalize()
+	return configmgr.GuardMutation(s.guard, ctx, configmgr.MutationUpdate, model.ProviderID, &model, func(ctx context.Context) error { return s.updateProviderModel(ctx, model) })
 }
 
-func (s *service) updateManagedModel(ctx context.Context, model ManagedModel) error {
+func (s *service) updateProviderModel(ctx context.Context, model ProviderModel) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	model.Normalize()
 	if model.ProviderID == "" || model.UpstreamModel == "" {
 		return fmt.Errorf("provider_id and upstream_model are required")
@@ -234,21 +282,38 @@ func (s *service) updateManagedModel(ctx context.Context, model ManagedModel) er
 	if s.store == nil {
 		return fmt.Errorf("model store is not configured")
 	}
-	return s.store.Update(ctx, &model)
+	if err := s.store.Update(ctx, &model); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.models[[2]string{model.ProviderID, model.UpstreamModel}] = cloneProviderModel(model)
+	s.mu.Unlock()
+	return nil
 }
 
-func (s *service) DeleteManagedModel(ctx context.Context, providerID string, upstreamModel string) error {
-	return configmgr.GuardMutation(s.guard, ctx, configmgr.MutationDelete, providerID, nil, func(ctx context.Context) error { return s.deleteManagedModel(ctx, providerID, upstreamModel) })
+func (s *service) DeleteProviderModel(ctx context.Context, providerID string, upstreamModel string) error {
+	if _, ok := s.staticProviderModels[[2]string{providerID, upstreamModel}]; ok {
+		return ErrStaticModelReadOnly
+	}
+	return configmgr.GuardMutation(s.guard, ctx, configmgr.MutationDelete, providerID, &ProviderModel{ProviderID: providerID, UpstreamModel: upstreamModel}, func(ctx context.Context) error { return s.deleteProviderModel(ctx, providerID, upstreamModel) })
 }
 
-func (s *service) deleteManagedModel(ctx context.Context, providerID string, upstreamModel string) error {
+func (s *service) deleteProviderModel(ctx context.Context, providerID string, upstreamModel string) error {
 	if s.store == nil {
 		return fmt.Errorf("model store is not configured")
 	}
-	return s.store.Delete(ctx, providerID, upstreamModel)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if err := s.store.Delete(ctx, providerID, upstreamModel); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	delete(s.models, [2]string{providerID, upstreamModel})
+	s.mu.Unlock()
+	return nil
 }
 
-func (s *service) loadManagedModels(ctx context.Context) ([]ManagedModel, error) {
+func (s *service) loadProviderModels(ctx context.Context) ([]ProviderModel, error) {
 	if s.store == nil {
 		return nil, nil
 	}
@@ -256,44 +321,36 @@ func (s *service) loadManagedModels(ctx context.Context) ([]ManagedModel, error)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]ManagedModel, 0, len(items))
+	out := make([]ProviderModel, 0, len(items))
 	for _, item := range items {
-		model, ok := item.(*ManagedModel)
+		model, ok := item.(*ProviderModel)
 		if !ok || model == nil {
-			return nil, fmt.Errorf("unexpected managed model type %T", item)
+			return nil, fmt.Errorf("unexpected provider model type %T", item)
 		}
-		model.Normalize()
-		out = append(out, *model)
+		copy := cloneProviderModel(*model)
+		copy.ReadOnly = false
+		copy.Normalize()
+		if err := copy.Validate(); err != nil {
+			return nil, err
+		}
+		out = append(out, copy)
 	}
 	return out, nil
 }
 
-func (s *service) getManagedModel(ctx context.Context, providerID string, upstreamModel string) (ManagedModel, bool, error) {
-	if s.store == nil {
-		return ManagedModel{}, false, nil
+func (s *service) getProviderModel(ctx context.Context, providerID string, upstreamModel string) (ProviderModel, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.initialError != nil {
+		return ProviderModel{}, false, s.initialError
 	}
-	obj, err := s.store.Get(ctx, providerID, upstreamModel)
-	if err != nil {
-		if errors.Is(err, configstore.ErrNotFound) {
-			return ManagedModel{}, false, nil
-		}
-		return ManagedModel{}, false, err
-	}
-	model, ok := obj.(*ManagedModel)
-	if !ok || model == nil {
-		return ManagedModel{}, false, fmt.Errorf("unexpected managed model type %T", obj)
-	}
-	model.Normalize()
-	return *model, true, nil
+	model, ok := s.models[[2]string{providerID, upstreamModel}]
+	return cloneProviderModel(model), ok, nil
 }
 
-func (s *service) resolvedManagedModel(ctx context.Context, item ManagedModel) (ResolvedManagedModel, error) {
-	view := ResolvedManagedModel{ManagedModel: item}
+func (s *service) resolvedProviderModel(ctx context.Context, item ProviderModel) (ResolvedProviderModel, error) {
+	view := ResolvedProviderModel{ProviderModel: item}
 	snapshot, ok := s.findSnapshot(item.ProviderID, item.UpstreamModel)
-	if !ok {
-		_ = s.RefreshProvider(ctx, item.ProviderID)
-		snapshot, ok = s.findSnapshot(item.ProviderID, item.UpstreamModel)
-	}
 	if ok {
 		view.Snapshot = &snapshot
 		view.Capabilities = snapshot.Capabilities

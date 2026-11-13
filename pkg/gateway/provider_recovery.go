@@ -184,12 +184,12 @@ func (c *controlPlane) recoverProvider(ctx context.Context, id string) (returnEr
 			return c.providers.pendingFailure(id, err)
 		}
 		for _, item := range items {
-			model, ok := item.(*modelcatalog.ManagedModel)
+			model, ok := item.(*modelcatalog.ProviderModel)
 			if !ok || model == nil {
-				return c.providers.pendingFailure(id, fmt.Errorf("unexpected managed model type %T", item))
+				return c.providers.pendingFailure(id, fmt.Errorf("unexpected provider model type %T", item))
 			}
 			if model.ProviderID == id {
-				return c.providers.pendingFailure(id, fmt.Errorf("deleted Provider still has managed models; inspect persisted configuration"))
+				return c.providers.pendingFailure(id, fmt.Errorf("deleted Provider still has provider models; inspect persisted configuration"))
 			}
 		}
 	}
@@ -222,5 +222,6 @@ func (c *controlPlane) publishProviderDeletion(id string) (err error) {
 	c.providers.configs.Evict(id)
 	c.providers.deleteDynamicCache(id)
 	modelcatalog.InvalidateProvider(c.models, id)
+	modelcatalog.RetireProviderModels(c.models, id)
 	return nil
 }

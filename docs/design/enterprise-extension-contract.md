@@ -810,14 +810,14 @@ compiled modules may supply shared health or tenant SLA, region and cost selecti
 policy once the domain seam exists. These are proposed capabilities, not v0.7
 protected symbols or implemented enterprise features.
 
-Current logical-model routing filters managed-model/provider availability,
+Current logical-model routing filters provider-model/provider availability,
 generic capabilities and atomic protocol requirements before built-in selection.
 `RoutedProvider` tracks tried candidates and credentials, limits model reselection,
 and reports managed-credential outcomes. Its stream fallback covers opening the
 upstream stream; returning a reader does not establish successful stream
 completion. Some providers also retry non-stream calls independently. These
 mechanisms do not constitute a shared attempt budget or a candidate circuit
-breaker. Direct-provider routes do not perform cross-model fallback.
+breaker. Concrete ProviderModel targets do not perform cross-model fallback.
 
 A future selection seam may choose only among core-approved candidates; it must
 not bypass model enablement, protocol compatibility, authentication, admission

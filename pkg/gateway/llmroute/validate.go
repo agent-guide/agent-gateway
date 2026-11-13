@@ -22,16 +22,7 @@ func (r LLMRoute) ValidateDefinition() error {
 	return r.TargetPolicy.ValidateDefinition(r.ID)
 }
 
-func (r LLMRoute) ValidateStaticDefinition() error {
-	r.Normalize()
-	if err := r.ValidateDefinition(); err != nil {
-		return err
-	}
-	if r.UsesLogicalModel() {
-		return fmt.Errorf("route %q logical-model target_policy is not supported in static config", r.ID)
-	}
-	return nil
-}
+func (r LLMRoute) ValidateStaticDefinition() error { return r.ValidateDefinition() }
 
 func (c RouteTargetPolicyCommon) validateCredentialPolicy(routeID string) error {
 	switch c.CredentialSelector() {
@@ -69,88 +60,46 @@ func (c RouteTargetPolicyCommon) validateCredentialPolicy(routeID string) error 
 	return nil
 }
 
-func (p *RouteDirectProviderPolicy) ValidateDefinition(routeID string) error {
-	p.Normalize()
-	if p.ProviderTarget.ProviderID == "" {
-		return fmt.Errorf("route %q target_policy.provider_target.provider_id is required", routeID)
-	}
-	if err := p.RouteTargetPolicyCommon.validateCredentialPolicy(routeID); err != nil {
-		return err
-	}
-	for _, scope := range p.CredentialScopeOrder() {
-		if scope == RouteCredentialScopeModelCustom {
-			return fmt.Errorf("route %q direct-provider target_policy cannot use credential_scope_order %q", routeID, scope)
-		}
-	}
-	return nil
-}
-
-func (p *RouteLogicalModelTargetPolicy) ValidateDefinition(routeID string) error {
+func (p *RouteModelPolicy) ValidateDefinition(routeID string) error {
 	p.Normalize()
 	if err := p.RouteTargetPolicyCommon.validateCredentialPolicy(routeID); err != nil {
 		return err
 	}
 	if len(p.ModelTargets) == 0 {
-		return fmt.Errorf("route %q target_policy.model_targets are required in logical-model mode", routeID)
+		return fmt.Errorf("route %q target_policy.model_targets are required in models mode", routeID)
 	}
-	switch p.ModelSelectorStrategy {
-	case "", RouteSelectionStrategyAuto, RouteSelectionStrategyWeighted, RouteSelectionStrategyPriority:
-	default:
-		return fmt.Errorf("route %q invalid model_selector_strategy %q", routeID, p.ModelSelectorStrategy)
-	}
-	if p.Fallback.MaxNum < 0 || p.Fallback.MaxNum > 5 {
-		return fmt.Errorf("route %q fallback.max_num must be between 0 and 5", routeID)
-	}
-
-	targetNames := make([]string, 0, len(p.ModelTargets))
-	seenNames := map[string]struct{}{}
-	defaultCandidateTargets := map[string]struct{}{}
-	for _, target := range p.ModelTargets {
-		if target.Name == "" {
-			return fmt.Errorf("route %q target name is required", routeID)
+	seen := map[string]bool{}
+	kind := p.ModelTargets[0].Kind
+	providerID := p.ModelTargets[0].ProviderID
+	for _, t := range p.ModelTargets {
+		if t.Kind != kind {
+			return fmt.Errorf("route %q cannot mix ProviderModel and LogicalModel targets; split them into separate routes", routeID)
 		}
-		if _, exists := seenNames[target.Name]; exists {
-			return fmt.Errorf("route %q target %q is duplicated", routeID, target.Name)
+		if t.Name == "" || seen[t.Name] {
+			return fmt.Errorf("route %q has empty or duplicate model name", routeID)
 		}
-		seenNames[target.Name] = struct{}{}
-		targetNames = append(targetNames, target.Name)
-		if len(target.Candidates) == 0 {
-			return fmt.Errorf("route %q target %q must define at least one candidate", routeID, target.Name)
-		}
-		candidateIDs := map[string]struct{}{}
-		defaultCandidateCount := 0
-		for _, candidate := range target.Candidates {
-			if candidate.ProviderID == "" || candidate.UpstreamModel == "" {
-				return fmt.Errorf("route %q target %q candidates require provider_id and upstream_model", routeID, target.Name)
+		seen[t.Name] = true
+		switch t.Kind {
+		case "provider-model":
+			if t.ProviderID != providerID {
+				return fmt.Errorf("route %q ProviderModel targets must use a single provider; use a LogicalModel for cross-provider selection", routeID)
 			}
-			key := candidate.ProviderID + "/" + candidate.UpstreamModel
-			if _, exists := candidateIDs[key]; exists {
-				return fmt.Errorf("route %q target %q duplicates candidate %q", routeID, target.Name, key)
+			if t.Name != t.UpstreamModel {
+				return fmt.Errorf("route %q ProviderModel name must equal upstream_model; aliases require a LogicalModel", routeID)
 			}
-			candidateIDs[key] = struct{}{}
-			if candidate.Default {
-				defaultCandidateCount++
+			if t.ProviderID == "" || t.UpstreamModel == "" || t.LogicalModelID != "" {
+				return fmt.Errorf("route %q invalid provider-model reference", routeID)
 			}
-		}
-		if defaultCandidateCount > 1 {
-			return fmt.Errorf("route %q target %q may define at most one default candidate", routeID, target.Name)
-		}
-		if defaultCandidateCount == 1 {
-			defaultCandidateTargets[target.Name] = struct{}{}
+		case "logical-model":
+			if t.LogicalModelID == "" || t.ProviderID != "" || t.UpstreamModel != "" {
+				return fmt.Errorf("route %q invalid logical-model reference", routeID)
+			}
+		default:
+			return fmt.Errorf("route %q invalid model target kind %q", routeID, t.Kind)
 		}
 	}
-	if p.DefaultModel != "" && !slices.Contains(targetNames, p.DefaultModel) {
+	if p.DefaultModel != "" && !seen[p.DefaultModel] {
 		return fmt.Errorf("route %q default_model %q must appear in targets", routeID, p.DefaultModel)
-	}
-	if len(defaultCandidateTargets) > 1 {
-		return fmt.Errorf("route %q default candidates must belong to a single target model", routeID)
-	}
-	if p.DefaultModel != "" {
-		for targetName := range defaultCandidateTargets {
-			if targetName != p.DefaultModel {
-				return fmt.Errorf("route %q default candidate target %q must match default_model %q", routeID, targetName, p.DefaultModel)
-			}
-		}
 	}
 	return nil
 }

@@ -110,3 +110,17 @@ func (m *RouteConfigManager) AddInvalidator(invalidate func(string)) {
 	m.invalidators = append(m.invalidators, invalidate)
 	m.mu.Unlock()
 }
+
+// PublishedConfigs returns defensive copies of the serving route generation,
+// including one retained after a failed Refresh. It performs no storage reads.
+func (m *RouteConfigManager) PublishedConfigs() []RouteConfig {
+	table := m.publishedTable()
+	if table == nil {
+		return nil
+	}
+	out := make([]RouteConfig, 0, len(table.byID))
+	for _, r := range table.byID {
+		out = append(out, cloneRouteConfig(r))
+	}
+	return out
+}

@@ -33,17 +33,18 @@ const (
 var envVarPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 type GatewayBundle struct {
-	Extensions    []extension.Envelope           `json:"extensions,omitempty"`
-	APIVersion    string                         `json:"apiVersion"`
-	Kind          string                         `json:"kind"`
-	Providers     []provider.ProviderConfig      `json:"providers,omitempty"`
-	ManagedModels []modelcatalog.ManagedModel    `json:"managedModels,omitempty"`
-	LLMRoutes     []routecore.RouteConfig        `json:"llmRoutes,omitempty"`
-	VirtualKeys   []BundleVirtualKey             `json:"virtualKeys,omitempty"`
-	Connectors    []connectorpkg.ConnectorConfig `json:"connectors,omitempty"`
-	MCPRoutes     []mcproute.MCPRoute            `json:"mcpRoutes,omitempty"`
-	AgentRoutes   []agentroute.AgentRouteConfig  `json:"agentRoutes,omitempty"`
-	Agents        []agentpkg.Agent               `json:"agents,omitempty"`
+	LogicalModels  []modelcatalog.LogicalModel    `json:"logicalModels,omitempty"`
+	Extensions     []extension.Envelope           `json:"extensions,omitempty"`
+	APIVersion     string                         `json:"apiVersion"`
+	Kind           string                         `json:"kind"`
+	Providers      []provider.ProviderConfig      `json:"providers,omitempty"`
+	ProviderModels []modelcatalog.ProviderModel   `json:"providerModels,omitempty"`
+	LLMRoutes      []routecore.RouteConfig        `json:"llmRoutes,omitempty"`
+	VirtualKeys    []BundleVirtualKey             `json:"virtualKeys,omitempty"`
+	Connectors     []connectorpkg.ConnectorConfig `json:"connectors,omitempty"`
+	MCPRoutes      []mcproute.MCPRoute            `json:"mcpRoutes,omitempty"`
+	AgentRoutes    []agentroute.AgentRouteConfig  `json:"agentRoutes,omitempty"`
+	Agents         []agentpkg.Agent               `json:"agents,omitempty"`
 }
 
 type BundleVirtualKey struct {
@@ -98,6 +99,9 @@ func DecodeYAML(data []byte) (*GatewayBundle, error) {
 		}
 		if _, exists := root["cliAuthAuthenticators"]; exists {
 			return nil, fmt.Errorf("cliAuthAuthenticators is not supported in GatewayBundle; use the external agw-auth tool")
+		}
+		if _, ok := root["managedModels"]; ok {
+			return nil, fmt.Errorf("managedModels was removed; use providerModels for concrete models and logicalModels for shared scheduling")
 		}
 		legacy := []string{}
 		for _, key := range []string{"acpServices", "acpRoutes", "builtinRoutes"} {
@@ -166,7 +170,7 @@ func removeManagedTimestamps(value any) {
 		return
 	}
 	for _, family := range []string{
-		"providers", "managedModels", "llmRoutes", "virtualKeys",
+		"providers", "providerModels", "logicalModels", "llmRoutes", "virtualKeys",
 		"connectors", "mcpRoutes", "agents", "agentRoutes",
 	} {
 		items, _ := root[family].([]any)
@@ -174,6 +178,7 @@ func removeManagedTimestamps(value any) {
 			object, _ := item.(map[string]any)
 			delete(object, "created_at")
 			delete(object, "updated_at")
+			delete(object, "read_only")
 		}
 	}
 }
@@ -198,9 +203,6 @@ func (b *GatewayBundle) validateStatic() error {
 	}
 	if err := b.validate(false); err != nil {
 		return err
-	}
-	if len(b.ManagedModels) > 0 {
-		return fmt.Errorf("managedModels are not supported in static config; create managed models through the Admin API or agwctl apply")
 	}
 	for i := range b.LLMRoutes {
 		route, err := llmroutepkg.NewLLMRouteFromConfig(b.LLMRoutes[i])
@@ -275,20 +277,49 @@ func (b *GatewayBundle) validate(_ bool) error {
 			errs.Append(fmt.Errorf("providers[%q]: provider_type %q is disabled by this gateway runtime", id, b.Providers[i].ProviderType))
 		}
 	}
-	managedKeys := map[string]struct{}{}
-	for i := range b.ManagedModels {
-		b.ManagedModels[i].Normalize()
-		providerID := strings.TrimSpace(b.ManagedModels[i].ProviderID)
-		upstreamModel := strings.TrimSpace(b.ManagedModels[i].UpstreamModel)
+	managedKeys := map[[2]string]struct{}{}
+	for i := range b.ProviderModels {
+		b.ProviderModels[i].Normalize()
+		providerID := strings.TrimSpace(b.ProviderModels[i].ProviderID)
+		upstreamModel := strings.TrimSpace(b.ProviderModels[i].UpstreamModel)
 		if providerID == "" || upstreamModel == "" {
-			errs.Append(fmt.Errorf("managedModels[%d]: provider_id and upstream_model are required", i))
+			errs.Append(fmt.Errorf("providerModels[%d]: provider_id and upstream_model are required", i))
 			continue
 		}
 		key := providerID + "/" + upstreamModel
-		if _, exists := managedKeys[key]; exists {
-			errs.Append(fmt.Errorf("managedModels[%q]: duplicate provider_id/upstream_model", key))
+		identity := [2]string{providerID, upstreamModel}
+		if _, exists := managedKeys[identity]; exists {
+			errs.Append(fmt.Errorf("providerModels[%q]: duplicate provider_id/upstream_model", key))
 		} else {
-			managedKeys[key] = struct{}{}
+			managedKeys[identity] = struct{}{}
+		}
+	}
+	logicalIDs := map[string]bool{}
+	for i := range b.LogicalModels {
+		m := &b.LogicalModels[i]
+		m.Normalize()
+		if err := m.Validate(); err != nil {
+			errs.Append(fmt.Errorf("logicalModels[%q]: %w", m.ID, err))
+		}
+		if logicalIDs[m.ID] {
+			errs.Append(fmt.Errorf("logicalModels[%q]: duplicate id", m.ID))
+		}
+		logicalIDs[m.ID] = true
+	}
+	pmKeys := map[[2]string]bool{}
+	for _, m := range b.ProviderModels {
+		pmKeys[[2]string{m.ProviderID, m.UpstreamModel}] = true
+		if len(b.Providers) > 0 {
+			if _, ok := providerIDs[m.ProviderID]; !ok {
+				errs.Append(fmt.Errorf("providerModels: missing provider %q", m.ProviderID))
+			}
+		}
+	}
+	for _, m := range b.LogicalModels {
+		for _, c := range m.Candidates {
+			if len(b.ProviderModels) > 0 && !pmKeys[[2]string{c.ProviderID, c.UpstreamModel}] {
+				errs.Append(fmt.Errorf("logicalModels[%q]: missing provider model %q/%q", m.ID, c.ProviderID, c.UpstreamModel))
+			}
 		}
 	}
 	for i := range b.LLMRoutes {
@@ -309,6 +340,16 @@ func (b *GatewayBundle) validate(_ bool) error {
 		}
 		if err := route.ValidateDefinition(); err != nil {
 			errs.Append(fmt.Errorf("llmRoutes[%q]: %w", routeID, err))
+		}
+		if p := route.TargetPolicy; p != nil {
+			for _, t := range p.ModelTargets {
+				if t.Kind == "provider-model" && len(b.ProviderModels) > 0 && !pmKeys[[2]string{t.ProviderID, t.UpstreamModel}] {
+					errs.Append(fmt.Errorf("llmRoutes[%q]: missing provider model %q", routeID, t.Name))
+				}
+				if t.Kind == "logical-model" && len(b.LogicalModels) > 0 && !logicalIDs[t.LogicalModelID] {
+					errs.Append(fmt.Errorf("llmRoutes[%q]: missing logical model %q", routeID, t.LogicalModelID))
+				}
+			}
 		}
 	}
 	virtualKeys := map[string]struct{}{}

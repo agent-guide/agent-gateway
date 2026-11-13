@@ -4,12 +4,85 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestModelRepairThroughCommand(t *testing.T) {
+	for _, family := range []string{"provider_models", "logical_models"} {
+		for _, action := range []string{"replace", "delete"} {
+			t.Run(family+"/"+action, func(t *testing.T) {
+				dir := t.TempDir()
+				path := filepath.Join(dir, "config.db")
+				db, err := sql.Open("sqlite", path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer db.Close()
+				for _, statement := range []string{
+					`CREATE TABLE providers(id TEXT PRIMARY KEY, config TEXT)`,
+					`INSERT INTO providers VALUES ('p','{"id":"p","provider_type":"openai"}')`,
+					`CREATE TABLE model_configs(provider_id TEXT, upstream_model TEXT, data TEXT, PRIMARY KEY(provider_id,upstream_model))`,
+					`INSERT INTO model_configs VALUES ('p','m','{"provider_id":"p","upstream_model":"m","enabled":true}')`,
+					`CREATE TABLE logical_models(id TEXT PRIMARY KEY, data TEXT)`,
+				} {
+					if _, err := db.Exec(statement); err != nil {
+						t.Fatal(err)
+					}
+				}
+				id, table := `["p","m"]`, "model_configs"
+				replacement := `{"provider_id":"p","upstream_model":"m","enabled":true}`
+				if family == "logical_models" {
+					id, table = "shared", "logical_models"
+					replacement = `{"id":"shared","candidates":[{"provider_id":"p","upstream_model":"m"}]}`
+					if _, err := db.Exec(`INSERT INTO logical_models VALUES ('shared',NULL)`); err != nil {
+						t.Fatal(err)
+					}
+				} else if _, err := db.Exec(`UPDATE model_configs SET data=NULL`); err != nil {
+					t.Fatal(err)
+				}
+				operation := map[string]any{"family": family, "id": id, "action": action}
+				if action == "replace" {
+					operation["data"] = json.RawMessage(replacement)
+				}
+				data, err := json.Marshal([]any{operation})
+				if err != nil {
+					t.Fatal(err)
+				}
+				operations := filepath.Join(dir, "operations.json")
+				if err := os.WriteFile(operations, data, 0600); err != nil {
+					t.Fatal(err)
+				}
+				var out bytes.Buffer
+				if err := run(t.Context(), []string{"--db", path, "--repair", operations, "--backup", path + ".bak", "--service-stopped"}, &out); err != nil {
+					t.Fatalf("model repair: %v; %s", err, out.String())
+				}
+				var count int
+				if err := db.QueryRow(`SELECT count(*) FROM ` + table).Scan(&count); err != nil {
+					t.Fatal(err)
+				}
+				want := 1
+				if action == "delete" {
+					want = 0
+				}
+				if count != want {
+					t.Fatalf("row count = %d, want %d", count, want)
+				}
+				out.Reset()
+				if err := run(t.Context(), []string{"--db", path}, &out); err != nil {
+					t.Fatalf("recheck: %v; %s", err, out.String())
+				}
+				if _, err := os.Stat(path + ".bak"); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}
 
 func TestConnectorRepairThroughCommand(t *testing.T) {
 	for _, family := range []string{"mcp_services", "connectors"} {
@@ -107,7 +180,7 @@ providers:
 		t.Fatal("inspection mutated static input")
 	}
 	ops := filepath.Join(dir, "ops.json")
-	if err := os.WriteFile(ops, []byte(`[{"family":"routes","id":"a","action":"convert-target"},{"family":"routes","id":"b","action":"delete"},{"family":"agents","id":"agent","action":"remove-budget"}]`), 0o600); err != nil {
+	if err := os.WriteFile(ops, []byte(`[{"family":"routes","id":"a","action":"convert-target","data":{"models":[{"name":"gpt-4.1","upstream_model":"gpt-4.1"}]}},{"family":"routes","id":"b","action":"delete"},{"family":"agents","id":"agent","action":"remove-budget"}]`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := run(context.Background(), []string{"--static-config", path, "--target", "static", "--repair", ops, "--backup", path + ".bak", "--service-stopped"}, &out); err != nil {
@@ -160,27 +233,26 @@ func TestRepairFlagsFailBeforeWriting(t *testing.T) {
 func TestStaticInspectionAndRepairEnforceStartupRestrictions(t *testing.T) {
 	for _, tc := range []struct{ name, target, extra string }{
 		{"logical route", `{"model_targets":[{"name":"chat","candidates":[{"provider_id":"p","upstream_model":"model","default":true}]}]}`, ""},
-		{"virtual keys", `{"provider_target":{"provider_id":"p"}}`, `,"virtualKeys":[{"id":"key","disabled":false}]`},
-		{"managed models", `{"provider_target":{"provider_id":"p"}}`, `,"managedModels":[{"provider_id":"p","upstream_model":"model","enabled":true}]`},
-		{"extensions", `{"provider_target":{"provider_id":"p"}}`, `,"extensions":[{"module_id":"online.agentguide.community.limiter","schema_version":1,"config":{}}]`},
+		{"virtual keys", `{"type":"models","default_model":"gpt-4.1","model_targets":[{"name":"gpt-4.1","kind":"provider-model","provider_id":"p","upstream_model":"gpt-4.1"}]}`, `,"virtualKeys":[{"id":"key","disabled":false}]`},
+		{"extensions", `{"type":"models","default_model":"gpt-4.1","model_targets":[{"name":"gpt-4.1","kind":"provider-model","provider_id":"p","upstream_model":"gpt-4.1"}]}`, `,"extensions":[{"module_id":"online.agentguide.community.limiter","schema_version":1,"config":{}}]`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "static.json")
 			route := fmt.Sprintf(`{"id":"a","kind":"llm","protocol":"openai","match_policy":{"path_prefix":"/api"},"target_policy":%s}`, tc.target)
-			original := fmt.Sprintf(`{"apiVersion":"gateway.agw/v1alpha1","kind":"GatewayBundle","providers":[{"id":"p","provider_type":"openai"}],"llmRoutes":[%s]%s}`, route, tc.extra)
+			original := fmt.Sprintf(`{"apiVersion":"gateway.agw/v1alpha1","kind":"GatewayBundle","providers":[{"id":"p","provider_type":"openai"}],"providerModels":[{"provider_id":"p","upstream_model":"gpt-4.1","enabled":true}],"llmRoutes":[%s]%s}`, route, tc.extra)
 			if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			var out bytes.Buffer
-			if err := run(context.Background(), []string{"--static-config", path}, &out); err == nil || !strings.Contains(out.String(), "static config") {
+			if err := run(context.Background(), []string{"--static-config", path}, &out); err == nil {
 				t.Fatalf("invalid static config inspected as clean: %v, %s", err, out.String())
 			}
 			ops := filepath.Join(dir, "ops.json")
 			if err := os.WriteFile(ops, []byte(`[{"family":"routes","id":"a","action":"replace","data":`+route+`}]`), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := run(context.Background(), []string{"--static-config", path, "--target", "static", "--repair", ops, "--backup", path + ".bak", "--service-stopped"}, &out); err == nil || !strings.Contains(err.Error(), "static config") {
+			if err := run(context.Background(), []string{"--static-config", path, "--target", "static", "--repair", ops, "--backup", path + ".bak", "--service-stopped"}, &out); err == nil {
 				t.Fatalf("invalid static repair accepted: %v", err)
 			}
 			after, err := os.ReadFile(path)

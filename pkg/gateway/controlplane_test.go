@@ -78,7 +78,7 @@ func controlPlaneGateway(t *testing.T) (*AgentGateway, *configstore.Backend, *co
 func providerRoute(id, providerID string) routecore.RouteConfig {
 	return routecore.RouteConfig{ID: id, Kind: routecore.RouteKindLLM, Protocol: routecore.RouteProtocolOpenAI,
 		MatchPolicy:  routecore.RouteMatchPolicy{PathPrefix: "/" + id + "/"},
-		TargetPolicy: []byte(fmt.Sprintf(`{"type":"direct-provider","provider_target":{"provider_id":%q}}`, providerID))}
+		TargetPolicy: []byte(fmt.Sprintf(`{"type":"models","default_model":"gpt-4.1","model_targets":[{"name":"gpt-4.1","kind":"provider-model","provider_id":%q,"upstream_model":"gpt-4.1"}]}`, providerID))}
 }
 
 func TestProviderDeletionAndRouteCreationAreSerializable(t *testing.T) {
@@ -89,6 +89,9 @@ func TestProviderDeletionAndRouteCreationAreSerializable(t *testing.T) {
 		id := fmt.Sprintf("p%d", i)
 		routeID := fmt.Sprintf("r%d", i)
 		if err := g.ProviderManager().CreateConfig(t.Context(), provider.ProviderConfig{Id: id, ProviderType: "openai"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := g.ModelCatalog().CreateProviderModel(t.Context(), modelcatalog.ProviderModel{ProviderID: id, UpstreamModel: "gpt-4.1", Enabled: true}); err != nil {
 			t.Fatal(err)
 		}
 		var createErr, deleteErr error
@@ -118,7 +121,7 @@ func TestProviderDeletionRollsBackOverlayCleanupFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"a", "b"} {
-		if err := g.ModelCatalog().CreateManagedModel(t.Context(), modelcatalog.ManagedModel{ProviderID: "p", UpstreamModel: name, Enabled: true}); err != nil {
+		if err := g.ModelCatalog().CreateProviderModel(t.Context(), modelcatalog.ProviderModel{ProviderID: "p", UpstreamModel: name, Enabled: true}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -129,7 +132,7 @@ func TestProviderDeletionRollsBackOverlayCleanupFailure(t *testing.T) {
 		t.Fatal("cleanup failure returned success")
 	}
 	providers, _ := backend.Get(schema.StoreProviders)
-	models, _ := backend.Get(schema.StoreManagedModels)
+	models, _ := backend.Get(schema.StoreProviderModels)
 	if _, err := providers.Get(t.Context(), "p"); err != nil {
 		t.Fatal("Provider deletion partially committed")
 	}
@@ -204,6 +207,9 @@ func TestDirectRouteDeletionCannotBypassAgentReferences(t *testing.T) {
 	if err := g.ProviderManager().CreateConfig(t.Context(), provider.ProviderConfig{Id: "p", ProviderType: "openai"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := g.ModelCatalog().CreateProviderModel(t.Context(), modelcatalog.ProviderModel{ProviderID: "p", UpstreamModel: "gpt-4.1", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
 	if err := g.RouteConfigManager().Create(t.Context(), providerRoute("r", "p"), ""); err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +224,7 @@ func TestDirectRouteDeletionCannotBypassAgentReferences(t *testing.T) {
 
 func TestProviderDeletionSerializesCredentialAndModelWrites(t *testing.T) {
 	g, backend, _ := controlPlaneGateway(t)
-	models, _ := backend.Get(schema.StoreManagedModels)
+	models, _ := backend.Get(schema.StoreProviderModels)
 	for _, kind := range []string{"credential", "model"} {
 		for i := range 8 {
 			id := fmt.Sprintf("%s%d", kind, i)
@@ -234,7 +240,7 @@ func TestProviderDeletionSerializesCredentialAndModelWrites(t *testing.T) {
 				if kind == "credential" {
 					createErr = g.CredentialManager().RegisterCredential(t.Context(), &credential.Credential{ID: id, ProviderID: id, ProviderType: "openai", Type: credential.TypeAPIKey})
 				} else {
-					createErr = g.ModelCatalog().CreateManagedModel(t.Context(), modelcatalog.ManagedModel{ProviderID: id, UpstreamModel: "model"})
+					createErr = g.ModelCatalog().CreateProviderModel(t.Context(), modelcatalog.ProviderModel{ProviderID: id, UpstreamModel: "model"})
 				}
 			}()
 			wg.Wait()
@@ -295,7 +301,7 @@ func TestProviderUncertainCommitAndPublicationFailureRequireRecovery(t *testing.
 			if err := g.ProviderManager().CreateConfig(t.Context(), provider.ProviderConfig{Id: "p", ProviderType: "openai"}); err != nil {
 				t.Fatal(err)
 			}
-			if err := g.ModelCatalog().CreateManagedModel(t.Context(), modelcatalog.ManagedModel{ProviderID: "p", UpstreamModel: "model"}); err != nil {
+			if err := g.ModelCatalog().CreateProviderModel(t.Context(), modelcatalog.ProviderModel{ProviderID: "p", UpstreamModel: "model"}); err != nil {
 				t.Fatal(err)
 			}
 			fault := &uncertainProviderTransaction{ConfigStoreBackend: backend, uncertain: phase == "commit"}
@@ -458,29 +464,29 @@ func TestProviderNontransactionalWriteErrorsRequireRecovery(t *testing.T) {
 	}
 }
 
-func TestPendingProviderDeletionBlocksManagedModelDeletion(t *testing.T) {
+func TestPendingProviderDeletionBlocksProviderModelDeletion(t *testing.T) {
 	g, backend, _ := controlPlaneGateway(t)
 	if err := g.ProviderManager().CreateConfig(t.Context(), provider.ProviderConfig{Id: "p", ProviderType: "openai"}); err != nil {
 		t.Fatal(err)
 	}
-	model := modelcatalog.ManagedModel{ProviderID: "p", UpstreamModel: "model", Enabled: true}
-	if err := g.ModelCatalog().CreateManagedModel(t.Context(), model); err != nil {
+	model := modelcatalog.ProviderModel{ProviderID: "p", UpstreamModel: "model", Enabled: true}
+	if err := g.ModelCatalog().CreateProviderModel(t.Context(), model); err != nil {
 		t.Fatal(err)
 	}
 	g.control.backend = &uncertainProviderTransaction{ConfigStoreBackend: backend, rollback: true}
 	if err := g.ProviderManager().DeleteConfig(t.Context(), "p"); !errors.Is(err, configmgr.ErrMutationPending) {
 		t.Fatalf("uncertain deletion = %v", err)
 	}
-	if err := g.ModelCatalog().DeleteManagedModel(t.Context(), "p", "model"); !errors.Is(err, configmgr.ErrMutationPending) {
+	if err := g.ModelCatalog().DeleteProviderModel(t.Context(), "p", "model"); !errors.Is(err, configmgr.ErrMutationPending) {
 		t.Fatalf("model deletion bypassed pending Provider: %v", err)
 	}
 	if err := g.ProviderManager().Recover(t.Context(), "p"); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, err := g.ModelCatalog().GetManagedModel(t.Context(), "p", "model"); err != nil || !ok {
+	if _, ok, err := g.ModelCatalog().GetProviderModel(t.Context(), "p", "model"); err != nil || !ok {
 		t.Fatalf("overlay lost during recovery: exists=%t, %v", ok, err)
 	}
-	if err := g.ModelCatalog().DeleteManagedModel(t.Context(), "p", "model"); err != nil {
+	if err := g.ModelCatalog().DeleteProviderModel(t.Context(), "p", "model"); err != nil {
 		t.Fatalf("model deletion remained blocked after recovery: %v", err)
 	}
 }

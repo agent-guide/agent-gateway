@@ -201,8 +201,8 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 			Protocol:    llmroutepkg.RouteProtocolOpenAI,
 			MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/v1"},
 		},
-		TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-			ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "fake"},
+		TargetPolicy: &llmroutepkg.RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "fake", UpstreamModel: "gpt-4.1"}},
 		},
 	}
 	llmRouteCfg, err := llmRoute.ToConfig()
@@ -212,7 +212,7 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 
 	sink := &builtinCaptureSink{}
 	gw := gateway.NewAgentGateway()
-	if err := gw.Bootstrap(ctx, gateway.BootstrapOptions{
+	if err := gw.Bootstrap(ctx, gateway.BootstrapOptions{StaticProviderModels: fixtureProviderModels([]routecore.RouteConfig{llmRouteCfg}, backend),
 		StaticLLMRoutes:    []routecore.RouteConfig{llmRouteCfg},
 		StaticProviders:    map[string]provider.Provider{"fake": builtinFakeProvider{}},
 		ConfigStoreBackend: backend,

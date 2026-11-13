@@ -25,17 +25,20 @@ is not an Agent framework or a durable workflow engine.
 For offline configuration inspection and explicit repairs without Admin, see
 [configuration recovery](docs/guides/architecture-config-recovery.md).
 
-LLM direct targets use `target_policy.provider_target.provider_id`; the removed
-outer `target_policy.provider_id` must be explicitly converted before loading.
+LLM routes expose registered ProviderModels and LogicalModels through explicit
+`model_targets`. Removed Provider-only targets require offline conversion with
+an explicit model allowlist.
 
 Agent budgets are not enforced. Non-null `policy.budget` values are rejected;
 explicitly remove existing budgets before loading the configuration.
 
 Provider deletion requires detaching LLM routes and removing/rebinding its
-credentials. Its ManagedModels are cleaned up in the same SQLite transaction.
+credentials. Its ProviderModels are cleaned up in the same SQLite transaction.
 
 For unconfirmed online writes, inspect `GET .../{id}/mutation` and use
 `POST .../{id}/recover`; see [mutation recovery](docs/guides/configuration-mutation-recovery.md).
+
+`GET /v1/models` returns only the selected route’s exposed model names, without upstream discovery or a required default model.
 
 ## Try it without a provider key
 
@@ -119,9 +122,6 @@ Anthropic Messages ingress profile, not an ACP Agent runtime. That profile can
 route Claude Code traffic to compatible domestic or international model
 providers.
 
-Chat streaming with `stream_options.include_usage: true` returns a final usage
-chunk when the upstream supplies usage.
-
 ## Architecture
 
 Both server modes publish validated route generations; request matching reads an
@@ -156,7 +156,7 @@ runtime flow and dependency boundaries.
 
 - **Agent runtimes:** native ACP pooling and lifecycle management, an in-process
   eino ADK host for builtin Agents, and HTTP/A2A translation and native ingress.
-- **Resource gateways:** direct-provider or logical-model LLM routing, MCP
+- **Resource gateways:** concrete and logical model exposure, MCP
   discovery and execution, credentials, VirtualKeys, and per-domain admission
   limits.
 - **Operations:** SQLite persistence, Admin APIs, declarative Bundles, durable
@@ -166,6 +166,20 @@ runtime flow and dependency boundaries.
   1.0 JSON-RPC.
 - **Distribution modes:** `agw` for the Caddy-based runtime, `agwd` for the
   standalone daemon, and `agwctl` for management and validation.
+
+LLM routes explicitly expose ProviderModels (concrete upstream bindings) and
+independent LogicalModels (shared candidate selection and fallback) under
+route-visible names. Each route uses only one target kind. ProviderModel routes
+expose one Provider's real model names; LogicalModel routes support aliases and
+cross-provider selection. Every model access resolves an explicitly registered model.
+LLM route JSON uses `match_policy` and a `target_policy` of `type: models`;
+unknown route fields and unsupported policy types are rejected on writes.
+Chat streaming with `stream_options.include_usage: true` returns a final usage
+chunk when the upstream supplies usage.
+Manage models through `/admin/llm/models/provider` and `/admin/llm/models/logical`,
+or Bundle `providerModels` and `logicalModels`. See the
+[model routing guide](docs/guides/logical-model-routing.md) and
+[complete example](examples/gateway.bundle.llm.logical-model.yaml).
 
 LLM routes can be shared by multiple Agents and direct API clients. Builtin
 model calls, including custom factory dependencies, retain the executing Agent

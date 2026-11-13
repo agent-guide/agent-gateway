@@ -22,7 +22,11 @@ func (s *commandState) runGatewayExport(ctx context.Context, path string) error 
 	if err != nil {
 		return err
 	}
-	managedModels, err := client.ListManagedModels(ctx, adminclient.ManagedModelListOptions{})
+	providerModels, err := client.ListProviderModels(ctx, adminclient.ProviderModelListOptions{})
+	if err != nil {
+		return err
+	}
+	logicalModels, err := client.ListLogicalModels(ctx)
 	if err != nil {
 		return err
 	}
@@ -52,15 +56,16 @@ func (s *commandState) runGatewayExport(ctx context.Context, path string) error 
 	}
 
 	bundle := &gatewaybundle.GatewayBundle{
-		Extensions: extensions,
-		APIVersion: gatewaybundle.APIVersionV1Alpha1,
-		Kind:       gatewaybundle.KindGatewayBundle,
+		Extensions:    extensions,
+		LogicalModels: logicalModels,
+		APIVersion:    gatewaybundle.APIVersionV1Alpha1,
+		Kind:          gatewaybundle.KindGatewayBundle,
 	}
 	for _, item := range providers {
 		bundle.Providers = append(bundle.Providers, item.ProviderConfig)
 	}
-	for _, item := range managedModels {
-		bundle.ManagedModels = append(bundle.ManagedModels, item.ManagedModel)
+	for _, item := range providerModels {
+		bundle.ProviderModels = append(bundle.ProviderModels, item.ProviderModel)
 	}
 	for _, item := range llmRoutes {
 		routeCfg, err := item.LLMRoute()
@@ -112,15 +117,16 @@ func (s *commandState) runGatewayExport(ctx context.Context, path string) error 
 }
 
 func sortGatewayBundle(bundle *gatewaybundle.GatewayBundle) {
+	sort.Slice(bundle.LogicalModels, func(i, j int) bool { return bundle.LogicalModels[i].ID < bundle.LogicalModels[j].ID })
 	sort.Slice(bundle.Extensions, func(i, j int) bool { return bundle.Extensions[i].ModuleID < bundle.Extensions[j].ModuleID })
 	sort.Slice(bundle.Providers, func(i, j int) bool {
 		return bundle.Providers[i].Id < bundle.Providers[j].Id
 	})
-	sort.Slice(bundle.ManagedModels, func(i, j int) bool {
-		if bundle.ManagedModels[i].ProviderID != bundle.ManagedModels[j].ProviderID {
-			return bundle.ManagedModels[i].ProviderID < bundle.ManagedModels[j].ProviderID
+	sort.Slice(bundle.ProviderModels, func(i, j int) bool {
+		if bundle.ProviderModels[i].ProviderID != bundle.ProviderModels[j].ProviderID {
+			return bundle.ProviderModels[i].ProviderID < bundle.ProviderModels[j].ProviderID
 		}
-		return bundle.ManagedModels[i].UpstreamModel < bundle.ManagedModels[j].UpstreamModel
+		return bundle.ProviderModels[i].UpstreamModel < bundle.ProviderModels[j].UpstreamModel
 	})
 	sort.Slice(bundle.LLMRoutes, func(i, j int) bool {
 		return bundle.LLMRoutes[i].ID < bundle.LLMRoutes[j].ID

@@ -8,7 +8,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 )
 
-type ManagedModelListOptions struct {
+type ProviderModelListOptions struct {
 	ProviderID string
 }
 
@@ -33,47 +33,47 @@ func (c *Client) RefreshProviderModels(ctx context.Context, providerID string) (
 	return &resp, nil
 }
 
-func (c *Client) ListManagedModels(ctx context.Context, opts ManagedModelListOptions) ([]ManagedModel, error) {
-	path := "/admin/llm/models/managed"
+func (c *Client) ListProviderModels(ctx context.Context, opts ProviderModelListOptions) ([]ProviderModel, error) {
+	path := "/admin/llm/models/provider"
 	query := url.Values{}
 	if opts.ProviderID != "" {
 		query.Set("provider_id", opts.ProviderID)
 		path = withQuery(path, query)
 	}
-	var resp itemsResponse[ManagedModel]
+	var resp itemsResponse[ProviderModel]
 	if err := c.do(ctx, http.MethodGet, path, nil, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return resp.Items, nil
 }
 
-func (c *Client) GetManagedModel(ctx context.Context, providerID, upstreamModel string) (*ManagedModel, error) {
-	var resp ManagedModel
-	if err := c.do(ctx, http.MethodGet, "/admin/llm/models/managed/"+url.PathEscape(providerID)+"/"+url.PathEscape(upstreamModel), nil, &resp, true, http.StatusOK); err != nil {
+func (c *Client) GetProviderModel(ctx context.Context, providerID, upstreamModel string) (*ProviderModel, error) {
+	var resp ProviderModel
+	if err := c.do(ctx, http.MethodGet, "/admin/llm/models/provider/"+url.PathEscape(providerID)+"/"+url.PathEscape(upstreamModel), nil, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-func (c *Client) CreateManagedModel(ctx context.Context, model modelcatalog.ManagedModel) (*ManagedModel, error) {
-	var resp ManagedModel
-	if err := c.do(ctx, http.MethodPost, "/admin/llm/models/managed", model, &resp, true, http.StatusCreated); err != nil {
+func (c *Client) CreateProviderModel(ctx context.Context, model modelcatalog.ProviderModel) (*ProviderModel, error) {
+	var resp ProviderModel
+	if err := c.do(ctx, http.MethodPost, "/admin/llm/models/provider", model, &resp, true, http.StatusCreated); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-func (c *Client) UpdateManagedModel(ctx context.Context, providerID, upstreamModel string, model modelcatalog.ManagedModel) (*ManagedModel, error) {
-	var resp ManagedModel
-	if err := c.do(ctx, http.MethodPut, "/admin/llm/models/managed/"+url.PathEscape(providerID)+"/"+url.PathEscape(upstreamModel), model, &resp, true, http.StatusOK); err != nil {
+func (c *Client) UpdateProviderModel(ctx context.Context, providerID, upstreamModel string, model modelcatalog.ProviderModel) (*ProviderModel, error) {
+	var resp ProviderModel
+	if err := c.do(ctx, http.MethodPut, "/admin/llm/models/provider/"+url.PathEscape(providerID)+"/"+url.PathEscape(upstreamModel), model, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-func (c *Client) DeleteManagedModel(ctx context.Context, providerID, upstreamModel string) (*StatusResponse, error) {
+func (c *Client) DeleteProviderModel(ctx context.Context, providerID, upstreamModel string) (*StatusResponse, error) {
 	var resp StatusResponse
-	if err := c.do(ctx, http.MethodDelete, "/admin/llm/models/managed/"+url.PathEscape(providerID)+"/"+url.PathEscape(upstreamModel), nil, &resp, true, http.StatusOK); err != nil {
+	if err := c.do(ctx, http.MethodDelete, "/admin/llm/models/provider/"+url.PathEscape(providerID)+"/"+url.PathEscape(upstreamModel), nil, &resp, true, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &resp, nil

@@ -77,7 +77,7 @@ func (d *StaticDocument) Records() ([]Record, error) {
 			}
 		}
 		fields := []string{"id"}
-		if family == "managed_models" {
+		if family == "provider_models" {
 			fields = []string{"provider_id", "upstream_model"}
 		} else if family == "extensions" {
 			fields = []string{"module_id"}
@@ -112,14 +112,21 @@ func (d *StaticDocument) Records() ([]Record, error) {
 	for _, f := range []struct{ key, family, kind string }{
 		{"llmRoutes", "routes", "llm"}, {"mcpRoutes", "routes", "mcp"}, {"agentRoutes", "routes", "agent"},
 		{"agents", "agents", ""}, {"providers", "providers", ""}, {"connectors", "connectors", ""}, {"virtualKeys", "virtual_keys", ""},
-		{"managedModels", "managed_models", ""}, {"extensions", "extensions", ""},
+		{"providerModels", "provider_models", ""}, {"logicalModels", "logical_models", ""}, {"extensions", "extensions", ""},
 	} {
 		key := f.key
 		if d.caddy {
-			if key != "llmRoutes" {
+			if key != "llmRoutes" && key != "providerModels" && key != "logicalModels" {
 				continue
 			}
-			key = "llm_routes"
+			switch key {
+			case "llmRoutes":
+				key = "llm_routes"
+			case "providerModels":
+				key = "provider_models"
+			case "logicalModels":
+				key = "logical_models"
+			}
 		}
 		value, exists := d.app[key]
 		if !exists {
@@ -141,7 +148,7 @@ func (d *StaticDocument) Records() ([]Record, error) {
 func (d *StaticDocument) Encode(records []Record) ([]byte, error) {
 	groups := map[string][]any{}
 	for _, r := range records {
-		if r.Family != "routes" && r.Family != "agents" {
+		if r.Family != "routes" && r.Family != "agents" && r.Family != "provider_models" && r.Family != "logical_models" {
 			continue
 		}
 		obj, err := object(r.Data)
@@ -149,6 +156,12 @@ func (d *StaticDocument) Encode(records []Record) ([]byte, error) {
 			return nil, err
 		}
 		key := "agents"
+		if r.Family == "provider_models" {
+			key = "providerModels"
+		}
+		if r.Family == "logical_models" {
+			key = "logicalModels"
+		}
 		if r.Family == "routes" {
 			var kind string
 			_ = json.Unmarshal(obj["kind"], &kind)
@@ -170,14 +183,21 @@ func (d *StaticDocument) Encode(records []Record) ([]byte, error) {
 			}
 		}
 		if d.caddy {
-			if key != "llmRoutes" {
+			if key != "llmRoutes" && key != "providerModels" && key != "logicalModels" {
 				return nil, fmt.Errorf("Caddy static configuration only supports LLM routes")
 			}
-			key = "llm_routes"
+			switch key {
+			case "llmRoutes":
+				key = "llm_routes"
+			case "providerModels":
+				key = "provider_models"
+			case "logicalModels":
+				key = "logical_models"
+			}
 		}
 		groups[key] = append(groups[key], obj)
 	}
-	for _, key := range []string{"llmRoutes", "mcpRoutes", "agentRoutes", "agents", "llm_routes"} {
+	for _, key := range []string{"llmRoutes", "mcpRoutes", "agentRoutes", "agents", "llm_routes", "providerModels", "logicalModels", "provider_models", "logical_models"} {
 		if _, exists := d.app[key]; exists {
 			items := groups[key]
 			if items == nil {

@@ -78,7 +78,7 @@ func (p *BuiltinPermissions) Interactive() bool {
 // BuiltinModel resolves through a gateway LLM route, never a raw provider, so
 // credential scheduling, candidate fallback, and LLM usage events apply
 // unchanged. Model is the route target name (logical model in model-target
-// routes, upstream model in direct-provider routes); empty falls back to the
+// routes, including concrete ProviderModel targets); empty falls back to the
 // route's default resolution.
 type BuiltinModel struct {
 	LLMRouteID string             `json:"llm_route_id"`

@@ -117,6 +117,9 @@ func resolvedExecution(clientModel string, attempt *resolvedAttempt) provider.Re
 	if attempt == nil || attempt.target == nil {
 		return provider.ResolvedExecution{}
 	}
+	if clientModel == "" {
+		clientModel = attempt.target.ClientModel
+	}
 	typeCapabilities := provider.CapabilitiesForProviderType(attempt.target.ProviderType)
 	resolved := provider.ResolvedExecution{Candidate: provider.ServedCandidate{
 		Dialect: typeCapabilities.Dialect, ProviderType: attempt.target.ProviderType, ProviderID: attempt.target.ProviderID,
@@ -254,15 +257,18 @@ func recordProviderUsage(ctx context.Context, attempt *resolvedAttempt, tokens p
 }
 
 func (p *RoutedProvider) ListModels(ctx context.Context) ([]provider.ModelInfo, error) {
-	target, err := p.resolveTarget(ctx, "", p.requestRequirements)
-	if err != nil {
-		return nil, err
+	if p.route == nil {
+		return nil, statuserr.New(http.StatusServiceUnavailable, "llm route is not configured")
 	}
-	base, err := p.resolveProvider(ctx, target.ProviderID)
-	if err != nil {
-		return nil, err
+	policy := p.route.TargetPolicy
+	if policy == nil {
+		return nil, statuserr.New(http.StatusBadGateway, "route model policy is not configured")
 	}
-	return base.ListModels(ctx)
+	models := make([]provider.ModelInfo, 0, len(policy.ModelTargets))
+	for _, target := range policy.ModelTargets {
+		models = append(models, provider.ModelInfo{ID: target.Name, Name: target.Name})
+	}
+	return models, nil
 }
 
 func (p *RoutedProvider) Capabilities() provider.ProviderCapabilities {
@@ -281,13 +287,6 @@ func (p *RoutedProvider) executeWithFallback(ctx context.Context, reqModel strin
 		triedCandidates:          map[string]struct{}{},
 		triedCredentials:         map[string]struct{}{},
 		triedProviderConfigAuths: map[string]struct{}{},
-	}
-	maxFallbacks := 0
-	if p.route.UsesLogicalModel() {
-		fallback := p.route.TargetPolicy.FallbackPolicy()
-		if fallback.Enabled {
-			maxFallbacks = fallback.MaxNum
-		}
 	}
 
 	var lastErr error
@@ -318,7 +317,7 @@ func (p *RoutedProvider) executeWithFallback(ctx context.Context, reqModel strin
 				credCtx = ctx
 				cred = nil
 			} else {
-				if p.advanceCandidate(state, target, maxFallbacks) {
+				if p.advanceCandidate(state, target) {
 					target = nil
 					base = nil
 					continue
@@ -342,7 +341,7 @@ func (p *RoutedProvider) executeWithFallback(ctx context.Context, reqModel strin
 			return err
 		}
 		if p.scheduler == nil || p.credentialMgr == nil {
-			if !p.advanceCandidate(state, target, maxFallbacks) {
+			if !p.advanceCandidate(state, target) {
 				return err
 			}
 			target = nil
@@ -351,8 +350,8 @@ func (p *RoutedProvider) executeWithFallback(ctx context.Context, reqModel strin
 	}
 }
 
-func (p *RoutedProvider) advanceCandidate(state *executionState, target *llmroutepkg.ResolvedTarget, maxFallbacks int) bool {
-	if !p.route.UsesLogicalModel() || target == nil || state.modelFallbacks >= maxFallbacks {
+func (p *RoutedProvider) advanceCandidate(state *executionState, target *llmroutepkg.ResolvedTarget) bool {
+	if target == nil || !target.Fallback.Enabled || state.modelFallbacks >= target.Fallback.MaxNum {
 		return false
 	}
 	state.triedCandidates[llmroutepkg.CandidateKey(target.ProviderID, target.UpstreamModel)] = struct{}{}

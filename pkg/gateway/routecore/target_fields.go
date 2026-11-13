@@ -20,9 +20,39 @@ func ValidateLLMTargetFields(routeID string, data json.RawMessage) error {
 	}
 	for key := range fields {
 		if strings.EqualFold(key, "provider_id") {
-			return fmt.Errorf("route %q target_policy.provider_id was removed; use target_policy.provider_target.provider_id; inspect and explicitly convert existing data with scripts/repair-architecture-config (docs/guides/architecture-config-recovery.md)", routeID)
+			return fmt.Errorf("route %q target_policy.provider_id was removed; use an explicit ProviderModel reference in target_policy.model_targets; inspect and explicitly convert existing data with scripts/repair-architecture-config (docs/guides/architecture-config-recovery.md)", routeID)
 		}
 	}
+	var kind string
+	_ = json.Unmarshal(fields["type"], &kind)
+	if kind == "logical-model" {
+		return fmt.Errorf("route %q inline logical-model policy was removed; use models with explicit model references; run scripts/repair-architecture-config", routeID)
+	}
+	if _, ok := fields["provider_target"]; ok || kind == "direct-provider" {
+		return fmt.Errorf("route %q direct-provider was removed; register ProviderModels and expose explicit model_targets; use scripts/repair-architecture-config", routeID)
+	}
+	allowed := map[string]bool{"type": true, "model_targets": true, "default_model": true, "credential_selector": true, "credential_scope_order": true, "credential_type_order": true}
+	for k := range fields {
+		if !allowed[k] {
+			return fmt.Errorf("route %q unsupported target_policy field %q; use independent LogicalModel scheduling", routeID, k)
+		}
+	}
+	if raw, ok := fields["model_targets"]; ok {
+		var targets []map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &targets); err != nil {
+			return err
+		}
+		for _, t := range targets {
+			for k := range t {
+				switch k {
+				case "name", "kind", "provider_id", "upstream_model", "logical_model_id":
+				default:
+					return fmt.Errorf("route %q unsupported model target field %q; use an independent LogicalModel", routeID, k)
+				}
+			}
+		}
+	}
+
 	return nil
 }
 

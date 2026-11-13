@@ -45,7 +45,7 @@ agw-auth login --authenticator codex --provider-id openai-main
 Validate a gateway bundle YAML file locally:
 
 ```bash
-./agwctl validate -f ./examples/gateway.bundle.llm.direct-provider.yaml
+./agwctl validate -f ./examples/gateway.bundle.llm.provider-model.yaml
 ```
 
 Apply a gateway bundle YAML file through the Admin API:
@@ -53,7 +53,7 @@ Apply a gateway bundle YAML file through the Admin API:
 ```bash
 ./agwctl --admin-addr http://localhost:8019 \
   --admin-basic-auth admin:your-password \
-  apply -f ./examples/gateway.bundle.llm.direct-provider.yaml
+  apply -f ./examples/gateway.bundle.llm.provider-model.yaml
 ```
 
 Export remote gateway objects as bundle YAML:
@@ -147,3 +147,12 @@ writes before other objects, reports partial results and stops on extension
 failure. Export includes persisted extension envelopes and retains secret reference
 tokens in reference-preserving configuration. The server is the final validator.
 See the [Bundle guide](../guides/bundle-yaml.md#linked-extension-configuration).
+
+## Models
+
+`agwctl model provider list [--provider-id ID]`, `get <provider-id> <upstream-model>`
+and `delete <provider-id> <upstream-model>` manage concrete model inventory.
+`agwctl model logical list`, `get <id>` and `delete <id>` manage logical inventory.
+Create/update both families with `apply`: Bundle fields are `providerModels` and
+`logicalModels`. Export includes both. Candidate scheduling is LogicalModel-owned;
+model exposure routes only reference those resources.

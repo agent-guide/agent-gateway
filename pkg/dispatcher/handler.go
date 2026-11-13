@@ -306,7 +306,7 @@ func (h *Handler) dispatchLLM(w http.ResponseWriter, r *http.Request, next NextH
 		zap.String("route_id", route.ID),
 		zap.String("route_protocol", string(route.Protocol)),
 		zap.String("path_prefix", route.MatchPolicy.PathPrefix),
-		zap.Bool("uses_logical_model", route.UsesLogicalModel()),
+		zap.Bool("uses_models", route.UsesModels()),
 	)
 
 	apiName := strings.TrimSpace(string(route.Protocol))
@@ -361,6 +361,15 @@ func (h *Handler) dispatchLLM(w http.ResponseWriter, r *http.Request, next NextH
 	)
 	if prepared.Disposition == ExecutionLocal {
 		return apiHandler.ServeLLMApi(w, rewritten, nil, prepared)
+	}
+
+	// Carry the route-visible default into response encoding as well as routing.
+	// Provider execution still rewrites only its attempt-local request copy.
+	if prepared.Model() == "" {
+		if policy := route.TargetPolicy; policy != nil {
+			prepared.SetModel(policy.DefaultModel)
+			requestRequirements.Model = prepared.Model()
+		}
 	}
 
 	routedProvider, err := h.gateway.NewRoutedProvider(route, requestRequirements)

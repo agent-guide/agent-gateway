@@ -16,3 +16,9 @@ filters. The metrics summary's query error remains 500; detail query errors rema
 Preserve the shared full-body limit, compression rejection, authentication mount,
 CORS, logging and JSON recovery boundaries. Pending mutation errors are projected
 through controlplane.go with safe identities and bounded Retry-After metadata.
+
+Model APIs use `/admin/llm/models/provider` for concrete compound identities and
+`/admin/llm/models/logical` for independent logical IDs. Route model targets are
+references only. Keep graph validation and deletion protection in composed managers,
+including disabled references. ProviderModel and LogicalModel PUT identities must
+match the path; no managed-model endpoint aliases remain.

@@ -13,8 +13,8 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
-type ManagedConcreteModelView struct {
-	modelcatalog.ManagedModel
+type ProviderModelView struct {
+	modelcatalog.ProviderModel
 	ProviderType  string                      `json:"provider_type,omitempty"`
 	DisplayName   string                      `json:"display_name,omitempty"`
 	Description   string                      `json:"description,omitempty"`
@@ -58,21 +58,21 @@ func (h *Handler) handleRefreshProviderModels(w http.ResponseWriter, r *http.Req
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"provider_id": providerID, "items": items})
 }
 
-func (h *Handler) handleListManagedModels(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleListProviderModels(w http.ResponseWriter, r *http.Request) {
 	if h.modelCatalog == nil {
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, "model catalog is not configured")
 		return
 	}
-	items, err := h.modelCatalog.ListManagedModels(r.Context(), modelcatalog.ManagedModelFilter{
+	items, err := h.modelCatalog.ListProviderModels(r.Context(), modelcatalog.ProviderModelFilter{
 		ProviderID: strings.TrimSpace(r.URL.Query().Get("provider_id")),
 	})
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	views := make([]ManagedConcreteModelView, 0, len(items))
+	views := make([]ProviderModelView, 0, len(items))
 	for _, item := range items {
-		view, err := h.managedModelView(r, item)
+		view, err := h.providerModelView(r, item)
 		if err != nil {
 			_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 			return
@@ -82,21 +82,21 @@ func (h *Handler) handleListManagedModels(w http.ResponseWriter, r *http.Request
 	_ = httpjson.Write(w, http.StatusOK, map[string]any{"items": views})
 }
 
-func (h *Handler) handleGetManagedModel(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleGetProviderModel(w http.ResponseWriter, r *http.Request) {
 	if h.modelCatalog == nil {
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, "model catalog is not configured")
 		return
 	}
-	item, ok, err := h.modelCatalog.GetManagedModel(r.Context(), r.PathValue("provider_id"), r.PathValue("upstream_model"))
+	item, ok, err := h.modelCatalog.GetProviderModel(r.Context(), r.PathValue("provider_id"), r.PathValue("upstream_model"))
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if !ok {
-		_ = httpjson.Error(w, http.StatusNotFound, "managed model not found")
+		_ = httpjson.Error(w, http.StatusNotFound, "provider model not found")
 		return
 	}
-	view, err := h.managedModelView(r, *item)
+	view, err := h.providerModelView(r, *item)
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -104,34 +104,34 @@ func (h *Handler) handleGetManagedModel(w http.ResponseWriter, r *http.Request) 
 	_ = httpjson.Write(w, http.StatusOK, view)
 }
 
-func (h *Handler) handleCreateManagedModel(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleCreateProviderModel(w http.ResponseWriter, r *http.Request) {
 	if h.modelCatalog == nil {
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, "model catalog is not configured")
 		return
 	}
-	var item modelcatalog.ManagedModel
+	var item modelcatalog.ProviderModel
 	if err := httpjson.Decode(r, &item); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
 		return
 	}
 	item.Normalize()
-	if err := h.modelCatalog.CreateManagedModel(r.Context(), item); err != nil {
+	if err := h.modelCatalog.CreateProviderModel(r.Context(), item); err != nil {
 		if writeControlPlaneError(w, err) {
 			return
 		}
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	viewModel, ok, err := h.modelCatalog.GetManagedModel(r.Context(), item.ProviderID, item.UpstreamModel)
+	viewModel, ok, err := h.modelCatalog.GetProviderModel(r.Context(), item.ProviderID, item.UpstreamModel)
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if !ok {
-		_ = httpjson.Error(w, http.StatusNotFound, "managed model not found")
+		_ = httpjson.Error(w, http.StatusNotFound, "provider model not found")
 		return
 	}
-	view, err := h.managedModelView(r, *viewModel)
+	view, err := h.providerModelView(r, *viewModel)
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -139,40 +139,44 @@ func (h *Handler) handleCreateManagedModel(w http.ResponseWriter, r *http.Reques
 	_ = httpjson.Write(w, http.StatusCreated, view)
 }
 
-func (h *Handler) handleUpdateManagedModel(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleUpdateProviderModel(w http.ResponseWriter, r *http.Request) {
 	if h.modelCatalog == nil {
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, "model catalog is not configured")
 		return
 	}
-	var item modelcatalog.ManagedModel
+	var item modelcatalog.ProviderModel
 	if err := httpjson.Decode(r, &item); err != nil {
 		_ = httpjson.Error(w, http.StatusBadRequest, fmt.Sprintf("decode request: %v", err))
+		return
+	}
+	if (item.ProviderID != "" && item.ProviderID != r.PathValue("provider_id")) || (item.UpstreamModel != "" && item.UpstreamModel != r.PathValue("upstream_model")) {
+		_ = httpjson.Error(w, http.StatusBadRequest, "body model identity must match path")
 		return
 	}
 	item.ProviderID = r.PathValue("provider_id")
 	item.UpstreamModel = r.PathValue("upstream_model")
 	item.Normalize()
-	if err := h.modelCatalog.UpdateManagedModel(r.Context(), item); err != nil {
+	if err := h.modelCatalog.UpdateProviderModel(r.Context(), item); err != nil {
 		if writeControlPlaneError(w, err) {
 			return
 		}
 		if errors.Is(err, configstore.ErrNotFound) {
-			_ = httpjson.Error(w, http.StatusNotFound, "managed model not found")
+			_ = httpjson.Error(w, http.StatusNotFound, "provider model not found")
 			return
 		}
 		_ = httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	viewModel, ok, err := h.modelCatalog.GetManagedModel(r.Context(), item.ProviderID, item.UpstreamModel)
+	viewModel, ok, err := h.modelCatalog.GetProviderModel(r.Context(), item.ProviderID, item.UpstreamModel)
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if !ok {
-		_ = httpjson.Error(w, http.StatusNotFound, "managed model not found")
+		_ = httpjson.Error(w, http.StatusNotFound, "provider model not found")
 		return
 	}
-	view, err := h.managedModelView(r, *viewModel)
+	view, err := h.providerModelView(r, *viewModel)
 	if err != nil {
 		_ = httpjson.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -180,12 +184,12 @@ func (h *Handler) handleUpdateManagedModel(w http.ResponseWriter, r *http.Reques
 	_ = httpjson.Write(w, http.StatusOK, view)
 }
 
-func (h *Handler) handleDeleteManagedModel(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleDeleteProviderModel(w http.ResponseWriter, r *http.Request) {
 	if h.modelCatalog == nil {
 		_ = httpjson.Error(w, http.StatusServiceUnavailable, "model catalog is not configured")
 		return
 	}
-	if err := h.modelCatalog.DeleteManagedModel(r.Context(), r.PathValue("provider_id"), r.PathValue("upstream_model")); err != nil {
+	if err := h.modelCatalog.DeleteProviderModel(r.Context(), r.PathValue("provider_id"), r.PathValue("upstream_model")); err != nil {
 		if writeControlPlaneError(w, err) {
 			return
 		}
@@ -195,12 +199,13 @@ func (h *Handler) handleDeleteManagedModel(w http.ResponseWriter, r *http.Reques
 	_ = httpjson.Write(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-func (h *Handler) managedModelView(r *http.Request, item modelcatalog.ManagedModel) (ManagedConcreteModelView, error) {
-	view := ManagedConcreteModelView{ManagedModel: item}
+func (h *Handler) providerModelView(r *http.Request, item modelcatalog.ProviderModel) (ProviderModelView, error) {
+	view := ProviderModelView{ProviderModel: item}
+	_, _ = h.modelCatalog.ListProviderSnapshots(r.Context(), item.ProviderID)
 
-	resolved, ok, err := h.modelCatalog.GetResolvedManagedModel(r.Context(), item.ProviderID, item.UpstreamModel)
+	resolved, ok, err := h.modelCatalog.GetResolvedProviderModel(r.Context(), item.ProviderID, item.UpstreamModel)
 	if err != nil {
-		return ManagedConcreteModelView{}, err
+		return ProviderModelView{}, err
 	}
 	if ok {
 		view.Capabilities = resolved.Capabilities

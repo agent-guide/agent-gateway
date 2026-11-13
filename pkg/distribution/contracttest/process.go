@@ -256,9 +256,10 @@ func Distribution(t *testing.T, f ProcessFixture) {
 			for _, protocol := range []string{"openai", "anthropic", "cc"} {
 				id := "proof-" + protocol
 				ids = append(ids, id)
-				routes = append(routes, map[string]any{"id": id, "protocol": protocol, "match_policy": map[string]string{"path_prefix": "/" + id}, "auth_policy": map[string]bool{"require_virtual_key": true}, "target_policy": map[string]any{"provider_target": map[string]string{"provider_id": "proof-provider"}}})
+				routes = append(routes, map[string]any{"id": id, "protocol": protocol, "match_policy": map[string]string{"path_prefix": "/" + id}, "auth_policy": map[string]bool{"require_virtual_key": true}, "target_policy": map[string]any{"type": "models", "default_model": "proof", "model_targets": []any{map[string]string{"name": "proof", "kind": "provider-model", "provider_id": "proof-provider", "upstream_model": "proof"}}}})
 			}
 			bundle := map[string]any{"apiVersion": "gateway.agw/v1alpha1", "kind": "GatewayBundle", "extensions": f.Envelopes, "providers": []any{map[string]any{"id": "proof-provider", "provider_type": "openai", "base_url": upstream.URL + "/v1", "api_key": "proof-upstream-secret"}}, "llmRoutes": routes, "virtualKeys": []any{map[string]any{"id": "proof-key", "allowed_route_ids": ids, "rate_limits": map[string]any{"llm": map[string]int{"requests_per_minute": 1, "burst": 16}}}}}
+			bundle["providerModels"] = []any{map[string]any{"provider_id": "proof-provider", "upstream_model": "proof", "enabled": true, "capability_overrides": map[string]bool{"streaming": true, "tools": true}}}
 			bundle["connectors"] = []any{map[string]any{"id": "proof-connector", "name": "Proof MCP service", "type": "mcp", "mcp": map[string]any{"transport": "streamable_http", "url": mcpUpstream.URL}}}
 			bundle["mcpRoutes"] = []any{map[string]any{"id": "proof-mcp", "connector_id": "proof-connector", "match_policy": map[string]string{"path_prefix": "/proof-mcp"}, "auth_policy": map[string]bool{"require_virtual_key": true}}}
 			raw, err := json.Marshal(bundle)

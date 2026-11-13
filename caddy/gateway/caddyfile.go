@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"github.com/agent-guide/agent-gateway/internal/distributionmetrics"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	"strconv"
 	"strings"
 
@@ -69,8 +70,14 @@ func parseApp(d *caddyfile.Dispenser, existingVal any) (any, error) {
 			if err := parseMetrics(d, app); err != nil {
 				return nil, err
 			}
+		case "provider_model":
+			if err := parseProviderModel(d, app); err != nil {
+				return nil, err
+			}
 		case "logical_model":
-			return nil, d.Err("logical_model is no longer supported; define model targets inline within route blocks")
+			if err := parseLogicalModel(d, app); err != nil {
+				return nil, err
+			}
 		case "virtualkey":
 			return nil, d.Err("virtualkey is no longer supported in the Caddyfile; create virtual keys through the Admin API")
 		default:
@@ -462,7 +469,7 @@ func parseRouteSegment(d *caddyfile.Dispenser, app *App) (routecore.RouteConfig,
 			Kind: routecore.RouteKindLLM,
 		},
 	}
-	logicalTargetPolicy := false
+	route.TargetPolicy = &llmroutepkg.RouteModelPolicy{}
 
 	for seg.NextBlock(0) {
 		name := seg.Val()
@@ -503,42 +510,25 @@ func parseRouteSegment(d *caddyfile.Dispenser, app *App) (routecore.RouteConfig,
 				return routecore.RouteConfig{}, seg.Errf("invalid require_virtual_key value: %s", args[0])
 			}
 			route.AuthPolicy.RequireVirtualKey = v
+
 		case "target":
-			if len(args) < 2 {
-				return routecore.RouteConfig{}, seg.ArgErr()
+			p := route.TargetPolicy
+			if err := parseModelTarget(seg, p, args); err != nil {
+				return routecore.RouteConfig{}, err
 			}
-			switch strings.Trim(args[0], "\"`") {
-			case "provider":
-				if len(args) != 2 {
-					return routecore.RouteConfig{}, seg.ArgErr()
-				}
-				if logicalTargetPolicy {
-					return routecore.RouteConfig{}, seg.Err("target provider cannot be mixed with model targets")
-				}
-				directPolicy, ok := llmroutepkg.DirectProviderPolicyOf(route.TargetPolicy)
-				if route.TargetPolicy != nil && !ok {
-					return routecore.RouteConfig{}, seg.Err("target provider cannot be mixed with model targets")
-				}
-				if !ok {
-					directPolicy = &llmroutepkg.RouteDirectProviderPolicy{}
-					route.TargetPolicy = directPolicy
-				}
-				if directPolicy.ProviderTarget.ProviderID != "" {
-					return routecore.RouteConfig{}, seg.Err("target provider may appear at most once")
-				}
-				directPolicy.ProviderTarget = llmroutepkg.DirectProviderTarget{ProviderID: strings.Trim(args[1], "\"`")}
-			case "model":
-				return routecore.RouteConfig{}, seg.Err("target model is no longer supported in the Caddyfile; static routes must use a direct-provider target")
-			default:
-				return routecore.RouteConfig{}, seg.ArgErr()
-			}
-		case "target_policy":
+		case "default_model":
 			if len(args) != 1 {
 				return routecore.RouteConfig{}, seg.ArgErr()
 			}
-			if err := parseRouteTargetPolicy(seg, &route, strings.Trim(args[0], "\"`"), &logicalTargetPolicy); err != nil {
+			route.TargetPolicy.DefaultModel = strings.Trim(args[0], "\"`")
+		case "target_policy":
+			if len(args) != 1 || strings.Trim(args[0], "\"`") != "models" {
+				return routecore.RouteConfig{}, seg.Err("only target_policy models is supported")
+			}
+			if err := parseRouteTargetPolicy(seg, route.TargetPolicy); err != nil {
 				return routecore.RouteConfig{}, err
 			}
+
 		default:
 			return routecore.RouteConfig{}, seg.Errf("unknown subdirective: %s", name)
 		}
@@ -550,56 +540,215 @@ func parseRouteSegment(d *caddyfile.Dispenser, app *App) (routecore.RouteConfig,
 	return route.ToConfig()
 }
 
-func parseRouteTargetPolicy(seg *caddyfile.Dispenser, route *llmroutepkg.LLMRoute, kind string, logicalTargetPolicy *bool) error {
-	var directPolicy *llmroutepkg.RouteDirectProviderPolicy
-	switch llmroutepkg.RouteTargetPolicyKind(kind) {
-	case llmroutepkg.RouteTargetPolicyKindDirectProvider:
-		directPolicy = &llmroutepkg.RouteDirectProviderPolicy{}
-	case llmroutepkg.RouteTargetPolicyKindLogicalModel:
-		*logicalTargetPolicy = true
-		return seg.Err("target_policy logical-model is no longer supported in the Caddyfile; static routes must use direct-provider")
-	default:
-		return seg.Errf("unknown target_policy kind: %s", kind)
+func parseModelTarget(seg *caddyfile.Dispenser, p *llmroutepkg.RouteModelPolicy, args []string) error {
+	for i := range args {
+		args[i] = strings.Trim(args[i], "\"`")
 	}
-
+	var target llmroutepkg.RouteModelTarget
+	if len(args) == 3 && args[0] == "model" {
+		target = llmroutepkg.RouteModelTarget{Name: args[2], Kind: "provider-model", ProviderID: args[1], UpstreamModel: args[2]}
+	} else if len(args) == 3 && args[0] == "logical" {
+		target = llmroutepkg.RouteModelTarget{Name: args[1], Kind: "logical-model", LogicalModelID: args[2]}
+	} else {
+		return seg.Err("target requires model <provider-id> <upstream-model> or logical <name> <logical-model-id>")
+	}
+	p.ModelTargets = append(p.ModelTargets, target)
+	if p.DefaultModel == "" {
+		p.DefaultModel = target.Name
+	}
+	return nil
+}
+func parseRouteTargetPolicy(seg *caddyfile.Dispenser, p *llmroutepkg.RouteModelPolicy) error {
 	for seg.NextBlock(1) {
 		name := seg.Val()
-		args := seg.RemainingArgsRaw()
+		args := seg.RemainingArgs()
 		switch name {
-		case "provider":
+		case "target":
+			if err := parseModelTarget(seg, p, args); err != nil {
+				return err
+			}
+		case "default_model":
 			if len(args) != 1 {
 				return seg.ArgErr()
 			}
-			directPolicy.ProviderTarget.ProviderID = strings.Trim(args[0], "\"`")
-		case "model_selector_strategy":
-			return seg.Err("model_selector_strategy may only be used in target_policy logical-model")
+			p.DefaultModel = strings.Trim(args[0], "\"`")
 		case "credential_selector":
 			if len(args) != 1 {
 				return seg.ArgErr()
 			}
-			directPolicy.CredentialSelectorValue = llmroutepkg.RouteCredentialSelectStrategy(strings.Trim(args[0], "\"`"))
+			p.CredentialSelectorValue = llmroutepkg.RouteCredentialSelectStrategy(args[0])
 		case "credential_scope_order":
 			if len(args) == 0 {
 				return seg.ArgErr()
 			}
-			directPolicy.CredentialScopeOrderValue = nil
-			for _, arg := range args {
-				directPolicy.CredentialScopeOrderValue = append(directPolicy.CredentialScopeOrderValue, llmroutepkg.RouteCredentialScope(strings.Trim(arg, "\"`")))
+			p.CredentialScopeOrderValue = nil
+			for _, v := range args {
+				p.CredentialScopeOrderValue = append(p.CredentialScopeOrderValue, llmroutepkg.RouteCredentialScope(v))
 			}
 		case "credential_type_order":
 			if len(args) == 0 {
 				return seg.ArgErr()
 			}
-			directPolicy.CredentialTypeOrderValue = nil
-			for _, arg := range args {
-				directPolicy.CredentialTypeOrderValue = append(directPolicy.CredentialTypeOrderValue, llmroutepkg.RouteCredentialType(strings.Trim(arg, "\"`")))
+			p.CredentialTypeOrderValue = nil
+			for _, v := range args {
+				p.CredentialTypeOrderValue = append(p.CredentialTypeOrderValue, llmroutepkg.RouteCredentialType(v))
 			}
-		case "fallback":
-			return seg.Err("fallback may only be used in target_policy logical-model")
 		default:
-			return seg.Errf("unknown target_policy subdirective: %s", name)
+			return seg.Errf("unknown models policy directive %q", name)
 		}
 	}
-	route.TargetPolicy = directPolicy
+	return nil
+}
+func parseProviderModel(d *caddyfile.Dispenser, app *App) error {
+	seg := d.NewFromNextSegment()
+	seg.Next()
+	args := seg.RemainingArgs()
+	if len(args) != 2 {
+		return seg.ArgErr()
+	}
+	m := modelcatalog.ProviderModel{ProviderID: strings.Trim(args[0], "\"`"), UpstreamModel: strings.Trim(args[1], "\"`"), Enabled: true}
+	for seg.NextBlock(0) {
+		name := seg.Val()
+		args := seg.RemainingArgs()
+		if len(args) != 1 {
+			return seg.ArgErr()
+		}
+		if name == "credential_scope" {
+			m.CredentialScope = args[0]
+			continue
+		}
+		if name == "context_window" || name == "max_output_tokens" {
+			v, err := strconv.Atoi(args[0])
+			if err != nil || v < 0 {
+				return seg.Err("model limits must be nonnegative integers")
+			}
+			if m.CapabilityOverrides == nil {
+				m.CapabilityOverrides = &provider.ModelCapabilities{}
+			}
+			if name == "context_window" {
+				m.CapabilityOverrides.ContextWindow = v
+			} else {
+				m.CapabilityOverrides.MaxOutputTokens = v
+			}
+			continue
+		}
+		value, err := strconv.ParseBool(args[0])
+		if err != nil {
+			return err
+		}
+		if name == "enabled" {
+			m.Enabled = value
+			continue
+		}
+		if m.CapabilityOverrides == nil {
+			m.CapabilityOverrides = &provider.ModelCapabilities{}
+		}
+		switch name {
+		case "streaming":
+			m.CapabilityOverrides.Streaming = value
+		case "tools":
+			m.CapabilityOverrides.Tools = value
+		case "vision":
+			m.CapabilityOverrides.Vision = value
+		case "embeddings":
+			m.CapabilityOverrides.Embeddings = value
+		default:
+			return seg.Errf("unknown provider_model directive %q", name)
+		}
+	}
+	m.Normalize()
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	app.ProviderModels = append(app.ProviderModels, m)
+	return nil
+}
+func parseLogicalModel(d *caddyfile.Dispenser, app *App) error {
+	seg := d.NewFromNextSegment()
+	seg.Next()
+	args := seg.RemainingArgs()
+	if len(args) != 1 {
+		return seg.ArgErr()
+	}
+	m := modelcatalog.LogicalModel{ID: strings.Trim(args[0], "\"`")}
+	for seg.NextBlock(0) {
+		name := seg.Val()
+		args := seg.RemainingArgs()
+		switch name {
+		case "strategy":
+			if len(args) != 1 {
+				return seg.ArgErr()
+			}
+			m.Strategy = modelcatalog.SelectionStrategy(args[0])
+		case "disabled":
+			if len(args) != 1 {
+				return seg.ArgErr()
+			}
+			v, err := strconv.ParseBool(args[0])
+			if err != nil {
+				return err
+			}
+			m.Disabled = v
+		case "candidate":
+			if len(args) != 2 {
+				return seg.ArgErr()
+			}
+			c := modelcatalog.ModelCandidate{ProviderID: args[0], UpstreamModel: args[1]}
+			for seg.NextBlock(1) {
+				name := seg.Val()
+				args := seg.RemainingArgs()
+				if len(args) != 1 {
+					return seg.ArgErr()
+				}
+				v, err := strconv.Atoi(args[0])
+				if err != nil {
+					return err
+				}
+				switch name {
+				case "weight":
+					c.Weight = v
+				case "priority":
+					c.Priority = v
+				default:
+					return seg.Errf("unknown candidate directive %q", name)
+				}
+			}
+			m.Candidates = append(m.Candidates, c)
+		case "fallback":
+			if len(args) != 0 {
+				return seg.ArgErr()
+			}
+			for seg.NextBlock(1) {
+				name := seg.Val()
+				args := seg.RemainingArgs()
+				if len(args) != 1 {
+					return seg.ArgErr()
+				}
+				switch name {
+				case "enabled":
+					v, err := strconv.ParseBool(args[0])
+					if err != nil {
+						return err
+					}
+					m.Fallback.Enabled = v
+				case "max_num":
+					v, err := strconv.Atoi(args[0])
+					if err != nil {
+						return err
+					}
+					m.Fallback.MaxNum = v
+				default:
+					return seg.Errf("unknown fallback directive %q", name)
+				}
+			}
+		default:
+			return seg.Errf("unknown logical_model directive %q", name)
+		}
+	}
+	m.Normalize()
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	app.LogicalModels = append(app.LogicalModels, m)
 	return nil
 }

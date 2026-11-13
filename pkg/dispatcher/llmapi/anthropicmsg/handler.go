@@ -195,7 +195,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request, prov pr
 	}
 
 	if prepared.Stream() {
-		h.serveStream(w, r, prov, chatReq, req.Model)
+		h.serveStream(w, r, prov, chatReq, chatReq.Model)
 		return
 	}
 
@@ -243,7 +243,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request, prov pr
 		zap.Int("content_length", contentLen),
 		zap.String("finish_reason", finishReason),
 	)
-	open := responseOpen{Mode: responseModeNormalized, RewriteSet: rewriteSet{ClientModel: req.Model}, RelayIneligibleReason: "execution_metadata_unavailable"}
+	open := responseOpen{Mode: responseModeNormalized, RewriteSet: rewriteSet{ClientModel: chatReq.Model}, RelayIneligibleReason: "execution_metadata_unavailable"}
 	if resolved != nil {
 		open.Candidate = resolved.Candidate
 		switch {

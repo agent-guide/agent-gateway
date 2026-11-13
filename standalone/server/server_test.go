@@ -26,6 +26,11 @@ providers:
   - id: openai-main
     provider_type: openai
     api_key: ${OPENAI_API_KEY}
+providerModels:
+  - provider_id: openai-main
+    upstream_model: gpt-4.1
+    enabled: true
+    capability_overrides: {streaming: true, tools: true}
 llmRoutes:
   - id: chat-prod
     protocol: openai
@@ -36,8 +41,13 @@ llmRoutes:
     auth_policy:
       require_virtual_key: true
     target_policy:
-      provider_target:
-        provider_id: openai-main
+      type: models
+      default_model: gpt-4.1
+      model_targets:
+        - name: gpt-4.1
+          kind: provider-model
+          provider_id: openai-main
+          upstream_model: gpt-4.1
 `)
 
 	cfg, err := loadStaticConfig(context.Background(), Options{StaticConfigPath: path})
@@ -68,6 +78,11 @@ providers:
   - id: openai-main
     provider_type: openai
     api_key: ${OPENAI_API_KEY}
+providerModels:
+  - provider_id: openai-main
+    upstream_model: gpt-4.1
+    enabled: true
+    capability_overrides: {streaming: true, tools: true}
 llmRoutes:
   - id: chat-prod
     protocol: openai
@@ -78,8 +93,13 @@ llmRoutes:
     auth_policy:
       require_virtual_key: true
     target_policy:
-      provider_target:
-        provider_id: openai-main
+      type: models
+      default_model: gpt-4.1
+      model_targets:
+        - name: gpt-4.1
+          kind: provider-model
+          provider_id: openai-main
+          upstream_model: gpt-4.1
 `)
 
 	gw, usageService, err := bootstrapGateway(context.Background(), Options{
@@ -239,20 +259,20 @@ func TestIsLoopbackListenAddr(t *testing.T) {
 	}
 }
 
-func TestLoadStaticConfigRejectsManagedModels(t *testing.T) {
+func TestLoadStaticConfigAcceptsProviderModels(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "gateway.yaml")
 	writeFile(t, path, `
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
-managedModels:
+providerModels:
   - provider_id: openai-main
     upstream_model: gpt-4.1
 `)
 
 	_, err := loadStaticConfig(context.Background(), Options{StaticConfigPath: path})
-	if err == nil {
-		t.Fatal("expected static config managedModels to fail")
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -281,6 +301,11 @@ kind: GatewayBundle
 providers:
   - id: openai-main
     provider_type: openai
+providerModels:
+  - provider_id: openai-main
+    upstream_model: gpt-4.1
+    enabled: true
+    capability_overrides: {streaming: true, tools: true}
 llmRoutes:
   - id: chat-prod
     protocol: openai

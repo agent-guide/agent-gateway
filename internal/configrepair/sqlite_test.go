@@ -13,6 +13,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	configsqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
 	"go.uber.org/zap"
@@ -52,7 +53,7 @@ func oldDatabase(t *testing.T) (string, *sql.DB) {
 }
 
 func repairOperations() []Operation {
-	return []Operation{{Family: "routes", ID: "a", Action: "convert-target"}, {Family: "routes", ID: "b", Action: "delete"}, {Family: "agents", ID: "agent", Action: "remove-budget"}}
+	return []Operation{{Family: "routes", ID: "a", Action: "convert-target", Data: json.RawMessage(`{"models":[{"name":"gpt-4.1","upstream_model":"gpt-4.1"}]}`)}, {Family: "routes", ID: "b", Action: "delete"}, {Family: "agents", ID: "agent", Action: "remove-budget"}}
 }
 
 func TestOfflineSQLiteRepairAndRestart(t *testing.T) {
@@ -197,7 +198,7 @@ func TestOldBudgetCanBeRepairedAfterStartupRejection(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM routes WHERE id='b'`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`UPDATE routes SET config='{"id":"a","kind":"llm","protocol":"openai","match_policy":{"path_prefix":"/api"},"target_policy":{"provider_target":{"provider_id":"p"}}}' WHERE id='a'`); err != nil {
+	if _, err := db.Exec(`UPDATE routes SET config='{"id":"a","kind":"llm","protocol":"openai","match_policy":{"path_prefix":"/api"},"target_policy":{"type":"models","default_model":"gpt-4.1","model_targets":[{"name":"gpt-4.1","kind":"provider-model","provider_id":"p","upstream_model":"gpt-4.1"}]}}' WHERE id='a'`); err != nil {
 		t.Fatal(err)
 	}
 	creator, err := configsqlite.Open(ctx, configsqlite.Config{SQLitePath: path}, zap.NewNop())
@@ -208,6 +209,11 @@ func TestOldBudgetCanBeRepairedAfterStartupRejection(t *testing.T) {
 	if err := schema.RegisterDefaultStores(backend); err != nil {
 		t.Fatal(err)
 	}
+	models, _ := backend.Get(schema.StoreProviderModels)
+	if err := models.Create(ctx, &modelcatalog.ProviderModel{ProviderID: "p", UpstreamModel: "gpt-4.1", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+
 	startup := gateway.NewAgentGateway()
 	err = startup.Bootstrap(ctx, gateway.BootstrapOptions{ConfigStoreBackend: backend})
 	startup.Close()
@@ -243,7 +249,7 @@ func TestRepairRollsBackSilentlyIgnoredWrites(t *testing.T) {
 			if _, err := db.Exec(trigger); err != nil {
 				t.Fatal(err)
 			}
-			ops := []Operation{{Family: "routes", ID: "a", Action: "replace", Data: json.RawMessage(`{"id":"a","kind":"llm","protocol":"openai","match_policy":{"path_prefix":"/changed"},"target_policy":{"provider_target":{"provider_id":"p"}}}`)}}
+			ops := []Operation{{Family: "routes", ID: "a", Action: "replace", Data: json.RawMessage(`{"id":"a","kind":"llm","protocol":"openai","match_policy":{"path_prefix":"/changed"},"target_policy":{"type":"models","default_model":"gpt-4.1","model_targets":[{"name":"gpt-4.1","kind":"provider-model","provider_id":"p","upstream_model":"gpt-4.1"}]}}`)}}
 			if !strings.Contains(trigger, "change_other") {
 				ops = append(ops, Operation{Family: "agents", ID: "agent", Action: "delete"})
 			}
@@ -309,7 +315,7 @@ func TestRepairPreservesRetainedAgentReferences(t *testing.T) {
 	}
 }
 
-func TestRepairRollsBackManagedModelAndExtensionChanges(t *testing.T) {
+func TestRepairRollsBackProviderModelAndExtensionChanges(t *testing.T) {
 	for _, tc := range []struct{ name, trigger string }{
 		{"model deletion", `DELETE FROM model_configs;`},
 		{"model update", `UPDATE model_configs SET data=json_set(data,'$.enabled',false);`},
@@ -337,7 +343,7 @@ func TestRepairRollsBackManagedModelAndExtensionChanges(t *testing.T) {
 				t.Fatalf("missing configuration families: %+v", before)
 			}
 			for _, r := range before {
-				if r.Family == "managed_models" && r.ID != `["p","model/with/slashes"]` {
+				if r.Family == "provider_models" && r.ID != `["p","model/with/slashes"]` {
 					t.Fatalf("invalid composite identity: %s", r.ID)
 				}
 			}

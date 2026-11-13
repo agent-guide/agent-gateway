@@ -849,8 +849,13 @@ llmRoutes:
     auth_policy:
       require_virtual_key: true
     target_policy:
-      provider_target:
-        provider_id: openai-main
+      type: models
+      default_model: gpt-4.1
+      model_targets:
+        - name: gpt-4.1
+          kind: provider-model
+          provider_id: openai-main
+          upstream_model: gpt-4.1
 virtualKeys:
   - id: vk-local-test
     allowed_route_ids:
@@ -887,8 +892,13 @@ llmRoutes:
     auth_policy:
       require_virtual_key: true
     target_policy:
-      provider_target:
-        provider_id: codex-test
+      type: models
+      default_model: gpt-4.1
+      model_targets:
+        - name: gpt-4.1
+          kind: provider-model
+          provider_id: codex-test
+          upstream_model: gpt-4.1
 virtualKeys:
   - id: vk-local-code-codex
     allowed_route_ids:
@@ -979,7 +989,9 @@ virtualKeys:
 				"provider_type": "openai",
 				"default_model": "gpt-4.1",
 			})
-		case r.URL.Path == "/admin/llm/models/managed":
+		case r.URL.Path == "/admin/llm/models/logical":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+		case r.URL.Path == "/admin/llm/models/provider":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/llm/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -1086,7 +1098,9 @@ virtualKeys:
 		case r.URL.Path == "/admin/llm/providers/openai-main" && r.Method == http.MethodPut:
 			providerWriteCount.Add(1)
 			t.Fatalf("unexpected provider update request for unchanged object")
-		case r.URL.Path == "/admin/llm/models/managed":
+		case r.URL.Path == "/admin/llm/models/logical":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+		case r.URL.Path == "/admin/llm/models/provider":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/llm/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -1174,7 +1188,9 @@ providers:
 					},
 				},
 			})
-		case r.URL.Path == "/admin/llm/models/managed":
+		case r.URL.Path == "/admin/llm/models/logical":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+		case r.URL.Path == "/admin/llm/models/provider":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/llm/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -1242,7 +1258,9 @@ func TestGatewayExportCommand(t *testing.T) {
 					},
 				},
 			})
-		case "/admin/llm/models/managed":
+		case "/admin/llm/models/logical":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+		case "/admin/llm/models/provider":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
 					{
@@ -1266,9 +1284,7 @@ func TestGatewayExportCommand(t *testing.T) {
 							"require_virtual_key": true,
 						},
 						"target_policy": map[string]any{
-							"provider_target": map[string]any{
-								"provider_id": "openai-main",
-							},
+							"type": "models", "model_targets": []any{map[string]string{"name": "gpt-4.1", "kind": "provider-model", "provider_id": "openai-main", "upstream_model": "gpt-4.1"}},
 						},
 						"source":    "dynamic",
 						"read_only": false,
@@ -1357,7 +1373,9 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 					},
 				},
 			})
-		case "/admin/llm/models/managed":
+		case "/admin/llm/models/logical":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+		case "/admin/llm/models/provider":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/llm/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -1373,9 +1391,7 @@ func TestGatewayExportThenValidateRoundTrip(t *testing.T) {
 							"require_virtual_key": true,
 						},
 						"target_policy": map[string]any{
-							"provider_target": map[string]any{
-								"provider_id": "openai-main",
-							},
+							"type": "models", "model_targets": []any{map[string]string{"name": "gpt-4.1", "kind": "provider-model", "provider_id": "openai-main", "upstream_model": "gpt-4.1"}},
 						},
 						"source":    "dynamic",
 						"read_only": false,
@@ -1437,7 +1453,9 @@ func TestGatewayExportCommandIncludesConnectorsAndRoutes(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{{"provider_type": "openai", "enabled": true}, {"provider_type": "codex", "enabled": true}}})
 		case "/admin/llm/providers":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case "/admin/llm/models/managed":
+		case "/admin/llm/models/logical":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+		case "/admin/llm/models/provider":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case "/admin/llm/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
@@ -1538,7 +1556,9 @@ mcpRoutes:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{{"provider_type": "openai", "enabled": true}, {"provider_type": "codex", "enabled": true}}})
 		case r.URL.Path == "/admin/llm/providers" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
-		case r.URL.Path == "/admin/llm/models/managed":
+		case r.URL.Path == "/admin/llm/models/logical":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+		case r.URL.Path == "/admin/llm/models/provider":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
 		case r.URL.Path == "/admin/llm/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})

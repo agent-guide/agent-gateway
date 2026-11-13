@@ -8,9 +8,9 @@ starting a new release.
 
 v0.7.3 requires explicit repair of configurations that use any of these shapes:
 
-- Direct LLM targets containing outer `target_policy.provider_id`, even when
-  empty, null, or equal to the nested value. The only accepted field is
-  `target_policy.provider_target.provider_id`.
+- Provider-only LLM targets (`direct-provider`, `provider_target` or outer
+  `target_policy.provider_id`). Register explicit ProviderModels and expose
+  their route-visible names; conversion requires a chosen model allowlist.
 - Agent `policy.budget` objects, including empty or all-zero objects. Budgets
   are not enforced; the field must be absent or null.
 - Equal-score intersecting route matches across LLM, MCP and Agent routes,

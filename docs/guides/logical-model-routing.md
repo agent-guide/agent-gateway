@@ -1,141 +1,84 @@
-# Logical-Model Routing
+# Configure concrete and logical models
 
-This guide covers when to use logical-model routing, how it differs from direct-provider routing, and the minimum objects required to make it work.
+Use a ProviderModel to expose a registered concrete model. Use a LogicalModel
+when clients need a stable model backed by selectable concrete candidates.
+Both are exposed through the same `models` route policy.
 
-## What Logical-Model Routing Is
+1. Create Providers with their connection settings.
+2. Register ProviderModels by `(provider_id, upstream_model)`, with `enabled: true`.
+3. Refresh discovery through `POST /admin/llm/models/providers/{provider_id}/refresh`,
+   or supply `capability_overrides` for known model capabilities.
+4. Create a LogicalModel when candidate selection or fallback is needed.
+5. Create a route with explicit model references and route-visible names.
+6. Grant the route to a VirtualKey.
 
-In logical-model mode, the client sends a route model name in the request `model`, and the gateway resolves that to one concrete provider and upstream model binding.
+The complete [model Bundle example](../../examples/gateway.bundle.llm.logical-model.yaml)
+includes Providers, ProviderModels, a shared LogicalModel, a logical route and
+a VirtualKey. Apply it with:
 
-This gives you:
-
-- stable client-facing model names
-- provider indirection
-- candidate selection at the gateway layer
-- fallback and future rerouting flexibility
-
-## Direct-Provider Versus Logical-Model
-
-Direct-provider mode:
-
-- one route points at one provider
-- request `model` is treated as the upstream model name
-- supported in Caddyfile routes and static bundles
-
-Logical-model mode:
-
-- one route exposes one or more route model names
-- request `model` is treated as the route model name
-- the gateway resolves it to one concrete provider and upstream model
-- supported through dynamic routes and config-store bundle workflows
-
-## Minimum Required Objects
-
-To use logical-model routing you typically need:
-
-- providers
-- managed models
-- one route with `target_policy.model_targets`
-- a VirtualKey if the route requires caller auth
-
-## Minimal Bundle Example
-
-```yaml
-apiVersion: gateway.agw/v1alpha1
-kind: GatewayBundle
-
-providers:
-  - id: openai-main
-    provider_type: openai
-    api_key: ${OPENAI_API_KEY}
-  - id: anthropic-main
-    provider_type: anthropic
-    api_key: ${ANTHROPIC_API_KEY}
-
-managedModels:
-  - provider_id: openai-main
-    upstream_model: gpt-4.1
-    enabled: true
-  - provider_id: anthropic-main
-    upstream_model: claude-sonnet-4-5
-    enabled: true
-
-llmRoutes:
-  - id: chat-prod
-    protocol: openai
-    match_policy:
-      path_prefix: /
-      methods:
-        - POST
-    auth_policy:
-      require_virtual_key: true
-    target_policy:
-      default_model: chat-default
-      model_targets:
-        - name: chat-default
-          candidates:
-            - provider_id: openai-main
-              upstream_model: gpt-4.1
-              weight: 100
-        - name: reasoning-default
-          candidates:
-            - provider_id: anthropic-main
-              upstream_model: claude-sonnet-4-5
-              weight: 100
+```sh
+agwctl validate -f examples/gateway.bundle.llm.logical-model.yaml
+agwctl apply -f examples/gateway.bundle.llm.logical-model.yaml
 ```
 
-## Important Route Fields
+The route target policy is:
 
-Common logical-model route fields:
+```yaml
+type: models
+default_model: chat
+model_targets:
+  - name: chat
+    kind: logical-model
+    logical_model_id: chat-default
+```
 
-- `default_model`
-- `model_targets`
-- `model_selector_strategy`
-- `fallback`
-- `credential_selector`
-- `credential_scope_order`
-- `credential_type_order`
+Clients submit `model: chat`. An omitted model uses `chat`.
+Other names are rejected even if they exist in the model catalog.
 
-Each `model_target` can contain:
+For a concrete route, use this policy instead:
 
-- `name`
-- `strategy`
-- `default_candidate`
-- `candidates`
+```yaml
+type: models
+default_model: gpt-4.1
+model_targets:
+  - kind: provider-model
+    provider_id: openai-main
+    upstream_model: gpt-4.1
+```
 
-Each candidate can contain:
+ProviderModel routes allow several models from one Provider. The client uses the
+real upstream model name; `name` is derived from `upstream_model` when omitted,
+and a differing name is rejected. These routes have no candidate fallback.
+A route cannot mix ProviderModel and LogicalModel targets or directly expose
+multiple Providers. Use a LogicalModel for cross-provider selection or aliases.
 
-- `provider_id`
-- `upstream_model`
-- `weight`
-- `priority`
-- `default`
+Configure `strategy`, candidate weights and
+priorities, and `fallback` on the independent LogicalModel.
 
-## Request Behavior
+Reuse the same LogicalModel from additional `openai`, `anthropic` or `cc` routes.
+An update to the LogicalModel affects every reference without rewriting routes;
+the protocol adapter still filters candidates against the request's requirements.
 
-Current runtime behavior:
+Management endpoints:
 
-- if the request omits `model`, `target_policy.default_model` is used when present
-- if the request `model` does not match one of the route's `model_targets`, the route rejects it
-- once one candidate is selected, the gateway rewrites the upstream request model before invoking the provider
+| Resource | Collection | Item identity |
+|---|---|---|
+| ProviderModel | `/admin/llm/models/provider` | `/{provider_id}/{upstream_model}` |
+| LogicalModel | `/admin/llm/models/logical` | `/{id}` |
 
-## Current Restrictions
+Collections support GET/POST; items support GET/PUT/DELETE. A PUT body identity
+must agree with the path when present. Release references before deletion,
+including references in disabled routes or LogicalModels.
 
-- logical-model routes are not accepted in Caddyfile routes
-- logical-model routes are rejected in `agwd --static-config`
-- use the Admin API or `agwctl apply` for logical-model route creation
+Use `agwctl model provider list|get|delete` and
+`agwctl model logical list|get|delete` to inspect or remove models. Create and
+update them through Admin or Bundle apply; `agwctl export` includes both families.
 
-## Credential Selection Notes
-
-Logical-model routes can use model-specific credential scope first, then fall back to provider scope.
-
-With the default provider-scope-only setting, runtime expansion becomes:
-
-- `model_custom`
-- `provider_id`
-
-## Related Docs
-
-- [routes.md](routes.md)
-- [bundle-yaml.md](bundle-yaml.md)
-- [../design/model-first-routing.md](../design/model-first-routing.md)
-- [../design/route-target-policy.md](../design/route-target-policy.md)
+Credential selection settings remain route-owned. Model targets can select the
+ProviderModel's custom credential scope before Provider-scoped credentials.
+All route targets resolve registered models; there is no Provider passthrough.
+Static Bundles support the same `providerModels`, `logicalModels` and route
+references. In Caddyfile, use `provider_model <provider-id> <upstream-model>` and
+`target model <provider-id> <upstream-model>`. Logical resources use
+`logical_model <id>` with candidates, and routes use
+`target logical <name> <logical-model-id>`. Static models are read-only via Admin.

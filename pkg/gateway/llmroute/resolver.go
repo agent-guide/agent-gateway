@@ -132,10 +132,7 @@ func (r *LLMRouteResolver) Resolve(ctx context.Context, cfg routecore.RouteConfi
 	if route == nil {
 		return nil, fmt.Errorf("route %q is nil", cfg.ID)
 	}
-	copy, err := route.Clone()
-	if err != nil {
-		return nil, err
-	}
+	copy := route.Clone()
 	route = &copy
 	if err := route.ValidateDefinition(); err != nil {
 		return nil, err
@@ -154,7 +151,7 @@ func (r *LLMRouteResolver) ResolveByID(ctx context.Context, routeID string) (*LL
 	return r.Resolve(ctx, cfg)
 }
 
-func (r *LLMRouteResolver) Validate(ctx context.Context, routeID string, resolver ProviderResolver) error {
+func (r *LLMRouteResolver) Validate(ctx context.Context, routeID string, resolver ProviderResolver, catalog ModelCatalogResolver) error {
 	route, err := r.ResolveByID(ctx, routeID)
 	if err != nil {
 		return err
@@ -162,7 +159,30 @@ func (r *LLMRouteResolver) Validate(ctx context.Context, routeID string, resolve
 	if resolver == nil {
 		return fmt.Errorf("provider resolver is not configured")
 	}
-	for _, providerID := range route.ProviderIDs() {
+	providerIDs := route.ProviderIDs()
+	policy := route.TargetPolicy
+	for _, target := range policy.ModelTargets {
+		if target.Kind != "logical-model" {
+			continue
+		}
+		if catalog == nil {
+			return fmt.Errorf("model catalog is not configured")
+		}
+		model, ok, err := catalog.GetLogicalModel(ctx, target.LogicalModelID)
+		if err != nil {
+			return fmt.Errorf("logical model %q: %w", target.LogicalModelID, err)
+		}
+		if !ok || model == nil {
+			return fmt.Errorf("logical model %q is not configured", target.LogicalModelID)
+		}
+		if model.Disabled {
+			return fmt.Errorf("logical model %q is disabled", target.LogicalModelID)
+		}
+		for _, candidate := range model.Candidates {
+			providerIDs = append(providerIDs, candidate.ProviderID)
+		}
+	}
+	for _, providerID := range providerIDs {
 		if _, _, err := resolver.ResolveProvider(ctx, providerID); err != nil {
 			return fmt.Errorf("provider %q is not configured", providerID)
 		}

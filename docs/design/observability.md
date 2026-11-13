@@ -347,7 +347,7 @@ llm_api             openai | anthropic | cc
 api_operation       chat_completions | messages | responses
 provider_id
 provider_type
-logical_model       client-facing model name in model-target routes
+logical_model       independent LogicalModel ID (empty for concrete model targets)
 upstream_model      concrete provider-facing model actually called
 credential_source   static | api_key | oauth_token | none
 credential_id

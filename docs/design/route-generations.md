@@ -11,7 +11,7 @@ publishes whole validated generations.
 | --- | --- |
 | RouteConfig | Persisted raw target envelope and common metadata |
 | RouteMetadata | Target-free shared fields, timestamp initialization and defensive boundary copies |
-| LLMRoute | Typed direct-provider/logical-model target, capability validation and selection |
+| LLMRoute | Explicit concrete/logical model references; independent catalog owns scheduling |
 | MCPRoute | Typed service ID |
 | AgentRouteConfig | Typed Agent ID for both common and native A2A ingress |
 | Private routeTable | Immutable common matching metadata, precomputed effective conditions/scores and ID lookup |

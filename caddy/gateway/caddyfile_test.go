@@ -46,7 +46,7 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 			path_prefix /tenant-a
 			method POST
 			require_virtual_key
-			target provider local-ollama
+			target model local-ollama gpt-4.1
 		}
 	}
 	`)
@@ -142,8 +142,8 @@ func TestParseAppFromCaddyfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewLLMRouteFromConfig() error = %v", err)
 	}
-	directPolicy, ok := llmroutepkg.DirectProviderPolicyOf(route.TargetPolicy)
-	if !ok || directPolicy.ProviderTarget.ProviderID != "local-ollama" {
+	directPolicy := route.TargetPolicy
+	if directPolicy == nil || directPolicy.ModelTargets[0].ProviderID != "local-ollama" {
 		t.Fatalf("route target_policy = %#v", route.TargetPolicy)
 	}
 
@@ -172,7 +172,7 @@ func TestParseAppProviderTypesBlockDoesNotBreakFollowingDirectives(t *testing.T)
 			protocol anthropic
 			path_prefix /codetest
 			require_virtual_key false
-			target provider zhipu-test
+			target model zhipu-test gpt-4.1
 		}
 	}
 	`)
@@ -225,10 +225,10 @@ func TestParseAppRejectsDuplicateRouteID(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`
 	agent_gateway {
 		route openai-chat {
-			target provider ollama
+			target model ollama gpt-4.1
 		}
 		route openai-chat {
-			target provider openai
+			target model openai gpt-4.1
 		}
 	}
 	`)
@@ -266,7 +266,7 @@ func TestParseAppRejectsTargetModel(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected target model to fail")
 	}
-	if !strings.Contains(err.Error(), "target model is no longer supported in the Caddyfile") {
+	if !strings.Contains(err.Error(), "target requires model") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -287,7 +287,7 @@ func TestParseAppRejectsLogicalTargetPolicy(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected logical-model target_policy to fail")
 	}
-	if !strings.Contains(err.Error(), "target_policy logical-model is no longer supported in the Caddyfile") {
+	if !strings.Contains(err.Error(), "only target_policy models is supported") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -336,5 +336,130 @@ func TestParseHTTPConnectorHostSettings(t *testing.T) {
 	}
 	if app.HTTPAPIPolicyFile != "/etc/agw/http.json" || !app.Metrics.OTLP.HTTPClientSpans {
 		t.Fatal("HTTP connector settings lost")
+	}
+}
+
+func TestParseIndependentModelResources(t *testing.T) {
+	d := caddyfile.NewTestDispenser(`agent_gateway {
+ provider_model p upstream {
+  streaming true
+  tools true
+ }
+ logical_model shared {
+  strategy priority
+  candidate p upstream {
+   priority 10
+  }
+  fallback {
+   enabled true
+   max_num 1
+  }
+ }
+ route chat {
+  protocol openai
+  path_prefix /chat
+  target logical chat shared
+  default_model chat
+ }
+ }`)
+	value, err := parseApp(d, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var app App
+	if err := json.Unmarshal(value.(httpcaddyfile.App).Value, &app); err != nil {
+		t.Fatal(err)
+	}
+	if len(app.ProviderModels) != 1 || len(app.LogicalModels) != 1 || len(app.LLMRoutes) != 1 {
+		t.Fatalf("missing model declarations: %+v", app)
+	}
+	if !app.ProviderModels[0].Enabled || !app.ProviderModels[0].CapabilityOverrides.Tools || app.LogicalModels[0].Fallback.MaxNum != 1 {
+		t.Fatalf("model metadata lost: %+v", app)
+	}
+	route, err := llmroutepkg.NewLLMRouteFromConfig(app.LLMRoutes[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := route.TargetPolicy
+	if policy.DefaultModel != "chat" || len(policy.ModelTargets) != 1 || policy.ModelTargets[0].LogicalModelID != "shared" {
+		t.Fatalf("wrong targets: %+v", policy)
+	}
+}
+
+func TestParseQuotedModelResourceArguments(t *testing.T) {
+	d := caddyfile.NewTestDispenser(`agent_gateway {
+ provider_model "p" "upstream" {
+  enabled "true"
+  streaming "true"
+  tools "false"
+  context_window "1000"
+  max_output_tokens "100"
+  credential_scope "custom"
+ }
+ logical_model "shared" {
+  strategy "priority"
+  disabled "false"
+  candidate "p" "upstream" {
+   priority "10"
+   weight "2"
+  }
+  fallback {
+   enabled "true"
+   max_num "1"
+  }
+ }
+ route chat {
+  protocol openai
+  path_prefix /chat
+  target_policy "models" {
+   target logical "chat" "shared"
+   default_model "chat"
+   credential_selector "round_robin"
+   credential_scope_order "model_custom" "provider_id"
+   credential_type_order "api_key" "oauth_token"
+  }
+ }
+}`)
+	value, err := parseApp(d, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var app App
+	if err := json.Unmarshal(value.(httpcaddyfile.App).Value, &app); err != nil {
+		t.Fatal(err)
+	}
+	m, l := app.ProviderModels[0], app.LogicalModels[0]
+	if m.ProviderID != "p" || m.UpstreamModel != "upstream" || !m.Enabled || m.CredentialScope != "custom" || m.CapabilityOverrides.ContextWindow != 1000 || m.CapabilityOverrides.MaxOutputTokens != 100 || !m.CapabilityOverrides.Streaming {
+		t.Fatalf("incorrect ProviderModel: %+v", m)
+	}
+	if l.Candidates[0].ProviderID != m.ProviderID || l.Candidates[0].UpstreamModel != m.UpstreamModel || l.Candidates[0].Priority != 10 || l.Candidates[0].Weight != 2 || !l.Fallback.Enabled || l.Fallback.MaxNum != 1 {
+		t.Fatalf("incorrect LogicalModel: %+v", l)
+	}
+	r, err := llmroutepkg.NewLLMRouteFromConfig(app.LLMRoutes[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ValidateDefinition(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestParseProviderModelRouteConstraints(t *testing.T) {
+	for _, tc := range []struct {
+		name, targets string
+		valid         bool
+	}{
+		{"one provider", "target model p a\n target model p b", true},
+		{"two providers", "target model p a\n target model q b", false},
+		{"mixed kinds", "target model p a\n target logical chat shared", false},
+		{"removed alias syntax", "target model chat p a", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := caddyfile.NewTestDispenser("agent_gateway {\n route chat {\n protocol openai\n " + tc.targets + "\n }\n}")
+			_, err := parseApp(d, nil)
+			if (err == nil) != tc.valid {
+				t.Fatalf("parseApp error=%v valid=%v", err, tc.valid)
+			}
+		})
 	}
 }

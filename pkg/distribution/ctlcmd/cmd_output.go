@@ -9,7 +9,6 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/agwctl/caddyadminclient"
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
-	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 )
 
 func (s *commandState) initOutputFlag() {
@@ -472,7 +471,7 @@ func (s *commandState) printGatewayDiscoveredModelsTable(items []adminclient.Dis
 	s.printTable(headers, rows)
 }
 
-func (s *commandState) printGatewayManagedModelsTable(items []adminclient.ManagedModel) {
+func (s *commandState) printGatewayProviderModelsTable(items []adminclient.ProviderModel) {
 	headers := []string{"PROVIDER-ID", "UPSTREAM-MODEL", "ENABLED", "SCOPE", "TYPE", "SNAPSHOT"}
 	rows := make([][]string, 0, len(items))
 	for _, item := range items {
@@ -523,8 +522,12 @@ func extractLLMRouteTargetID(item adminclient.LLMRoute) string {
 	if err != nil {
 		return ""
 	}
-	if directPolicy, ok := llmroutepkg.DirectProviderPolicyOf(routeCfg.TargetPolicy); ok {
-		return directPolicy.ProviderTarget.ProviderID
+	if policy := routeCfg.TargetPolicy; policy != nil {
+		var names []string
+		for _, target := range policy.ModelTargets {
+			names = append(names, target.Name)
+		}
+		return strings.Join(names, ",")
 	}
 	return ""
 }

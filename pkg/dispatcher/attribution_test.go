@@ -23,7 +23,7 @@ func (h *attributionAPI) ServeLLMApi(w http.ResponseWriter, r *http.Request, _ p
 }
 func TestCallerTenantHeaderIgnoredWithNoopObserver(t *testing.T) {
 	g := gateway.NewAgentGateway()
-	if err := g.Bootstrap(context.Background(), gateway.BootstrapOptions{StaticLLMRoutes: mustRouteConfigs(t, []llmroute.LLMRoute{{RouteMetadata: llmroute.RouteMetadata{ID: "local", Protocol: "local-stub", MatchPolicy: llmroute.RouteMatchPolicy{PathPrefix: "/"}}, TargetPolicy: &llmroute.RouteDirectProviderPolicy{ProviderTarget: llmroute.DirectProviderTarget{ProviderID: "unused"}}}})}); err != nil {
+	if err := g.Bootstrap(context.Background(), gateway.BootstrapOptions{StaticProviderModels: fixtureProviderModels(mustRouteConfigs(t, []llmroute.LLMRoute{{RouteMetadata: llmroute.RouteMetadata{ID: "local", Protocol: "local-stub", MatchPolicy: llmroute.RouteMatchPolicy{PathPrefix: "/"}}, TargetPolicy: &llmroute.RouteModelPolicy{DefaultModel: "gpt-4.1", ModelTargets: []llmroute.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "unused", UpstreamModel: "gpt-4.1"}}}}}), nil), StaticLLMRoutes: mustRouteConfigs(t, []llmroute.LLMRoute{{RouteMetadata: llmroute.RouteMetadata{ID: "local", Protocol: "local-stub", MatchPolicy: llmroute.RouteMatchPolicy{PathPrefix: "/"}}, TargetPolicy: &llmroute.RouteModelPolicy{DefaultModel: "gpt-4.1", ModelTargets: []llmroute.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "unused", UpstreamModel: "gpt-4.1"}}}}})}); err != nil {
 		t.Fatal(err)
 	}
 	defer g.Close()

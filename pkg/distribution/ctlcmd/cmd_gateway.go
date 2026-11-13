@@ -52,14 +52,14 @@ func (s *commandState) initGateway() {
 					"status": "ok",
 					"file":   s.gatewayBundleFile,
 					"counts": map[string]int{
-						"providers":      len(bundle.Providers),
-						"managed_models": len(bundle.ManagedModels),
-						"llm_routes":     len(bundle.LLMRoutes),
-						"virtual_keys":   len(bundle.VirtualKeys),
-						"connectors":     len(bundle.Connectors),
-						"mcp_routes":     len(bundle.MCPRoutes),
-						"agent_routes":   len(bundle.AgentRoutes),
-						"agents":         len(bundle.Agents),
+						"providers":       len(bundle.Providers),
+						"provider_models": len(bundle.ProviderModels),
+						"llm_routes":      len(bundle.LLMRoutes),
+						"virtual_keys":    len(bundle.VirtualKeys),
+						"connectors":      len(bundle.Connectors),
+						"mcp_routes":      len(bundle.MCPRoutes),
+						"agent_routes":    len(bundle.AgentRoutes),
+						"agents":          len(bundle.Agents),
 					},
 				})
 			}
@@ -658,16 +658,16 @@ func (s *commandState) initGateway() {
 			return nil
 		},
 	}
-	s.gatewayModelsManagedCmd = &cobra.Command{
-		Use:   "managed",
-		Short: "Manage managed model overlays",
+	s.gatewayModelsProviderCmd = &cobra.Command{
+		Use:   "provider",
+		Short: "Manage provider model overlays",
 	}
-	s.gatewayModelsManagedListCmd = &cobra.Command{
+	s.gatewayModelsProviderListCmd = &cobra.Command{
 		Use:   "list",
-		Short: "List managed models",
+		Short: "List provider models",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			items, err := s.newGatewayClient().ListManagedModels(cmd.Context(), adminclient.ManagedModelListOptions{
-				ProviderID: s.gatewayManagedModelProviderID,
+			items, err := s.newGatewayClient().ListProviderModels(cmd.Context(), adminclient.ProviderModelListOptions{
+				ProviderID: s.gatewayProviderModelProviderID,
 			})
 			if err != nil {
 				return err
@@ -675,28 +675,28 @@ func (s *commandState) initGateway() {
 			if s.outputFormat == "json" {
 				return s.printJSON(items)
 			}
-			s.printGatewayManagedModelsTable(items)
+			s.printGatewayProviderModelsTable(items)
 			return nil
 		},
 	}
-	s.gatewayModelsManagedGetCmd = &cobra.Command{
+	s.gatewayModelsProviderGetCmd = &cobra.Command{
 		Use:   "get <provider-id> <upstream-model>",
-		Short: "Get one managed model overlay",
+		Short: "Get one provider model overlay",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			item, err := s.newGatewayClient().GetManagedModel(cmd.Context(), args[0], args[1])
+			item, err := s.newGatewayClient().GetProviderModel(cmd.Context(), args[0], args[1])
 			if err != nil {
 				return err
 			}
 			return s.printJSON(item)
 		},
 	}
-	s.gatewayModelsManagedDeleteCmd = &cobra.Command{
+	s.gatewayModelsProviderDeleteCmd = &cobra.Command{
 		Use:   "delete <provider-id> <upstream-model>",
-		Short: "Delete a managed model overlay",
+		Short: "Delete a provider model overlay",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, err := s.newGatewayClient().DeleteManagedModel(cmd.Context(), args[0], args[1])
+			resp, err := s.newGatewayClient().DeleteProviderModel(cmd.Context(), args[0], args[1])
 			if err != nil {
 				return err
 			}
@@ -746,7 +746,7 @@ func (s *commandState) initGateway() {
 			return s.printJSON(resp)
 		},
 	}
-	s.gatewayModelsManagedListCmd.Flags().StringVar(&s.gatewayManagedModelProviderID, "provider-id", "", "filter managed models by provider ID")
+	s.gatewayModelsProviderListCmd.Flags().StringVar(&s.gatewayProviderModelProviderID, "provider-id", "", "filter provider models by provider ID")
 	s.gatewayCredentialListCmd.Flags().StringVar(&s.gatewayCredentialType, "type", "", "filter credentials by type (api_key or oauth_token)")
 	s.gatewayCredentialListCmd.Flags().StringVar(&s.gatewayCredentialProviderType, "provider-type", "", "filter credentials by provider type")
 	s.gatewayCredentialListCmd.Flags().StringVar(&s.gatewayCredentialProviderID, "provider-id", "", "filter credentials by provider ID")
@@ -764,8 +764,8 @@ func (s *commandState) initGateway() {
 	s.gatewayVirtualKeyCmd.AddCommand(s.gatewayVirtualKeyListCmd, s.gatewayVirtualKeyGetCmd, s.gatewayVirtualKeyDeleteCmd, s.gatewayVirtualKeyEnableCmd, s.gatewayVirtualKeyDisableCmd)
 	s.gatewayCredentialCmd.AddCommand(s.gatewayCredentialListCmd, s.gatewayCredentialGetCmd, s.gatewayCredentialDeleteCmd)
 	s.gatewayModelsDiscoveredCmd.AddCommand(s.gatewayModelsDiscoveredListCmd, s.gatewayModelsDiscoveredRefreshCmd)
-	s.gatewayModelsManagedCmd.AddCommand(s.gatewayModelsManagedListCmd, s.gatewayModelsManagedGetCmd, s.gatewayModelsManagedDeleteCmd)
-	s.gatewayModelsCmd.AddCommand(s.gatewayModelsDiscoveredCmd, s.gatewayModelsManagedCmd)
+	s.gatewayModelsProviderCmd.AddCommand(s.gatewayModelsProviderListCmd, s.gatewayModelsProviderGetCmd, s.gatewayModelsProviderDeleteCmd)
+	s.gatewayModelsCmd.AddCommand(s.gatewayModelsDiscoveredCmd, s.gatewayModelsProviderCmd, s.logicalModelsCommand())
 	s.gatewayProviderTypesCmd.AddCommand(s.gatewayProviderTypesListCmd)
 	s.gatewayLLMAPIHandlerTypesCmd.AddCommand(s.gatewayLLMAPIHandlerTypesListCmd)
 	s.rootCmd.AddCommand(s.gatewayValidateCmd, s.gatewayApplyCmd, s.gatewayExportCmd, s.gatewayProviderCmd, s.gatewayLLMRouteCmd, s.gatewayConnectorCmd, s.gatewayMCPRouteCmd, s.gatewayMCPRuntimeCmd, s.gatewayVirtualKeyCmd, s.gatewayCredentialCmd, s.gatewayProviderTypesCmd, s.gatewayLLMAPIHandlerTypesCmd, s.gatewayModelsCmd)

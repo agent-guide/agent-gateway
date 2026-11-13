@@ -189,23 +189,23 @@ func TestRefreshProviderModels(t *testing.T) {
 	}
 }
 
-func TestCreateManagedModel(t *testing.T) {
+func TestCreateProviderModel(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("unexpected method: %s", r.Method)
 		}
-		if r.URL.Path != "/admin/llm/models/managed" {
+		if r.URL.Path != "/admin/llm/models/provider" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		var req modelcatalog.ManagedModel
+		var req modelcatalog.ProviderModel
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(ManagedModel{
-			ManagedModel: modelcatalog.ManagedModel{
+		_ = json.NewEncoder(w).Encode(ProviderModel{
+			ProviderModel: modelcatalog.ProviderModel{
 				ProviderID:    "openai-main",
 				UpstreamModel: "gpt-4.1",
 				Enabled:       true,
@@ -215,35 +215,35 @@ func TestCreateManagedModel(t *testing.T) {
 	defer srv.Close()
 
 	client := New(Config{BaseURL: srv.URL, Token: "preset-token"})
-	resp, err := client.CreateManagedModel(context.Background(), modelcatalog.ManagedModel{
+	resp, err := client.CreateProviderModel(context.Background(), modelcatalog.ProviderModel{
 		ProviderID:    "openai-main",
 		UpstreamModel: "gpt-4.1",
 		Enabled:       true,
 	})
 	if err != nil {
-		t.Fatalf("CreateManagedModel error: %v", err)
+		t.Fatalf("CreateProviderModel error: %v", err)
 	}
 	if resp.ProviderID != "openai-main" || resp.UpstreamModel != "gpt-4.1" {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 }
 
-func TestUpdateManagedModel(t *testing.T) {
+func TestUpdateProviderModel(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut {
 			t.Fatalf("unexpected method: %s", r.Method)
 		}
-		if r.URL.Path != "/admin/llm/models/managed/openai-main/gpt-4.1" {
+		if r.URL.Path != "/admin/llm/models/provider/openai-main/gpt-4.1" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		var req modelcatalog.ManagedModel
+		var req modelcatalog.ProviderModel
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
-		_ = json.NewEncoder(w).Encode(ManagedModel{
-			ManagedModel: modelcatalog.ManagedModel{
+		_ = json.NewEncoder(w).Encode(ProviderModel{
+			ProviderModel: modelcatalog.ProviderModel{
 				ProviderID:    "openai-main",
 				UpstreamModel: "gpt-4.1",
 				Enabled:       true,
@@ -253,11 +253,11 @@ func TestUpdateManagedModel(t *testing.T) {
 	defer srv.Close()
 
 	client := New(Config{BaseURL: srv.URL, Token: "preset-token"})
-	resp, err := client.UpdateManagedModel(context.Background(), "openai-main", "gpt-4.1", modelcatalog.ManagedModel{
+	resp, err := client.UpdateProviderModel(context.Background(), "openai-main", "gpt-4.1", modelcatalog.ProviderModel{
 		Enabled: true,
 	})
 	if err != nil {
-		t.Fatalf("UpdateManagedModel error: %v", err)
+		t.Fatalf("UpdateProviderModel error: %v", err)
 	}
 	if resp.ProviderID != "openai-main" || resp.UpstreamModel != "gpt-4.1" {
 		t.Fatalf("unexpected response: %+v", resp)

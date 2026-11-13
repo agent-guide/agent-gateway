@@ -27,7 +27,8 @@ func RegisterDefaultStores(backend configstore.ConfigStoreBackend) error {
 		CredentialSchema,
 		RouteSchema,
 		VirtualKeySchema,
-		ManagedModelSchema,
+		ProviderModelSchema,
+		LogicalModelSchema,
 		ConnectorSchema,
 		AgentSchema,
 	}
@@ -127,17 +128,17 @@ var VirtualKeySchema = configstore.StoreSchema{
 	},
 }
 
-var ManagedModelSchema = configstore.StoreSchema{
-	Name:              StoreManagedModels,
-	Kind:              "managed model",
+var ProviderModelSchema = configstore.StoreSchema{
+	Name:              StoreProviderModels,
+	Kind:              "provider model",
 	Table:             "model_configs",
 	PrimaryKeyColumns: []string{"provider_id", "upstream_model"},
 	DataColumn:        "data",
 	Timestamped:       false,
 	Codec: typedJSONCodec{
-		kind:     "managed model",
-		decode:   modelcatalog.DecodeStoredManagedModel,
-		validate: validateManagedModelObject,
+		kind:     "provider model",
+		decode:   modelcatalog.DecodeStoredProviderModel,
+		validate: validateProviderModelObject,
 	},
 	Metadata: configstore.MetadataFuncs{
 		PrimaryKeyFunc: func(obj any) ([]any, error) {
@@ -288,12 +289,12 @@ func validateVirtualKeyObject(obj any) error {
 	}
 }
 
-func validateManagedModelObject(obj any) error {
+func validateProviderModelObject(obj any) error {
 	switch unwrapConfigObject(obj).(type) {
-	case modelcatalog.ManagedModel, *modelcatalog.ManagedModel:
+	case modelcatalog.ProviderModel, *modelcatalog.ProviderModel:
 		return nil
 	default:
-		return fmt.Errorf("managed model object has unexpected type %T", obj)
+		return fmt.Errorf("provider model object has unexpected type %T", obj)
 	}
 }
 
@@ -433,4 +434,23 @@ func unwrapConfigObject(obj any) any {
 		return unwrapper.ConfigStoreObject()
 	}
 	return obj
+}
+
+var LogicalModelSchema = configstore.StoreSchema{
+	Name: StoreLogicalModels, Kind: "logical model", Table: "logical_models",
+	PrimaryKeyColumns: []string{"id"}, DataColumn: "data",
+	Codec: typedJSONCodec{kind: "logical model", decode: modelcatalog.DecodeStoredLogicalModel, validate: func(obj any) error {
+		switch v := unwrapConfigObject(obj).(type) {
+		case *modelcatalog.LogicalModel:
+			if v == nil {
+				return fmt.Errorf("logical model is nil")
+			}
+			return v.Validate()
+		case modelcatalog.LogicalModel:
+			return v.Validate()
+		default:
+			return fmt.Errorf("unexpected logical model %T", obj)
+		}
+	}},
+	Metadata: configstore.MetadataFuncs{PrimaryKeyFunc: primaryKeyFromStringFields("ID")},
 }

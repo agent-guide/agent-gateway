@@ -7,6 +7,14 @@ providers:
     api_key: ${OPENAI_API_KEY}
     default_model: gpt-4.1
 
+providerModels:
+  - provider_id: openai-main
+    upstream_model: gpt-4.1
+    enabled: true
+    capability_overrides:
+      streaming: true
+      tools: true
+
 llmRoutes:
   - id: chat-prod
     protocol: openai
@@ -17,5 +25,10 @@ llmRoutes:
     auth_policy:
       require_virtual_key: true
     target_policy:
-      provider_target:
-        provider_id: openai-main
+      type: models
+      default_model: gpt-4.1
+      model_targets:
+        - name: gpt-4.1
+          kind: provider-model
+          provider_id: openai-main
+          upstream_model: gpt-4.1

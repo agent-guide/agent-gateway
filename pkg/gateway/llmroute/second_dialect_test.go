@@ -236,16 +236,13 @@ func TestSecondDialectUsesGenericProtocolExtensionPoints(t *testing.T) {
 		}
 		route := LLMRoute{
 			RouteMetadata: RouteMetadata{ID: "fixture-route"},
-			TargetPolicy: &RouteLogicalModelTargetPolicy{DefaultModel: "fixture", ModelTargets: []RouteModelTarget{{
-				Name: "fixture", Candidates: []RouteModelCandidate{
-					{ProviderID: "generic", UpstreamModel: "model", Priority: 1, Weight: 1},
-					{ProviderID: "fixture", UpstreamModel: "model", Priority: 2, Weight: 1},
-				},
+			TargetPolicy: &RouteModelPolicy{DefaultModel: "fixture", ModelTargets: []RouteModelTarget{{
+				Name: "fixture", Kind: "logical-model", LogicalModelID: "fixture",
 			}}},
 		}
-		catalog := testModelCatalogResolver{models: map[string]modelcatalog.ResolvedManagedModel{
-			"generic\x00model": {ManagedModel: modelcatalog.ManagedModel{ProviderID: "generic", UpstreamModel: "model", Enabled: true}},
-			"fixture\x00model": {ManagedModel: modelcatalog.ManagedModel{ProviderID: "fixture", UpstreamModel: "model", Enabled: true}},
+		catalog := testModelCatalogResolver{models: map[string]modelcatalog.ResolvedProviderModel{
+			"generic\x00model": {ProviderModel: modelcatalog.ProviderModel{ProviderID: "generic", UpstreamModel: "model", Enabled: true}},
+			"fixture\x00model": {ProviderModel: modelcatalog.ProviderModel{ProviderID: "fixture", UpstreamModel: "model", Enabled: true}},
 		}}
 		configs := testProviderConfigResolver{configs: map[string]provider.ProviderConfig{
 			"generic": {Id: "generic", ProviderType: "generic-test"},

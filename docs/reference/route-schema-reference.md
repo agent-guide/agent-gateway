@@ -58,58 +58,44 @@ If enabled, the gateway accepts a VirtualKey from:
 
 ## `target_policy`
 
-LLM routes support two valid target modes:
+All LLM routes use `type: models`. Targets reference registered ProviderModels
+or independent LogicalModels. Provider-only targets are rejected.
 
-- direct-provider mode
-- logical-model mode
+### Models Mode
 
-### Direct-Provider Mode
-
-Current shape:
+A LogicalModel route exposes logical references:
 
 ```json
 {
-  "provider_target": {
-    "provider_id": "openai-main"
-  }
+  "type": "models",
+  "default_model": "chat",
+  "model_targets": [
+    {"name": "chat", "kind": "logical-model", "logical_model_id": "chat-default"}
+  ]
 }
 ```
 
-Behavior:
+A separate ProviderModel route exposes concrete models from one Provider, using
+their upstream names:
 
-- request `model` is treated as the upstream model name
-- supported in dynamic routes, Caddyfile routes, and `agwd --static-config`
+```json
+{
+  "type": "models",
+  "default_model": "gpt-4.1",
+  "model_targets": [
+    {"name": "gpt-4.1", "kind": "provider-model", "provider_id": "openai-main", "upstream_model": "gpt-4.1"}
+  ]
+}
+```
 
-### Logical-Model Mode
+Each route must use one target kind; mixing the two kinds is rejected.
 
-Current shape includes concepts such as:
-
-- `default_model`
-- `model_selector_strategy`
-- `fallback`
-- `model_targets`
-
-Each `model_target` can contain:
-
-- `name`
-- `strategy`
-- `default_candidate`
-- `candidates`
-
-Each candidate can contain:
-
-- `provider_id`
-- `upstream_model`
-- `weight`
-- `priority`
-- `default`
-
-Behavior:
-
-- request `model` is treated as the route model name
-- the gateway resolves it to one concrete provider and upstream model binding
-- supported through dynamic route management and bundle workflows
-- rejected in Caddyfile routes and `agwd --static-config`
+Request `model` selects a route-visible `name`; absent model uses `default_model`.
+Names are unique within the route. Each reference requires exactly the fields
+for its kind. The referenced resource must exist. Unlisted models are forbidden.
+Candidates, strategy and fallback belong to an independent LogicalModel; route
+policies reject those fields. Model exposure routes use dynamic Admin/Bundle
+management. Caddyfile and startup static Bundles support model declarations and explicit references.
 
 ### Agent Mode
 
@@ -147,9 +133,9 @@ both `GET` and `POST`. See [a2a-ingress.md](a2a-ingress.md).
 
 Current static restrictions:
 
-- Caddyfile LLM routes only support direct-provider mode
-- `agwd --static-config` `llmRoutes` only support direct-provider mode
-- `agwd --static-config` does not support `managedModels`
+- Caddyfile and startup Bundle model definitions are read-only through Admin
+- static/dynamic model identity conflicts fail startup
+- static and dynamic routes both require explicitly registered model references
 - Caddyfile and standalone static bundles accept AgentRoutes targeting Agents
 
 ## Related Docs

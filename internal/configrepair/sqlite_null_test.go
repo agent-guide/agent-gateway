@@ -10,8 +10,14 @@ func TestOfflineSQLiteNullPayloadInspectionAndRepair(t *testing.T) {
 		for _, action := range []string{"replace", "delete"} {
 			t.Run(family+"/"+action, func(t *testing.T) {
 				path, db := oldDatabase(t)
+				if _, err := db.Exec(`CREATE TABLE model_configs(provider_id TEXT,upstream_model TEXT,data TEXT,PRIMARY KEY(provider_id,upstream_model))`); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.Exec(`INSERT INTO model_configs VALUES ('p','gpt-4.1','{"provider_id":"p","upstream_model":"gpt-4.1","enabled":true}')`); err != nil {
+					t.Fatal(err)
+				}
 				id, opIndex := "a", 0
-				data := json.RawMessage(`{"id":"a","kind":"llm","protocol":"openai","match_policy":{"path_prefix":"/api"},"target_policy":{"provider_target":{"provider_id":"p"}}}`)
+				data := json.RawMessage(`{"id":"a","kind":"llm","protocol":"openai","match_policy":{"path_prefix":"/api"},"target_policy":{"type":"models","default_model":"gpt-4.1","model_targets":[{"name":"gpt-4.1","kind":"provider-model","provider_id":"p","upstream_model":"gpt-4.1"}]}}`)
 				if family == "agents" {
 					id, opIndex = "agent", 2
 					data = json.RawMessage(`{"id":"agent","name":"Agent","disabled":true,"runtime":{"type":"http","http":{"card_url":"https://example.org/card","protocol":"a2a"}}}`)

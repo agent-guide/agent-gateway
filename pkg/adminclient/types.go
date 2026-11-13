@@ -16,7 +16,7 @@ type LLMAPIHandlerType = adminapi.LLMApiHandlerTypeView
 type LLMRoute = adminapi.LLMRouteView
 type VirtualKey = adminapi.VirtualKeyView
 type Credential = adminapi.CredentialView
-type ManagedModel = adminapi.ManagedConcreteModelView
+type ProviderModel = adminapi.ProviderModelView
 type DiscoveredModel = modelcatalog.ProviderModelSnapshot
 
 type ProviderConfig = provider.ProviderConfig

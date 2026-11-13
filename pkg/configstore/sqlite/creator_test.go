@@ -29,7 +29,7 @@ func TestRegisterDefaultStoresRegistersAllSchemas(t *testing.T) {
 		schema.StoreCredentials,
 		schema.StoreRoutes,
 		schema.StoreVirtualKeys,
-		schema.StoreManagedModels,
+		schema.StoreProviderModels,
 	} {
 		if _, err := backend.Get(name); err != nil {
 			t.Fatalf("build registered store %q: %v", name, err)

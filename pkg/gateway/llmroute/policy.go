@@ -2,6 +2,7 @@ package llmroute
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -9,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
-	"github.com/agent-guide/agent-gateway/pkg/credential"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
@@ -50,117 +50,42 @@ func (c RouteTargetPolicyCommon) CredentialTypeOrder() []RouteCredentialType {
 	return append([]RouteCredentialType(nil), c.CredentialTypeOrderValue...)
 }
 
-func (p *RouteDirectProviderPolicy) Normalize() {
-	if p == nil {
-		return
-	}
-	p.RouteTargetPolicyCommon.Normalize()
-	p.ProviderTarget.ProviderID = strings.TrimSpace(p.ProviderTarget.ProviderID)
-}
-
-func (p *RouteDirectProviderPolicy) PolicyKind() RouteTargetPolicyKind {
-	return RouteTargetPolicyKindDirectProvider
-}
-
-func (p *RouteDirectProviderPolicy) ProviderIDs() []string {
-	p.Normalize()
-	if p.ProviderTarget.ProviderID == "" {
-		return nil
-	}
-	return []string{p.ProviderTarget.ProviderID}
-}
-
-func (p *RouteDirectProviderPolicy) CredentialSelector() RouteCredentialSelectStrategy {
-	return p.RouteTargetPolicyCommon.CredentialSelector()
-}
-
-func (p *RouteDirectProviderPolicy) CredentialScopeOrder() []RouteCredentialScope {
-	return p.RouteTargetPolicyCommon.CredentialScopeOrder()
-}
-
-func (p *RouteDirectProviderPolicy) CredentialTypeOrder() []RouteCredentialType {
-	return p.RouteTargetPolicyCommon.CredentialTypeOrder()
-}
-
-func (p *RouteDirectProviderPolicy) FallbackPolicy() RouteFallbackPolicy {
-	return RouteFallbackPolicy{}
-}
-
-func (p *RouteDirectProviderPolicy) ResolveTarget(ctx context.Context, routeID string, _ ModelCatalogResolver, providers ProviderConfigResolver, req RequestRequirements) (*ResolvedTarget, error) {
-	p.Normalize()
-	providerID := p.ProviderTarget.ProviderID
-	credentialScope := credential.ProviderIDCredentialScope(providerID)
-	cfg, err := providers.GetConfig(ctx, providerID)
-	if err != nil {
-		return nil, err
-	}
-	// Resolve an empty requested model before eligibility checks so a typed
-	// rejection still identifies the exact provider/model candidate.
-	upstreamModel := req.Model
-	if upstreamModel == "" {
-		upstreamModel = cfg.DefaultModel
-	}
-	capabilities := provider.CapabilitiesForProviderType(cfg.ProviderType)
-	if missing := provider.MissingProtocolFeatures(req.ProtocolRequirements, capabilities.ProtocolFeatures); len(missing) > 0 {
-		return nil, &provider.RequirementGap{Candidate: provider.CandidateIdentity{
-			ProviderID: providerID, ProviderType: cfg.ProviderType, UpstreamModel: upstreamModel,
-		}, Missing: missing}
-	}
-	return &ResolvedTarget{
-		ProviderID:      providerID,
-		ProviderType:    cfg.ProviderType,
-		UpstreamModel:   upstreamModel,
-		CredentialScope: credentialScope,
-	}, nil
-}
-
-func (p *RouteLogicalModelTargetPolicy) Normalize() {
+func (p *RouteModelPolicy) Normalize() {
 	if p == nil {
 		return
 	}
 	p.RouteTargetPolicyCommon.Normalize()
 	p.DefaultModel = strings.TrimSpace(p.DefaultModel)
 	for i := range p.ModelTargets {
-		p.ModelTargets[i].Name = strings.TrimSpace(p.ModelTargets[i].Name)
-		p.ModelTargets[i].DefaultCandidate = strings.TrimSpace(p.ModelTargets[i].DefaultCandidate)
-		for j := range p.ModelTargets[i].Candidates {
-			p.ModelTargets[i].Candidates[j].ProviderID = strings.TrimSpace(p.ModelTargets[i].Candidates[j].ProviderID)
-			p.ModelTargets[i].Candidates[j].UpstreamModel = strings.TrimSpace(p.ModelTargets[i].Candidates[j].UpstreamModel)
+		t := &p.ModelTargets[i]
+		t.Name = strings.TrimSpace(t.Name)
+		t.Kind = strings.TrimSpace(t.Kind)
+		t.ProviderID = strings.TrimSpace(t.ProviderID)
+		t.UpstreamModel = strings.TrimSpace(t.UpstreamModel)
+		t.LogicalModelID = strings.TrimSpace(t.LogicalModelID)
+		if t.Kind == "provider-model" && t.Name == "" {
+			t.Name = t.UpstreamModel
 		}
 	}
 }
 
-func (p *RouteLogicalModelTargetPolicy) PolicyKind() RouteTargetPolicyKind {
-	return RouteTargetPolicyKindLogicalModel
-}
-
-func (p *RouteLogicalModelTargetPolicy) ProviderIDs() []string {
-	p.Normalize()
-	if len(p.ModelTargets) == 0 {
-		return nil
-	}
-	seen := map[string]struct{}{}
-	ids := make([]string, 0, len(p.ModelTargets))
-	for _, target := range p.ModelTargets {
-		for _, candidate := range target.Candidates {
-			if candidate.ProviderID == "" {
-				continue
-			}
-			if _, ok := seen[candidate.ProviderID]; ok {
-				continue
-			}
-			seen[candidate.ProviderID] = struct{}{}
-			ids = append(ids, candidate.ProviderID)
+func (p *RouteModelPolicy) ProviderIDs() []string {
+	seen := map[string]bool{}
+	var ids []string
+	for _, t := range p.ModelTargets {
+		if t.Kind == "provider-model" && !seen[t.ProviderID] {
+			seen[t.ProviderID] = true
+			ids = append(ids, t.ProviderID)
 		}
 	}
 	return ids
 }
 
-func (p *RouteLogicalModelTargetPolicy) CredentialSelector() RouteCredentialSelectStrategy {
+func (p *RouteModelPolicy) CredentialSelector() RouteCredentialSelectStrategy {
 	return p.RouteTargetPolicyCommon.CredentialSelector()
 }
 
-func (p *RouteLogicalModelTargetPolicy) CredentialScopeOrder() []RouteCredentialScope {
+func (p *RouteModelPolicy) CredentialScopeOrder() []RouteCredentialScope {
 	scopes := p.RouteTargetPolicyCommon.CredentialScopeOrder()
 	if len(scopes) == 1 && scopes[0] == RouteCredentialScopeProviderID {
 		return []RouteCredentialScope{RouteCredentialScopeModelCustom, RouteCredentialScopeProviderID}
@@ -168,18 +93,11 @@ func (p *RouteLogicalModelTargetPolicy) CredentialScopeOrder() []RouteCredential
 	return scopes
 }
 
-func (p *RouteLogicalModelTargetPolicy) CredentialTypeOrder() []RouteCredentialType {
+func (p *RouteModelPolicy) CredentialTypeOrder() []RouteCredentialType {
 	return p.RouteTargetPolicyCommon.CredentialTypeOrder()
 }
 
-func (p *RouteLogicalModelTargetPolicy) FallbackPolicy() RouteFallbackPolicy {
-	if p == nil {
-		return RouteFallbackPolicy{}
-	}
-	return p.Fallback
-}
-
-func (p *RouteLogicalModelTargetPolicy) ResolveTarget(ctx context.Context, routeID string, catalog ModelCatalogResolver, providers ProviderConfigResolver, req RequestRequirements) (*ResolvedTarget, error) {
+func (p *RouteModelPolicy) ResolveTarget(ctx context.Context, routeID string, catalog ModelCatalogResolver, providers ProviderConfigResolver, req RequestRequirements) (*ResolvedTarget, error) {
 	p.Normalize()
 	modelName := req.Model
 	if modelName == "" {
@@ -194,13 +112,35 @@ func (p *RouteLogicalModelTargetPolicy) ResolveTarget(ctx context.Context, route
 		return nil, statuserr.New(http.StatusForbidden, fmt.Sprintf("model %q is not allowed on route %q", modelName, routeID))
 	}
 
-	candidates := make([]resolvedCandidate, 0, len(target.Candidates))
+	var bindings []modelcatalog.ModelCandidate
+	strategy := modelcatalog.SelectionPriority
+	fallback := modelcatalog.FallbackPolicy{}
+	logicalID := ""
+	switch target.Kind {
+	case "provider-model":
+		bindings = []modelcatalog.ModelCandidate{{ProviderID: target.ProviderID, UpstreamModel: target.UpstreamModel}}
+	case "logical-model":
+		m, ok, err := catalog.GetLogicalModel(ctx, target.LogicalModelID)
+		if err != nil {
+			return nil, err
+		}
+		if !ok || m.Disabled {
+			return nil, statuserr.New(http.StatusBadGateway, "logical model is unavailable")
+		}
+		bindings = m.Candidates
+		strategy = m.Strategy
+		fallback = m.Fallback
+		logicalID = m.ID
+	default:
+		return nil, statuserr.New(http.StatusBadGateway, "invalid model target kind")
+	}
+	candidates := make([]resolvedCandidate, 0, len(bindings))
 	var requirementGaps []provider.RequirementGap
-	for _, candidate := range target.Candidates {
+	for _, candidate := range bindings {
 		if _, excluded := req.ExcludedCandidates[CandidateKey(candidate.ProviderID, candidate.UpstreamModel)]; excluded {
 			continue
 		}
-		view, ok, err := catalog.GetResolvedManagedModel(ctx, candidate.ProviderID, candidate.UpstreamModel)
+		view, ok, err := catalog.GetResolvedProviderModel(ctx, candidate.ProviderID, candidate.UpstreamModel)
 		if err != nil {
 			return nil, err
 		}
@@ -246,9 +186,11 @@ func (p *RouteLogicalModelTargetPolicy) ResolveTarget(ctx context.Context, route
 		return nil, statuserr.New(http.StatusBadGateway, message)
 	}
 
-	chosen := chooseCandidate(candidates, p.ModelSelectorStrategy)
+	chosen := chooseCandidate(candidates, strategy)
 	return &ResolvedTarget{
-		LogicalModel:    modelName,
+		LogicalModel:    logicalID,
+		ClientModel:     modelName,
+		Fallback:        fallback,
 		ProviderID:      chosen.ProviderID,
 		ProviderType:    chosen.ProviderType,
 		UpstreamModel:   chosen.UpstreamModel,
@@ -258,10 +200,11 @@ func (p *RouteLogicalModelTargetPolicy) ResolveTarget(ctx context.Context, route
 }
 
 func CandidateKey(providerID string, upstreamModel string) string {
-	return providerID + "/" + upstreamModel
+	key, _ := json.Marshal([2]string{providerID, upstreamModel})
+	return string(key)
 }
 
-func (p *RouteLogicalModelTargetPolicy) targetByName(name string) *RouteModelTarget {
+func (p *RouteModelPolicy) targetByName(name string) *RouteModelTarget {
 	for i := range p.ModelTargets {
 		if p.ModelTargets[i].Name == name {
 			return &p.ModelTargets[i]
@@ -270,18 +213,8 @@ func (p *RouteLogicalModelTargetPolicy) targetByName(name string) *RouteModelTar
 	return nil
 }
 
-func DirectProviderPolicyOf(policy RouteTargetPolicy) (*RouteDirectProviderPolicy, bool) {
-	direct, ok := policy.(*RouteDirectProviderPolicy)
-	return direct, ok
-}
-
-func LogicalModelTargetPolicyOf(policy RouteTargetPolicy) (*RouteLogicalModelTargetPolicy, bool) {
-	logical, ok := policy.(*RouteLogicalModelTargetPolicy)
-	return logical, ok
-}
-
 // RequestRequirements captures request attributes required for route resolution.
-// Model means logical model ID in logical-model mode and upstream model in direct mode.
+// Model always means an explicitly exposed route-visible name.
 type RequestRequirements struct {
 	Model                string
 	RequireStreaming     bool
@@ -314,6 +247,8 @@ func requestRequirementNames(req RequestRequirements) []string {
 }
 
 type ResolvedTarget struct {
+	ClientModel     string
+	Fallback        modelcatalog.FallbackPolicy
 	LogicalModel    string
 	ProviderID      string
 	ProviderType    string
@@ -323,8 +258,9 @@ type ResolvedTarget struct {
 }
 
 type ModelCatalogResolver interface {
-	GetManagedModel(ctx context.Context, providerID string, upstreamModel string) (*modelcatalog.ManagedModel, bool, error)
-	GetResolvedManagedModel(ctx context.Context, providerID string, upstreamModel string) (*modelcatalog.ResolvedManagedModel, bool, error)
+	GetLogicalModel(context.Context, string) (*modelcatalog.LogicalModel, bool, error)
+	GetProviderModel(ctx context.Context, providerID string, upstreamModel string) (*modelcatalog.ProviderModel, bool, error)
+	GetResolvedProviderModel(ctx context.Context, providerID string, upstreamModel string) (*modelcatalog.ResolvedProviderModel, bool, error)
 }
 
 type ProviderConfigResolver interface {
@@ -400,14 +336,14 @@ func chooseWeightedBinding(bindings []resolvedCandidate) resolvedCandidate {
 	return bindings[0]
 }
 
-func chooseCandidate(candidates []resolvedCandidate, strategy RouteSelectionStrategy) resolvedCandidate {
+func chooseCandidate(candidates []resolvedCandidate, strategy modelcatalog.SelectionStrategy) resolvedCandidate {
 	if len(candidates) == 1 {
 		return candidates[0]
 	}
 	switch strategy {
-	case RouteSelectionStrategyPriority:
+	case modelcatalog.SelectionPriority:
 		return choosePriorityBinding(candidates)
-	case RouteSelectionStrategyWeighted:
+	case modelcatalog.SelectionWeighted:
 		return chooseWeightedBinding(candidates)
 	default:
 		return chooseAutoBinding(candidates)

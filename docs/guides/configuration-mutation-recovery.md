@@ -53,7 +53,7 @@ SQLite Agent and Provider creates/updates verify authoritative metadata in the
 same transaction.
 Known callback/readback failure rolls back and leaves valid execution available.
 An uncertain commit enters pending recovery. Provider deletion verifies both
-its removal and ManagedModel cleanup before the shared transaction commits.
+its removal and ProviderModel cleanup before the shared transaction commits.
 Backends without transactional readback can report a pending Agent outcome
 after a successful write whose verification failed. Provider store-write errors
 also retain a recovery gate when a nontransactional backend cannot prove rollback.

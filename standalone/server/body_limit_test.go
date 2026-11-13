@@ -15,10 +15,14 @@ import (
 
 func TestStandaloneLLMRequestBodyLimit(t *testing.T) {
 	g := gateway.NewAgentGateway()
-	if err := g.Bootstrap(t.Context(), gateway.BootstrapOptions{StaticLLMRoutes: []routecore.RouteConfig{{
+	if err := g.Bootstrap(t.Context(), gateway.BootstrapOptions{StaticProviderModels: fixtureProviderModels([]routecore.RouteConfig{{
 		ID: "cc", Kind: routecore.RouteKindLLM, Protocol: routecore.RouteProtocolCC,
 		MatchPolicy:  routecore.RouteMatchPolicy{PathPrefix: "/probe"},
-		TargetPolicy: []byte(`{"provider_target":{"provider_id":"unused"}}`),
+		TargetPolicy: []byte(`{"default_model":"gpt-4.1","model_targets":[{"name":"gpt-4.1","kind":"provider-model","provider_id":"unused","upstream_model":"gpt-4.1"}]}`),
+	}}, nil), StaticLLMRoutes: []routecore.RouteConfig{{
+		ID: "cc", Kind: routecore.RouteKindLLM, Protocol: routecore.RouteProtocolCC,
+		MatchPolicy:  routecore.RouteMatchPolicy{PathPrefix: "/probe"},
+		TargetPolicy: []byte(`{"default_model":"gpt-4.1","model_targets":[{"name":"gpt-4.1","kind":"provider-model","provider_id":"unused","upstream_model":"gpt-4.1"}]}`),
 	}}}); err != nil {
 		t.Fatal(err)
 	}

@@ -8,7 +8,7 @@ Bundle YAML is the declarative configuration format for gateway objects such as:
 
 - provider types
 - providers
-- managed models
+- provider models
 - LLM routes
 - VirtualKeys
 - MCP connectors
@@ -65,6 +65,12 @@ providers:
     api_key: ${OPENAI_API_KEY}
     default_model: gpt-4.1
 
+providerModels:
+  - provider_id: openai-main
+    upstream_model: gpt-4.1
+    enabled: true
+    capability_overrides: {streaming: true, tools: true}
+
 llmRoutes:
   - id: chat-prod
     protocol: openai
@@ -75,64 +81,42 @@ llmRoutes:
     auth_policy:
       require_virtual_key: true
     target_policy:
-      provider_target:
-        provider_id: openai-main
+      type: models
+      default_model: gpt-4.1
+      model_targets:
+        - name: gpt-4.1
+          kind: provider-model
+          provider_id: openai-main
+          upstream_model: gpt-4.1
 ```
 
 See:
 
 - [examples/gateway.static.minimal.yaml](../../examples/gateway.static.minimal.yaml)
-- [examples/gateway.bundle.llm.direct-provider.yaml](../../examples/gateway.bundle.llm.direct-provider.yaml)
+- [examples/gateway.bundle.llm.provider-model.yaml](../../examples/gateway.bundle.llm.provider-model.yaml)
 
-## Logical-Model Bundle Example
+## Model Bundle Example
 
-```yaml
-apiVersion: gateway.agw/v1alpha1
-kind: GatewayBundle
+Use `providerModels` for concrete model facts, `logicalModels` for shared candidate
+selection and fallback, and `llmRoutes` with `target_policy.type: models` to expose
+explicit references under route-visible names. Apply creates Providers first,
+then ProviderModels, LogicalModels and LLM Routes. Each write is independent.
 
-providers:
-  - id: openai-main
-    provider_type: openai
-    api_key: ${OPENAI_API_KEY}
-
-managedModels:
-  - provider_id: openai-main
-    upstream_model: gpt-4.1
-    enabled: true
-
-llmRoutes:
-  - id: chat-prod
-    protocol: openai
-    match_policy:
-      path_prefix: /
-      methods:
-        - POST
-    auth_policy:
-      require_virtual_key: true
-    target_policy:
-      default_model: chat-default
-      model_targets:
-        - name: chat-default
-          candidates:
-            - provider_id: openai-main
-              upstream_model: gpt-4.1
-              weight: 100
-```
-
-See [examples/gateway.bundle.llm.logical-model.yaml](../../examples/gateway.bundle.llm.logical-model.yaml).
+See the [complete example](../../examples/gateway.bundle.llm.logical-model.yaml)
+and [configuration guide](logical-model-routing.md).
 
 ## Static Versus Dynamic Restrictions
 
 Current static restrictions:
 
-- `agwd --static-config` `llmRoutes` only support direct-provider mode
-- `agwd --static-config` does not support `managedModels`
+- `agwd --static-config` supports model declarations and references
+- `agwd --static-config` supports read-only `providerModels` and `logicalModels`
 - `agwd --static-config` does not support `virtualKeys`
 
 Current dynamic workflow behavior:
 
 - `agwctl apply` supports logical-model routes
-- `agwctl apply` supports managed models
+- `agwctl apply` supports provider models
 - VirtualKeys are valid in config-store-backed bundle workflows
 - VirtualKeys may include optional request-frequency limits:
 
@@ -165,7 +149,8 @@ Top-level metadata:
 Common top-level sections:
 
 - `providers`
-- `managedModels`
+- `providerModels`
+- `logicalModels`
 - `llmRoutes`
 - `virtualKeys`
 - `connectors`

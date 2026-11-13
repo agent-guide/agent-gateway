@@ -9,7 +9,7 @@ software, credentials, or infrastructure. “Roadmap” is not implemented.
 | --- | --- | --- |
 | OpenAI-compatible ingress | Implemented | Non-streaming and SSE requests through governed LLM routes. |
 | Anthropic Messages and Claude Code profile | Implemented | Anthropic-compatible ingress plus the separate `cc` profile; Claude Code is a client profile, not an ACP backend. |
-| Logical-model and direct-provider routing | Implemented | Candidate filtering, managed model resolution, credentials, and bounded fallback. |
+| Concrete and logical model routing | Implemented | Candidate filtering, provider model resolution, credentials, and bounded fallback. |
 | MCP gateway | Implemented | Streamable HTTP and stdio services, discovery, execution, routes, policies, and runtime inspection. |
 | Builtin Agent runtime | Implemented | In-process eino ADK host with `single`, `sequential`, `parallel`, `loop`, `supervisor`, `planexecute`, `deep`, and linked `custom` topologies. |
 | ACP Agent runtime | External | Gateway pooling, turns, sessions, transcripts, cancellation, and permission decisions are implemented; evaluation requires an external Codex or OpenCode ACP adapter, workspace, and upstream authentication. |

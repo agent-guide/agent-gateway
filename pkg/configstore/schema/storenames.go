@@ -1,12 +1,13 @@
 package schema
 
 const (
-	StoreExtensions    = "extensions"
-	StoreProviders     = "providers"
-	StoreCredentials   = "credentials"
-	StoreRoutes        = "routes"
-	StoreVirtualKeys   = "virtual_keys"
-	StoreManagedModels = "managed_models"
-	StoreConnectors    = "connectors"
-	StoreAgents        = "agents"
+	StoreLogicalModels  = "logical_models"
+	StoreExtensions     = "extensions"
+	StoreProviders      = "providers"
+	StoreCredentials    = "credentials"
+	StoreRoutes         = "routes"
+	StoreVirtualKeys    = "virtual_keys"
+	StoreProviderModels = "provider_models"
+	StoreConnectors     = "connectors"
+	StoreAgents         = "agents"
 )

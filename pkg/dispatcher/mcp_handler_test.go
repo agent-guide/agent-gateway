@@ -95,7 +95,8 @@ func (b *testConfigStoreBackend) Get(name string) (configstore.ConfigStore, erro
 		configstoreschema.StoreCredentials,
 		configstoreschema.StoreRoutes,
 		configstoreschema.StoreVirtualKeys,
-		configstoreschema.StoreManagedModels,
+		configstoreschema.StoreProviderModels,
+		configstoreschema.StoreLogicalModels,
 		configstoreschema.StoreConnectors,
 		configstoreschema.StoreAgents:
 		return b.store, nil

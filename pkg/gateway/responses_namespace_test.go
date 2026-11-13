@@ -13,6 +13,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/credential"
 	credentialscheduler "github.com/agent-guide/agent-gateway/pkg/credential/scheduler"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	upstream "github.com/agent-guide/agent-gateway/pkg/llm/provider/openai"
 )
@@ -40,10 +41,10 @@ func TestResponsesRestorationFailureStopsCredentialFallback(t *testing.T) {
 		}
 	}
 	routed := &RoutedProvider{
-		route:            &llmroutepkg.LLMRoute{RouteMetadata: llmroutepkg.RouteMetadata{ID: "r", Protocol: llmroutepkg.RouteProtocolOpenAI}, TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "main"}}},
+		route:            &llmroutepkg.LLMRoute{RouteMetadata: llmroutepkg.RouteMetadata{ID: "r", Protocol: llmroutepkg.RouteProtocolOpenAI}, TargetPolicy: &llmroutepkg.RouteModelPolicy{DefaultModel: "fixture", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "fixture", Kind: "provider-model", ProviderID: "main", UpstreamModel: "fixture"}}}},
 		providerResolver: ProviderResolverFunc(func(context.Context, string) (provider.Provider, error) { return prov, nil }),
 		providerConfigs:  testGatewayProviderConfigResolver{configs: map[string]provider.ProviderConfig{"main": cfg}},
-		modelCatalog:     testGatewayModelCatalogResolver{}, credentialMgr: mgr, scheduler: scheduler,
+		modelCatalog:     testGatewayModelCatalogResolver{models: map[string]modelcatalog.ResolvedProviderModel{"main/fixture": {ProviderModel: modelcatalog.ProviderModel{ProviderID: "main", UpstreamModel: "fixture", Enabled: true}}}}, credentialMgr: mgr, scheduler: scheduler,
 	}
 	var req provider.ResponsesRequest
 	if err := json.Unmarshal([]byte(`{"model":"fixture","input":"inspect","tools":[{"type":"namespace","name":"browser","tools":[{"type":"function","name":"status"}]}]}`), &req); err != nil {

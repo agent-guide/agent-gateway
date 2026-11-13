@@ -206,8 +206,8 @@ func readOperations(path string) ([]configrepair.Operation, error) {
 		return nil, fmt.Errorf("unexpected trailing JSON")
 	}
 	for _, op := range ops {
-		if op.Family != "routes" && op.Family != "agents" && op.Family != "connectors" && op.Family != "mcp_services" {
-			return nil, fmt.Errorf("repair supports routes, agents, connectors and legacy mcp_services only")
+		if op.Family != "routes" && op.Family != "agents" && op.Family != "connectors" && op.Family != "mcp_services" && op.Family != "provider_models" && op.Family != "logical_models" {
+			return nil, fmt.Errorf("repair supports routes, agents, connectors, provider_models, logical_models and legacy mcp_services only")
 		}
 	}
 	return ops, nil

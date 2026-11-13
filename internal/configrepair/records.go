@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 )
 
@@ -139,7 +140,7 @@ func Inspect(records []Record) []Issue {
 		}
 		fields := []string{"id"}
 		switch r.Family {
-		case "managed_models":
+		case "provider_models":
 			fields = []string{"provider_id", "upstream_model"}
 		case "extensions":
 			fields = []string{"module_id"}
@@ -155,6 +156,12 @@ func Inspect(records []Record) []Issue {
 			add("id", "record ID must match its storage ID")
 		}
 		switch r.Family {
+		case "provider_models":
+			var enabled bool
+			value, exists := obj["enabled"]
+			if !exists || bytes.Equal(bytes.TrimSpace(value), []byte("null")) || json.Unmarshal(value, &enabled) != nil {
+				add("enabled", "replace with an explicit enabled boolean; legacy omitted values must be chosen explicitly")
+			}
 		case "routes":
 			var route routecore.RouteConfig
 			if err := json.Unmarshal(r.Data, &route); err != nil {
@@ -177,8 +184,16 @@ func Inspect(records []Record) []Issue {
 			if kind == "direct-provider" || outer || inner {
 				if _, err := CanonicalTarget(r.Data); err != nil {
 					add("target_policy", err.Error())
-				} else if outer {
-					add("target_policy.provider_id", "convert-target explicitly to the canonical provider_target.provider_id")
+				} else {
+					add("target_policy", "convert-target with an explicit model allowlist to ProviderModel references")
+				}
+			}
+			if kind == "models" {
+				var p llmroute.RouteModelPolicy
+				if err := json.Unmarshal(route.TargetPolicy, &p); err != nil {
+					add("target_policy", "replace invalid models policy")
+				} else if err := p.ValidateDefinition(route.ID); err != nil {
+					add("target_policy", "replace route: "+err.Error())
 				}
 			}
 		case "agents":
@@ -242,19 +257,55 @@ func Apply(records []Record, operations []Operation) ([]Record, error) {
 				return nil, err
 			}
 			var id string
-			if json.Unmarshal(obj["id"], &id) != nil || id != op.ID {
+			if op.Family == "provider_models" {
+				var providerID, model string
+				if json.Unmarshal(obj["provider_id"], &providerID) != nil || json.Unmarshal(obj["upstream_model"], &model) != nil {
+					return nil, fmt.Errorf("replacement requires concrete model identity")
+				}
+				id = recordKey([]string{providerID, model})
+			} else {
+				_ = json.Unmarshal(obj["id"], &id)
+			}
+			if id != op.ID {
 				return nil, fmt.Errorf("replacement ID must equal %q", op.ID)
 			}
 			r.Data = append([]byte(nil), op.Data...)
+		case "extract-models":
+			converted, models, err := ExtractModels(*r)
+			if err != nil {
+				return nil, err
+			}
+			out[index] = converted
+			for _, m := range models {
+				for _, existing := range out {
+					if existing.Family == m.Family && existing.ID == m.ID {
+						return nil, fmt.Errorf("logical model ID conflict %q; use explicit repair", m.ID)
+					}
+				}
+				out = append(out, m)
+			}
 		case "convert-target":
 			if op.Family != "routes" {
 				return nil, fmt.Errorf("convert-target requires routes")
 			}
-			data, err := CanonicalTarget(r.Data)
+			converted, models, err := ConvertProviderRoute(*r, op.Data)
 			if err != nil {
-				return nil, fmt.Errorf("route %q: %w", op.ID, err)
+				return nil, err
 			}
-			r.Data = data
+			out[index] = converted
+			for _, m := range models {
+				exists := false
+				for _, existing := range out {
+					if existing.Family == m.Family && existing.ID == m.ID {
+						exists = true
+						break
+					}
+				}
+				if !exists {
+					out = append(out, m)
+				}
+			}
+
 		case "remove-budget":
 			if op.Family != "agents" {
 				return nil, fmt.Errorf("remove-budget requires agents")

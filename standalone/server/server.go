@@ -24,6 +24,7 @@ import (
 	ccapi "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/cc"
 	openaiapi "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/openai"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
@@ -220,19 +221,21 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (_ 
 	lifecycle.Runtime = agentGateway.CloseContext
 	if err := agentGateway.Bootstrap(ctx, gateway.BootstrapOptions{
 		ExtensionRegistry: opts.Registry, Distribution: opts.Assembly, EventPublisher: usageService,
-		HTTPClientObserver:  usageService.HTTPClientObserver,
-		HTTPAPIPolicyFile:   opts.HTTPAPIPolicyFile,
-		StaticLLMRoutes:     staticConfig.LLMRoutes,
-		StaticProviders:     staticConfig.Providers,
-		ConfigStoreBackend:  configstoreBackend,
-		CredentialManager:   credentialManager,
-		CredentialScheduler: credentialScheduler,
-		UsageObserver:       usageService.Observer(),
-		UsageQuery:          usageService.Query(),
-		UsageStats:          usageService,
-		UsagePrometheus:     usageService.Prometheus(),
-		UsageConfig:         distributionmetrics.From(opts.Metrics).Normalized(),
-		Logger:              logger,
+		HTTPClientObserver:   usageService.HTTPClientObserver,
+		HTTPAPIPolicyFile:    opts.HTTPAPIPolicyFile,
+		StaticLLMRoutes:      staticConfig.LLMRoutes,
+		StaticProviderModels: staticConfig.ProviderModels,
+		StaticLogicalModels:  staticConfig.LogicalModels,
+		StaticProviders:      staticConfig.Providers,
+		ConfigStoreBackend:   configstoreBackend,
+		CredentialManager:    credentialManager,
+		CredentialScheduler:  credentialScheduler,
+		UsageObserver:        usageService.Observer(),
+		UsageQuery:           usageService.Query(),
+		UsageStats:           usageService,
+		UsagePrometheus:      usageService.Prometheus(),
+		UsageConfig:          distributionmetrics.From(opts.Metrics).Normalized(),
+		Logger:               logger,
 	}); err != nil {
 		return nil, nil, fmt.Errorf("bootstrap agent gateway: %w", err)
 	}
@@ -246,8 +249,10 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (_ 
 }
 
 type staticConfig struct {
-	Providers map[string]provider.Provider
-	LLMRoutes []routecore.RouteConfig
+	ProviderModels []modelcatalog.ProviderModel
+	LogicalModels  []modelcatalog.LogicalModel
+	Providers      map[string]provider.Provider
+	LLMRoutes      []routecore.RouteConfig
 }
 
 func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) {
@@ -269,6 +274,8 @@ func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) 
 	if err != nil {
 		return nil, err
 	}
+	cfg.ProviderModels = bundle.ProviderModels
+	cfg.LogicalModels = bundle.LogicalModels
 	cfg.Providers = providers
 	cfg.LLMRoutes = append([]routecore.RouteConfig(nil), bundle.LLMRoutes...)
 	return cfg, nil

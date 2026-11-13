@@ -106,14 +106,14 @@ curl -u admin:your-password -X POST http://localhost:8019/admin/llm/routes \
   -d '{
     "id": "chat-prod",
     "protocol": "openai",
-    "match": {
+    "match_policy": {
       "path_prefix": "/",
       "methods": ["POST"]
     },
     "target_policy": {
-      "provider_target": {
-        "provider_id": "openrouter-main"
-      }
+      "type": "models",
+      "default_model": "openai/gpt-4.1",
+      "model_targets": [{"name":"openai/gpt-4.1","kind":"provider-model","provider_id":"openrouter-main","upstream_model":"openai/gpt-4.1"}]
     },
     "auth_policy": {
       "require_virtual_key": true
@@ -123,10 +123,13 @@ curl -u admin:your-password -X POST http://localhost:8019/admin/llm/routes \
 
 Route notes:
 
+- LLM route writes reject unknown fields, including misspelled match, auth and target policy fields. Use `match_policy`, never `match`.
+
 - `protocol` and `target_policy` are required
 - `created_at` and `updated_at` are server-managed fields
-- when `target_policy.provider_target.provider_id` is present, the route runs in direct-provider mode
-- logical-model routes using `target_policy.model_targets` remain supported through dynamic route management and bundle workflows, but not in Caddyfile routes or `agwd --static-config`
+- register each referenced ProviderModel or LogicalModel before creating the route
+- all LLM routes use explicit `model_targets`; Provider-only targets are rejected
+- static configuration supports the same reference shapes, with static model definitions read-only through Admin
 
 ## VirtualKeys
 
@@ -225,8 +228,16 @@ Credential notes:
 
 - `GET /admin/llm/models/providers/{provider_id}/discovered`
 - `POST /admin/llm/models/providers/{provider_id}/refresh`
-- `GET /admin/llm/models/managed`
-- `PUT /admin/llm/models/managed/{provider_id}/{upstream_model}`
+- `GET|POST /admin/llm/models/provider`
+- `GET|PUT|DELETE /admin/llm/models/provider/{provider_id}/{upstream_model}`
+- `GET|POST /admin/llm/models/logical`
+- `GET|PUT|DELETE /admin/llm/models/logical/{id}`
+
+ProviderModels are concrete model bindings. LogicalModels independently own
+candidates, strategy and fallback. Routes expose explicit references using
+`type: models`; no scheduling policy is embedded in routes. Body/path identities
+must agree. Referenced models cannot be deleted (409), including disabled references.
+See [model configuration](../guides/logical-model-routing.md).
 
 ## External OAuth Authentication
 

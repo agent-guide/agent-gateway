@@ -43,10 +43,10 @@ func TestVirtualKeySchemaIndexes(t *testing.T) {
 	}
 }
 
-func TestManagedModelSchemaPrimaryKey(t *testing.T) {
-	obj := &modelcatalog.ManagedModel{ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}
+func TestProviderModelSchemaPrimaryKey(t *testing.T) {
+	obj := &modelcatalog.ProviderModel{ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}
 
-	keys, err := ManagedModelSchema.Metadata.PrimaryKey(obj)
+	keys, err := ProviderModelSchema.Metadata.PrimaryKey(obj)
 	if err != nil {
 		t.Fatalf("primary key: %v", err)
 	}

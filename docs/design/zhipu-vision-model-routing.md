@@ -297,6 +297,12 @@ The ingress route retains its current LLM target policy and adds Pipeline
 execution:
 
 ```yaml
+providerModels:
+  - provider_id: glm-coding-plan
+    upstream_model: gpt-4.1
+    enabled: true
+    capability_overrides: {streaming: true, tools: true}
+
 llmRoutes:
   - id: codex-glm-coding-plan
     protocol: openai
@@ -306,8 +312,13 @@ llmRoutes:
       require_virtual_key: true
 
     target_policy:
-      provider_target:
-        provider_id: glm-coding-plan
+      type: models
+      default_model: gpt-4.1
+      model_targets:
+        - name: gpt-4.1
+          kind: provider-model
+          provider_id: glm-coding-plan
+          upstream_model: gpt-4.1
 
     execution_policy:
       type: request_pipeline

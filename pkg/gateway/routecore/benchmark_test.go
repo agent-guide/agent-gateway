@@ -15,7 +15,7 @@ func BenchmarkRouteMatching(b *testing.B) {
 			for i := range routes {
 				routes[i] = RouteConfig{ID: fmt.Sprint(i), Kind: RouteKindLLM, Protocol: RouteProtocolOpenAI,
 					MatchPolicy:  RouteMatchPolicy{PathPrefix: fmt.Sprintf("/routes/%04d/", i), Methods: []string{"POST"}},
-					TargetPolicy: json.RawMessage(`{"type":"direct-provider","provider_target":{"provider_id":"main"}}`)}
+					TargetPolicy: json.RawMessage(`{"type":"models","default_model":"gpt-4.1","model_targets":[{"name":"gpt-4.1","kind":"provider-model","provider_id":"main","upstream_model":"gpt-4.1"}]}`)}
 			}
 			m := NewRouteConfigManager(nil)
 			m.InitStaticRoutes(routes)

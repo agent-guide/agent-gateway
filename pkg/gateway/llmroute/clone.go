@@ -1,33 +1,16 @@
 package llmroute
 
-import "fmt"
-
-// Clone keeps the compiled target cache private; validation and execution may
+// Clone keeps target slices private; validation and execution may
 // normalize their own copy without mutating another request's route generation.
-func (r LLMRoute) Clone() (LLMRoute, error) {
+func (r LLMRoute) Clone() LLMRoute {
 	r.RouteMetadata = r.RouteMetadata.Clone()
-	switch p := r.TargetPolicy.(type) {
-	case nil:
-	case *RouteDirectProviderPolicy:
-		if p != nil {
-			copy := *p
-			copy.RouteTargetPolicyCommon = clonePolicyCommon(p.RouteTargetPolicyCommon)
-			r.TargetPolicy = &copy
-		}
-	case *RouteLogicalModelTargetPolicy:
-		if p != nil {
-			copy := *p
-			copy.RouteTargetPolicyCommon = clonePolicyCommon(p.RouteTargetPolicyCommon)
-			copy.ModelTargets = append([]RouteModelTarget(nil), p.ModelTargets...)
-			for i := range copy.ModelTargets {
-				copy.ModelTargets[i].Candidates = append([]RouteModelCandidate(nil), copy.ModelTargets[i].Candidates...)
-			}
-			r.TargetPolicy = &copy
-		}
-	default:
-		return LLMRoute{}, fmt.Errorf("unsupported route target policy %T", p)
+	if p := r.TargetPolicy; p != nil {
+		copy := *p
+		copy.RouteTargetPolicyCommon = clonePolicyCommon(p.RouteTargetPolicyCommon)
+		copy.ModelTargets = append([]RouteModelTarget(nil), p.ModelTargets...)
+		r.TargetPolicy = &copy
 	}
-	return r, nil
+	return r
 }
 
 func clonePolicyCommon(p RouteTargetPolicyCommon) RouteTargetPolicyCommon {

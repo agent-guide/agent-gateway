@@ -1,3 +1,8 @@
+# Admin LLM route JSON uses match_policy; unknown route fields are rejected.
+# LLM routes expose explicit ProviderModel or LogicalModel references.
+# Their JSON target_policy uses type: models; other policy types are rejected.
+# Static model declarations are read-only through Admin; edit this file to change them.
+# See gateway.bundle.llm.provider-model.yaml and gateway.bundle.llm.logical-model.yaml.
 # Routes publish as validated generations; matching uses the in-memory table.
 # Caddy Agent Gateway
 #
@@ -12,11 +17,13 @@
 # Static and dynamic routes share one match space. Equal-score intersecting
 # matches are rejected, including disabled routes; use distinct paths/hosts or
 # non-overlapping methods. Inspect old conflicts with scripts/repair-architecture-config.
-# Direct targets serialize only target_policy.provider_target.provider_id;
-# existing outer target_policy.provider_id fields require explicit conversion.
+# Each LLM route references either registered ProviderModels or LogicalModels.
+# ProviderModel targets use one Provider and real model names; cross-provider
+# selection and aliases belong to LogicalModels.
+# Legacy Provider-only targets require offline conversion with an explicit model list.
 # Agent budgets are unsupported: omit policy.budget or set it to null in Bundles.
 # Provider deletion requires detaching LLM routes and removing/rebinding its
-# credentials. ManagedModels are cleaned up atomically; secrets never cascade.
+# credentials. ProviderModels are cleaned up atomically; secrets never cascade.
 # Unconfirmed Agent/Provider writes expose GET .../{id}/mutation and
 # POST .../{id}/recover under their Admin family; recovery does not replay writes.
 #
@@ -44,11 +51,35 @@
 	}
 
 	agent_gateway {
-	# Admin-managed connectors use immutable id and editable display name.
-	# Execution edits/deletion require no Agent/MCP route references or active work.
-	# Display-only edits preserve sessions; disablement/revocation remain available.
-	# Optional host-owned HTTP connector egress policy (default: public HTTPS :443).
-	# http_api_policy_file /etc/agw/http-api-policy.json
+		# provider_model openai-main gpt-4.1 {
+		#     streaming true
+		#     tools true
+		# }
+		# provider_model deepseek-simulated-openai deepseek-chat {
+		#     streaming true
+		#     tools true
+		# }
+		# provider_model zhipu-anthropic-for-cc glm-5.2[1m] {
+		#     streaming true
+		#     tools true
+		# }
+		# provider_model zhipu-for-codex glm-5.2 {
+		#     streaming true
+		#     tools true
+		# }
+		# provider_model deepseek-for-codex deepseek-v4-pro {
+		#     streaming true
+		#     tools true
+		# }
+		# provider_model grok-main grok-4.6 {
+		#     streaming true
+		#     tools true
+		# }
+		# Admin-managed connectors use immutable id and editable display name.
+		# Execution edits/deletion require no Agent/MCP route references or active work.
+		# Display-only edits preserve sessions; disablement/revocation remain available.
+		# Optional host-owned HTTP connector egress policy (default: public HTTPS :443).
+		# http_api_policy_file /etc/agw/http-api-policy.json
 
 		config_store sqlite {
 			path ./data/configstore.db
@@ -81,7 +112,7 @@
 		# 	protocol openai
 		# 	path_prefix /
 		# 	require_virtual_key
-		# 	target provider openai-main
+		# 	target model openai-main gpt-4.1
 		# }
 
 		# Anthropic ingress -> OpenAI-compatible upstream simulation. Both
@@ -109,7 +140,7 @@
 		# 	protocol anthropic
 		# 	path_prefix /myanthropicprefix
 		# 	require_virtual_key
-		# 	target provider deepseek-simulated-openai
+		# 	target model deepseek-simulated-openai deepseek-chat
 		# }
 
 		# Claude Code -> Zhipu Anthropic Messages endpoint. Capability values are
@@ -129,7 +160,7 @@
 		# 	protocol cc
 		# 	path_prefix /cczp
 		# 	require_virtual_key false
-		# 	target provider zhipu-anthropic-for-cc
+		# 	target model zhipu-anthropic-for-cc glm-5.2[1m]
 		# }
 
 		# Codex -> Zhipu coding endpoint.
@@ -144,7 +175,7 @@
 		# 	protocol openai
 		# 	path_prefix /codexzpchat
 		# 	require_virtual_key false
-		# 	target provider zhipu-for-codex
+		# 	target model zhipu-for-codex glm-5.2
 		# }
 
 		# Codex -> DeepSeek endpoint.
@@ -158,7 +189,7 @@
 		# 	protocol openai
 		# 	path_prefix /codexdschat
 		# 	require_virtual_key false
-		# 	target provider deepseek-for-codex
+		# 	target model deepseek-for-codex deepseek-v4-pro
 		# }
 
 		# OpenAI / Codex / Claude Code -> xAI Grok.
@@ -172,7 +203,7 @@
 		# 	protocol openai
 		# 	path_prefix /grok
 		# 	require_virtual_key false
-		# 	target provider grok-main
+		# 	target model grok-main grok-4.6
 		# }
 		# The openai protocol also serves POST /grok/v1/responses. Use that
 		# path for previous_response_id and server tools such as web_search.
@@ -210,10 +241,10 @@
 
 http://localhost:8019 {
 	# Admin routes
- # All Admin bodies are fully checked before dispatch: 4 MiB maximum (413),
- # compressed bodies unsupported (415). Linked module Admin subroutes under
- # /admin/extensions/<module_id>/... inherit this mount's authentication.
- # Module mutation events capture trusted request identity at Admin dispatch.
+	# All Admin bodies are fully checked before dispatch: 4 MiB maximum (413),
+	# compressed bodies unsupported (415). Linked module Admin subroutes under
+	# /admin/extensions/<module_id>/... inherit this mount's authentication.
+	# Module mutation events capture trusted request identity at Admin dispatch.
 	route /admin/* {
 		# Exempt the public health probe and credential-free CORS preflight.
 		@needauth {

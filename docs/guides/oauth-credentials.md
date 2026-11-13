@@ -7,7 +7,7 @@ Admin API.
 
 ## Login
 
-Create the target provider in Agent Gateway first, then run `agw-auth` on the
+Create the target model gpt-4.1 in gpt-4.1 Agent Gateway first, then run `agw-auth` on the
 machine where the browser or device flow should happen:
 
 ```bash

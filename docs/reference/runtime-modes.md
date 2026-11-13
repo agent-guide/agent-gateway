@@ -20,11 +20,11 @@
   the default is 16,777,216 (16 MiB), `0` selects that default, and negative
   values are invalid. For example, `67108864` allows 64 MiB.
 
-Current static config restriction:
+Static model configuration:
 
-- `agwd --static-config` `llmRoutes` only support direct-provider targets
-- `agwd --static-config` does not support `managedModels`
-- create logical-model routes and managed models through the Admin API or bundle workflows
+- `agwd --static-config` supports `providerModels`, `logicalModels`, and explicit route references
+- static models are read-only through Admin; static/dynamic identity conflicts fail loading
+- use the Admin API or online Bundle apply for dynamic models and routes
 
 ## `agwctl`
 
@@ -46,7 +46,7 @@ Recommended workflows:
 
 Bundle YAML examples used by current workflows:
 
-- `examples/gateway.bundle.llm.direct-provider.yaml`
+- `examples/gateway.bundle.llm.provider-model.yaml`
 - `examples/gateway.bundle.llm.logical-model.yaml`
 
 ## Related Docs

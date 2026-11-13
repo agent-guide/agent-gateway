@@ -27,7 +27,7 @@ func TestValidateDefinitionRejectsRouteWithoutAnyTargetMode(t *testing.T) {
 func TestValidateDefinitionRejectsTargetWithoutCandidates(t *testing.T) {
 	err := (LLMRoute{
 		RouteMetadata: RouteMetadata{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
-		TargetPolicy: &RouteLogicalModelTargetPolicy{
+		TargetPolicy: &RouteModelPolicy{
 			ModelTargets: []RouteModelTarget{{
 				Name: "chat-fast",
 			}},
@@ -41,8 +41,8 @@ func TestValidateDefinitionRejectsTargetWithoutCandidates(t *testing.T) {
 func TestValidateDefinitionRejectsMissingProtocol(t *testing.T) {
 	err := (LLMRoute{
 		RouteMetadata: RouteMetadata{ID: "chat-prod"},
-		TargetPolicy: &RouteDirectProviderPolicy{
-			ProviderTarget: DirectProviderTarget{ProviderID: "openai"},
+		TargetPolicy: &RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai", UpstreamModel: "gpt-4.1"}},
 		},
 	}).ValidateDefinition()
 	if err == nil {
@@ -50,11 +50,11 @@ func TestValidateDefinitionRejectsMissingProtocol(t *testing.T) {
 	}
 }
 
-func TestValidateDefinitionAllowsDirectProviderWithoutModelTargets(t *testing.T) {
+func TestValidateDefinitionAllowsConcreteModelReference(t *testing.T) {
 	err := (LLMRoute{
 		RouteMetadata: RouteMetadata{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
-		TargetPolicy: &RouteDirectProviderPolicy{
-			ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
+		TargetPolicy: &RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}},
 		},
 	}).ValidateDefinition()
 	if err != nil {
@@ -62,11 +62,11 @@ func TestValidateDefinitionAllowsDirectProviderWithoutModelTargets(t *testing.T)
 	}
 }
 
-func TestProviderIDsReturnsDirectProviderID(t *testing.T) {
+func TestProviderIDsReturnsConcreteBindingProvider(t *testing.T) {
 	ids := (LLMRoute{
 		RouteMetadata: RouteMetadata{ID: "chat-prod"},
-		TargetPolicy: &RouteDirectProviderPolicy{
-			ProviderTarget: DirectProviderTarget{ProviderID: "openai"},
+		TargetPolicy: &RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai", UpstreamModel: "gpt-4.1"}},
 		},
 	}).ProviderIDs()
 	if len(ids) != 1 {
@@ -77,88 +77,31 @@ func TestProviderIDsReturnsDirectProviderID(t *testing.T) {
 	}
 }
 
-func TestProviderIDsIncludesModelTargetProviders(t *testing.T) {
-	ids := (LLMRoute{
-		RouteMetadata: RouteMetadata{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
-		TargetPolicy: &RouteLogicalModelTargetPolicy{
-			ModelTargets: []RouteModelTarget{{
-				Name: "chat-fast",
-				Candidates: []RouteModelCandidate{
-					{ProviderID: "openai", UpstreamModel: "gpt-4.1-mini"},
-					{ProviderID: "zhipu", UpstreamModel: "glm-4.5-air"},
-				},
-			}},
-		},
-	}).ProviderIDs()
-	if len(ids) != 2 {
-		t.Fatalf("len(ProviderIDs) = %d, want 2", len(ids))
+func TestModelReferencesValidation(t *testing.T) {
+	cases := []struct {
+		name         string
+		targets      []RouteModelTarget
+		defaultModel string
+		valid        bool
+	}{
+		{"both kinds", []RouteModelTarget{{Name: "m", Kind: "provider-model", ProviderID: "p", UpstreamModel: "m"}, {Name: "logical", Kind: "logical-model", LogicalModelID: "l"}}, "logical", false},
+		{"one provider multiple models", []RouteModelTarget{{Kind: "provider-model", ProviderID: "p", UpstreamModel: "a"}, {Kind: "provider-model", ProviderID: "p", UpstreamModel: "b"}}, "a", true},
+		{"multiple providers", []RouteModelTarget{{Name: "a", Kind: "provider-model", ProviderID: "p", UpstreamModel: "a"}, {Name: "b", Kind: "provider-model", ProviderID: "q", UpstreamModel: "b"}}, "a", false},
+		{"provider alias", []RouteModelTarget{{Name: "chat", Kind: "provider-model", ProviderID: "p", UpstreamModel: "m"}}, "chat", false},
+		{"logical references", []RouteModelTarget{{Name: "chat", Kind: "logical-model", LogicalModelID: "l"}, {Name: "fast", Kind: "logical-model", LogicalModelID: "l2"}}, "chat", true},
+		{"empty", nil, "", false},
+		{"missing provider model", []RouteModelTarget{{Name: "m", Kind: "provider-model", ProviderID: "p"}}, "", false},
+		{"missing logical model", []RouteModelTarget{{Name: "m", Kind: "logical-model"}}, "", false},
+		{"mixed reference", []RouteModelTarget{{Name: "m", Kind: "logical-model", LogicalModelID: "l", ProviderID: "p"}}, "", false},
+		{"duplicate name", []RouteModelTarget{{Name: "m", Kind: "logical-model", LogicalModelID: "l"}, {Name: "m", Kind: "logical-model", LogicalModelID: "l2"}}, "", false},
+		{"unexposed default", []RouteModelTarget{{Name: "m", Kind: "logical-model", LogicalModelID: "l"}}, "other", false},
 	}
-	if ids[0] != "openai" || ids[1] != "zhipu" {
-		t.Fatalf("ProviderIDs = %#v, want [openai zhipu]", ids)
-	}
-}
-
-func TestValidateDefinitionRejectsMultipleDefaultCandidateTargets(t *testing.T) {
-	err := (LLMRoute{
-		RouteMetadata: RouteMetadata{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
-		TargetPolicy: &RouteLogicalModelTargetPolicy{
-			DefaultModel: "chat-default",
-			ModelTargets: []RouteModelTarget{
-				{
-					Name: "code-default",
-					Candidates: []RouteModelCandidate{{
-						ProviderID:    "zhipu-main",
-						UpstreamModel: "glm-4.7",
-						Default:       true,
-					}},
-				},
-				{
-					Name: "chat-default",
-					Candidates: []RouteModelCandidate{{
-						ProviderID:    "deepseek-main",
-						UpstreamModel: "deepseek-v4-pro",
-						Default:       true,
-					}},
-				},
-			},
-		},
-	}).ValidateDefinition()
-	if err == nil {
-		t.Fatal("ValidateDefinition returned nil error, want conflicting default candidate rejection")
-	}
-	if !strings.Contains(err.Error(), "default candidates must belong to a single target model") {
-		t.Fatalf("ValidateDefinition error = %q, want conflicting default candidate rejection", err)
-	}
-}
-
-func TestValidateDefinitionRejectsDefaultCandidateTargetMismatch(t *testing.T) {
-	err := (LLMRoute{
-		RouteMetadata: RouteMetadata{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
-		TargetPolicy: &RouteLogicalModelTargetPolicy{
-			DefaultModel: "chat-default",
-			ModelTargets: []RouteModelTarget{
-				{
-					Name: "code-default",
-					Candidates: []RouteModelCandidate{{
-						ProviderID:    "zhipu-main",
-						UpstreamModel: "glm-4.7",
-						Default:       true,
-					}},
-				},
-				{
-					Name: "chat-default",
-					Candidates: []RouteModelCandidate{{
-						ProviderID:    "deepseek-main",
-						UpstreamModel: "deepseek-v4-pro",
-					}},
-				},
-			},
-		},
-	}).ValidateDefinition()
-	if err == nil {
-		t.Fatal("ValidateDefinition returned nil error, want default_model mismatch rejection")
-	}
-	if !strings.Contains(err.Error(), `default candidate target "code-default" must match default_model "chat-default"`) {
-		t.Fatalf("ValidateDefinition error = %q, want default_model mismatch rejection", err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := RouteModelPolicy{DefaultModel: tc.defaultModel, ModelTargets: tc.targets}
+			if err := p.ValidateDefinition("r"); (err == nil) != tc.valid {
+				t.Fatalf("ValidateDefinition()=%v valid=%v", err, tc.valid)
+			}
+		})
 	}
 }

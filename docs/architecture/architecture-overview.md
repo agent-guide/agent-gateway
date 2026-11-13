@@ -124,7 +124,7 @@ The app owns both:
 
 Static route limitation:
 
-- Caddyfile routes only support direct-provider targets
+- Caddyfile routes expose explicitly declared concrete/logical models
 - logical-model routes are configured through the Admin API and config-store-backed workflows
 
 This is the key design choice in the project: transport adapters are intentionally thin, `internal/runtimeassembly` constructs the shared credential/scheduler and usage services for both `agw` and `agwd`, and `pkg/gateway` owns the reusable gateway services. Each host owns its returned service handles. The common lifecycle stops Gateway producers, drains usage and then closes the storage connection with a bounded, idempotent shutdown; see [server service assembly](../design/server-assembly.md). Usage construction borrows the configuration database; SQLite sink initialization failure preserves serving with an in-memory pipeline and no historical query, Prometheus or OTLP service.
@@ -240,7 +240,7 @@ Important characteristics:
 - model listing is supported
 - embeddings are optional through `EmbeddingProvider`
 - providers expose capability metadata and runtime config
-- logical-model resolution filters managed-model capabilities for generic
+- logical-model resolution filters provider-model capabilities for generic
   request needs such as client tools, and performs generic set inclusion over
   AST-derived protocol requirements and provider-type atomic features before
   credential selection
@@ -290,7 +290,7 @@ It persists:
 - route definitions of all three kinds in one `routes` store
 - virtual keys
 - upstream provider credentials
-- managed model overlays
+- provider model overlays
 - MCP connector definitions
 - Agent definitions (including inline ACP runtime config)
 - linked-module extension envelopes
@@ -301,7 +301,7 @@ writes, queries and retention. Assembly borrows the backend's generic Database
 handle, so configuration and usage share one file/connection without ConfigStore
 importing observability. The host closes the connection after usage drains.
 
-The runtime storage API is schema-bound. `ConfigStoreBackend.Register(name, schema)` validates a schema, prepares storage, creates a schema-bound generic `ConfigStore`, and caches it. `ConfigStoreBackend.Get(name)` returns the cached store. Startup registers `providers`, `credentials`, `routes`, `virtual_keys`, `managed_models`, `connectors`, `agents`, and `extensions`. Generic store interfaces and schema primitives live under `pkg/configstore/`; built-in business schemas live under `pkg/configstore/schema/`. Logical store names need not equal physical tables: managed models use `model_configs`, and credentials retain the historical `cliauth_credentials` table to preserve existing data.
+The runtime storage API is schema-bound. `ConfigStoreBackend.Register(name, schema)` validates a schema, prepares storage, creates a schema-bound generic `ConfigStore`, and caches it. `ConfigStoreBackend.Get(name)` returns the cached store. Startup registers `providers`, `credentials`, `routes`, `virtual_keys`, `provider_models`, `logical_models`, `connectors`, `agents`, and `extensions`. Generic store interfaces and schema primitives live under `pkg/configstore/`; built-in business schemas live under `pkg/configstore/schema/`. Logical store names need not equal physical tables: provider models use `model_configs`, and credentials retain the historical `cliauth_credentials` table to preserve existing data.
 
 The config store is important for one reason beyond persistence: it allows some route and provider updates to take effect dynamically without rewriting the entire Caddy config.
 
@@ -389,10 +389,11 @@ Static route parsing is intentionally small right now. Supported route subdirect
 
 - `protocol`, `host`, `path_prefix`, and `method`
 - `require_virtual_key [true|false]`
-- `target provider <provider-id>`
-- `target_policy direct-provider { ... }` with provider and credential-selection settings
+- `target model <provider-id> <upstream-model>`
+- `target logical <name> <logical-model-id>`
+- `target_policy models { ... }` with explicit model targets and credential-selection settings
 
-The Go route model is richer than the current static config grammar. That mismatch is intentional: the runtime and Admin API support logical-model routes, while Caddyfile and standalone startup config only accept direct-provider routes to keep static bootstrap simpler.
+Static configuration and Admin/Bundle management share the same model reference contract. Static definitions are read-only through Admin; conflicting static/dynamic model identities fail loading.
 
 ### 5.2 Dynamic Persisted Configuration
 
@@ -424,29 +425,39 @@ The generic persisted envelope is `routecore.RouteConfig` for every route kind. 
 and timestamps. The JSON fields are `auth_policy`, `match_policy`, and
 `target_policy`; there is no generic route-level `Policy` field.
 
+LLM route JSON decoding rejects unknown fields, including nested match/auth fields.
+An empty match is a catch-all; a misspelled `match` field is rejected.
+
 Typed decoding produces `llmroute.LLMRoute`, `mcproute.MCPRoute`,
 or `agentroute.AgentRouteConfig`; these same strongly typed values serve Admin
 and runtime resolution. No separate empty runtime State or forwarding Config
 object remains. Each typed value embeds target-free `RouteMetadata`, so raw JSON
 and writable decoded targets cannot coexist. The manager publishes an immutable
 matching table, and kind resolvers privately cache compiled targets by full content
-fingerprint and return defensive copies. See [route generations](../design/route-generations.md). LLM targets select a direct provider or
-logical-model candidates. MCP targets select a service; Agent targets select
+fingerprint and return defensive copies. See [route generations](../design/route-generations.md). LLM targets select
+explicit ProviderModel or LogicalModel references. MCP targets select a connector; Agent targets select
 an Agent whose runtime definition chooses ACP, builtin, or HTTP execution.
 
-LLM `RouteTargetPolicy` implementations own credential selection and, for
-logical-model routes, allowed target names, candidate selection and fallback.
-The direct policy stores only `ProviderTarget.ProviderID`, serialized as
-`target_policy.provider_target.provider_id`. The removed outer policy
-`provider_id` is explicitly rejected at decoding and publication boundaries.
-Existing data requires explicit offline conversion; conflicting old values
-require an operator-selected target. Logical targets carry `ModelTargets` instead.
+LLM `LLMRoute.TargetPolicy` is a concrete `*RouteModelPolicy` that owns credential
+selection and explicit model exposure. JSON decoding validates this concrete policy
+directly, including the `type: models` discriminator, without interface dispatch.
+`type: models` targets have a route-visible name and either
+`kind: provider-model` with a concrete compound identity, or `kind: logical-model`
+with `logical_model_id`. Routes cannot mix target kinds. ProviderModel routes
+expose one Provider's models under their real upstream names (`name` defaults to
+`upstream_model`; different aliases are rejected). Cross-provider selection and
+aliases use LogicalModels. ProviderModel owns concrete
+capabilities/enablement/credential scope; independent LogicalModel owns candidate
+references, strategy and fallback. Routes never embed candidate definitions.
+Every target resolves a registered model; Provider-only routes and unexposed upstream names are rejected. All model resolution reads
+snapshots; discovery runs only through management operations. Failed model Refresh
+retains the last validated generation. Referenced model deletion is rejected under
+the shared control-plane coordinator, including disabled references.
 
 Routes do not define a general timeout, retry, quota, or rate-limit policy.
 Provider network configuration owns upstream timeouts and retry settings;
 VirtualKeys own route access and per-kind rate-limit policies, enforced through
-the configured admission backend. Logical-model fallback belongs to the LLM
-target policy, not a generic HTTP route policy.
+the configured admission backend. Candidate fallback belongs to the independent LogicalModel definition.
 
 Matching prefers longer path prefixes, then a declared host, then declared
 methods. Configuration publication rejects intersecting matches with identical
@@ -471,7 +482,7 @@ Provider resolution currently combines:
 - statically provisioned provider instances from the active runtime assembly
 - dynamically decoded provider configs from the config store
 
-This allows the request path to resolve a named target provider without hard-coding the source of truth to either the Caddyfile or the database alone.
+This allows the request path to resolve a named target model gpt-4.1 without gpt-4.1 hard-coding the source of truth to either the Caddyfile or the database alone.
 
 Provider config `options.compact` selects compatibility shaping. The parser
 recognizes `cc`, `codex`, and `none`; application and validation depend on the
@@ -525,7 +536,7 @@ HTTP request
   -> strip matched path prefix and parse the protocol request
   -> derive generic capabilities and AST-based atomic protocol requirements
   -> serve local operations without target/provider/credential resolution
-  -> otherwise resolve eligible logical-model binding or direct-provider target
+  -> otherwise resolve an exposed ProviderModel/LogicalModel
   -> select credential and refresh expiring OAuth token when required
   -> resolve provider instance and execute the prepared operation
   -> write protocol JSON/SSE, including validated native relay when eligible
@@ -572,7 +583,7 @@ guards to composed managers, so direct calls, Admin and Bundle use the same
 reference checks. It serializes Provider/Route/model and credential ownership
 mutations; Agent mutation acquires its own write lock before coordination.
 Provider deletion rejects remaining LLM routes and Provider credentials and
-removes the Provider plus all of its ManagedModels in one SQLite transaction.
+removes the Provider plus all of its ProviderModels in one SQLite transaction.
 Readback precedes commit; cache retirement follows commit and fences in-flight
 model discovery. Backends without transactions cannot perform this atomic
 deletion. Persistence and runtime snapshot publication remain separate facts;
@@ -595,7 +606,7 @@ See [configuration recovery](../guides/architecture-config-recovery.md).
 
 ```text
 agw-auth login
-  -> resolve the target provider through the Gateway Admin API
+  -> resolve the target model gpt-4.1 through gpt-4.1 the Gateway Admin API
   -> run the interactive provider OAuth flow locally
   -> POST the resulting oauth_token to /admin/credentials
   -> Gateway selects and refreshes that credential on model requests
@@ -847,3 +858,5 @@ remains available. Dormant old handles reject changed execution generations;
 shutdown cancels work and waits within the host budget with inspectable errors.
 Builtin definition retirement removes stale graphs and permission checkpoints
 without reference-counting immutable configuration memory.
+
+LLM `GET /v1/models` lists the matched route’s exposed model names directly from its published policy. Listing requires neither a default model nor Provider, catalog, credential or discovery resolution.

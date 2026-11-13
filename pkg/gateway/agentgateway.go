@@ -41,24 +41,26 @@ import (
 )
 
 type BootstrapOptions struct {
-	HTTPClientObserver  func(context.Context, httpapi.HTTPExecution, time.Time)
-	HTTPAPIPolicyFile   string
-	EventPublisher      event.Publisher
-	ExtensionRegistry   *extension.Registry
-	Distribution        distribution.Assembly
-	StaticLLMRoutes     []routecore.RouteConfig
-	StaticMCPRoutes     []routecore.RouteConfig
-	StaticAgentRoutes   []routecore.RouteConfig
-	StaticProviders     map[string]provider.Provider
-	ConfigStoreBackend  configstore.ConfigStoreBackend
-	CredentialManager   *credential.Manager
-	CredentialScheduler credentialscheduler.CredentialScheduler
-	UsageObserver       usage.InteractionObserver
-	UsageQuery          usage.QueryService
-	UsageStats          usage.RuntimeStats
-	UsagePrometheus     usage.PrometheusProvider
-	UsageConfig         usage.Config
-	Logger              *zap.Logger
+	HTTPClientObserver   func(context.Context, httpapi.HTTPExecution, time.Time)
+	HTTPAPIPolicyFile    string
+	EventPublisher       event.Publisher
+	ExtensionRegistry    *extension.Registry
+	Distribution         distribution.Assembly
+	StaticProviderModels []modelcatalog.ProviderModel
+	StaticLogicalModels  []modelcatalog.LogicalModel
+	StaticLLMRoutes      []routecore.RouteConfig
+	StaticMCPRoutes      []routecore.RouteConfig
+	StaticAgentRoutes    []routecore.RouteConfig
+	StaticProviders      map[string]provider.Provider
+	ConfigStoreBackend   configstore.ConfigStoreBackend
+	CredentialManager    *credential.Manager
+	CredentialScheduler  credentialscheduler.CredentialScheduler
+	UsageObserver        usage.InteractionObserver
+	UsageQuery           usage.QueryService
+	UsageStats           usage.RuntimeStats
+	UsagePrometheus      usage.PrometheusProvider
+	UsageConfig          usage.Config
+	Logger               *zap.Logger
 	// ACPRuntime overrides the native ACP turn server the registered ACP
 	// backend drives. Nil uses the process-pool runtime manager. Tests inject
 	// a fake to exercise Agent-dispatched ACP execution without spawning
@@ -144,7 +146,15 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	}
 	g.configureConfigStoreBackend(opts.ConfigStoreBackend)
 	staticRoutes := make([]routecore.RouteConfig, 0, len(opts.StaticLLMRoutes)+len(opts.StaticMCPRoutes)+len(opts.StaticAgentRoutes))
-	staticRoutes = append(staticRoutes, opts.StaticLLMRoutes...)
+	for _, cfg := range opts.StaticLLMRoutes {
+		if cfg.Kind == "" {
+			cfg.Kind = routecore.RouteKindLLM
+		}
+		if cfg.Kind != routecore.RouteKindLLM {
+			return fmt.Errorf("static LLM route %q has wrong kind", cfg.ID)
+		}
+		staticRoutes = append(staticRoutes, cfg)
+	}
 	staticRoutes = append(staticRoutes, opts.StaticMCPRoutes...)
 	staticRoutes = append(staticRoutes, opts.StaticAgentRoutes...)
 	if err := g.configureRouteResolver(ctx, opts.ConfigStoreBackend, staticRoutes); err != nil {
@@ -181,7 +191,7 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	g.usagePrometheus = opts.UsagePrometheus
 	g.usageConfig = opts.UsageConfig.Normalized()
 	g.logger = opts.Logger
-	if err := g.configureModelCatalog(ctx, opts.ConfigStoreBackend, opts.Logger); err != nil {
+	if err := g.configureModelCatalog(ctx, opts.ConfigStoreBackend, opts.Logger, modelcatalog.StaticModels{ProviderModels: opts.StaticProviderModels, LogicalModels: opts.StaticLogicalModels}); err != nil {
 		return err
 	}
 	// Concrete runtime assembly consumes only explicitly injected capabilities.
@@ -754,7 +764,7 @@ func (g *AgentGateway) configureProviderResolver(ctx context.Context, configStor
 	return nil
 }
 
-func (g *AgentGateway) configureModelCatalog(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend, logger *zap.Logger) error {
+func (g *AgentGateway) configureModelCatalog(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend, logger *zap.Logger, static modelcatalog.StaticModels) error {
 	_ = ctx
 	if g.modelCatalog != nil {
 		return fmt.Errorf("model catalog is not nil")
@@ -763,7 +773,7 @@ func (g *AgentGateway) configureModelCatalog(ctx context.Context, configStoreBac
 	var modelStore configstore.ConfigStore
 	if configStoreBackend != nil {
 		var err error
-		modelStore, err = configStoreBackend.Get(schema.StoreManagedModels)
+		modelStore, err = configStoreBackend.Get(schema.StoreProviderModels)
 		if err != nil {
 			return fmt.Errorf("get model store: %w", err)
 		}
@@ -771,6 +781,27 @@ func (g *AgentGateway) configureModelCatalog(ctx context.Context, configStoreBac
 	g.modelCatalog = modelcatalog.NewService(modelStore, g.providerManager, logger, g.control.modelMutation)
 	g.control.models = g.modelCatalog
 	g.control.modelStore = modelStore
+	var logicalStore configstore.ConfigStore
+	if configStoreBackend != nil {
+		var err error
+		logicalStore, err = configStoreBackend.Get(schema.StoreLogicalModels)
+		if err != nil {
+			return err
+		}
+	}
+	if err := modelcatalog.ConfigureLogicalModels(g.modelCatalog, logicalStore, g.control.logicalModelMutation, g.control.validateModelGeneration, static); err != nil {
+		return fmt.Errorf("load model catalog: %w; inspect with scripts/repair-architecture-config", err)
+	}
+	if err := g.routeConfigManager.SetReferenceValidator(func(routes []routecore.RouteConfig) error {
+		for _, cfg := range routes {
+			if err := g.control.validateRouteModelReferences(context.Background(), cfg); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("validate model references: %w; inspect with scripts/repair-architecture-config", err)
+	}
 	return nil
 }
 

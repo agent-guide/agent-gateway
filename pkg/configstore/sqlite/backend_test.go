@@ -89,19 +89,19 @@ func TestStoreGetByIndexVirtualKey(t *testing.T) {
 	}
 }
 
-func TestStoreCompositePrimaryKeyManagedModel(t *testing.T) {
+func TestStoreCompositePrimaryKeyProviderModel(t *testing.T) {
 	ctx := context.Background()
 	backend := newTestBackend(t)
-	if err := backend.Register(schema.StoreManagedModels, schema.ManagedModelSchema); err != nil {
+	if err := backend.Register(schema.StoreProviderModels, schema.ProviderModelSchema); err != nil {
 		t.Fatalf("register schema: %v", err)
 	}
 
-	store, err := backend.Get(schema.StoreManagedModels)
+	store, err := backend.Get(schema.StoreProviderModels)
 	if err != nil {
 		t.Fatalf("build store: %v", err)
 	}
 
-	model := &modelcatalog.ManagedModel{ProviderID: "openai-main", UpstreamModel: "gpt-4.1", Enabled: true}
+	model := &modelcatalog.ProviderModel{ProviderID: "openai-main", UpstreamModel: "gpt-4.1", Enabled: true}
 	if err := store.Create(ctx, model); err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestStoreCompositePrimaryKeyManagedModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	got, ok := gotAny.(*modelcatalog.ManagedModel)
+	got, ok := gotAny.(*modelcatalog.ProviderModel)
 	if !ok {
 		t.Fatalf("get type = %T", gotAny)
 	}
@@ -129,10 +129,10 @@ func TestStoreCompositePrimaryKeyManagedModel(t *testing.T) {
 func TestStoreInvalidKeyPartCount(t *testing.T) {
 	ctx := context.Background()
 	backend := newTestBackend(t)
-	if err := backend.Register(schema.StoreManagedModels, schema.ManagedModelSchema); err != nil {
+	if err := backend.Register(schema.StoreProviderModels, schema.ProviderModelSchema); err != nil {
 		t.Fatalf("register schema: %v", err)
 	}
-	store, err := backend.Get(schema.StoreManagedModels)
+	store, err := backend.Get(schema.StoreProviderModels)
 	if err != nil {
 		t.Fatalf("build store: %v", err)
 	}
@@ -161,10 +161,10 @@ func TestStoreUnknownIndexName(t *testing.T) {
 func TestStoreTagUnsupported(t *testing.T) {
 	ctx := context.Background()
 	backend := newTestBackend(t)
-	if err := backend.Register(schema.StoreManagedModels, schema.ManagedModelSchema); err != nil {
+	if err := backend.Register(schema.StoreProviderModels, schema.ProviderModelSchema); err != nil {
 		t.Fatalf("register schema: %v", err)
 	}
-	store, err := backend.Get(schema.StoreManagedModels)
+	store, err := backend.Get(schema.StoreProviderModels)
 	if err != nil {
 		t.Fatalf("build store: %v", err)
 	}

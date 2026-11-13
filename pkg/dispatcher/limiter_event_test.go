@@ -29,10 +29,10 @@ func TestConfiguredLimiterPublishesAllowDenyAndUnlimitedPublishesNothing(t *test
 		t.Run(name, func(t *testing.T) {
 			p := &admissionPublisher{}
 			g := gateway.NewAgentGateway()
-			if err := g.Bootstrap(context.Background(), gateway.BootstrapOptions{
+			if err := g.Bootstrap(context.Background(), gateway.BootstrapOptions{StaticProviderModels: fixtureProviderModels(mustRouteConfigs(t, []llmroute.LLMRoute{{RouteMetadata: llmroute.RouteMetadata{ID: "broad-route", Protocol: "local-stub", MatchPolicy: llmroute.RouteMatchPolicy{PathPrefix: "/"}, AuthPolicy: llmroute.RouteAuthPolicy{RequireVirtualKey: true}}, TargetPolicy: &llmroute.RouteModelPolicy{DefaultModel: "gpt-4.1", ModelTargets: []llmroute.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "unused", UpstreamModel: "gpt-4.1"}}}}}), &testConfigStoreBackend{store: singleVirtualKeyStore{keyID: "vk-1", key: "fixture-bearer", route: "broad-route", rateLimits: limits}}),
 				EventPublisher:     p,
 				ConfigStoreBackend: &testConfigStoreBackend{store: singleVirtualKeyStore{keyID: "vk-1", key: "fixture-bearer", route: "broad-route", rateLimits: limits}},
-				StaticLLMRoutes:    mustRouteConfigs(t, []llmroute.LLMRoute{{RouteMetadata: llmroute.RouteMetadata{ID: "broad-route", Protocol: "local-stub", MatchPolicy: llmroute.RouteMatchPolicy{PathPrefix: "/"}, AuthPolicy: llmroute.RouteAuthPolicy{RequireVirtualKey: true}}, TargetPolicy: &llmroute.RouteDirectProviderPolicy{ProviderTarget: llmroute.DirectProviderTarget{ProviderID: "unused"}}}}),
+				StaticLLMRoutes:    mustRouteConfigs(t, []llmroute.LLMRoute{{RouteMetadata: llmroute.RouteMetadata{ID: "broad-route", Protocol: "local-stub", MatchPolicy: llmroute.RouteMatchPolicy{PathPrefix: "/"}, AuthPolicy: llmroute.RouteAuthPolicy{RequireVirtualKey: true}}, TargetPolicy: &llmroute.RouteModelPolicy{DefaultModel: "gpt-4.1", ModelTargets: []llmroute.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "unused", UpstreamModel: "gpt-4.1"}}}}}),
 			}); err != nil {
 				t.Fatal(err)
 			}

@@ -1,6 +1,6 @@
 # Routes
 
-This guide covers how LLM routes work, how they match requests, and how to choose between direct-provider and logical-model routing.
+This guide covers how LLM routes work, how they match requests, and how to expose concrete and logical models.
 
 ## What A Route Does
 
@@ -11,7 +11,7 @@ At runtime a route decides:
 - which requests it matches
 - which wire protocol is used
 - whether a VirtualKey is required
-- whether traffic goes straight to one provider or first resolves a logical model target
+- which concrete ProviderModels and LogicalModels clients may select
 
 ## Route Matching
 
@@ -44,42 +44,41 @@ Current LLM route protocols are:
 
 - `openai`
 - `anthropic`
+- `cc`
 
 MCP uses `protocol mcp`, but MCP route behavior is documented separately.
 
-## Direct-Provider Mode
+## Model Targets
 
-Use direct-provider mode when one route should send traffic to one specific provider.
+All routes use `type: models` and explicitly expose ProviderModel or LogicalModel
+references. A ProviderModel route exposes models from one Provider, using their
+real upstream model names without aliases. A LogicalModel route exposes logical
+references and owns no candidate selection itself; the LogicalModel selects
+among registered ProviderModels and owns fallback. A route cannot mix kinds or
+use multiple Providers directly. Use separate routes or a LogicalModel instead.
 
-Static `agw` example:
+Request `model` selects a route-visible name. An omitted model uses the route's
+`default_model`; it never falls back to the Provider's default or bypasses the
+route's allowlist. See the [configuration guide](logical-model-routing.md).
+
+Static Caddyfile example:
 
 ```caddy
+provider_model openai-main gpt-4.1 {
+    streaming true
+    tools true
+}
 route openai-chat {
-	protocol openai
-	path_prefix /
-	require_virtual_key
-	target provider openai-main
+    protocol openai
+    path_prefix /
+    require_virtual_key
+    target model openai-main gpt-4.1
 }
 ```
 
-In direct-provider mode:
-
-- the route points at one `provider_id`
-- the request `model` is treated as the upstream model name
-- this is the only route mode accepted in Caddyfile routes and `agwd --static-config`
-
-## Logical-Model Mode
-
-Use logical-model mode when clients should send a route model name and let the gateway resolve it to one concrete provider and upstream model binding.
-
-Logical-model mode is supported through dynamic route management and bundle workflows. It is not accepted in Caddyfile routes.
-
-Typical logical-model route concepts:
-
-- `default_model`
-- `model_targets`
-- candidate selection strategy
-- fallback policy
+The first Caddyfile target becomes the default unless `default_model` is set
+explicitly. Clients use `model: gpt-4.1` in this example. Static model definitions
+are read-only through Admin; edit their source to change them.
 
 ## VirtualKey Policy
 
@@ -90,19 +89,12 @@ Accepted request headers:
 - `Authorization: Bearer <key>`
 - `x-api-key: <key>`
 
-## When To Use Which Mode
+## Choose A Target
 
-Use direct-provider mode when:
-
-- you want the simplest static configuration
-- one route maps cleanly to one provider
-- clients already send the upstream model name
-
-Use logical-model mode when:
-
-- you want one stable route model name for clients
-- you want provider or model indirection
-- you want candidate selection and fallback behavior at the gateway layer
+Use ProviderModel for a fixed upstream binding. Use LogicalModel for a stable
+model identity with candidate selection and fallback. Both require explicit
+registration and route exposure; adding a model to the catalog never expands
+an existing route's access.
 
 ## LLM Request Body Size
 

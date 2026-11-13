@@ -11,6 +11,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 )
 
 func writeControlPlaneError(w http.ResponseWriter, err error) bool {
@@ -18,7 +19,7 @@ func writeControlPlaneError(w http.ResponseWriter, err error) bool {
 	switch {
 	case errors.Is(err, configmgr.ErrMutationPending):
 		status = http.StatusServiceUnavailable
-	case errors.Is(err, gateway.ErrResourceReferenced), errors.Is(err, connector.ErrConnectorBusy):
+	case errors.Is(err, modelcatalog.ErrStaticModelReadOnly), errors.Is(err, gateway.ErrResourceReferenced), errors.Is(err, connector.ErrConnectorBusy):
 		status = http.StatusConflict
 	case errors.Is(err, gateway.ErrDependencyNotConfigured):
 		status = http.StatusBadRequest

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -37,7 +38,15 @@ func checkLimiterProcess(t *testing.T, ctx context.Context, base string, client 
 		}
 		return raw
 	}
-	adminWrite("POST", "/admin/llm/routes", `{"id":"limiter-proof","kind":"llm","protocol":"cc","auth_policy":{"require_virtual_key":true},"match_policy":{"path_prefix":"/limiter-proof"},"target_policy":{"provider_target":{"provider_id":"body-proof"}}}`, 201)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"gpt-4.1"}]}`)
+	}))
+	defer upstream.Close()
+	providerBody, _ := json.Marshal(map[string]string{"id": "limiter-provider", "provider_type": "openai", "base_url": upstream.URL + "/v1"})
+	adminWrite("POST", "/admin/llm/providers", string(providerBody), 201)
+	adminWrite("POST", "/admin/llm/models/provider", `{"provider_id":"limiter-provider","upstream_model":"gpt-4.1","enabled":true}`, 201)
+	adminWrite("POST", "/admin/llm/routes", `{"id":"limiter-proof","kind":"llm","protocol":"cc","auth_policy":{"require_virtual_key":true},"match_policy":{"path_prefix":"/limiter-proof"},"target_policy":{"default_model":"gpt-4.1","model_targets":[{"name":"gpt-4.1","kind":"provider-model","provider_id":"limiter-provider","upstream_model":"gpt-4.1"}]}}`, 201)
 	keyRaw := adminWrite("POST", "/admin/virtual_keys", `{"id":"limiter-proof","allowed_route_ids":["limiter-proof"],"rate_limits":{"llm":{"requests_per_minute":1,"burst":1}}}`, 201)
 	var key virtualkey.VirtualKey
 	if json.Unmarshal(keyRaw, &key) != nil || key.Key == "" {

@@ -19,16 +19,16 @@ func TestTransactionProviderAndModelDeletionIsAtomic(t *testing.T) {
 			if err := backend.Register(schema.StoreProviders, schema.ProviderConfigSchema); err != nil {
 				t.Fatal(err)
 			}
-			if err := backend.Register(schema.StoreManagedModels, schema.ManagedModelSchema); err != nil {
+			if err := backend.Register(schema.StoreProviderModels, schema.ProviderModelSchema); err != nil {
 				t.Fatal(err)
 			}
 			providers, _ := backend.Get(schema.StoreProviders)
-			models, _ := backend.Get(schema.StoreManagedModels)
+			models, _ := backend.Get(schema.StoreProviderModels)
 			if err := providers.Create(ctx, &provider.ProviderConfig{Id: "p", ProviderType: "openai"}); err != nil {
 				t.Fatal(err)
 			}
 			for _, name := range []string{"a", "b"} {
-				if err := models.Create(ctx, &modelcatalog.ManagedModel{ProviderID: "p", UpstreamModel: name}); err != nil {
+				if err := models.Create(ctx, &modelcatalog.ProviderModel{ProviderID: "p", UpstreamModel: name}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -38,12 +38,12 @@ func TestTransactionProviderAndModelDeletionIsAtomic(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			err := backend.(configstore.TransactionalBackend).Transaction(ctx, []string{schema.StoreProviders, schema.StoreManagedModels}, func(stores map[string]configstore.ConfigStore) error {
+			err := backend.(configstore.TransactionalBackend).Transaction(ctx, []string{schema.StoreProviders, schema.StoreProviderModels}, func(stores map[string]configstore.ConfigStore) error {
 				if err := stores[schema.StoreProviders].Delete(ctx, "p"); err != nil {
 					return err
 				}
 				for _, name := range []string{"a", "b"} {
-					if err := stores[schema.StoreManagedModels].Delete(ctx, "p", name); err != nil {
+					if err := stores[schema.StoreProviderModels].Delete(ctx, "p", name); err != nil {
 						return err
 					}
 				}

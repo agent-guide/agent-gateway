@@ -81,7 +81,17 @@ func (h *nextHandler) ServeHTTP(w http.ResponseWriter, _ *http.Request) error {
 
 func TestHandlerRequiresVirtualKeyBeforeLLMApiMatch(t *testing.T) {
 	gw := gateway.NewAgentGateway()
-	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
+	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{StaticProviderModels: fixtureProviderModels(mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
+		RouteMetadata: llmroutepkg.RouteMetadata{
+			ID:          "broad-route",
+			Protocol:    llmroutepkg.RouteProtocol("stub"),
+			MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
+			AuthPolicy:  llmroutepkg.RouteAuthPolicy{RequireVirtualKey: true},
+		},
+		TargetPolicy: &llmroutepkg.RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai", UpstreamModel: "gpt-4.1"}},
+		},
+	}}), nil),
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
 			RouteMetadata: llmroutepkg.RouteMetadata{
 				ID:          "broad-route",
@@ -89,10 +99,8 @@ func TestHandlerRequiresVirtualKeyBeforeLLMApiMatch(t *testing.T) {
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
 				AuthPolicy:  llmroutepkg.RouteAuthPolicy{RequireVirtualKey: true},
 			},
-			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-				ProviderTarget: llmroutepkg.DirectProviderTarget{
-					ProviderID: "openai",
-				},
+			TargetPolicy: &llmroutepkg.RouteModelPolicy{
+				DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai", UpstreamModel: "gpt-4.1"}},
 			},
 		}}),
 	}); err != nil {
@@ -117,10 +125,13 @@ func TestHandlerRequiresVirtualKeyBeforeLLMApiMatch(t *testing.T) {
 
 func TestHandlerLocalExecutionSkipsRoutedProvider(t *testing.T) {
 	gw := gateway.NewAgentGateway()
-	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
+	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{StaticProviderModels: fixtureProviderModels(mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
+		RouteMetadata: llmroutepkg.RouteMetadata{ID: "local-route", Protocol: llmroutepkg.RouteProtocol("local-stub"), MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"}},
+		TargetPolicy:  &llmroutepkg.RouteModelPolicy{DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "must-not-resolve", UpstreamModel: "gpt-4.1"}}},
+	}}), nil),
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
 			RouteMetadata: llmroutepkg.RouteMetadata{ID: "local-route", Protocol: llmroutepkg.RouteProtocol("local-stub"), MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"}},
-			TargetPolicy:  &llmroutepkg.RouteDirectProviderPolicy{ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "must-not-resolve"}},
+			TargetPolicy:  &llmroutepkg.RouteModelPolicy{DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "must-not-resolve", UpstreamModel: "gpt-4.1"}}},
 		}}),
 	}); err != nil {
 		t.Fatal(err)
@@ -146,7 +157,24 @@ func TestRequirementGapHasBoundedRejectionErrorType(t *testing.T) {
 func TestHandlerRateLimitsBeforeLLMApiMatchAndRecordsOutcome(t *testing.T) {
 	sink := &builtinCaptureSink{}
 	gw := gateway.NewAgentGateway()
-	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
+	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{StaticProviderModels: fixtureProviderModels(mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
+		RouteMetadata: llmroutepkg.RouteMetadata{
+			ID:          "broad-route",
+			Protocol:    llmroutepkg.RouteProtocol("stub"),
+			MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
+			AuthPolicy:  llmroutepkg.RouteAuthPolicy{RequireVirtualKey: true},
+		},
+		TargetPolicy: &llmroutepkg.RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "unused", UpstreamModel: "gpt-4.1"}},
+		},
+	}}), &testConfigStoreBackend{store: singleVirtualKeyStore{
+		keyID: "vk-1",
+		key:   "secret-key",
+		route: "broad-route",
+		rateLimits: &virtualkey.VirtualKeyRateLimits{
+			LLM: &virtualkey.RateLimit{RequestsPerMinute: 1, Burst: 1},
+		},
+	}}),
 		ConfigStoreBackend: &testConfigStoreBackend{store: singleVirtualKeyStore{
 			keyID: "vk-1",
 			key:   "secret-key",
@@ -162,8 +190,8 @@ func TestHandlerRateLimitsBeforeLLMApiMatchAndRecordsOutcome(t *testing.T) {
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
 				AuthPolicy:  llmroutepkg.RouteAuthPolicy{RequireVirtualKey: true},
 			},
-			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "unused"},
+			TargetPolicy: &llmroutepkg.RouteModelPolicy{
+				DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "unused", UpstreamModel: "gpt-4.1"}},
 			},
 		}}),
 		UsageObserver: usage.NewObserver(sink),
@@ -220,7 +248,24 @@ func TestHandlerRateLimitsBeforeLLMApiMatchAndRecordsOutcome(t *testing.T) {
 func TestHandlerRateLimitsStreamingRequestConsumesOneToken(t *testing.T) {
 	sink := &builtinCaptureSink{}
 	gw := gateway.NewAgentGateway()
-	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
+	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{StaticProviderModels: fixtureProviderModels(mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
+		RouteMetadata: llmroutepkg.RouteMetadata{
+			ID:          "broad-route",
+			Protocol:    llmroutepkg.RouteProtocol("stub"),
+			MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
+			AuthPolicy:  llmroutepkg.RouteAuthPolicy{RequireVirtualKey: true},
+		},
+		TargetPolicy: &llmroutepkg.RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "unused", UpstreamModel: "gpt-4.1"}},
+		},
+	}}), &testConfigStoreBackend{store: singleVirtualKeyStore{
+		keyID: "vk-1",
+		key:   "secret-key",
+		route: "broad-route",
+		rateLimits: &virtualkey.VirtualKeyRateLimits{
+			LLM: &virtualkey.RateLimit{RequestsPerMinute: 1, Burst: 1},
+		},
+	}}),
 		ConfigStoreBackend: &testConfigStoreBackend{store: singleVirtualKeyStore{
 			keyID: "vk-1",
 			key:   "secret-key",
@@ -236,8 +281,8 @@ func TestHandlerRateLimitsStreamingRequestConsumesOneToken(t *testing.T) {
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
 				AuthPolicy:  llmroutepkg.RouteAuthPolicy{RequireVirtualKey: true},
 			},
-			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "unused"},
+			TargetPolicy: &llmroutepkg.RouteModelPolicy{
+				DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "unused", UpstreamModel: "gpt-4.1"}},
 			},
 		}}),
 		UsageObserver: usage.NewObserver(sink),
@@ -281,7 +326,24 @@ func TestHandlerRateLimitsStreamingRequestConsumesOneToken(t *testing.T) {
 func TestHandlerRateLimit429WrittenThroughResponseRecorder(t *testing.T) {
 	sink := &builtinCaptureSink{}
 	gw := gateway.NewAgentGateway()
-	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
+	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{StaticProviderModels: fixtureProviderModels(mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
+		RouteMetadata: llmroutepkg.RouteMetadata{
+			ID:          "broad-route",
+			Protocol:    llmroutepkg.RouteProtocol("stub"),
+			MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
+			AuthPolicy:  llmroutepkg.RouteAuthPolicy{RequireVirtualKey: true},
+		},
+		TargetPolicy: &llmroutepkg.RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "unused", UpstreamModel: "gpt-4.1"}},
+		},
+	}}), &testConfigStoreBackend{store: singleVirtualKeyStore{
+		keyID: "vk-1",
+		key:   "secret-key",
+		route: "broad-route",
+		rateLimits: &virtualkey.VirtualKeyRateLimits{
+			LLM: &virtualkey.RateLimit{RequestsPerMinute: 1, Burst: 1},
+		},
+	}}),
 		ConfigStoreBackend: &testConfigStoreBackend{store: singleVirtualKeyStore{
 			keyID: "vk-1",
 			key:   "secret-key",
@@ -297,8 +359,8 @@ func TestHandlerRateLimit429WrittenThroughResponseRecorder(t *testing.T) {
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
 				AuthPolicy:  llmroutepkg.RouteAuthPolicy{RequireVirtualKey: true},
 			},
-			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "unused"},
+			TargetPolicy: &llmroutepkg.RouteModelPolicy{
+				DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "unused", UpstreamModel: "gpt-4.1"}},
 			},
 		}}),
 		UsageObserver: usage.NewObserver(sink),
@@ -360,7 +422,24 @@ func TestHandlerRateLimit429WrittenThroughResponseRecorder(t *testing.T) {
 func TestHandlerRateLimitConsumesTokenOnServeNextOrNotFound(t *testing.T) {
 	sink := &builtinCaptureSink{}
 	gw := gateway.NewAgentGateway()
-	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
+	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{StaticProviderModels: fixtureProviderModels(mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
+		RouteMetadata: llmroutepkg.RouteMetadata{
+			ID:          "broad-route",
+			Protocol:    llmroutepkg.RouteProtocol("stub"),
+			MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
+			AuthPolicy:  llmroutepkg.RouteAuthPolicy{RequireVirtualKey: true},
+		},
+		TargetPolicy: &llmroutepkg.RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "unused", UpstreamModel: "gpt-4.1"}},
+		},
+	}}), &testConfigStoreBackend{store: singleVirtualKeyStore{
+		keyID: "vk-1",
+		key:   "secret-key",
+		route: "broad-route",
+		rateLimits: &virtualkey.VirtualKeyRateLimits{
+			LLM: &virtualkey.RateLimit{RequestsPerMinute: 1, Burst: 1},
+		},
+	}}),
 		ConfigStoreBackend: &testConfigStoreBackend{store: singleVirtualKeyStore{
 			keyID: "vk-1",
 			key:   "secret-key",
@@ -376,8 +455,8 @@ func TestHandlerRateLimitConsumesTokenOnServeNextOrNotFound(t *testing.T) {
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
 				AuthPolicy:  llmroutepkg.RouteAuthPolicy{RequireVirtualKey: true},
 			},
-			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "unused"},
+			TargetPolicy: &llmroutepkg.RouteModelPolicy{
+				DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "unused", UpstreamModel: "gpt-4.1"}},
 			},
 		}}),
 		UsageObserver: usage.NewObserver(sink),
@@ -430,15 +509,24 @@ func TestRewriteLLMRoutePathStripsMatchedPrefix(t *testing.T) {
 
 func TestHandlerRejectsAgentDepthOverConfiguredLimit(t *testing.T) {
 	gw := gateway.NewAgentGateway()
-	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{
+	if err := gw.Bootstrap(context.Background(), gateway.BootstrapOptions{StaticProviderModels: fixtureProviderModels(mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
+		RouteMetadata: llmroutepkg.RouteMetadata{
+			ID:          "chat",
+			Protocol:    llmroutepkg.RouteProtocol("stub"),
+			MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
+		},
+		TargetPolicy: &llmroutepkg.RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "missing", UpstreamModel: "gpt-4.1"}},
+		},
+	}}), nil),
 		StaticLLMRoutes: mustRouteConfigs(t, []llmroutepkg.LLMRoute{{
 			RouteMetadata: llmroutepkg.RouteMetadata{
 				ID:          "chat",
 				Protocol:    llmroutepkg.RouteProtocol("stub"),
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/"},
 			},
-			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "missing"},
+			TargetPolicy: &llmroutepkg.RouteModelPolicy{
+				DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "missing", UpstreamModel: "gpt-4.1"}},
 			},
 		}}),
 		UsageConfig: usage.Config{MaxAgentDepth: 2},

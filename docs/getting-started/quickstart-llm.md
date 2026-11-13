@@ -39,11 +39,16 @@ Declare the provider and route in the Caddyfile with `require_virtual_key false`
 			default_model gpt-4.1
 		}
 
+		provider_model openai-main gpt-4.1 {
+			streaming true
+			tools true
+		}
+
 		route openai-chat {
 			protocol openai
 			path_prefix /
 			require_virtual_key false
-			target provider openai-main
+			target model openai-main gpt-4.1
 		}
 	}
 }
@@ -161,6 +166,12 @@ providers:
     provider_type: openai
     api_key: ${OPENAI_API_KEY}
     default_model: gpt-4.1
+providerModels:
+  - provider_id: openai-main
+    upstream_model: gpt-4.1
+    enabled: true
+    capability_overrides: {streaming: true, tools: true}
+
 llmRoutes:
   - id: openai-chat
     protocol: openai
@@ -169,8 +180,13 @@ llmRoutes:
     auth_policy:
       require_virtual_key: true
     target_policy:
-      provider_target:
-        provider_id: openai-main
+      type: models
+      default_model: gpt-4.1
+      model_targets:
+        - name: gpt-4.1
+          kind: provider-model
+          provider_id: openai-main
+          upstream_model: gpt-4.1
 virtualKeys:
   - id: test-key
     allowed_route_ids:

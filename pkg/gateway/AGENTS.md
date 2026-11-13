@@ -44,7 +44,7 @@ mutations acquire their write lock first, then coordination, then any route
 write lock. Never acquire the Agent mutation lock under coordination. Direct
 composed-manager calls have the same reference checks as Admin/Bundle.
 Provider deletion blocks all LLM route and Provider-credential references,
-including disabled entries, and deletes its ManagedModels in one SQLite
+including disabled entries, and deletes its ProviderModels in one SQLite
 transaction with readback before cache retirement. Unsupported transactions
 fail explicitly. Agent Resources declarations are retained as management links;
 HTTP credential revocation remains allowed and fails closed at live lookup.
@@ -92,41 +92,52 @@ Important types:
 
 - `LLMRoute`
 - `RouteMatchPolicy` and `RouteAuthPolicy`
-- `RouteTargetPolicy`
-- `DirectProviderTarget`
-- `RouteLogicalModelTargetPolicy` and `RouteDirectProviderPolicy`
-- `RouteFallbackPolicy`
+- `RouteModelPolicy`
+- `modelcatalog.LogicalModel`, `ModelCandidate`, `FallbackPolicy`
 
 The shared persisted envelope is `routecore.RouteConfig` for all kinds.
 There is no generic route-level timeout, retry, quota, or rate-limit policy.
 VirtualKeys own admission limits; Provider network settings own upstream
-timeouts/retries; logical-model targets own candidate fallback.
+timeouts/retries; independent LogicalModels own candidate fallback.
 
 Current route modes:
 
-- model-target mode: `target_policy.model_targets` with optional `default_model`
-- direct-provider mode: `target_policy.provider_target.provider_id`
+- `type: models`: `model_targets` explicitly references ProviderModels or LogicalModels under unique route-visible names, with optional `default_model`; no inline candidates or scheduling
 
-`RouteDirectProviderPolicy` holds only `ProviderTarget.ProviderID`. Do not add
-outer ProviderID aliases or dual-read normalization. Raw envelope validation,
-typed decoding, startup, mutations and Bundle reject the removed outer field;
-only the offline repair tool may classify and convert existing representations.
+Expanded LLM routes use a concrete `*RouteModelPolicy` target, never an interface.
+Policy JSON decoding owns discriminator and strict-field validation; only the
+shared `routecore.RouteConfig` envelope retains raw target JSON.
 
-Static config restriction:
+All LLM routes expose explicit model references; no Provider-only target or
+request-time upstream-name bypass remains. Reject removed fields at raw,
+typed, static and dynamic boundaries. The offline converter requires an explicit
+model allowlist and creates concrete model records in the same transaction.
 
-- Caddyfile routes and standalone `--static-config` bundle `llmRoutes` only support direct-provider mode
-- logical-model routes remain supported through the Admin API and config-store-backed bundle workflows
+Caddyfile/Caddy JSON and startup Bundles support both model resource families.
+Static definitions are read-only through Admin and remain snapshot-owned;
+static/dynamic identity conflicts fail publication. Provider defaults never
+choose a route model. Request resolution always uses model snapshots.
+
+LLM route JSON rejects unknown fields, including nested match/auth fields; use `match_policy`. An explicit empty match remains a catch-all.
 
 The route model uses `protocol` and `require_virtual_key`. Do not reintroduce the old `local API key` naming in new code or docs.
 
 ## `modelcatalog/`
 
-This package owns provider model discovery, managed model overlays, and runtime validation of concrete route candidates.
+This package owns ProviderModel discovery/facts and independent LogicalModel scheduling.
+ProviderModels retain compound `(provider_id, upstream_model)` identities; LogicalModels
+have stable IDs and candidate ProviderModel references. Both publish defensive snapshots;
+request resolution never reads ConfigStore or invokes discovery. Failed Refresh retains
+the last validated generation. Composed mutations share the control-plane coordinator.
+Route references block model deletion; logical candidates also block ProviderModel and
+Provider deletion, including disabled definitions. Old inline route definitions must use
+the offline `extract-models` repair; do not add runtime compatibility aliases.
 
 Important types:
 
-- `ManagedModel`
+- `ProviderModel`
 - `ProviderModelSnapshot`
+- `LogicalModel`, `ModelCandidate`, `SelectionStrategy`, `FallbackPolicy`
 
 ## `mcproute/`
 
@@ -343,3 +354,11 @@ The simplified Connector mutation contract additionally requires all execution
 edits/deletion to reject references or active/queued calls/discovery/initialization,
 with atomic admission/exclusion. Display edits keep sessions intact; explicit
 disablement/credential revocation remain possible. Preserve the same guards in direct manager calls, Refresh, Admin and Bundle. Do not introduce group transactions or old/new session drain.
+
+LLM data-plane model listing returns only route-visible target names from the published policy; it never invokes upstream discovery and requires no default model.
+
+LLM routes must use one model target kind. ProviderModel targets share one Provider
+and use real upstream model names; omitted target names derive from upstream_model,
+and differing aliases are rejected. LogicalModel routes own the exposed logical
+references; cross-provider selection and aliases belong to LogicalModels. Never
+mix target kinds. Caddyfile concrete syntax is `target model <provider-id> <upstream-model>`.

@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
@@ -18,7 +20,7 @@ type testManagedRouteStore struct {
 	getCalls int
 }
 
-func testLLMRoute(cfg RouteConfig, protocol RouteProtocol, targetPolicy RouteTargetPolicy) LLMRoute {
+func testLLMRoute(cfg RouteConfig, protocol RouteProtocol, targetPolicy *RouteModelPolicy) LLMRoute {
 	cfg.Protocol = protocol
 	return LLMRoute{
 		RouteMetadata: cfg.Metadata(),
@@ -118,8 +120,8 @@ func TestLLMRouteResolverGetCachesDecodedRoute(t *testing.T) {
 	store := &testManagedRouteStore{
 		items: map[string]*routecore.RouteConfig{
 			"chat-prod": func() *routecore.RouteConfig {
-				cfg := mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteDirectProviderPolicy{
-					ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
+				cfg := mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteModelPolicy{
+					DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}},
 				}))
 				return &cfg
 			}(),
@@ -145,8 +147,8 @@ func TestLLMRouteResolverGetCachesDecodedRoute(t *testing.T) {
 func TestLLMRouteResolverResolveCachesByFingerprint(t *testing.T) {
 	resolver := NewLLMRouteResolver(routecore.NewRouteConfigManager(nil))
 
-	base := mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteDirectProviderPolicy{
-		ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
+	base := mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteModelPolicy{
+		DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}},
 	}))
 	base.UpdatedAt = time.Unix(1000, 0).UTC()
 
@@ -179,8 +181,8 @@ func TestLLMRouteResolverGetRejectsStaticDynamicCollision(t *testing.T) {
 	store := &testManagedRouteStore{
 		items: map[string]*routecore.RouteConfig{
 			"chat-prod": func() *routecore.RouteConfig {
-				cfg := mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolAnthropic, &RouteDirectProviderPolicy{
-					ProviderTarget: DirectProviderTarget{ProviderID: "dynamic-provider"},
+				cfg := mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolAnthropic, &RouteModelPolicy{
+					DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "dynamic-provider", UpstreamModel: "gpt-4.1"}},
 				}))
 				return &cfg
 			}(),
@@ -188,8 +190,8 @@ func TestLLMRouteResolverGetRejectsStaticDynamicCollision(t *testing.T) {
 	}
 	manager := routecore.NewRouteConfigManager(store)
 	manager.InitStaticRoutes([]routecore.RouteConfig{
-		mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteDirectProviderPolicy{
-			ProviderTarget: DirectProviderTarget{ProviderID: "static-provider"},
+		mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "static-provider", UpstreamModel: "gpt-4.1"}},
 		})),
 	})
 	resolver := NewLLMRouteResolver(manager)
@@ -210,8 +212,8 @@ func TestRouteConfigManagerCreateUpdateDeleteManageCache(t *testing.T) {
 
 	createCfg := mustConfigFromRoute(t, LLMRoute{
 		RouteMetadata: RouteMetadata{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
-		TargetPolicy: &RouteDirectProviderPolicy{
-			ProviderTarget: DirectProviderTarget{ProviderID: "openai"},
+		TargetPolicy: &RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai", UpstreamModel: "gpt-4.1"}},
 		},
 	})
 	if err := manager.Create(context.Background(), createCfg, ""); err != nil {
@@ -237,8 +239,8 @@ func TestRouteConfigManagerCreateUpdateDeleteManageCache(t *testing.T) {
 
 	updateCfg := mustConfigFromRoute(t, LLMRoute{
 		RouteMetadata: RouteMetadata{Description: "updated", Protocol: RouteProtocolOpenAI},
-		TargetPolicy: &RouteDirectProviderPolicy{
-			ProviderTarget: DirectProviderTarget{ProviderID: "anthropic"},
+		TargetPolicy: &RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "anthropic", UpstreamModel: "gpt-4.1"}},
 		},
 	})
 	if err := manager.Update(context.Background(), "chat-prod", updateCfg); err != nil {
@@ -272,13 +274,13 @@ func TestRouteConfigManagerCreateUpdateDeleteManageCache(t *testing.T) {
 func TestRouteConfigManagerRejectsStaticRouteMutation(t *testing.T) {
 	manager := routecore.NewRouteConfigManager(&testManagedRouteStore{items: map[string]*routecore.RouteConfig{}})
 	manager.InitStaticRoutes([]routecore.RouteConfig{
-		mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteDirectProviderPolicy{
-			ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
+		mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}},
 		})),
 	})
 
-	cfg := mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteDirectProviderPolicy{
-		ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
+	cfg := mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "chat-prod"}, RouteProtocolOpenAI, &RouteModelPolicy{
+		DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}},
 	}))
 	if err := manager.Update(context.Background(), "chat-prod", cfg); !errors.Is(err, routecore.ErrStaticRouteReadOnly) {
 		t.Fatalf("Update error = %v, want ErrStaticRouteReadOnly", err)
@@ -288,14 +290,14 @@ func TestRouteConfigManagerRejectsStaticRouteMutation(t *testing.T) {
 	}
 }
 
-func TestLLMRouteResolverValidateAcceptsDirectProviderRoute(t *testing.T) {
+func TestLLMRouteResolverValidateAcceptsProviderModelRoute(t *testing.T) {
 	store := &testManagedRouteStore{
 		items: map[string]*routecore.RouteConfig{
 			"chat-prod": func() *routecore.RouteConfig {
 				cfg := mustConfigFromRoute(t, LLMRoute{
 					RouteMetadata: RouteMetadata{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
-					TargetPolicy: &RouteDirectProviderPolicy{
-						ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
+					TargetPolicy: &RouteModelPolicy{
+						DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}},
 					},
 				})
 				return &cfg
@@ -306,7 +308,7 @@ func TestLLMRouteResolverValidateAcceptsDirectProviderRoute(t *testing.T) {
 
 	err := resolver.Validate(context.Background(), "chat-prod", testRouteProviderResolver{
 		configured: map[string]bool{"openai-main": true},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
@@ -318,13 +320,10 @@ func TestLLMRouteResolverValidateChecksAllReferencedProviderIDs(t *testing.T) {
 			"chat-prod": func() *routecore.RouteConfig {
 				cfg := mustConfigFromRoute(t, LLMRoute{
 					RouteMetadata: RouteMetadata{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
-					TargetPolicy: &RouteLogicalModelTargetPolicy{
+					TargetPolicy: &RouteModelPolicy{
 						ModelTargets: []RouteModelTarget{{
-							Name: "chat-fast",
-							Candidates: []RouteModelCandidate{{
-								ProviderID:    "missing-provider",
-								UpstreamModel: "gpt-4.1-mini",
-							}},
+							Name: "gpt-4.1-mini",
+							Kind: "provider-model", ProviderID: "missing-provider", UpstreamModel: "gpt-4.1-mini",
 						}},
 					},
 				})
@@ -336,26 +335,78 @@ func TestLLMRouteResolverValidateChecksAllReferencedProviderIDs(t *testing.T) {
 
 	err := resolver.Validate(context.Background(), "chat-prod", testRouteProviderResolver{
 		configured: map[string]bool{"openai-main": true},
-	})
+	}, nil)
 	if err == nil {
 		t.Fatal("Validate returned nil error, want missing provider rejection")
 	}
 }
 
+type validationModelCatalog struct {
+	testModelCatalogResolver
+	model *modelcatalog.LogicalModel
+	err   error
+}
+
+func (c validationModelCatalog) GetLogicalModel(context.Context, string) (*modelcatalog.LogicalModel, bool, error) {
+	return c.model, c.model != nil, c.err
+}
+
+func TestLLMRouteResolverValidateLogicalCandidateProviders(t *testing.T) {
+	cfg := mustConfigFromRoute(t, LLMRoute{
+		RouteMetadata: RouteMetadata{ID: "chat-prod", Protocol: RouteProtocolOpenAI},
+		TargetPolicy: &RouteModelPolicy{ModelTargets: []RouteModelTarget{
+			{Name: "chat", Kind: "logical-model", LogicalModelID: "shared"},
+		}},
+	})
+	resolver := NewLLMRouteResolver(routecore.NewRouteConfigManager(&testManagedRouteStore{
+		items: map[string]*routecore.RouteConfig{"chat-prod": &cfg},
+	}))
+	logical := modelcatalog.LogicalModel{ID: "shared", Candidates: []modelcatalog.ModelCandidate{
+		{ProviderID: "first", UpstreamModel: "m"}, {ProviderID: "second", UpstreamModel: "n"},
+	}}
+	disabled := logical.Clone()
+	disabled.Disabled = true
+	for _, tt := range []struct {
+		name      string
+		catalog   ModelCatalogResolver
+		providers map[string]bool
+		want      string
+	}{
+		{name: "all providers configured", catalog: validationModelCatalog{model: &logical}, providers: map[string]bool{"first": true, "second": true}},
+		{name: "later candidate unavailable", catalog: validationModelCatalog{model: &logical}, providers: map[string]bool{"first": true}, want: `provider "second"`},
+		{name: "all candidates unavailable", catalog: validationModelCatalog{model: &logical}, want: `provider "first"`},
+		{name: "catalog required", want: "model catalog is not configured"},
+		{name: "missing logical model", catalog: validationModelCatalog{}, want: `logical model "shared" is not configured`},
+		{name: "disabled logical model", catalog: validationModelCatalog{model: &disabled}, want: `logical model "shared" is disabled`},
+		{name: "catalog failure", catalog: validationModelCatalog{err: errors.New("catalog unavailable")}, want: "catalog unavailable"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := resolver.Validate(t.Context(), "chat-prod", testRouteProviderResolver{configured: tt.providers}, tt.catalog)
+			if tt.want == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestResolvedRouteOwnsTargetsAndSameTimestampChanges(t *testing.T) {
 	resolver := NewLLMRouteResolver(routecore.NewRouteConfigManager(nil))
-	cfg := mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "route", Protocol: RouteProtocolOpenAI}, RouteProtocolOpenAI, &RouteLogicalModelTargetPolicy{ModelTargets: []RouteModelTarget{{Name: "model", Candidates: []RouteModelCandidate{{ProviderID: "p", UpstreamModel: "original"}}}}}))
+	cfg := mustConfigFromRoute(t, testLLMRoute(RouteConfig{ID: "route", Protocol: RouteProtocolOpenAI}, RouteProtocolOpenAI, &RouteModelPolicy{ModelTargets: []RouteModelTarget{{Name: "original", Kind: "provider-model", ProviderID: "p", UpstreamModel: "original"}}}))
 	first, err := resolver.Resolve(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	first.TargetPolicy.(*RouteLogicalModelTargetPolicy).ModelTargets[0].Candidates[0].UpstreamModel = "caller-mutated"
+	first.TargetPolicy.ModelTargets[0].UpstreamModel = "caller-mutated"
 	first.MatchPolicy.Methods = append(first.MatchPolicy.Methods, "DELETE")
 	second, err := resolver.Resolve(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.TargetPolicy.(*RouteLogicalModelTargetPolicy).ModelTargets[0].Candidates[0].UpstreamModel != "original" || len(second.MatchPolicy.Methods) != 0 {
+	if second.TargetPolicy.ModelTargets[0].UpstreamModel != "original" || len(second.MatchPolicy.Methods) != 0 {
 		t.Fatal("caller mutated cached generation")
 	}
 	changed := cfg
@@ -364,14 +415,14 @@ func TestResolvedRouteOwnsTargetsAndSameTimestampChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if third.TargetPolicy.(*RouteLogicalModelTargetPolicy).ModelTargets[0].Candidates[0].UpstreamModel != "new-model" {
+	if third.TargetPolicy.ModelTargets[0].UpstreamModel != "new-model" {
 		t.Fatal("timestamp collision reused stale target")
 	}
 	fourth, err := resolver.Resolve(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fourth.TargetPolicy.(*RouteLogicalModelTargetPolicy).ModelTargets[0].Candidates[0].UpstreamModel != "original" {
+	if fourth.TargetPolicy.ModelTargets[0].UpstreamModel != "original" {
 		t.Fatal("detached generation poisoned original target")
 	}
 }

@@ -131,7 +131,7 @@ Provider-specific notes:
 - `deepseek` defaults to `https://api.deepseek.com`
 - `deepseek` accepts `option path <path>`, `option response_format_type <text|json_object>`, `option thinking_type <disabled|enabled|none>`, and tuning options such as `max_tokens`, `temperature`, `top_p`, `presence_penalty`, `frequency_penalty`, `log_probs`, and `top_log_probs`
 - `zhipu` defaults to `https://open.bigmodel.cn/api/paas/v4`
-- `zhipu` accepts `option api_profile <auto|standard|coding_plan>`, provider-level capability overrides (`context_window`, `max_output_tokens`, `vision`, `embeddings`), and `option thinking_type <disabled|enabled|none>`; explicitly select `coding_plan` for custom proxy URLs, and use managed-model `capability_overrides` for per-model differences
+- `zhipu` accepts `option api_profile <auto|standard|coding_plan>`, provider-level capability overrides (`context_window`, `max_output_tokens`, `vision`, `embeddings`), and `option thinking_type <disabled|enabled|none>`; explicitly select `coding_plan` for custom proxy URLs, and use provider-model `capability_overrides` for per-model differences
 - `grok` defaults to `https://api.x.ai/v1`
 - `grok` accepts `option reasoning_effort <none|low|medium|high|xhigh>` and provider-level capability overrides (`context_window`, `max_output_tokens`, `vision`); it forwards `none` on grok-4.3, omits `none` on models that reject it, strips `stop` / `presence_penalty` / `frequency_penalty` on reasoning models, and uses native `/v1/responses`
 - `ollama` can be used without an API key
@@ -142,13 +142,18 @@ Provider-specific notes:
 Static LLM route syntax:
 
 ```caddy
+provider_model openai-main gpt-4.1 {
+	streaming true
+	tools true
+}
+
 route openai-chat {
 	protocol openai
 	host api.example.com
 	path_prefix /v1
 	method POST
 	require_virtual_key
-	target provider openai-main
+	target model openai-main gpt-4.1
 }
 ```
 
@@ -159,13 +164,40 @@ Supported subdirectives:
 - `path_prefix <prefix>`
 - `method <method> [more-methods...]`
 - `require_virtual_key [true|false]`
-- `target provider <provider-id>`
+- `target model <provider-id> <upstream-model>` (real model name; all concrete targets in a route must use the same Provider)
+- `target logical <name> <logical-model-id>` (cannot be mixed with concrete targets)
+- `default_model <route-visible-name>`
+- `target_policy models { ... }` (targets, default and credential selection)
 
-Current static route behavior:
+Model declarations belong to the global `agent_gateway` block:
 
-- Caddyfile routes only support direct-provider mode
-- the request `model` is forwarded upstream as the provider model name
-- logical-model routes are not accepted in Caddyfile config
+```caddy
+provider_model openai-main gpt-4.1 {
+    enabled true
+    streaming true
+    tools true
+    vision true
+}
+logical_model shared-chat {
+    strategy priority
+    candidate openai-main gpt-4.1 {
+        priority 100
+        weight 1
+    }
+    fallback {
+        enabled true
+        max_num 1
+    }
+}
+```
+
+ProviderModel options are `enabled`, `credential_scope`, `streaming`, `tools`,
+`vision`, `embeddings`, `context_window` and `max_output_tokens`. Declared models
+are enabled by default in Caddyfile. LogicalModel supports `strategy`, `disabled`,
+`candidate` blocks and `fallback`. Static models are read-only through Admin.
+Request `model` selects a route-visible target name; an absent model uses the
+route default (the first Caddyfile target unless explicitly overridden).
+It cannot select an unexposed upstream model or use the Provider default.
 
 ## `agent_route_dispatcher`
 

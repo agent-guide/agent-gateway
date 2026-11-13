@@ -34,6 +34,14 @@ providers:
     api_key: ${DEEPSEEK_API_KEY}
     default_model: deepseek-chat
 
+providerModels:
+  - provider_id: deepseek-main
+    upstream_model: deepseek-chat
+    enabled: true
+    capability_overrides:
+      streaming: true
+      tools: true
+
 llmRoutes:
 
   # The agent's model resolves through this route, so credential scheduling,
@@ -48,8 +56,13 @@ llmRoutes:
     auth_policy:
       require_virtual_key: true
     target_policy:
-      provider_target:
-        provider_id: deepseek-main
+      type: models
+      default_model: deepseek-chat
+      model_targets:
+        - name: deepseek-chat
+          kind: provider-model
+          provider_id: deepseek-main
+          upstream_model: deepseek-chat
       credential_type_order:
         - api_key
 
@@ -65,8 +78,13 @@ llmRoutes:
   #   auth_policy:
   #     require_virtual_key: true
   #   target_policy:
-  #     provider_target:
-  #       provider_id: deepseek-main
+  #     type: models
+  #     default_model: deepseek-chat
+  #     model_targets:
+  #       - name: deepseek-chat
+  #         kind: provider-model
+  #         provider_id: deepseek-main
+  #         upstream_model: deepseek-chat
   #     credential_type_order:
   #       - api_key
 
@@ -100,9 +118,8 @@ agents:
         model:
           # Must appear in routes.llm_route_ids below.
           llm_route_id: chat-main
-          # Optional: route target name (logical-model routes) or upstream
-          # model (direct-provider routes); the provider default applies when
-          # omitted.
+          # Optional route-visible model target name; the route default
+          # applies when omitted.
           # model: deepseek-chat
           # Optional node-level retry after the route's own candidate
           # fallback is exhausted; transient upstream errors only (429/5xx).

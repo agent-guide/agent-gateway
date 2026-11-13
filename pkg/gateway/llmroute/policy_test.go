@@ -25,19 +25,19 @@ func testProtocolRequirements(t *testing.T, features ...provider.ProtocolFeature
 }
 
 type testModelCatalogResolver struct {
-	models map[string]modelcatalog.ResolvedManagedModel
+	models map[string]modelcatalog.ResolvedProviderModel
 }
 
-func (r testModelCatalogResolver) GetManagedModel(_ context.Context, providerID string, upstreamModel string) (*modelcatalog.ManagedModel, bool, error) {
+func (r testModelCatalogResolver) GetProviderModel(_ context.Context, providerID string, upstreamModel string) (*modelcatalog.ProviderModel, bool, error) {
 	view, ok := r.models[providerID+"\x00"+upstreamModel]
 	if !ok {
 		return nil, false, nil
 	}
-	model := view.ManagedModel
+	model := view.ProviderModel
 	return &model, true, nil
 }
 
-func (r testModelCatalogResolver) GetResolvedManagedModel(_ context.Context, providerID string, upstreamModel string) (*modelcatalog.ResolvedManagedModel, bool, error) {
+func (r testModelCatalogResolver) GetResolvedProviderModel(_ context.Context, providerID string, upstreamModel string) (*modelcatalog.ResolvedProviderModel, bool, error) {
 	view, ok := r.models[providerID+"\x00"+upstreamModel]
 	if !ok {
 		return nil, false, nil
@@ -75,20 +75,17 @@ func TestResolveTargetFiltersProtocolFeatureCapability(t *testing.T) {
 	})
 	route := LLMRoute{
 		RouteMetadata: RouteMetadata{ID: "native-route"},
-		TargetPolicy: &RouteLogicalModelTargetPolicy{
+		TargetPolicy: &RouteModelPolicy{
 			DefaultModel: "claude",
 			ModelTargets: []RouteModelTarget{{
 				Name: "claude",
-				Candidates: []RouteModelCandidate{
-					{ProviderID: "generic", UpstreamModel: "model", Priority: 1, Weight: 1},
-					{ProviderID: "native", UpstreamModel: "model", Priority: 2, Weight: 1},
-				},
+				Kind: "logical-model", LogicalModelID: "claude",
 			}},
 		},
 	}
-	catalog := testModelCatalogResolver{models: map[string]modelcatalog.ResolvedManagedModel{
-		"generic\x00model": {ManagedModel: modelcatalog.ManagedModel{ProviderID: "generic", UpstreamModel: "model", Enabled: true}, Capabilities: provider.ModelCapabilities{Tools: true}},
-		"native\x00model":  {ManagedModel: modelcatalog.ManagedModel{ProviderID: "native", UpstreamModel: "model", Enabled: true}, Capabilities: provider.ModelCapabilities{Tools: true}},
+	catalog := testModelCatalogResolver{models: map[string]modelcatalog.ResolvedProviderModel{
+		"generic\x00model": {ProviderModel: modelcatalog.ProviderModel{ProviderID: "generic", UpstreamModel: "model", Enabled: true}, Capabilities: provider.ModelCapabilities{Tools: true}},
+		"native\x00model":  {ProviderModel: modelcatalog.ProviderModel{ProviderID: "native", UpstreamModel: "model", Enabled: true}, Capabilities: provider.ModelCapabilities{Tools: true}},
 	}}
 	configs := testProviderConfigResolver{configs: map[string]provider.ProviderConfig{
 		"generic": {Id: "generic", ProviderType: "generic-test"},
@@ -105,29 +102,30 @@ func TestResolveTargetFiltersProtocolFeatureCapability(t *testing.T) {
 	}
 }
 
-func TestDirectProviderReturnsRequirementGap(t *testing.T) {
+func TestConcreteModelReturnsRequirementGap(t *testing.T) {
 	route := LLMRoute{
 		RouteMetadata: RouteMetadata{ID: "native-direct"},
-		TargetPolicy:  &RouteDirectProviderPolicy{ProviderTarget: DirectProviderTarget{ProviderID: "generic"}},
+		TargetPolicy:  &RouteModelPolicy{DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "generic", UpstreamModel: "gpt-4.1"}}},
 	}
-	_, err := route.ResolveTarget(context.Background(), testModelCatalogResolver{}, testProviderConfigResolver{configs: map[string]provider.ProviderConfig{
+	_, err := route.ResolveTarget(context.Background(), testConcreteCatalog("generic", "anthropic", "reasoning", "openai-main"), testProviderConfigResolver{configs: map[string]provider.ProviderConfig{
 		"generic": {Id: "generic", ProviderType: "generic-test", DefaultModel: "generic-default"},
 	}}, RequestRequirements{ProtocolRequirements: testProtocolRequirements(t, provider.FeatureAnthropicNativeHistoryReplay)})
-	var gap *provider.RequirementGap
-	if !errors.As(err, &gap) || len(gap.Missing) != 1 || gap.Missing[0] != provider.FeatureAnthropicNativeHistoryReplay {
+	var gaps *provider.RequirementGapsError
+	if !errors.As(err, &gaps) || len(gaps.Gaps) != 1 {
 		t.Fatalf("ResolveTarget() error = %v, want typed requirement gap", err)
 	}
-	if gap.Candidate.ProviderID != "generic" || gap.Candidate.ProviderType != "generic-test" || gap.Candidate.UpstreamModel != "generic-default" {
-		t.Fatalf("candidate identity = %+v, want complete direct-provider identity", gap.Candidate)
+	gap := gaps.Gaps[0]
+	if gap.Candidate.ProviderID != "generic" || gap.Candidate.ProviderType != "generic-test" || gap.Candidate.UpstreamModel != "gpt-4.1" {
+		t.Fatalf("candidate identity = %+v, want complete concrete model identity", gap.Candidate)
 	}
 }
 
-func TestDirectAnthropicProviderReportsMissingFeature(t *testing.T) {
+func TestConcreteAnthropicModelReportsMissingFeature(t *testing.T) {
 	route := LLMRoute{
 		RouteMetadata: RouteMetadata{ID: "anthropic-direct"},
-		TargetPolicy:  &RouteDirectProviderPolicy{ProviderTarget: DirectProviderTarget{ProviderID: "anthropic"}},
+		TargetPolicy:  &RouteModelPolicy{DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "anthropic", UpstreamModel: "gpt-4.1"}}},
 	}
-	_, err := route.ResolveTarget(context.Background(), testModelCatalogResolver{}, testProviderConfigResolver{configs: map[string]provider.ProviderConfig{
+	_, err := route.ResolveTarget(context.Background(), testConcreteCatalog("generic", "anthropic", "reasoning", "openai-main"), testProviderConfigResolver{configs: map[string]provider.ProviderConfig{
 		"anthropic": {Id: "anthropic", ProviderType: "anthropic"},
 	}}, RequestRequirements{ProtocolRequirements: testProtocolRequirements(t, provider.FeatureAnthropicNativeHistoryReplay)})
 	if err == nil || !strings.Contains(err.Error(), string(provider.FeatureAnthropicNativeHistoryReplay)) {
@@ -138,17 +136,17 @@ func TestDirectAnthropicProviderReportsMissingFeature(t *testing.T) {
 func TestLogicalModelNoEligibleBindingsNamesRequirements(t *testing.T) {
 	route := LLMRoute{
 		RouteMetadata: RouteMetadata{ID: "tools-route"},
-		TargetPolicy: &RouteLogicalModelTargetPolicy{
+		TargetPolicy: &RouteModelPolicy{
 			DefaultModel: "chat",
 			ModelTargets: []RouteModelTarget{{
-				Name:       "chat",
-				Candidates: []RouteModelCandidate{{ProviderID: "generic", UpstreamModel: "model"}},
+				Name: "chat",
+				Kind: "provider-model", ProviderID: "generic", UpstreamModel: "model",
 			}},
 		},
 	}
-	catalog := testModelCatalogResolver{models: map[string]modelcatalog.ResolvedManagedModel{
+	catalog := testModelCatalogResolver{models: map[string]modelcatalog.ResolvedProviderModel{
 		"generic\x00model": {
-			ManagedModel: modelcatalog.ManagedModel{ProviderID: "generic", UpstreamModel: "model", Enabled: true},
+			ProviderModel: modelcatalog.ProviderModel{ProviderID: "generic", UpstreamModel: "model", Enabled: true},
 		},
 	}}
 	configs := testProviderConfigResolver{configs: map[string]provider.ProviderConfig{
@@ -161,23 +159,23 @@ func TestLogicalModelNoEligibleBindingsNamesRequirements(t *testing.T) {
 	}
 }
 
-func TestDirectProviderUsesAtomicReasoningCapability(t *testing.T) {
+func TestConcreteModelUsesAtomicReasoningCapability(t *testing.T) {
 	provider.RegisterProviderTypeCapabilities("reasoning-test", provider.ProviderTypeCapabilities{
 		Dialect:          provider.ProtocolDialectAnthropic,
 		ProtocolFeatures: map[provider.ProtocolFeature]struct{}{provider.FeatureAnthropicReasoningReplay: {}},
 	})
 	route := LLMRoute{
 		RouteMetadata: RouteMetadata{ID: "reasoning-direct"},
-		TargetPolicy:  &RouteDirectProviderPolicy{ProviderTarget: DirectProviderTarget{ProviderID: "reasoning"}},
+		TargetPolicy:  &RouteModelPolicy{DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "reasoning", UpstreamModel: "gpt-4.1"}}},
 	}
 	configs := testProviderConfigResolver{configs: map[string]provider.ProviderConfig{
 		"reasoning": {Id: "reasoning", ProviderType: "reasoning-test"},
 	}}
-	if _, err := route.ResolveTarget(context.Background(), testModelCatalogResolver{}, configs,
+	if _, err := route.ResolveTarget(context.Background(), testConcreteCatalog("generic", "anthropic", "reasoning", "openai-main"), configs,
 		RequestRequirements{ProtocolRequirements: testProtocolRequirements(t, provider.FeatureAnthropicReasoningReplay)}); err != nil {
 		t.Fatalf("reasoning-capable provider rejected: %v", err)
 	}
-	if _, err := route.ResolveTarget(context.Background(), testModelCatalogResolver{}, configs,
+	if _, err := route.ResolveTarget(context.Background(), testConcreteCatalog("generic", "anthropic", "reasoning", "openai-main"), configs,
 		RequestRequirements{ProtocolRequirements: testProtocolRequirements(t, provider.FeatureAnthropicNativeHistoryReplay)}); err == nil {
 		t.Fatal("reasoning-only provider accepted full Anthropic-native state")
 	}
@@ -186,14 +184,11 @@ func TestDirectProviderUsesAtomicReasoningCapability(t *testing.T) {
 func TestAgentRouteResolveTargetUsesRouteDefaultModel(t *testing.T) {
 	route := LLMRoute{
 		RouteMetadata: RouteMetadata{ID: "chat-prod"},
-		TargetPolicy: &RouteLogicalModelTargetPolicy{
-			DefaultModel: "chat-fast",
+		TargetPolicy: &RouteModelPolicy{
+			DefaultModel: "gpt-4.1-mini",
 			ModelTargets: []RouteModelTarget{{
-				Name: "chat-fast",
-				Candidates: []RouteModelCandidate{{
-					ProviderID:    "openai-main",
-					UpstreamModel: "gpt-4.1-mini",
-				}},
+				Name: "gpt-4.1-mini",
+				Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1-mini",
 			}},
 		},
 	}
@@ -201,9 +196,9 @@ func TestAgentRouteResolveTargetUsesRouteDefaultModel(t *testing.T) {
 	target, err := route.ResolveTarget(
 		context.Background(),
 		testModelCatalogResolver{
-			models: map[string]modelcatalog.ResolvedManagedModel{
+			models: map[string]modelcatalog.ResolvedProviderModel{
 				"openai-main\x00gpt-4.1-mini": {
-					ManagedModel: modelcatalog.ManagedModel{
+					ProviderModel: modelcatalog.ProviderModel{
 						ProviderID:      "openai-main",
 						UpstreamModel:   "gpt-4.1-mini",
 						CredentialScope: credential.ProviderIDCredentialScope("openai-main"),
@@ -223,8 +218,8 @@ func TestAgentRouteResolveTargetUsesRouteDefaultModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveTarget returned error: %v", err)
 	}
-	if target.LogicalModel != "chat-fast" {
-		t.Fatalf("LogicalModel = %q, want chat-fast", target.LogicalModel)
+	if target.ClientModel != "gpt-4.1-mini" {
+		t.Fatalf("LogicalModel = %q, want gpt-4.1-mini", target.LogicalModel)
 	}
 	if target.ProviderID != "openai-main" {
 		t.Fatalf("ProviderID = %q, want openai-main", target.ProviderID)
@@ -240,14 +235,14 @@ func TestAgentRouteResolveTargetUsesRouteDefaultModel(t *testing.T) {
 func TestAgentRouteResolveTargetRejectsUnknownModel(t *testing.T) {
 	route := LLMRoute{
 		RouteMetadata: RouteMetadata{ID: "chat-prod"},
-		TargetPolicy: &RouteLogicalModelTargetPolicy{
+		TargetPolicy: &RouteModelPolicy{
 			ModelTargets: []RouteModelTarget{{Name: "chat-fast"}},
 		},
 	}
 
 	if _, err := route.ResolveTarget(
 		context.Background(),
-		testModelCatalogResolver{},
+		testConcreteCatalog("generic", "anthropic", "reasoning", "openai-main"),
 		testProviderConfigResolver{},
 		RequestRequirements{Model: "chat-safe"},
 	); err == nil {
@@ -255,23 +250,24 @@ func TestAgentRouteResolveTargetRejectsUnknownModel(t *testing.T) {
 	}
 }
 
-func TestAgentRouteResolveTargetUsesDirectProvider(t *testing.T) {
+func TestAgentRouteResolveTargetUsesConcreteModel(t *testing.T) {
 	route := LLMRoute{
 		RouteMetadata: RouteMetadata{ID: "chat-prod"},
-		TargetPolicy: &RouteDirectProviderPolicy{
-			ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
+		TargetPolicy: &RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}},
 		},
 	}
 
 	target, err := route.ResolveTarget(
 		context.Background(),
 		testModelCatalogResolver{
-			models: map[string]modelcatalog.ResolvedManagedModel{
+			models: map[string]modelcatalog.ResolvedProviderModel{
 				"openai-main\x00gpt-4.1": {
-					ManagedModel: modelcatalog.ManagedModel{
+					ProviderModel: modelcatalog.ProviderModel{
 						ProviderID:      "openai-main",
 						UpstreamModel:   "gpt-4.1",
 						CredentialScope: credential.ProviderIDCredentialScope("tenant-a"),
+						Enabled:         true,
 					},
 				},
 			},
@@ -287,7 +283,7 @@ func TestAgentRouteResolveTargetUsesDirectProvider(t *testing.T) {
 		t.Fatalf("ResolveTarget returned error: %v", err)
 	}
 	if target.LogicalModel != "" {
-		t.Fatalf("LogicalModel = %q, want empty in direct-provider mode", target.LogicalModel)
+		t.Fatalf("LogicalModel = %q, want empty in concrete model exposure", target.LogicalModel)
 	}
 	if target.ProviderID != "openai-main" {
 		t.Fatalf("ProviderID = %q, want openai-main", target.ProviderID)
@@ -298,22 +294,22 @@ func TestAgentRouteResolveTargetUsesDirectProvider(t *testing.T) {
 	if target.UpstreamModel != "gpt-4.1" {
 		t.Fatalf("UpstreamModel = %q, want gpt-4.1", target.UpstreamModel)
 	}
-	if target.CredentialScope != credential.ProviderIDCredentialScope("openai-main") {
+	if target.CredentialScope != credential.ProviderIDCredentialScope("tenant-a") {
 		t.Fatalf("CredentialScope = %q, want %q", target.CredentialScope, credential.ProviderIDCredentialScope("openai-main"))
 	}
 }
 
-func TestAgentRouteResolveTargetUsesDirectProviderWhenModelNameIsPresent(t *testing.T) {
+func TestAgentRouteResolveTargetUsesConcreteModelWhenModelNameIsPresent(t *testing.T) {
 	route := LLMRoute{
 		RouteMetadata: RouteMetadata{ID: "chat-prod"},
-		TargetPolicy: &RouteDirectProviderPolicy{
-			ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
+		TargetPolicy: &RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}},
 		},
 	}
 
 	target, err := route.ResolveTarget(
 		context.Background(),
-		testModelCatalogResolver{},
+		testConcreteCatalog("generic", "anthropic", "reasoning", "openai-main"),
 		testProviderConfigResolver{
 			configs: map[string]provider.ProviderConfig{
 				"openai-main": {Id: "openai-main", ProviderType: "openai"},
@@ -331,21 +327,21 @@ func TestAgentRouteResolveTargetUsesDirectProviderWhenModelNameIsPresent(t *test
 		t.Fatalf("UpstreamModel = %q, want gpt-4.1", target.UpstreamModel)
 	}
 	if target.LogicalModel != "" {
-		t.Fatalf("LogicalModel = %q, want empty in direct-provider mode", target.LogicalModel)
+		t.Fatalf("LogicalModel = %q, want empty in concrete model exposure", target.LogicalModel)
 	}
 }
 
-func TestAgentRouteResolveTargetDirectProviderEmptyModelUsesProviderDefault(t *testing.T) {
+func TestAgentRouteResolveTargetConcreteModelEmptyModelUsesRouteDefault(t *testing.T) {
 	route := LLMRoute{
 		RouteMetadata: RouteMetadata{ID: "chat-prod"},
-		TargetPolicy: &RouteDirectProviderPolicy{
-			ProviderTarget: DirectProviderTarget{ProviderID: "openai-main"},
+		TargetPolicy: &RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}},
 		},
 	}
 
 	target, err := route.ResolveTarget(
 		context.Background(),
-		testModelCatalogResolver{},
+		testConcreteCatalog("generic", "anthropic", "reasoning", "openai-main"),
 		testProviderConfigResolver{
 			configs: map[string]provider.ProviderConfig{
 				"openai-main": {Id: "openai-main", ProviderType: "openai", DefaultModel: "gpt-4.1"},
@@ -359,4 +355,21 @@ func TestAgentRouteResolveTargetDirectProviderEmptyModelUsesProviderDefault(t *t
 	if target.UpstreamModel != "gpt-4.1" {
 		t.Fatalf("UpstreamModel = %q, want the provider default gpt-4.1", target.UpstreamModel)
 	}
+}
+
+func (r testModelCatalogResolver) GetLogicalModel(_ context.Context, id string) (*modelcatalog.LogicalModel, bool, error) {
+	models := map[string]modelcatalog.LogicalModel{
+		"claude":  {ID: "claude", Candidates: []modelcatalog.ModelCandidate{{ProviderID: "generic", UpstreamModel: "model", Priority: 1}, {ProviderID: "native", UpstreamModel: "model", Priority: 2}}},
+		"fixture": {ID: "fixture", Candidates: []modelcatalog.ModelCandidate{{ProviderID: "generic", UpstreamModel: "model", Priority: 1}, {ProviderID: "fixture", UpstreamModel: "model", Priority: 2}}},
+	}
+	m, ok := models[id]
+	return &m, ok, nil
+}
+
+func testConcreteCatalog(ids ...string) testModelCatalogResolver {
+	models := map[string]modelcatalog.ResolvedProviderModel{}
+	for _, id := range ids {
+		models[id+"\x00gpt-4.1"] = modelcatalog.ResolvedProviderModel{ProviderModel: modelcatalog.ProviderModel{ProviderID: id, UpstreamModel: "gpt-4.1", Enabled: true}}
+	}
+	return testModelCatalogResolver{models: models}
 }

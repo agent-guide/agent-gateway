@@ -154,7 +154,7 @@ func TestRuntimeTieErrorIsDeterministic(t *testing.T) {
 func TestRouteReadsCannotMutatePublishedConfiguration(t *testing.T) {
 	ctx := context.Background()
 	m := NewRouteConfigManager(nil)
-	r := RouteConfig{ID: "a", MatchPolicy: RouteMatchPolicy{PathPrefix: "/api", Methods: []string{"POST"}}, TargetPolicy: []byte(`{"provider_target":{"provider_id":"p"}}`)}
+	r := RouteConfig{ID: "a", MatchPolicy: RouteMatchPolicy{PathPrefix: "/api", Methods: []string{"POST"}}, TargetPolicy: []byte(`{"default_model":"gpt-4.1","model_targets":[{"name":"gpt-4.1","kind":"provider-model","provider_id":"p","upstream_model":"gpt-4.1"}]}`)}
 	if err := m.InitStaticRoutes([]RouteConfig{r}); err != nil {
 		t.Fatal(err)
 	}

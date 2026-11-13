@@ -1,115 +1,54 @@
-# Route Target Policy
+# Route target policy
 
-Capability status: **Implemented** for the runtime described here. This package
-is not designated as a protected Enterprise SPI. Additional model-availability
-contracts are [Proposed](enterprise-extension-contract.md#121-model-high-availability-boundary).
+Capability status: **Implemented**. This package is not a protected Enterprise SPI.
 
-## Ownership and representation
+`pkg/gateway/llmroute` owns `LLMRoute` and `RouteModelPolicy`.
+`LLMRoute.TargetPolicy` is a concrete `*RouteModelPolicy`; a missing or null
+policy stays nil and fails definition validation. The shared
+`routecore.RouteConfig` retains raw target JSON for all route kinds.
+Concrete policy decoding validates the discriminator and rejects unknown, removed
+and duplicate fields without interface dispatch. `modelcatalog` owns
+ProviderModel facts, independent LogicalModel definitions and in-memory snapshots.
+`pkg/gateway.RoutedProvider` owns execution, credential selection and bounded
+request-time fallback. Protocol handlers own parsing and response serialization.
 
-`pkg/gateway/llmroute` owns `LLMRoute`, `LLMRoute` and the
-`RouteTargetPolicy` Go interface. Its current concrete implementations are
-`RouteDirectProviderPolicy` and `RouteLogicalModelTargetPolicy`. Common credential
-settings live in `RouteTargetPolicyCommon`. `pkg/gateway.RoutedProvider` owns
-execution, credential selection and bounded fallback. `modelcatalog` owns
-managed-model facts; `pkg/credential` owns credential persistence, refresh and
-scheduler state. Protocol handlers own parsing and response serialization.
-
-Stored route JSON is a configuration object with `kind: llm`, `protocol`,
-`match_policy`, `auth_policy` and `target_policy`. Policy JSON uses `type` to
-identify `direct-provider` or `logical-model`; it does not serialize a Go
-interface implementation name. Direct targets use
-`target_policy.provider_target.provider_id`. Logical targets use
-`target_policy.model_targets`, `default_model`, `model_selector_strategy` and
-`fallback`. See the [logical routing guide](../guides/logical-model-routing.md)
-for the complete dynamic configuration workflow.
-
-The direct policy has no outer `provider_id` member. Decoding explicitly rejects
-that removed field even if it is empty, null, or agrees with the inner value.
-Runtime accessors and exports use the inner value only. Existing records require
-explicit offline conversion before startup; the converter classifies original
-raw JSON and refuses conflicting provider values rather than choosing one.
-
-## Resolution
+All policies use `type: models` for explicit concrete/logical model exposure.
+A policy owns only `model_targets`, `default_model` and common credential settings.
+Each target stores its route-visible name and either a ProviderModel compound
+reference or LogicalModel ID. Candidate selection and fallback belong to
+LogicalModel. There is no Provider-only route target.
+See [model routing](model-first-routing.md) for the resource contracts and
+[the guide](../guides/logical-model-routing.md) for configuration.
 
 Route matching uses path-prefix length, host specificity, then method
 specificity. Equal-score intersecting matches are rejected across all route
-kinds and configuration sources, including disabled routes. Static entries do
-not override tied dynamic entries. Disabled routes reserve their space. Native
-A2A matches all methods but scores its original method declaration. The shared
-route manager serializes checking and publication; failed Refresh retains the
-last valid generation. Runtime ties fail deterministically. Existing conflicts
-require [offline repair](../guides/architecture-config-recovery.md).
+kinds and configuration sources, including disabled routes. Native A2A accepts
+all methods while retaining declared method specificity. Refresh retains the
+last valid generation on failure. Existing conflicts require offline repair.
 
-Direct-provider policies select one provider. The request model is the upstream
-model, with the provider default used when it is empty. Atomic protocol
-requirements are checked against provider-type capabilities. This path does not
-require a managed logical-model record or provide cross-model fallback.
+`ExecuteChat` and `ExecuteStreamChat` clone and rewrite attempt-local requests,
+preserving caller model and protocol state. The resolved execution identifies
+the actual Provider, upstream model, client model, optional LogicalModel ID,
+protocol features and credential attribution. Ordinary provider methods delegate
+to these enriched paths. Responses execution retains its existing mutation
+contract: after successful execution/opening it writes the attempt model back to
+`ResponsesRequest.Model`; callers retain their client model separately.
 
-Logical-model policies interpret the request model as a route-visible target
-name, or use `default_model` when absent. Resolution reads manager snapshots,
-excludes candidates already rejected for the request, requires enabled managed
-models and providers, and filters generic streaming/tools/vision/embeddings
-capabilities and atomic protocol features. No eligible binding is an error.
-
-Selection is implemented in `pkg/gateway/llmroute/policy.go`:
-
-- `priority`: highest priority, with stable configuration order breaking ties;
-- `weighted`: positive weights participate in a weighted draw; no positive
-  total selects the first eligible candidate;
-- `auto`: highest priority tier, with weighted selection within that tier when
-  it has positive weights, otherwise the first candidate in the tier.
-
-The resolved target identifies one provider, upstream model, optional logical
-model, credential scope and capabilities. `ExecuteChat` and `ExecuteStreamChat`
-clone the provider-facing request and its protocol state, rewrite only the
-attempt-local model, and preserve the caller's model/protocol state. The ordinary
-`Chat` and `StreamChat` methods delegate to these enriched paths.
-
-`CreateResponses` and `StreamResponses` also clone and rewrite the request for
-provider execution, but after a successful call or stream opening they write
-that clone's model back to the caller's `ResponsesRequest.Model`. Responses
-callers must retain the client model separately if they need it after execution;
-the Chat request-isolation guarantee does not apply to this field.
-
-## Credentials and fallback
-
-Credential selectors are `round_robin` and `fill_first`; scopes are
+Credential selectors remain `round_robin` and `fill_first`; scopes are
 `model_custom` and `provider_id`; types are `api_key` and `oauth_token`. Scope
-and type ordering belong to route policy. The credential manager may refresh an
-expiring OAuth credential through the configured external command before use.
+and type ordering belong to the route. ProviderModel carries its custom scope.
+The credential manager may refresh an expiring OAuth credential through the
+configured external command before execution.
 
-`RoutedProvider` tracks tried candidates, managed credentials and provider-config
-authentication attempts. When a retryable execution fails, available managed
-credentials can be tried on the same binding. Candidate advancement requires a
-logical-model policy with enabled fallback and remaining `fallback.max_num`
-(maximum five reselections). Credential unavailability may also advance the
-candidate; target/provider resolution errors return immediately. Failure
-classification permits model reselection for 429 and 5xx errors; other classified
-statuses stop execution. These bounds count model reselections, not a common
-budget for every credential attempt and provider-internal retry.
+Retryable 429 and 5xx failures can exhaust credentials on the same binding,
+then advance candidates only within the selected LogicalModel's enabled fallback
+budget (maximum five reselections). Credential unavailability may also advance.
+Provider resolution errors return immediately. Credential retries and Provider
+network retries are not a shared global attempt budget. Feedback currently
+records provider-call return; stream opening is not final stream consumption.
+Once a stream reader is returned, read failures cannot re-enter fallback.
 
-Scheduler feedback records the return of the provider call for a concrete
-managed credential. For streams that is stream opening, not final consumption.
-Once a stream reader is returned, later read failures do not re-enter the
-fallback loop. A complete health/circuit/attempt contract is separate work.
-
-## Static and dynamic configuration
-
-Static Caddyfile and startup Bundle LLM routes must use direct-provider targets.
-Logical-model routes and managed models are dynamic resources, configured through
-the Admin API or `agwctl apply`. Static `target model` and
-`target_policy logical-model` are rejected.
-
-```caddy
-route openai-direct {
-    protocol openai
-    path_prefix /v1
-    require_virtual_key
-    target provider openai-main
-}
-```
-
-The Caddyfile also accepts `target_policy direct-provider { ... }`; consult the
-[current syntax reference](../reference/caddyfile-reference.md) and
-[working example](../../examples/Caddyfile.example). Configuration examples must
-use current protocol and route shapes.
+Caddyfile, Caddy JSON and startup Bundles accept explicit ProviderModel and
+LogicalModel declarations. Static model resources are read-only through Admin.
+Dynamic model resources use Admin and Bundle apply. Both execute through the same
+catalog and enforce the same explicit route exposure.

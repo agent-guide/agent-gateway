@@ -62,7 +62,7 @@ func TestApplyDoesNotPartiallyConvertOrRemoveBudgets(t *testing.T) {
 		{Family: "agents", ID: "agent", Data: json.RawMessage(`{"id":"agent","policy":{"budget":{}}}`)},
 	}
 	original, _ := json.Marshal(records)
-	_, err := Apply(records, []Operation{{Family: "routes", ID: "a", Action: "convert-target"}, {Family: "routes", ID: "b", Action: "convert-target"}})
+	_, err := Apply(records, []Operation{{Family: "routes", ID: "a", Action: "convert-target", Data: json.RawMessage(`{"models":[{"name":"gpt-4.1","upstream_model":"gpt-4.1"}]}`)}, {Family: "routes", ID: "b", Action: "convert-target", Data: json.RawMessage(`{"models":[{"name":"gpt-4.1","upstream_model":"gpt-4.1"}]}`)}})
 	if err == nil || !strings.Contains(err.Error(), "conflicting") {
 		t.Fatalf("error = %v", err)
 	}
@@ -70,11 +70,11 @@ func TestApplyDoesNotPartiallyConvertOrRemoveBudgets(t *testing.T) {
 	if string(original) != string(after) {
 		t.Fatal("failed batch mutated input")
 	}
-	_, err = Apply(records, []Operation{{Family: "routes", ID: "a", Action: "convert-target"}, {Family: "routes", ID: "b", Action: "delete"}})
+	_, err = Apply(records, []Operation{{Family: "routes", ID: "a", Action: "convert-target", Data: json.RawMessage(`{"models":[{"name":"gpt-4.1","upstream_model":"gpt-4.1"}]}`)}, {Family: "routes", ID: "b", Action: "delete"}})
 	if err == nil || !strings.Contains(err.Error(), "budget") {
 		t.Fatalf("budget silently removed: %v", err)
 	}
-	out, err := Apply(records, []Operation{{Family: "routes", ID: "a", Action: "convert-target"}, {Family: "routes", ID: "b", Action: "delete"}, {Family: "agents", ID: "agent", Action: "remove-budget"}})
+	out, err := Apply(records, []Operation{{Family: "routes", ID: "a", Action: "convert-target", Data: json.RawMessage(`{"models":[{"name":"gpt-4.1","upstream_model":"gpt-4.1"}]}`)}, {Family: "routes", ID: "b", Action: "delete"}, {Family: "agents", ID: "agent", Action: "remove-budget"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,5 +102,19 @@ func TestInspectionAndExplicitRepair(t *testing.T) {
 	}
 	if _, err := Apply(records, []Operation{{Family: "routes", ID: "b", Action: "replace", Data: json.RawMessage(`{"id":"b","kind":"agent","match_policy":{"path_prefix":"/b"}}`)}}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestValidateRejectsMissingLLMPolicy(t *testing.T) {
+	for _, field := range []string{"", `,"target_policy":null`, `,"target_policy":{}`} {
+		t.Run(field, func(t *testing.T) {
+			records := []Record{{
+				Family: "routes", ID: "r",
+				Data: json.RawMessage(`{"id":"r","kind":"llm","protocol":"openai"` + field + `}`),
+			}}
+			if err := Validate(records); err == nil {
+				t.Fatal("offline validation accepted a missing or empty LLM policy")
+			}
+		})
 	}
 }

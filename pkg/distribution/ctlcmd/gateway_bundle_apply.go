@@ -95,7 +95,10 @@ func (s *commandState) runGatewayApply(ctx context.Context, path string) error {
 	if err := applyProviders(ctx, client, bundle, record); err != nil {
 		return err
 	}
-	if err := applyManagedModels(ctx, client, bundle, record); err != nil {
+	if err := applyProviderModels(ctx, client, bundle, record); err != nil {
+		return err
+	}
+	if err := applyLogicalModels(ctx, client, bundle, record); err != nil {
 		return err
 	}
 	if err := applyLLMRoutes(ctx, client, bundle, record); err != nil {
@@ -196,36 +199,43 @@ func applyProviders(ctx context.Context, client *adminclient.Client, bundle *gat
 	return nil
 }
 
-func applyManagedModels(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
-	items, err := client.ListManagedModels(ctx, adminclient.ManagedModelListOptions{})
+func applyProviderModels(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+	items, err := client.ListProviderModels(ctx, adminclient.ProviderModelListOptions{})
 	if err != nil {
 		return err
 	}
-	current := map[string]modelcatalog.ManagedModel{}
+	current := map[[2]string]modelcatalog.ProviderModel{}
 	for _, item := range items {
-		model := item.ManagedModel
+		model := item.ProviderModel
 		model.Normalize()
-		current[managedModelKey(model.ProviderID, model.UpstreamModel)] = model
+		current[[2]string{model.ProviderID, model.UpstreamModel}] = model
 	}
-	for _, desired := range bundle.ManagedModels {
+	for _, desired := range bundle.ProviderModels {
 		desired.Normalize()
-		key := managedModelKey(desired.ProviderID, desired.UpstreamModel)
-		if currentModel, ok := current[key]; ok {
+		key := providerModelKey(desired.ProviderID, desired.UpstreamModel)
+		if currentModel, ok := current[[2]string{desired.ProviderID, desired.UpstreamModel}]; ok {
+			readOnly := currentModel.ReadOnly
+			currentModel.ReadOnly = false
+			desired.ReadOnly = false
 			if reflect.DeepEqual(currentModel, desired) {
-				record("managed_model", key, "skip", nil)
+				record("provider_model", key, "skip", nil)
 				continue
 			}
-			if _, err := client.UpdateManagedModel(ctx, desired.ProviderID, desired.UpstreamModel, desired); err != nil {
-				record("managed_model", key, "error", fmt.Errorf("managed_model %q update: %w", key, err))
+			if readOnly {
+				record("provider_model", key, "error", fmt.Errorf("static ProviderModel is read-only"))
+				continue
+			}
+			if _, err := client.UpdateProviderModel(ctx, desired.ProviderID, desired.UpstreamModel, desired); err != nil {
+				record("provider_model", key, "error", fmt.Errorf("provider_model %q update: %w", key, err))
 			} else {
-				record("managed_model", key, "update", nil)
+				record("provider_model", key, "update", nil)
 			}
 			continue
 		}
-		if _, err := client.CreateManagedModel(ctx, desired); err != nil {
-			record("managed_model", key, "error", fmt.Errorf("managed_model %q create: %w", key, err))
+		if _, err := client.CreateProviderModel(ctx, desired); err != nil {
+			record("provider_model", key, "error", fmt.Errorf("provider_model %q create: %w", key, err))
 		} else {
-			record("managed_model", key, "create", nil)
+			record("provider_model", key, "create", nil)
 		}
 	}
 	return nil
@@ -640,7 +650,7 @@ func normalizeComparableMCPRoute(cfg mcproute.MCPRoute) mcproute.MCPRoute {
 	return cfg
 }
 
-func managedModelKey(providerID, upstreamModel string) string {
+func providerModelKey(providerID, upstreamModel string) string {
 	return strings.TrimSpace(providerID) + "/" + strings.TrimSpace(upstreamModel)
 }
 
@@ -690,6 +700,46 @@ func applyExtensions(ctx context.Context, client *adminclient.Client, bundle *ga
 			return fmt.Errorf("extension apply stopped after partial mutations: %w", err)
 		}
 		record("extension", e.ModuleID, action, nil)
+	}
+	return nil
+}
+
+func applyLogicalModels(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+	items, err := client.ListLogicalModels(ctx)
+	if err != nil {
+		return err
+	}
+	current := map[string]modelcatalog.LogicalModel{}
+	for _, m := range items {
+		m.Normalize()
+		current[m.ID] = m
+	}
+	for _, m := range bundle.LogicalModels {
+		m.Normalize()
+		old, exists := current[m.ID]
+		readOnly := old.ReadOnly
+		old.ReadOnly = false
+		m.ReadOnly = false
+		if exists && reflect.DeepEqual(old, m) {
+			record("logical_model", m.ID, "skip", nil)
+			continue
+		}
+		if exists && readOnly {
+			record("logical_model", m.ID, "error", fmt.Errorf("static LogicalModel is read-only"))
+			continue
+		}
+		action := "create"
+		if exists {
+			action = "update"
+			_, err = client.UpdateLogicalModel(ctx, m.ID, m)
+		} else {
+			_, err = client.CreateLogicalModel(ctx, m)
+		}
+		if err != nil {
+			record("logical_model", m.ID, "error", err)
+		} else {
+			record("logical_model", m.ID, action, nil)
+		}
 	}
 	return nil
 }

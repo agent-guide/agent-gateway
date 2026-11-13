@@ -203,7 +203,7 @@ commands beneath `connector`.
 
 There are no existing MCP service Caddyfile blocks or Caddy app JSON fields to
 rename. The Caddy app's static resource inputs are providers and LLM routes;
-standalone `--static-config` likewise instantiates providers and direct-provider
+standalone `--static-config` likewise instantiates providers, model resources and model exposure
 LLM routes. Initially connectors are persisted configuration managed through Admin
 and online Bundle apply. Connector definitions in Caddy static configuration or
 standalone static Bundles are unsupported and must be explicitly rejected rather
@@ -1164,7 +1164,7 @@ removing its references, and subsequent calls fail closed.
 
 ### 8.3 Sequential CLI Apply
 
-Online `agwctl apply` applies extensions, providers, managed models, LLM routes,
+Online `agwctl apply` applies extensions, providers, provider models, LLM routes,
 connectors, MCP routes, Agents, AgentRoutes and VirtualKeys in dependency order.
 Each object uses its normal manager admission, persistence and publication path.
 The summary reports create/update/skip/error per object; earlier successes remain

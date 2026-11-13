@@ -17,9 +17,9 @@ inspecting a standalone static file. Supply the complete configuration: repairs
 check resource references against the union of both sources, including empty
 families. Route and Agent IDs must be explicit. Use concrete values for fields
 containing environment substitutions when preparing inspection inputs.
-Static input is also checked against startup restrictions: LLM routes must use
-direct Provider targets, and standalone static bundles cannot contain
-`virtualKeys`, `managedModels`, or `extensions`. Database-backed logical-model
+Static input is also checked against startup restrictions: LLM routes must expose
+registered concrete or logical model references, and standalone static bundles cannot contain
+`virtualKeys` or `extensions`. Database-backed logical-model
 routes and those persisted resource families remain supported.
 
 Agent `resources` declarations may retain deleted Provider, MCP connector, or
@@ -56,13 +56,13 @@ unenforced Agent budget:
 
 ```json
 [
-  {"family":"routes","id":"chat","action":"convert-target"},
+  {"family":"routes","id":"chat","action":"convert-target","data":{"models":[{"name":"chat","upstream_model":"gpt-4.1","capability_overrides":{"streaming":true,"tools":true}}]}},
   {"family":"routes","id":"duplicate-chat","action":"delete"},
   {"family":"agents","id":"assistant","action":"remove-budget"}
 ]
 ```
 
-Supported families are `routes`, `agents`, and database-backed `connectors`.
+Supported families are `routes`, `agents`, and database-backed `connectors`, `provider_models` and `logical_models`.
 Use the legacy `mcp_services` family with `--convert-connectors` when repairing
 rows during the stopped-service conversion described below. `replace` supplies
 a complete raw record in `data`, with the same ID. Route replacement uses the persisted
@@ -70,14 +70,17 @@ envelope (`kind`, `protocol`, `match_policy`, `auth_policy`, and `target_policy`
 including `target_policy.connector_id` or `target_policy.agent_id` for those
 route kinds. Omitted record fields are not merged with old values.
 
-`convert-target` classifies the original raw fields before normalization:
+`convert-target` classifies the legacy Provider ID before normalization, rejecting
+conflicting outer/inner IDs. Its `data.models` must explicitly enumerate allowed
+route names and upstream model names. It never infers access from a Provider's
+default or catalog discovery. Optional `data.default_model` names an exposed
+entry; a single entry becomes the default automatically.
 
-| Existing direct target | Result |
-| --- | --- |
-| Outer `provider_id` only | Move to `provider_target.provider_id` |
-| Inner value only | Keep inner value and remove an empty outer field |
-| Both nonempty, equal after trimming | Keep one canonical inner value |
-| Both nonempty and different | Fail; replace with an explicitly chosen target |
+The converter creates missing ProviderModels and replaces the route with explicit
+references in the same SQLite repair transaction. Existing concrete records are
+reused without overwriting their facts. Supply `capability_overrides` in new model
+entries or refresh discovery through Admin before requests needing those features.
+Static repair likewise writes model declarations into the chosen static file.
 
 Empty values, non-string IDs, and invalid target shapes fail conversion.
 Conversions never pick a winner between conflicting providers or routes.
@@ -103,7 +106,7 @@ contents, with private file permissions. The repair transaction stages the
 whole batch, validates references, writes, reads back, and rechecks before
 commit. Failure rolls back the batch; its pre-mutation backup remains available.
 Readback compares the complete stored configuration with the staged result,
-including ManagedModels (identified by provider and upstream model) and extension
+including ProviderModels (identified by provider and upstream model) and extension
 envelopes, so silently ignored writes and cross-table trigger changes roll back.
 Extension checks validate stored envelopes without starting module factories or
 resolving secrets.
@@ -145,3 +148,52 @@ For damaged legacy rows, add `--repair /path/operations.json` to the same
 conversion command. Explicit `replace`/`delete` operations address the old
 `mcp_services` family; repairs, reference conversion, validation and table cutover
 then share one transaction and backup. No partially repaired layout is published.
+
+## Extract legacy inline logical models
+
+The current model catalog uses `provider_models` for the concrete records already
+stored in SQLite `model_configs`, plus a separate `logical_models` table. Current
+Bundles use `providerModels` and `logicalModels`. Rename the former
+`managedModels` Bundle field explicitly when editing your deployment files.
+
+For each persisted route with inline `model_targets[].candidates`, select:
+
+```json
+[
+  {"family":"routes","id":"chat-prod","action":"extract-models"}
+]
+```
+
+Run the normal stopped-service repair command with this operation file, an unused
+backup path, and all applicable static configuration. Extraction creates a stable
+route-scoped LogicalModel ID for each old target, preserves route-visible names,
+ProviderModel bindings, effective strategy and fallback, and replaces the route
+policy with `type: models` references. The operation inserts independent models
+and updates routes in one SQLite transaction, checks the complete graph, and
+reads it back before commit. Missing concrete models or conflicting generated IDs
+require explicit repairs. Inspection reports old inline fields without requiring
+normal startup decoding. After extraction, restart and use Admin/Bundle to manage
+or consolidate shared definitions. There is no automatic runtime migration.
+
+To replace a damaged ProviderModel, use family `provider_models` with its compound
+storage ID encoded as a JSON tuple string, for example `"id":"[\"p\",\"m\"]"`.
+The replacement `data` must contain matching `provider_id` and `upstream_model`,
+and an explicit `enabled` boolean. Stored records with omitted or null `enabled`
+are rejected and reported by inspection; replace them with `enabled: true` to
+retain an enabled legacy binding, or explicitly choose `false` to disable it.
+Extraction does not guess the intended value.
+LogicalModel replacement uses family `logical_models` and its ordinary `id`.
+Both replacements participate in the normal backup, graph validation and readback
+transaction; delete is available after releasing all references.
+
+## Model route constraints
+
+ProviderModel routes use one Provider and real upstream model names. Mixed target
+kinds, concrete aliases and multiple direct Providers are rejected at startup and
+on refresh/writes. `inspect` reports these policies without starting the host.
+Use a `routes` `replace` operation to keep only one kind and one direct Provider;
+set each concrete target name and `default_model` to the chosen upstream name.
+If cross-provider selection or an alias is required, create a LogicalModel with
+explicit candidates and replace the route with logical references. Alternatively
+split routes across distinct paths. `convert-target` also requires each selected
+model's `name` to equal `upstream_model`.

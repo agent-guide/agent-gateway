@@ -36,9 +36,9 @@ Public signatures and their required transitive types must not expose Community
 Run `make test-extension-consumer` when changing this boundary; root `go test
 ./...` alone cannot discover the separately rooted consumer module.
 
-LLM direct targets render and export the canonical
-`target_policy.provider_target.provider_id` only. Old outer provider fields are
-errors, not CLI fallback inputs; offline conversion lives outside command trees.
+All LLM targets export `type: models` with explicit concrete/logical model
+references. Reject Provider-only targets; offline conversion requires an explicit
+allowlist. Both hosts inject static model resources into the same catalog.
 
 `AttributeKeys`, `AttributionProducer` and `EventSinks` are explicit code-owned
 runtime inputs, excluded from manifests. Clone owns mutable slices; callbacks
@@ -52,3 +52,7 @@ CLI apply/export, shared Admin protection, selected-backend admission, all three
 LLM ingress profiles, SSE cancellation and persisted usage. Keep its provider
 stub on loopback and its event checks content-free. External distributions own
 fixture configuration, probe routes, sinks and backends.
+
+Model Bundle apply order is Providers, ProviderModels, LogicalModels, LLM Routes.
+Export includes `providerModels` and `logicalModels`. CLI inventory commands live
+under `model provider` and `model logical`; create/update uses Bundle apply.

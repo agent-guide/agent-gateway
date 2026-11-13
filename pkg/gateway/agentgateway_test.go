@@ -182,26 +182,33 @@ func TestNewRoutedProviderModelTargetRewritesDuringExecution(t *testing.T) {
 			Protocol:    llmroutepkg.RouteProtocolOpenAI,
 			MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/v1"},
 		},
-		TargetPolicy: &llmroutepkg.RouteLogicalModelTargetPolicy{
+		TargetPolicy: &llmroutepkg.RouteModelPolicy{
 			ModelTargets: []llmroutepkg.RouteModelTarget{{
-				Name: "chat-fast",
-				Candidates: []llmroutepkg.RouteModelCandidate{{
-					ProviderID:    "openai",
-					UpstreamModel: "gpt-4.1-mini",
-				}},
+				Name: "gpt-4.1-mini",
+				Kind: "provider-model", ProviderID: "openai", UpstreamModel: "gpt-4.1-mini",
 			}},
-			DefaultModel: "chat-fast",
+			DefaultModel: "gpt-4.1-mini",
 		},
 	}
 	gw := NewAgentGateway()
-	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
+	if err := gw.Bootstrap(context.Background(), BootstrapOptions{StaticProviderModels: fixtureProviderModels(mustLLMRouteConfigs(t, route), &testGatewayConfigStore{
+		modelStore: &testGatewayProviderModelStore{
+			items: map[string]*modelcatalog.ProviderModel{
+				"openai/gpt-4.1-mini": {
+					ProviderID:    "openai",
+					UpstreamModel: "gpt-4.1-mini",
+					Enabled:       true,
+				},
+			},
+		},
+	}),
 		StaticLLMRoutes: mustLLMRouteConfigs(t, route),
 		StaticProviders: map[string]provider.Provider{
 			"openai": testProvider{cfg: provider.ProviderConfig{Id: "openai", ProviderType: "openai"}},
 		},
 		ConfigStoreBackend: &testGatewayConfigStore{
-			modelStore: &testGatewayManagedModelStore{
-				items: map[string]*modelcatalog.ManagedModel{
+			modelStore: &testGatewayProviderModelStore{
+				items: map[string]*modelcatalog.ProviderModel{
 					"openai/gpt-4.1-mini": {
 						ProviderID:    "openai",
 						UpstreamModel: "gpt-4.1-mini",
@@ -227,18 +234,36 @@ func TestNewRoutedProviderModelTargetRewritesDuringExecution(t *testing.T) {
 		t.Fatal("NewRoutedProvider returned nil provider")
 	}
 
-	chatReq := &provider.ChatRequest{Model: "chat-fast"}
+	chatReq := &provider.ChatRequest{Model: "gpt-4.1-mini"}
 	if _, err := routedProvider.Chat(context.Background(), chatReq); err != nil {
 		t.Fatalf("Chat returned error: %v", err)
 	}
-	if chatReq.Model != "chat-fast" {
+	if chatReq.Model != "gpt-4.1-mini" {
 		t.Fatalf("Chat request model = %q, want caller model preserved", chatReq.Model)
+	}
+	empty := &provider.ChatRequest{}
+	execution, err := routedProvider.ExecuteChat(context.Background(), empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.Model != "" || execution.Resolved.Candidate.ClientModel != "gpt-4.1-mini" || execution.Resolved.Candidate.UpstreamModel != "gpt-4.1-mini" {
+		t.Fatalf("default concrete target lost client identity: request=%+v execution=%+v", empty, execution)
 	}
 }
 
 func TestResolveRejectsDisabledRoute(t *testing.T) {
 	gw := NewAgentGateway()
-	if err := gw.Bootstrap(context.Background(), BootstrapOptions{
+	if err := gw.Bootstrap(context.Background(), BootstrapOptions{StaticProviderModels: fixtureProviderModels(mustLLMRouteConfigs(t, llmroutepkg.LLMRoute{
+		RouteMetadata: llmroutepkg.RouteMetadata{
+			ID:          "chat-prod",
+			Protocol:    llmroutepkg.RouteProtocolOpenAI,
+			Disabled:    true,
+			MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/v1"},
+		},
+		TargetPolicy: &llmroutepkg.RouteModelPolicy{
+			DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai", UpstreamModel: "gpt-4.1"}},
+		},
+	}), nil),
 		StaticLLMRoutes: mustLLMRouteConfigs(t, llmroutepkg.LLMRoute{
 			RouteMetadata: llmroutepkg.RouteMetadata{
 				ID:          "chat-prod",
@@ -246,8 +271,8 @@ func TestResolveRejectsDisabledRoute(t *testing.T) {
 				Disabled:    true,
 				MatchPolicy: llmroutepkg.RouteMatchPolicy{PathPrefix: "/v1"},
 			},
-			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai"},
+			TargetPolicy: &llmroutepkg.RouteModelPolicy{
+				DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai", UpstreamModel: "gpt-4.1"}},
 			},
 		}),
 		StaticProviders: map[string]provider.Provider{
@@ -332,7 +357,7 @@ type testGatewayProviderStore struct {
 }
 
 type testGatewayModelCatalogResolver struct {
-	models map[string]modelcatalog.ResolvedManagedModel
+	models map[string]modelcatalog.ResolvedProviderModel
 }
 
 func (s *testGatewayProviderStore) List(ctx context.Context) ([]any, error) {
@@ -392,11 +417,11 @@ func (s *testGatewayProviderStore) GetByIndex(context.Context, string, any) (any
 	return nil, configstore.ErrNotFound
 }
 
-func (testGatewayModelCatalogResolver) GetManagedModel(context.Context, string, string) (*modelcatalog.ManagedModel, bool, error) {
+func (testGatewayModelCatalogResolver) GetProviderModel(context.Context, string, string) (*modelcatalog.ProviderModel, bool, error) {
 	return nil, false, nil
 }
 
-func (r testGatewayModelCatalogResolver) GetResolvedManagedModel(_ context.Context, providerID string, upstreamModel string) (*modelcatalog.ResolvedManagedModel, bool, error) {
+func (r testGatewayModelCatalogResolver) GetResolvedProviderModel(_ context.Context, providerID string, upstreamModel string) (*modelcatalog.ResolvedProviderModel, bool, error) {
 	item, ok := r.models[providerID+"/"+upstreamModel]
 	if !ok {
 		return nil, false, nil
@@ -418,17 +443,17 @@ func (s *testGatewayConfigStore) Get(name string) (configstore.ConfigStore, erro
 	if name == configstoreschema.StoreProviders {
 		return s.providerStore, nil
 	}
-	if name == configstoreschema.StoreManagedModels {
+	if name == configstoreschema.StoreProviderModels {
 		return s.modelStore, nil
 	}
 	return nil, nil
 }
 
-type testGatewayManagedModelStore struct {
-	items map[string]*modelcatalog.ManagedModel
+type testGatewayProviderModelStore struct {
+	items map[string]*modelcatalog.ProviderModel
 }
 
-func (s *testGatewayManagedModelStore) List(context.Context) ([]any, error) {
+func (s *testGatewayProviderModelStore) List(context.Context) ([]any, error) {
 	out := make([]any, 0, len(s.items))
 	for _, item := range s.items {
 		cloned := *item
@@ -437,39 +462,39 @@ func (s *testGatewayManagedModelStore) List(context.Context) ([]any, error) {
 	return out, nil
 }
 
-func (s *testGatewayManagedModelStore) ListByTag(context.Context, string) ([]any, error) {
+func (s *testGatewayProviderModelStore) ListByTag(context.Context, string) ([]any, error) {
 	return nil, nil
 }
 
-func (s *testGatewayManagedModelStore) ListByTagPrefix(context.Context, string) ([]any, error) {
+func (s *testGatewayProviderModelStore) ListByTagPrefix(context.Context, string) ([]any, error) {
 	return nil, nil
 }
 
-func (s *testGatewayManagedModelStore) Create(_ context.Context, obj any) error {
-	model, ok := obj.(*modelcatalog.ManagedModel)
+func (s *testGatewayProviderModelStore) Create(_ context.Context, obj any) error {
+	model, ok := obj.(*modelcatalog.ProviderModel)
 	if !ok {
 		return nil
 	}
 	if s.items == nil {
-		s.items = map[string]*modelcatalog.ManagedModel{}
+		s.items = map[string]*modelcatalog.ProviderModel{}
 	}
 	cloned := *model
 	s.items[cloned.ProviderID+"/"+cloned.UpstreamModel] = &cloned
 	return nil
 }
 
-func (s *testGatewayManagedModelStore) Update(ctx context.Context, obj any) error {
+func (s *testGatewayProviderModelStore) Update(ctx context.Context, obj any) error {
 	return s.Create(ctx, obj)
 }
 
-func (s *testGatewayManagedModelStore) Delete(_ context.Context, keyParts ...any) error {
+func (s *testGatewayProviderModelStore) Delete(_ context.Context, keyParts ...any) error {
 	providerID, _ := keyParts[0].(string)
 	upstreamModel, _ := keyParts[1].(string)
 	delete(s.items, providerID+"/"+upstreamModel)
 	return nil
 }
 
-func (s *testGatewayManagedModelStore) Get(_ context.Context, keyParts ...any) (any, error) {
+func (s *testGatewayProviderModelStore) Get(_ context.Context, keyParts ...any) (any, error) {
 	providerID, _ := keyParts[0].(string)
 	upstreamModel, _ := keyParts[1].(string)
 	item := s.items[providerID+"/"+upstreamModel]
@@ -480,7 +505,7 @@ func (s *testGatewayManagedModelStore) Get(_ context.Context, keyParts ...any) (
 	return &cloned, nil
 }
 
-func (s *testGatewayManagedModelStore) GetByIndex(context.Context, string, any) (any, error) {
+func (s *testGatewayProviderModelStore) GetByIndex(context.Context, string, any) (any, error) {
 	return nil, configstore.ErrNotFound
 }
 
@@ -516,7 +541,7 @@ func TestBootstrapDoesNotSyncDynamicProviderConfigCredentials(t *testing.T) {
 	}
 }
 
-func TestDirectProviderFallsBackToProviderConfigAPIKey(t *testing.T) {
+func TestProviderModelFallsBackToProviderConfigAPIKey(t *testing.T) {
 	capture := &testContextCaptureProvider{
 		cfg: provider.ProviderConfig{
 			Id:           "openai-main",
@@ -527,14 +552,14 @@ func TestDirectProviderFallsBackToProviderConfigAPIKey(t *testing.T) {
 	routedProvider := &RoutedProvider{
 		route: &llmroutepkg.LLMRoute{
 			RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
-			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
+			TargetPolicy: &llmroutepkg.RouteModelPolicy{
+				DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}},
 			},
 		},
 		providerResolver: ProviderResolverFunc(func(context.Context, string) (provider.Provider, error) {
 			return capture, nil
 		}),
-		modelCatalog: testGatewayModelCatalogResolver{},
+		modelCatalog: testGatewayModelCatalogResolver{models: map[string]modelcatalog.ResolvedProviderModel{"openai-main/gpt-4.1": {ProviderModel: modelcatalog.ProviderModel{ProviderID: "openai-main", UpstreamModel: "gpt-4.1", Enabled: true}}}},
 		providerConfigs: testGatewayProviderConfigResolver{
 			configs: map[string]provider.ProviderConfig{
 				"openai-main": {Id: "openai-main", ProviderType: "openai", APIKey: "provider-config-key"},
@@ -581,14 +606,14 @@ func TestRoutedProviderInjectsExplicitCredentialValuesIntoContext(t *testing.T) 
 	routedProvider := &RoutedProvider{
 		route: &llmroutepkg.LLMRoute{
 			RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
-			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
+			TargetPolicy: &llmroutepkg.RouteModelPolicy{
+				DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}},
 			},
 		},
 		providerResolver: ProviderResolverFunc(func(context.Context, string) (provider.Provider, error) {
 			return capture, nil
 		}),
-		modelCatalog: testGatewayModelCatalogResolver{},
+		modelCatalog: testGatewayModelCatalogResolver{models: map[string]modelcatalog.ResolvedProviderModel{"openai-main/gpt-4.1": {ProviderModel: modelcatalog.ProviderModel{ProviderID: "openai-main", UpstreamModel: "gpt-4.1", Enabled: true}}}},
 		providerConfigs: testGatewayProviderConfigResolver{
 			configs: map[string]provider.ProviderConfig{
 				"openai-main": {Id: "openai-main", ProviderType: "openai"},
@@ -637,14 +662,14 @@ func TestRoutedProviderReportsCredentialRefreshFailure(t *testing.T) {
 	routedProvider := &RoutedProvider{
 		route: &llmroutepkg.LLMRoute{
 			RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
-			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
+			TargetPolicy: &llmroutepkg.RouteModelPolicy{
+				DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}},
 			},
 		},
 		providerResolver: ProviderResolverFunc(func(context.Context, string) (provider.Provider, error) {
 			return &testContextCaptureProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai"}}, nil
 		}),
-		modelCatalog: testGatewayModelCatalogResolver{},
+		modelCatalog: testGatewayModelCatalogResolver{models: map[string]modelcatalog.ResolvedProviderModel{"openai-main/gpt-4.1": {ProviderModel: modelcatalog.ProviderModel{ProviderID: "openai-main", UpstreamModel: "gpt-4.1", Enabled: true}}}},
 		providerConfigs: testGatewayProviderConfigResolver{configs: map[string]provider.ProviderConfig{
 			"openai-main": {Id: "openai-main", ProviderType: "openai"},
 		}},
@@ -706,14 +731,14 @@ func TestRoutedProviderCoolsCredentialAfterRefreshFailure(t *testing.T) {
 	routedProvider := &RoutedProvider{
 		route: &llmroutepkg.LLMRoute{
 			RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
-			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
+			TargetPolicy: &llmroutepkg.RouteModelPolicy{
+				DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}},
 			},
 		},
 		providerResolver: ProviderResolverFunc(func(context.Context, string) (provider.Provider, error) {
 			return &testContextCaptureProvider{cfg: provider.ProviderConfig{Id: "openai-main", ProviderType: "openai"}}, nil
 		}),
-		modelCatalog: testGatewayModelCatalogResolver{},
+		modelCatalog: testGatewayModelCatalogResolver{models: map[string]modelcatalog.ResolvedProviderModel{"openai-main/gpt-4.1": {ProviderModel: modelcatalog.ProviderModel{ProviderID: "openai-main", UpstreamModel: "gpt-4.1", Enabled: true}}}},
 		providerConfigs: testGatewayProviderConfigResolver{configs: map[string]provider.ProviderConfig{
 			"openai-main": {Id: "openai-main", ProviderType: "openai"},
 		}},
@@ -781,14 +806,14 @@ func TestRoutedProviderRetriesAnotherCredentialBeforeModelFallback(t *testing.T)
 	routedProvider := &RoutedProvider{
 		route: &llmroutepkg.LLMRoute{
 			RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
-			TargetPolicy: &llmroutepkg.RouteDirectProviderPolicy{
-				ProviderTarget: llmroutepkg.DirectProviderTarget{ProviderID: "openai-main"},
+			TargetPolicy: &llmroutepkg.RouteModelPolicy{
+				DefaultModel: "gpt-4.1", ModelTargets: []llmroutepkg.RouteModelTarget{{Name: "gpt-4.1", Kind: "provider-model", ProviderID: "openai-main", UpstreamModel: "gpt-4.1"}},
 			},
 		},
 		providerResolver: ProviderResolverFunc(func(context.Context, string) (provider.Provider, error) {
 			return prov, nil
 		}),
-		modelCatalog: testGatewayModelCatalogResolver{},
+		modelCatalog: testGatewayModelCatalogResolver{models: map[string]modelcatalog.ResolvedProviderModel{"openai-main/gpt-4.1": {ProviderModel: modelcatalog.ProviderModel{ProviderID: "openai-main", UpstreamModel: "gpt-4.1", Enabled: true}}}},
 		providerConfigs: testGatewayProviderConfigResolver{
 			configs: map[string]provider.ProviderConfig{
 				"openai-main": {Id: "openai-main", ProviderType: "openai"},
@@ -858,16 +883,11 @@ func TestRoutedProviderFallsBackToAnotherModelAfterCandidateCredentialsExhausted
 	routedProvider := &RoutedProvider{
 		route: &llmroutepkg.LLMRoute{
 			RouteMetadata: llmroutepkg.RouteMetadata{ID: "chat-prod", Protocol: llmroutepkg.RouteProtocolOpenAI},
-			TargetPolicy: &llmroutepkg.RouteLogicalModelTargetPolicy{
-				DefaultModel:          "chat-fast",
-				ModelSelectorStrategy: llmroutepkg.RouteSelectionStrategyPriority,
-				Fallback:              llmroutepkg.RouteFallbackPolicy{Enabled: true, MaxNum: 1},
+			TargetPolicy: &llmroutepkg.RouteModelPolicy{
+				DefaultModel: "chat-fast",
 				ModelTargets: []llmroutepkg.RouteModelTarget{{
 					Name: "chat-fast",
-					Candidates: []llmroutepkg.RouteModelCandidate{
-						{ProviderID: "openai-main", UpstreamModel: "gpt-4.1", Priority: 2},
-						{ProviderID: "openai-backup", UpstreamModel: "gpt-4.1-mini", Priority: 1},
-					},
+					Kind: "logical-model", LogicalModelID: "chat-fast",
 				}},
 			},
 		},
@@ -875,9 +895,9 @@ func TestRoutedProviderFallsBackToAnotherModelAfterCandidateCredentialsExhausted
 			return providers[providerID], nil
 		}),
 		modelCatalog: testGatewayModelCatalogResolver{
-			models: map[string]modelcatalog.ResolvedManagedModel{
+			models: map[string]modelcatalog.ResolvedProviderModel{
 				"openai-main/gpt-4.1": {
-					ManagedModel: modelcatalog.ManagedModel{
+					ProviderModel: modelcatalog.ProviderModel{
 						ProviderID:      "openai-main",
 						UpstreamModel:   "gpt-4.1",
 						Enabled:         true,
@@ -885,7 +905,7 @@ func TestRoutedProviderFallsBackToAnotherModelAfterCandidateCredentialsExhausted
 					},
 				},
 				"openai-backup/gpt-4.1-mini": {
-					ManagedModel: modelcatalog.ManagedModel{
+					ProviderModel: modelcatalog.ProviderModel{
 						ProviderID:      "openai-backup",
 						UpstreamModel:   "gpt-4.1-mini",
 						Enabled:         true,
@@ -920,4 +940,13 @@ func TestRoutedProviderFallsBackToAnotherModelAfterCandidateCredentialsExhausted
 	if !slices.Equal(attempts, []string{"gpt-4.1|main-key", "gpt-4.1-mini|backup-key"}) {
 		t.Fatalf("attempts = %v, want same candidate exhaustion before model fallback", attempts)
 	}
+}
+
+func (r testGatewayModelCatalogResolver) GetLogicalModel(_ context.Context, id string) (*modelcatalog.LogicalModel, bool, error) {
+	if id != "chat-fast" {
+		return nil, false, nil
+	}
+	return &modelcatalog.LogicalModel{ID: id, Strategy: modelcatalog.SelectionPriority, Fallback: modelcatalog.FallbackPolicy{Enabled: true, MaxNum: 1}, Candidates: []modelcatalog.ModelCandidate{
+		{ProviderID: "openai-main", UpstreamModel: "gpt-4.1", Priority: 2}, {ProviderID: "openai-backup", UpstreamModel: "gpt-4.1-mini", Priority: 1},
+	}}, true, nil
 }

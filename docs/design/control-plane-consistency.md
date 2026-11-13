@@ -1,14 +1,14 @@
 # Control-plane reference consistency
 
 Capability status: **Implemented** for reference coordination, transactional
-Provider/ManagedModel deletion and pending generation recovery described here.
+Provider/ProviderModel deletion and pending generation recovery described here.
 
 ## References and deletion
 
 | Relationship | Strength and mutation policy |
 | --- | --- |
-| LLM Route → Provider, including logical candidates | Strong. A write requires every referenced Provider; any static, dynamic or disabled reference blocks Provider deletion. References do not imply exclusive ownership. |
-| ManagedModel → Provider | Owned configuration. Creation/update requires the Provider. Provider deletion atomically removes its overlays in the same SQLite transaction. Discovery cache retirement follows commit. |
+| LLM Route → ProviderModel / LogicalModel | Strong. A write requires every referenced Provider; any static, dynamic or disabled reference blocks Provider deletion. References do not imply exclusive ownership. |
+| ProviderModel → Provider | Owned configuration. Creation/update requires the Provider. Provider deletion atomically removes its overlays in the same SQLite transaction. Discovery cache retirement follows commit. |
 | Provider credential → Provider | Strong ownership metadata. Credentials are never cascade-deleted. Provider deletion is blocked until they are explicitly removed/rebound. Provider type changes cannot strand mismatched credential ownership. Credential writes and Provider mutation share coordination. |
 | Agent.Resources → Provider / MCP service / VirtualKey | Management declarations, not cross-runtime authorization. Retain declarations when those resources are removed; Admin inventory reports `exists=false`. Recreating the same ID reconnects that declaration, without granting access. Builtin definition checks remain in force. |
 | Agent.Routes → LLM/MCP Route | Strong existence/kind dependency. Deletion is blocked while any Agent references the route. LLM dependencies remain shared; MCP exclusivity is unchanged by this contract. |
@@ -45,7 +45,7 @@ lock in this order. No callback reacquires the Agent mutation lock. Credential
 listeners schedule reconciliation asynchronously after their own state locks;
 they must not synchronously wait for Agent mutation under coordination.
 
-Provider/Route, Provider/ManagedModel and Provider/credential mutations use the
+Provider/Route, Provider/ProviderModel and Provider/credential mutations use the
 same coordinator. All reference checks occur inside its operation window, and
 the matching route check remains inside the route manager's publication window.
 Requests continue to read published snapshots without the coordinator or store.
@@ -64,7 +64,7 @@ not fall back to sequential deletion. Keep protected existing interfaces and
 distribution entry signatures unchanged.
 
 Provider deletion checks references, deletes the Provider and its complete
-ManagedModel set in one transaction, then invalidates configuration/runtime and
+ProviderModel set in one transaction, then invalidates configuration/runtime and
 discovery caches. A failed statement/readback rolls back the complete operation.
 Discovery invalidation fences in-flight refresh so it cannot republish a retired
 Provider generation. Credential deletion publishes memory removal and lifecycle
@@ -120,3 +120,10 @@ rollback after any cleanup failure, transaction readback failure, committed
 publication failure, observable pending state, blocked stale execution, caller
 retry and restart. Existing Agent reference, credential revocation, session,
 permission and cancellation behavior suites remain required.
+
+Model resources share this coordinator. LogicalModel candidate writes require
+ProviderModels and Providers; ProviderModel deletion rejects route and logical
+references, LogicalModel deletion rejects route references, and Provider deletion
+rejects logical candidates as well as concrete exposure and direct routes.
+Disabled references remain protected. Model Refresh validates the candidate
+generation and route references before replacing its in-memory snapshots.

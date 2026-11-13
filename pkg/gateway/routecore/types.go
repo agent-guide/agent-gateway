@@ -32,10 +32,9 @@ const (
 type RouteTargetPolicyKind string
 
 const (
-	RouteTargetPolicyKindDirectProvider RouteTargetPolicyKind = "direct-provider"
-	RouteTargetPolicyKindLogicalModel   RouteTargetPolicyKind = "logical-model"
-	RouteTargetPolicyKindConnector      RouteTargetPolicyKind = "connector"
-	RouteTargetPolicyKindAgent          RouteTargetPolicyKind = "agent"
+	RouteTargetPolicyKindModels    RouteTargetPolicyKind = "models"
+	RouteTargetPolicyKindConnector RouteTargetPolicyKind = "connector"
+	RouteTargetPolicyKindAgent     RouteTargetPolicyKind = "agent"
 )
 
 type RouteConfig struct {

@@ -21,7 +21,7 @@ and static/dynamic ties. A partial Bundle must also pass the manager's complete
 generation checks when applied against existing configuration; validating the
 file alone cannot prove that it has no conflicts with stored or static routes.
 
-LLM direct targets use only `target_policy.provider_target.provider_id`.
+All LLM routes use explicit `model_targets` references to ProviderModels or LogicalModels.
 Validation rejects the removed outer `target_policy.provider_id`, including an
 empty or null field; import/export retains no runtime alias. Convert old records
 or static files explicitly through the offline configuration recovery tool.
@@ -96,7 +96,7 @@ Static bundle objects are intentionally equivalent to Caddyfile-owned static obj
 
 Static route limitation:
 
-- standalone `--static-config` `llmRoutes` only support direct-provider targets
+- standalone `--static-config` supports both model declarations and explicit route references
 - logical-model routes remain valid in config-store bundle workflows such as `agwctl apply`
 
 Dynamic objects remain writable through the Admin API and are persisted in SQLite.
@@ -110,7 +110,8 @@ Static objects are not persisted into SQLite as pre-seeded rows. They remain a d
 Configuration-type objects are:
 
 - `providers`
-- `managedModels`
+- `providerModels`
+- `logicalModels`
 - `llmRoutes`
 - `virtualKeys`
 - `connectors`
@@ -196,7 +197,7 @@ providers:
     api_key: ${OPENAI_API_KEY}
     default_model: gpt-4.1
 
-managedModels:
+providerModels:
   - provider_id: openai-main
     upstream_model: gpt-4.1
     enabled: true
@@ -211,8 +212,13 @@ llmRoutes:
     auth_policy:
       require_virtual_key: true
     target_policy:
-      provider_target:
-        provider_id: openai-main
+      type: models
+      default_model: gpt-4.1
+      model_targets:
+        - name: gpt-4.1
+          kind: provider-model
+          provider_id: openai-main
+          upstream_model: gpt-4.1
 
 virtualKeys:
   - id: vk-local-test
@@ -261,7 +267,8 @@ Field naming is intentionally kept close to existing JSON model fields so the bu
 The current implemented bundle path covers:
 
 - `providers`
-- `managedModels`
+- `providerModels`
+- `logicalModels`
 - `llmRoutes`
 - `virtualKeys`
 - `connectors`
@@ -319,7 +326,7 @@ Current validation includes:
 - required `apiVersion`
 - required `kind`
 - duplicate provider IDs
-- duplicate managed model keys
+- duplicate provider model keys
 - duplicate route IDs
 - duplicate virtual key keys
 - duplicate MCP service IDs
@@ -362,13 +369,14 @@ Current object application order:
 
 1. `extensions` in declared dependency order
 2. `providers`
-3. `managedModels`
-4. `llmRoutes`
-5. `connectors`
-6. `mcpRoutes`
-7. `agents`
-8. `agentRoutes`
-9. `virtualKeys`
+3. `providerModels`
+4. `logicalModels`
+5. `llmRoutes`
+6. `connectors`
+7. `mcpRoutes`
+8. `agents`
+9. `agentRoutes`
+10. `virtualKeys`
 
 Current non-behavior:
 
@@ -389,7 +397,7 @@ Current non-behavior:
 
 Current behavior:
 
-- export providers, managed models, LLM routes, virtual keys, MCP
+- export providers, provider models, LLM routes, virtual keys, MCP
   services/routes, Agents/AgentRoutes and reference-preserving extension envelopes
 - omit Admin API read-only/source wrapper fields from the re-apply file
 - emit a re-usable bundle shape intended for later `validate` and `apply`
@@ -410,9 +418,9 @@ Current standalone integration does the following:
 - validate the bundle locally
 - instantiate static providers from bundle provider configs
 - register static provider API-key credentials into the shared credential manager
-- pass static providers and direct-provider routes into runtime bootstrap
+- pass static providers, model resources and model exposure routes into runtime bootstrap
 - load extension envelopes from ConfigStore independently of the static Bundle
-- reject static extensions, managed models, VirtualKeys and logical-model routes
+- reject static extensions, Connectors and VirtualKeys; manage these through Admin or online Bundle apply
 
 The shared schema contains more dynamic object families than standalone static
 loading supports. Standalone validates its own narrower startup boundary; the
@@ -465,7 +473,7 @@ Relevant error classes in the current implementation include:
 Errors are reported using object-qualified identities where possible, such as:
 
 - provider ID
-- managed model key
+- provider model key
 - route ID
 - virtual key key
 
@@ -512,3 +520,15 @@ The main architectural risk remains semantic drift between:
 - standalone static bootstrap behavior
 
 The current implementation reduces that risk by centering parsing and validation in one shared package and by reusing existing runtime object types wherever practical.
+
+## Model resource ownership
+
+`providerModels` registers concrete `(provider_id, upstream_model)` resources.
+`logicalModels` defines independent IDs with candidates, strategy and fallback.
+A `type: models` route explicitly exposes either kind under a route-visible name;
+ProviderModel routes restrict all targets to one Provider and require real model
+names (`name` can be omitted to derive `upstream_model`). LogicalModel routes may
+use aliases and cross-provider candidates. A route cannot mix target kinds;
+new catalog models never automatically expand route access. Both model families
+can be declared statically or managed dynamically; static definitions are read-only through Admin. See
+[model resource contracts](model-first-routing.md).

@@ -1,399 +1,112 @@
-# Model-First Routing Architecture And Technical Specification
+# Model resources and LLM routing
 
 Capability status: **Implemented**.
 
-## 1. Scope
+## Ownership
 
-This document defines the current model-first routing architecture in `agent-gateway`.
-
-It is a runtime design and technical specification document, not a proposal. It describes the implemented ownership boundaries, route semantics, model catalog behavior, and administrative control surface used by the gateway today.
-
-The current Go module path is:
-
-- `github.com/agent-guide/agent-gateway`
-
-## 2. Architectural Position
-
-Model-first routing sits between the route layer and the provider layer.
-
-The gateway runtime uses these responsibilities:
-
-- `pkg/gateway/llmroute`
-  - owns the route data model and route target policy
-- `pkg/gateway/modelcatalog`
-  - owns provider model discovery and managed model overlays
-- `pkg/gateway`
-  - owns route resolution, provider resolution, and virtual key validation
-- `pkg/dispatcher`
-  - owns transport-facing request parsing and protocol response translation
-
-The route-facing abstraction is the logical route model name. The provider-facing abstraction is the concrete `(provider_id, upstream_model)` binding.
-
-## 3. Core Routing Contract
-
-The system supports two valid route target modes:
-
-- logical-model mode
-- direct-provider mode
-
-Logical-model mode is the primary route contract. In this mode:
-
-- clients send a route model name in the request `model`
-- the route resolves that route model name into one concrete provider/model candidate
-- the gateway rewrites the upstream request model before invoking the provider
-
-Direct-provider mode is the escape hatch for simple forwarding. In this mode:
-
-- the route explicitly selects one provider
-- the request `model` is treated as the upstream model name
-- no logical model lookup is performed
-
-## 4. Route Data Model
-
-The route runtime type is `pkg/gateway/llmroute.AgentRoute`.
-
-The target policy is `pkg/gateway/llmroute.RouteTargetPolicy`.
-
-Current route target policy kinds:
-
-- `direct-provider`
-- `logical-model`
-
-Current route target policy fields of record are:
-
-- `type`
-- `default_model`
-- `model_targets`
-- `provider_target`
-- `model_selector_strategy`
-- `credential_selector`
-- `credential_scope_order`
-- `credential_type_order`
-- `fallback`
-
-Important normalization rules in `pkg/gateway/llmroute`:
-
-- `provider_id` and `provider_target.provider_id` are normalized to the same effective value
-- logical-model routes use `model_targets`
-- policy kind is inferred from the effective direct provider target or model target set when `type` is omitted
-
-## 5. Logical-Model Mode
-
-In logical-model mode, each route model name is represented by one `RouteModelTarget`.
-
-`RouteModelTarget` contains:
-
-- `name`
-- `strategy`
-- `default_candidate`
-- `candidates`
-
-Each `RouteModelCandidate` contains:
-
-- `provider_id`
-- `upstream_model`
-- `weight`
-- `priority`
-- `default`
-
-The route model name is the stable client-facing identifier. A route may expose one or more route model names, and each route model name may bind to one or more concrete provider/model candidates.
-
-Current semantics:
-
-- the incoming request `model` is interpreted as a route model name
-- the route model name must exist in the matched route's `target_policy.model_targets`
-- one concrete candidate is selected from that route model target's candidate set
-- the selected candidate determines both provider resolution and upstream model rewrite
-
-If the request omits `model`, `target_policy.default_model` is used when present.
-
-## 6. Direct-Provider Mode
-
-In direct-provider mode, the route uses `target_policy.provider_target.provider_id`.
-
-Current semantics:
-
-- the matched route selects exactly one provider
-- the request `model` is passed through as the upstream model name
-- if the request omits `model`, the selected provider's own `default_model` may apply
-
-This mode intentionally bypasses logical-model resolution. It is valid for simple static deployments and for routes that intentionally expose upstream model naming directly.
-
-## 7. Route Validation Rules
-
-Every route must normalize into exactly one effective target mode.
-
-Logical-model route requirements:
-
-- `llm_api` must be set
-- `target_policy.model_targets` must be non-empty
-- `target_policy.provider_target.provider_id` must be empty
-- `target_policy.default_model`, when set, must refer to an existing route model target name
-
-Direct-provider route requirements:
-
-- `llm_api` must be set
-- `target_policy.provider_target.provider_id` must be set
-- `target_policy.model_targets` must be empty
-- `target_policy.default_model` must be empty
-
-Invalid mixed-mode configurations are rejected by the route validation path. The gateway does not support one route acting as both a direct-provider route and a logical-model route at the same time.
-
-## 8. Runtime Request Flow
-
-### 8.1 Logical-Model Mode
+LLM ingress and model scheduling have independent lifecycles:
 
 ```text
-HTTP request
-  -> route dispatcher matches AgentRoute
-  -> protocol handler parses request
-  -> request model is interpreted as route model name
-  -> route default_model may fill an omitted request model
-  -> route target candidate set is selected from target_policy.model_targets
-  -> one concrete candidate is resolved
-  -> provider instance is resolved
-  -> request model is rewritten to candidate.upstream_model
-  -> provider.Chat(...) or provider.StreamChat(...)
+LLM Route -> ProviderModel -> Provider
+          -> LogicalModel -> candidate ProviderModels -> Providers
 ```
 
-### 8.2 Direct-Provider Mode
-
-```text
-HTTP request
-  -> route dispatcher matches AgentRoute
-  -> protocol handler parses request
-  -> route target_policy.provider_target.provider_id selects provider
-  -> request model is treated as upstream model name
-  -> provider.Chat(...) or provider.StreamChat(...)
-```
-
-The key design rule is that protocol parsing happens before provider execution, while concrete provider selection depends on the matched route mode.
-
-## 9. Model Catalog Responsibilities
-
-The model catalog runtime is `pkg/gateway/modelcatalog`.
-
-It owns:
-
-- upstream model discovery through provider `ListModels(...)`
-- in-memory provider model snapshots
-- persisted managed model overlays
-- resolved managed model views for administration and validation
-
-It does not own route matching or transport parsing.
-
-The model catalog is shared infrastructure for the gateway runtime and the Admin API.
-
-## 10. Model Catalog Data Model
-
-### 10.1 Provider Snapshot
-
-`ProviderModelSnapshot` is the discovered upstream model record.
-
-Current fields:
-
-- `provider_id`
-- `provider_type`
-- `upstream_model`
-- `display_name`
-- `description`
-- `capabilities`
-- `status`
-- `fetched_at`
-- `last_error`
-
-Current snapshot statuses:
-
-- `ok`
-- `error`
-
-Snapshots are runtime discovery facts. They are not the administrator-owned source of truth for enablement or overrides.
-
-### 10.2 Managed Model
-
-`ManagedModel` is the persisted administrative overlay for one concrete upstream model.
-
-Current fields:
-
-- `provider_id`
-- `upstream_model`
-- `credential_scope`
-- `enabled`
-- `capability_overrides`
-
-Persistence key:
-
-- `(provider_id, upstream_model)`
-
-`ManagedModel` is stored through the config store model backend and may be supplied from static configuration or dynamic persisted records.
-
-### 10.3 Resolved Managed Model
-
-`ResolvedManagedModel` combines:
-
-- the managed model overlay
-- the latest provider snapshot, when available
-- the effective capabilities after override application
-
-This is the model catalog's canonical administrative read model.
-
-## 11. Capability Semantics
-
-Per-model capability data is authoritative for model-aware decisions.
-
-The provider package still exposes provider-level capability summaries, but route and model correctness rely on `provider.ModelCapabilities` attached to concrete models.
-
-Current capability resolution rules:
-
-- provider discovery may supply per-model capabilities directly
-- when discovery data is incomplete, provider summary capability metadata may be used as fallback inference
-- `ManagedModel.CapabilityOverrides` replaces discovered capability values for the managed model view
-
-The effective capability model is therefore:
-
-- discovered capability facts from provider model listing
-- corrected, when necessary, by managed model overrides
-
-## 12. Provider Discovery Contract
-
-The model catalog uses `provider.Provider.ListModels(...)` as its discovery entrypoint.
-
-Provider requirements in the current architecture:
-
-- return upstream model identifiers that can be used in real requests
-- return per-model capability data when available
-- expose a stable provider config through `Provider.Config()`
-
-When provider discovery fails:
-
-- the catalog records an error snapshot for that provider
-- administrative visibility is preserved through `last_error`
-- the failure does not mutate persisted managed model records
-
-## 13. Config Store Contract
-
-The model catalog persists managed model overlays through the generic schema-bound `ConfigStore` built with the `managed_models` store name.
-
-The `managed_models` schema uses the composite primary key `(provider_id, upstream_model)`.
-
-Managed model persistence is limited to administrator-owned state such as:
-
-- enabled or disabled state
-- credential scope
-- capability overrides
-
-Transient runtime state is not persisted in the model store. Provider discovery freshness stays in runtime memory as snapshot state.
-
-## 14. Administrative APIs
-
-The gateway Admin API exposes model catalog operations under `/admin/llm/models/...`.
-
-Current API families:
-
-- `GET /admin/llm/models/providers/{provider_id}/discovered`
-  - list provider snapshots for one provider
-- `POST /admin/llm/models/providers/{provider_id}/refresh`
-  - refresh provider model discovery
-- `GET /admin/llm/models/managed`
-  - list managed models
-- `GET /admin/llm/models/managed/{provider_id}/{upstream_model}`
-  - read one managed model
-- `POST /admin/llm/models/managed`
-  - create one managed model
-- `PUT /admin/llm/models/managed/{provider_id}/{upstream_model}`
-  - update one managed model
-- `DELETE /admin/llm/models/managed/{provider_id}/{upstream_model}`
-  - delete one managed model
-
-The gateway Admin API does not expose Caddy server management APIs. Model catalog administration is part of the gateway control plane, not the Caddy control plane.
-
-## 15. Static Configuration Shape
-
-Static route configuration in the Caddy-based runtime lives in the global `agent_gateway` block.
-
-Current route target directives support both modes:
-
-- logical-model mode through `target model ...`
-- direct-provider mode through `target provider <provider-id>`
-
-Logical-model route example:
-
-```caddy
-route openai-chat {
-    llm_api openai
-    path_prefix /
-    require_virtual_key
-    target model chat-default openai-main gpt-4.1 weight 100 default
-    target model chat-fast openai-main gpt-4.1-mini weight 100
-    target model chat-fast zhipu-main glm-4.5-air weight 50
-}
-```
-
-Direct-provider route example:
-
-```caddy
-route openai-pass-through {
-    llm_api openai
-    path_prefix /
-    require_virtual_key
-    target provider openai-main
-}
-```
-
-These directives compile into the normalized `RouteTargetPolicy` shape described above.
-
-## 16. Naming And Terminology Rules
-
-Use the following terms consistently in code and documentation:
-
-- `agent-gateway`
-  - project and module name
-- `agent_gateway`
-  - Caddy app module ID
-- `AgentRoute`
-  - route runtime object
-- `VirtualKey`
-  - caller-facing gateway key
-- `ManagedModel`
-  - persisted administrative overlay for one upstream model
-- `ProviderModelSnapshot`
-  - discovered upstream model fact record
-- `RouteModelTarget`
-  - route-local logical model target
-- `DirectProviderTarget`
-  - direct provider forwarding target
-
-Do not reintroduce:
-
-- legacy repository naming
-- legacy wording that treats the gateway as a Caddy-only product
-- route terminology that conflates logical route models with upstream provider model names
-
-## 17. Compatibility Rules
-
-The route model retains compatibility fields during normalization:
-
-- `provider_id`
-  - normalized into `provider_target.provider_id`
-- `models`
-  - normalized into `model_targets`
-
-New code and new documentation must use the normalized shape:
-
-- `target_policy.provider_target.provider_id`
-- `target_policy.model_targets`
-- `target_policy.default_model`
-
-## 18. Summary
-
-The current routing architecture is model-first at the route boundary and provider-concrete at execution time.
-
-Its stable design rules are:
-
-- clients target route model names in logical-model mode
-- routes may intentionally bypass that through explicit direct-provider mode
-- providers remain the execution backend, not the primary route abstraction
-- model discovery facts and managed model overrides are separate concerns
-- the model catalog is shared runtime infrastructure, not an isolated admin-only subsystem
-
-This is the current `agent-gateway` architecture and the normative technical specification for model-first routing in the repository.
+A Provider owns connection and upstream network configuration. A ProviderModel
+identifies one concrete `(provider_id, upstream_model)` and owns its enabled
+state, capability overrides and optional credential scope. Discovery snapshots
+supply observed model facts; they are not automatically exposed to clients.
+ProviderModel is the concrete model resource, not a logical alias.
+
+A LogicalModel owns its stable `id`, description, disabled state, candidate
+ProviderModel references, selection strategy and bounded candidate fallback.
+Candidates reference the ProviderModel compound identity and carry `weight` and
+`priority`. LogicalModels cannot contain other LogicalModels. The same definition
+can serve OpenAI, Anthropic and CC ingress without copying scheduling policy.
+
+An LLM Route owns matching, protocol, VirtualKey requirements, credential
+selection, explicit model exposure and a default route-visible model name. It
+never owns candidates, weights, priorities or fallback.
+
+## Route contracts
+
+`target_policy.type: models` contains `model_targets` and optional `default_model`.
+Each target has a unique route-visible `name` and exactly one reference:
+
+- `kind: provider-model`: `provider_id` and `upstream_model`;
+- `kind: logical-model`: `logical_model_id`.
+
+A route exposes exactly one target kind. ProviderModel routes bind one Provider
+and may expose several of its models; each target's `name` must equal
+`upstream_model` and can be omitted on input to derive it automatically. Concrete
+aliases and cross-provider targets are rejected. LogicalModel routes reference
+independent LogicalModels under route-visible names; their candidates may span
+Providers. Mixing the two kinds is rejected, including in disabled routes.
+
+Request `model` selects a target's name. If omitted, `default_model` selects that
+name. Adding a catalog model never broadens the route's explicit allowlist.
+Cross-provider selection, fallback and stable aliases belong to LogicalModels.
+
+All LLM routes resolve explicit models. ProviderModel fixes both the Provider
+and upstream model; request `model` cannot override that binding or select an
+unexposed upstream model. An omitted model uses the route's `default_model`;
+Provider defaults never select a gateway route target.
+
+Caddyfile, adapted Caddy JSON and standalone startup Bundles support independent
+ProviderModels and LogicalModels. Static definitions are read-only through Admin;
+edit their source and reload/restart. Static/dynamic identity collisions are
+rejected rather than silently shadowed. Bundle `providerModels` and `logicalModels`
+feed the same model catalog snapshots used by dynamic management.
+
+## Execution
+
+Protocol parsing derives generic capability and atomic protocol requirements.
+A concrete target resolves one enabled ProviderModel and Provider. A logical
+target reads its independent definition and filters its candidate ProviderModels
+by enabled state, Provider availability and those same requirements. Resolution
+rewrites an attempt-local request, preserving the caller's route-visible model.
+Usage distinguishes the route, client model, logical model ID when applicable,
+Provider and upstream model.
+
+Selection strategies are `priority` (highest priority, stable configuration order
+for ties), `weighted` (positive weights; first eligible candidate when all weights
+are zero), and `auto` (highest priority tier, then weighted selection within it).
+The default is `auto`. Each LogicalModel has 1–1024 candidates; weights range
+from 0 to 1,000,000. Negative weights and duplicate concrete bindings are invalid.
+
+LogicalModel `fallback.enabled` and `fallback.max_num` permit up to five candidate
+reselections inside a live request. Existing credential retries occur on the same
+binding first. Only retryable failures advance candidates. A returned stream
+reader ends this retry boundary; later stream failures never restart generation.
+Provider network retries remain Provider-owned.
+
+Discovery refresh is explicit through Admin. Request-time model resolution reads
+in-memory snapshots, never ConfigStore or discovery APIs. Model changes publish
+defensive copies; failed refresh retains the last validated generation.
+
+## Integrity and persistence
+
+`provider_models` uses SQLite `model_configs` with the concrete compound key;
+`logical_models` uses a separate `logical_models` table keyed by `id`.
+The physical concrete model table is unchanged. The current API and Bundle names
+are ProviderModel, `/admin/llm/models/provider`, and `providerModels`.
+
+Composed manager mutations share the control-plane coordinator. Route writes
+require referenced models, and LogicalModel writes require their candidate
+ProviderModels and Providers. Disabled references still prevent deletion.
+ProviderModel deletion is blocked by concrete route targets and logical
+candidates. LogicalModel deletion is blocked by route references. Provider
+deletion is blocked by exposed concrete models, logical
+candidates and credentials; otherwise its unreferenced ProviderModels are removed
+with it in one transaction.
+
+Resource writes and Bundle apply remain independent and sequential. Apply order
+is Providers, ProviderModels, LogicalModels, then LLM Routes. Static models are validated before serving. No cross-resource
+publication transaction or group recovery API is introduced.
+
+## Cutover
+
+The removed `direct-provider` target and `provider_target` require explicit offline conversion with a model allowlist. The old inline `type: logical-model`, route `model_selector_strategy`, route
+`fallback`, and target `candidates`/strategy/default-candidate fields are rejected.
+There are no runtime aliases or dual reads. Use the stopped-service offline
+`extract-models` repair operation to create independent definitions and replace
+route targets atomically. See [recovery](../guides/architecture-config-recovery.md).

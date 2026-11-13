@@ -29,7 +29,7 @@ providers:
     provider_type: openai
     api_key: ${OPENAI_API_KEY}
     default_model: gpt-4.1
-managedModels:
+providerModels:
   - provider_id: openai-main
     upstream_model: gpt-4.1
     enabled: true
@@ -43,8 +43,13 @@ llmRoutes:
     auth_policy:
       require_virtual_key: true
     target_policy:
-      provider_target:
-        provider_id: openai-main
+      type: models
+      default_model: gpt-4.1
+      model_targets:
+        - name: gpt-4.1
+          kind: provider-model
+          provider_id: openai-main
+          upstream_model: gpt-4.1
 virtualKeys:
   - id: vk-local-test
     tag: local-test
@@ -71,8 +76,8 @@ virtualKeys:
 	if bundle.Providers[0].APIKey != "sk-test" {
 		t.Fatalf("Providers[0].APIKey = %q, want %q", bundle.Providers[0].APIKey, "sk-test")
 	}
-	if len(bundle.ManagedModels) != 1 || bundle.ManagedModels[0].ProviderID != "openai-main" || bundle.ManagedModels[0].UpstreamModel != "gpt-4.1" {
-		t.Fatalf("ManagedModels = %#v", bundle.ManagedModels)
+	if len(bundle.ProviderModels) != 1 || bundle.ProviderModels[0].ProviderID != "openai-main" || bundle.ProviderModels[0].UpstreamModel != "gpt-4.1" {
+		t.Fatalf("ProviderModels = %#v", bundle.ProviderModels)
 	}
 	if len(bundle.LLMRoutes) != 1 {
 		t.Fatalf("len(LLMRoutes) = %d, want 1", len(bundle.LLMRoutes))
@@ -81,8 +86,8 @@ virtualKeys:
 	if err != nil {
 		t.Fatalf("NewLLMRouteFromConfig() error = %v", err)
 	}
-	directPolicy, ok := llmroutepkg.DirectProviderPolicyOf(route.TargetPolicy)
-	if !ok || directPolicy.ProviderTarget.ProviderID != "openai-main" {
+	directPolicy := route.TargetPolicy
+	if directPolicy == nil || directPolicy.ModelTargets[0].ProviderID != "openai-main" {
 		t.Fatalf("LLMRoutes[0].TargetPolicy = %#v, want direct provider openai-main", route.TargetPolicy)
 	}
 	if len(bundle.VirtualKeys) != 1 || bundle.VirtualKeys[0].ID != "vk-local-test" || len(bundle.VirtualKeys[0].AllowedRouteIDs) != 1 || bundle.VirtualKeys[0].AllowedRouteIDs[0] != "chat-prod" {
@@ -385,8 +390,13 @@ llmRoutes:
     auth_policy:
       require_virtual_key: true
     target_policy:
-      provider_target:
-        provider_id: openai-main
+      type: models
+      default_model: gpt-4.1
+      model_targets:
+        - name: gpt-4.1
+          kind: provider-model
+          provider_id: openai-main
+          upstream_model: gpt-4.1
 virtualKeys:
   - id: vk-local-test
     allowed_route_ids:
@@ -480,7 +490,7 @@ providers:
     provider_type: openai
   - id: dup
     provider_type: missing-provider
-managedModels:
+providerModels:
   - provider_id: openai-main
     upstream_model: gpt-4.1
   - provider_id: openai-main
@@ -493,8 +503,13 @@ llmRoutes:
     auth_policy:
       require_virtual_key: true
     target_policy:
-      provider_target:
-        provider_id: dup
+      type: models
+      default_model: gpt-4.1
+      model_targets:
+        - name: gpt-4.1
+          kind: provider-model
+          provider_id: dup
+          upstream_model: gpt-4.1
   - id: route-a
     protocol: openai
     match_policy:
@@ -502,8 +517,13 @@ llmRoutes:
     auth_policy:
       require_virtual_key: true
     target_policy:
-      provider_target:
-        provider_id: dup
+      type: models
+      default_model: gpt-4.1
+      model_targets:
+        - name: gpt-4.1
+          kind: provider-model
+          provider_id: dup
+          upstream_model: gpt-4.1
 virtualKeys:
   - id: vk-a
     allowed_route_ids:
@@ -529,7 +549,7 @@ virtualKeys:
 		`apiVersion must be "gateway.agw/v1alpha1"`,
 		`kind must be "GatewayBundle"`,
 		`providers["dup"]: duplicate id`,
-		`managedModels["openai-main/gpt-4.1"]: duplicate provider_id/upstream_model`,
+		`providerModels["openai-main/gpt-4.1"]: duplicate provider_id/upstream_model`,
 		`llmRoutes["route-a"]: duplicate id`,
 		`virtualKeys["vk-a"]: allowed_route_id "missing-route" does not exist in bundle routes`,
 		`virtualKeys["vk-a"]: duplicate id`,
@@ -577,11 +597,11 @@ virtualKeys:
 	}
 }
 
-func TestValidateForStaticConfigRejectsManagedModels(t *testing.T) {
+func TestValidateForStaticConfigAcceptsProviderModels(t *testing.T) {
 	bundle, err := DecodeYAML([]byte(`
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
-managedModels:
+providerModels:
   - provider_id: openai-main
     upstream_model: gpt-4.1
 `))
@@ -589,12 +609,8 @@ managedModels:
 		t.Fatalf("DecodeYAML() error = %v", err)
 	}
 
-	err = bundle.ValidateForStaticConfig()
-	if err == nil {
-		t.Fatal("ValidateForStaticConfig() error = nil, want managed model rejection")
-	}
-	if !strings.Contains(err.Error(), "managedModels are not supported in static config") {
-		t.Fatalf("ValidateForStaticConfig() error = %v", err)
+	if err := bundle.ValidateForStaticConfig(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -607,7 +623,7 @@ llmRoutes:
     kind: llm
     protocol: openai
     match_policy: {path_prefix: /api, methods: [GET, POST]}
-    target_policy: {provider_target: {provider_id: p}}
+    target_policy: {type: models, model_targets: [{name: m, kind: provider-model, provider_id: p, upstream_model: m}]}
 mcpRoutes:
   - id: tools
     kind: mcp
@@ -687,7 +703,7 @@ llmRoutes:
 	if err == nil {
 		t.Fatal("Validate() error = nil, want conflicting route defaults rejection")
 	}
-	if !strings.Contains(err.Error(), `llmRoutes["chat-test"]: route "chat-test" default candidates must belong to a single target model`) {
+	if !strings.Contains(err.Error(), `unsupported model target field "candidates"`) {
 		t.Fatalf("Validate() error = %v", err)
 	}
 }
@@ -784,7 +800,7 @@ mcpRoutes:
 	}
 }
 
-func TestValidateForStaticConfigRejectsLogicalModelRoutes(t *testing.T) {
+func TestValidateForStaticConfigAcceptsModelRoutes(t *testing.T) {
 	bundle, err := DecodeYAML([]byte(`
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
@@ -804,21 +820,15 @@ llmRoutes:
       default_model: chat-default
       model_targets:
         - name: chat-default
-          candidates:
-            - provider_id: openai-main
-              upstream_model: gpt-4.1
-              default: true
+          kind: logical-model
+          logical_model_id: chat-default
 `))
 	if err != nil {
 		t.Fatalf("DecodeYAML() error = %v", err)
 	}
 
-	err = bundle.ValidateForStaticConfig()
-	if err == nil {
-		t.Fatal("ValidateForStaticConfig() error = nil, want logical-model rejection")
-	}
-	if !strings.Contains(err.Error(), `llmRoutes["chat-test"]: route "chat-test" logical-model target_policy is not supported in static config`) {
-		t.Fatalf("ValidateForStaticConfig() error = %v", err)
+	if err := bundle.ValidateForStaticConfig(); err != nil {
+		t.Fatal(err)
 	}
 }
 

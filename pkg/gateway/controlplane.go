@@ -97,7 +97,7 @@ func (c *controlPlane) providerMutation(ctx context.Context, action configmgr.Mu
 func (c *controlPlane) providerReferences(ctx context.Context, id string) ([]string, error) {
 	var refs []string
 	if c.routes != nil {
-		routes, err := c.routes.List(ctx, routecore.RouteListOptions{})
+		routes, err := c.routeDefinitions(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -114,6 +114,29 @@ func (c *controlPlane) providerReferences(ctx context.Context, id string) ([]str
 			}
 		}
 	}
+	if c.models != nil {
+		concrete, err := c.models.ListProviderModels(ctx, modelcatalog.ProviderModelFilter{ProviderID: id})
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range concrete {
+			if m.ReadOnly {
+				refs = append(refs, "static-provider-model:"+m.UpstreamModel)
+			}
+		}
+		logicals, err := c.models.ListLogicalModels(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range logicals {
+			for _, candidate := range m.Candidates {
+				if candidate.ProviderID == id {
+					refs = append(refs, "logical-model:"+m.ID)
+					break
+				}
+			}
+		}
+	}
 	creds, err := c.credentialDefinitions(ctx)
 	if err != nil {
 		return nil, err
@@ -124,7 +147,7 @@ func (c *controlPlane) providerReferences(ctx context.Context, id string) ([]str
 		}
 	}
 	sort.Strings(refs)
-	return refs, nil
+	return slices.Compact(refs), nil
 }
 
 func (c *controlPlane) credentialDefinitions(ctx context.Context) ([]credential.Credential, error) {
@@ -168,9 +191,9 @@ func (c *controlPlane) deleteProvider(ctx context.Context, id string) error {
 	c.providers.beginDeletion(id)
 	written := false
 	var callbackErr error
-	err := tx.Transaction(ctx, []string{schema.StoreProviders, schema.StoreManagedModels}, func(stores map[string]configstore.ConfigStore) (err error) {
+	err := tx.Transaction(ctx, []string{schema.StoreProviders, schema.StoreProviderModels}, func(stores map[string]configstore.ConfigStore) (err error) {
 		defer func() { callbackErr = err }()
-		providers, models := stores[schema.StoreProviders], stores[schema.StoreManagedModels]
+		providers, models := stores[schema.StoreProviders], stores[schema.StoreProviderModels]
 		if _, err := providers.Get(ctx, id); err != nil {
 			if errors.Is(err, configstore.ErrNotFound) {
 				return fmt.Errorf("%w: %q", ErrProviderNotConfigured, id)
@@ -186,9 +209,9 @@ func (c *controlPlane) deleteProvider(ctx context.Context, id string) error {
 		}
 		written = true
 		for _, item := range items {
-			model, ok := item.(*modelcatalog.ManagedModel)
+			model, ok := item.(*modelcatalog.ProviderModel)
 			if !ok || model == nil {
-				return fmt.Errorf("unexpected managed model type %T", item)
+				return fmt.Errorf("unexpected provider model type %T", item)
 			}
 			if model.ProviderID == id {
 				if err := models.Delete(ctx, id, model.UpstreamModel); err != nil {
@@ -201,15 +224,15 @@ func (c *controlPlane) deleteProvider(ctx context.Context, id string) error {
 		}
 		remaining, err := models.List(ctx)
 		if err != nil {
-			return fmt.Errorf("verify managed model cleanup: %w", err)
+			return fmt.Errorf("verify provider model cleanup: %w", err)
 		}
 		for _, item := range remaining {
-			model, ok := item.(*modelcatalog.ManagedModel)
+			model, ok := item.(*modelcatalog.ProviderModel)
 			if !ok || model == nil {
-				return fmt.Errorf("unexpected managed model type %T", item)
+				return fmt.Errorf("unexpected provider model type %T", item)
 			}
 			if model.ProviderID == id {
-				return fmt.Errorf("managed model %q/%q remains after cleanup", id, model.UpstreamModel)
+				return fmt.Errorf("provider model %q/%q remains after cleanup", id, model.UpstreamModel)
 			}
 		}
 		return nil
@@ -267,6 +290,9 @@ func (c *controlPlane) routeMutation(ctx context.Context, action configmgr.Mutat
 					return fmt.Errorf("%w: %w", ErrDependencyNotConfigured, err)
 				}
 			}
+			if err := c.validateRouteModelReferences(ctx, *next); err != nil {
+				return err
+			}
 		case routecore.RouteKindMCP:
 			r, err := mcproute.NewMCPRouteFromConfig(*next)
 			if err != nil {
@@ -296,11 +322,19 @@ func (c *controlPlane) routeMutation(ctx context.Context, action configmgr.Mutat
 	return apply(ctx)
 }
 
-func (c *controlPlane) modelMutation(ctx context.Context, action configmgr.MutationAction, id string, next *modelcatalog.ManagedModel, apply func(context.Context) error) error {
+func (c *controlPlane) modelMutation(ctx context.Context, action configmgr.MutationAction, id string, next *modelcatalog.ProviderModel, apply func(context.Context) error) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if action == configmgr.MutationRefresh {
+		return apply(ctx)
+	}
 	if err := c.providers.checkPending(id); err != nil {
 		return err
+	}
+	if action == configmgr.MutationDelete && next != nil {
+		if err := c.checkModelReferences(ctx, "provider-model", next.ProviderID, next.UpstreamModel, ""); err != nil {
+			return err
+		}
 	}
 	if next != nil {
 		if _, err := c.providers.GetConfig(ctx, strings.TrimSpace(next.ProviderID)); err != nil {
@@ -519,4 +553,157 @@ func (c *controlPlane) connectorReferences(ctx context.Context, id string) error
 		}
 	}
 	return nil
+}
+
+func (c *controlPlane) logicalModelMutation(ctx context.Context, action configmgr.MutationAction, id string, next *modelcatalog.LogicalModel, apply func(context.Context) error) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if action == configmgr.MutationDelete {
+		if err := c.checkModelReferences(ctx, "logical-model", "", "", id); err != nil {
+			return err
+		}
+	}
+	if next != nil {
+		for _, candidate := range next.Candidates {
+			if _, err := c.providers.GetConfig(ctx, candidate.ProviderID); err != nil {
+				return fmt.Errorf("%w: %w", ErrDependencyNotConfigured, err)
+			}
+			_, ok, err := c.models.GetProviderModel(ctx, candidate.ProviderID, candidate.UpstreamModel)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("%w: provider model %q/%q", ErrDependencyNotConfigured, candidate.ProviderID, candidate.UpstreamModel)
+			}
+		}
+	}
+	return apply(ctx)
+}
+func (c *controlPlane) checkModelReferences(ctx context.Context, kind, providerID, upstreamModel, logicalID string) error {
+	var refs []string
+	if c.routes != nil {
+		routes, err := c.routeDefinitions(ctx)
+		if err != nil {
+			return err
+		}
+		for _, cfg := range routes {
+			if cfg.Kind != routecore.RouteKindLLM {
+				continue
+			}
+			r, err := llmroute.NewLLMRouteFromConfig(cfg)
+			if err != nil {
+				return err
+			}
+			if p := r.TargetPolicy; p != nil {
+				for _, t := range p.ModelTargets {
+					if t.Kind == kind && ((kind == "logical-model" && t.LogicalModelID == logicalID) || (kind == "provider-model" && t.ProviderID == providerID && t.UpstreamModel == upstreamModel)) {
+						refs = append(refs, "route:"+cfg.ID)
+					}
+				}
+			}
+		}
+	}
+	if kind == "provider-model" && c.models != nil {
+		models, err := c.models.ListLogicalModels(ctx)
+		if err != nil {
+			return err
+		}
+		for _, m := range models {
+			for _, v := range m.Candidates {
+				if v.ProviderID == providerID && v.UpstreamModel == upstreamModel {
+					refs = append(refs, "logical-model:"+m.ID)
+					break
+				}
+			}
+		}
+	}
+	if len(refs) > 0 {
+		sort.Strings(refs)
+		return fmt.Errorf("%w: model referenced by %s", ErrResourceReferenced, strings.Join(slices.Compact(refs), ", "))
+	}
+	return nil
+}
+
+func (c *controlPlane) validateModelGeneration(ctx context.Context, models []modelcatalog.ProviderModel, logicals []modelcatalog.LogicalModel) error {
+	pm := map[[2]string]bool{}
+	lm := map[string]bool{}
+	for _, m := range models {
+		pm[[2]string{m.ProviderID, m.UpstreamModel}] = true
+	}
+	for _, m := range logicals {
+		lm[m.ID] = true
+	}
+	if c.routes == nil {
+		return nil
+	}
+	routes, err := c.routeDefinitions(ctx)
+	if err != nil {
+		return err
+	}
+	for _, cfg := range routes {
+		if cfg.Kind != routecore.RouteKindLLM {
+			continue
+		}
+		r, err := llmroute.NewLLMRouteFromConfig(cfg)
+		if err != nil {
+			return err
+		}
+		if p := r.TargetPolicy; p != nil {
+			if err := r.ValidateDefinition(); err != nil {
+				return err
+			}
+			for _, t := range p.ModelTargets {
+				exists := lm[t.LogicalModelID]
+				if t.Kind == "provider-model" {
+					exists = pm[[2]string{t.ProviderID, t.UpstreamModel}]
+				}
+				if !exists {
+					return fmt.Errorf("%w: route %q model %q; inspect with scripts/repair-architecture-config", ErrDependencyNotConfigured, r.ID, t.Name)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (c *controlPlane) validateRouteModelReferences(ctx context.Context, cfg routecore.RouteConfig) error {
+	if cfg.Kind != routecore.RouteKindLLM {
+		return nil
+	}
+	r, err := llmroute.NewLLMRouteFromConfig(cfg)
+	if err != nil {
+		return err
+	}
+	if p := r.TargetPolicy; p != nil {
+		if err := r.ValidateDefinition(); err != nil {
+			return err
+		}
+		for _, t := range p.ModelTargets {
+			if c.models == nil {
+				return fmt.Errorf("%w: model catalog", ErrDependencyNotConfigured)
+			}
+			var exists bool
+			var err error
+			if t.Kind == "logical-model" {
+				_, exists, err = c.models.GetLogicalModel(ctx, t.LogicalModelID)
+			} else {
+				_, exists, err = c.models.GetProviderModel(ctx, t.ProviderID, t.UpstreamModel)
+			}
+			if err != nil {
+				return err
+			}
+			if !exists {
+				return fmt.Errorf("%w: route %q model %q", ErrDependencyNotConfigured, r.ID, t.Name)
+			}
+		}
+	}
+	return nil
+}
+
+func (c *controlPlane) routeDefinitions(ctx context.Context) ([]routecore.RouteConfig, error) {
+	routes, err := c.routes.List(ctx, routecore.RouteListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return append(routes, c.routes.PublishedConfigs()...), nil
 }

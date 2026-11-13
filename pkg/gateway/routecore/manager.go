@@ -29,8 +29,9 @@ type RouteListOptions struct {
 type RouteConfigManager struct {
 	base *configmgr.BaseConfigManager[RouteConfig]
 	// Serializes full-generation validation, persistence and publication.
-	writeMu sync.Mutex
-	guard   configmgr.MutationGuard[RouteConfig]
+	writeMu            sync.Mutex
+	guard              configmgr.MutationGuard[RouteConfig]
+	validateReferences func([]RouteConfig) error
 
 	mu            sync.RWMutex
 	table         *routeTable
@@ -39,41 +40,40 @@ type RouteConfigManager struct {
 }
 
 func NewRouteConfigManager(store configstore.ConfigStore, guards ...configmgr.MutationGuard[RouteConfig]) *RouteConfigManager {
-	return &RouteConfigManager{
-		guard: configmgr.SelectMutationGuard(guards),
-		base: configmgr.NewBaseConfigManager(store, configmgr.Definition[RouteConfig]{
-			DisableListCache: true,
-			ValidateSnapshot: ValidateRouteConfigs,
-			GetID:            routeConfigID,
-			Decode:           decodeRouteConfigItem,
-			Clone:            cloneRouteConfig,
-			PrepareCreate: func(route RouteConfig) (any, RouteConfig, error) {
-				if route.ID == "" {
-					return nil, RouteConfig{}, fmt.Errorf("route id is required")
-				}
-				route = normalizeRouteConfigTimestamps(route, time.Now().UTC(), true)
-				return storedRouteConfig{route: route}, route, nil
-			},
-			PrepareUpdate: func(routeID string, current RouteConfig, route RouteConfig) (any, RouteConfig, error) {
-				route.ID = routeID
-				route = normalizeRouteConfigTimestamps(route, time.Now().UTC(), false)
-				route.CreatedAt = current.CreatedAt
-				return storedRouteConfig{route: route}, route, nil
-			},
-			ShouldIncludeStatic: func(query configmgr.ListQuery) bool {
-				return query.TagPrefix == "" && query.Tag == ""
-			},
-			NotConfiguredErr: func(id string) error {
-				return fmt.Errorf("%w: %q", ErrRouteNotConfigured, id)
-			},
-			ReadOnlyErr: func(id string) error {
-				return fmt.Errorf("%w: %q", ErrStaticRouteReadOnly, id)
-			},
-			StoreNilErr: func() error {
-				return fmt.Errorf("route store is not configured")
-			},
-		}),
-	}
+	m := &RouteConfigManager{guard: configmgr.SelectMutationGuard(guards)}
+	m.base = configmgr.NewBaseConfigManager(store, configmgr.Definition[RouteConfig]{
+		DisableListCache: true,
+		ValidateSnapshot: func(routes []RouteConfig) error { return m.validateSnapshot(routes) },
+		GetID:            routeConfigID,
+		Decode:           decodeRouteConfigItem,
+		Clone:            cloneRouteConfig,
+		PrepareCreate: func(route RouteConfig) (any, RouteConfig, error) {
+			if route.ID == "" {
+				return nil, RouteConfig{}, fmt.Errorf("route id is required")
+			}
+			route = normalizeRouteConfigTimestamps(route, time.Now().UTC(), true)
+			return storedRouteConfig{route: route}, route, nil
+		},
+		PrepareUpdate: func(routeID string, current RouteConfig, route RouteConfig) (any, RouteConfig, error) {
+			route.ID = routeID
+			route = normalizeRouteConfigTimestamps(route, time.Now().UTC(), false)
+			route.CreatedAt = current.CreatedAt
+			return storedRouteConfig{route: route}, route, nil
+		},
+		ShouldIncludeStatic: func(query configmgr.ListQuery) bool {
+			return query.TagPrefix == "" && query.Tag == ""
+		},
+		NotConfiguredErr: func(id string) error {
+			return fmt.Errorf("%w: %q", ErrRouteNotConfigured, id)
+		},
+		ReadOnlyErr: func(id string) error {
+			return fmt.Errorf("%w: %q", ErrStaticRouteReadOnly, id)
+		},
+		StoreNilErr: func() error {
+			return fmt.Errorf("route store is not configured")
+		},
+	})
+	return m
 }
 
 func (m *RouteConfigManager) Reset() {
@@ -92,7 +92,7 @@ func (m *RouteConfigManager) InitStaticRoutes(routes []RouteConfig) error {
 			candidate = append(candidate, r)
 		}
 	}
-	if err := ValidateRouteConfigs(candidate); err != nil {
+	if err := m.validateSnapshot(candidate); err != nil {
 		return err
 	}
 	m.base.InitStatic(routes)
@@ -189,7 +189,7 @@ func (m *RouteConfigManager) create(ctx context.Context, route RouteConfig, tag 
 		return fmt.Errorf("route id is required")
 	}
 	route = normalizeRouteConfigTimestamps(route, time.Now().UTC(), true)
-	if err := ValidateRouteConfigs(append(m.base.Snapshot(configmgr.ListQuery{}), route)); err != nil {
+	if err := m.validateSnapshot(append(m.base.Snapshot(configmgr.ListQuery{}), route)); err != nil {
 		return err
 	}
 	if err := m.base.CreatePrepared(ctx, route.ID, storedRouteConfig{route: route, tag: tag}, route); err != nil {
@@ -226,7 +226,7 @@ func (m *RouteConfigManager) update(ctx context.Context, routeID string, route R
 	if !found {
 		return fmt.Errorf("%w: %q", ErrRouteNotConfigured, routeID)
 	}
-	if err := ValidateRouteConfigs(candidate); err != nil {
+	if err := m.validateSnapshot(candidate); err != nil {
 		return err
 	}
 	if err := m.base.Update(ctx, routeID, route); err != nil {
@@ -408,4 +408,27 @@ func requestHost(r *http.Request) string {
 		return parsedHost
 	}
 	return host
+}
+
+// SetReferenceValidator installs domain validation before a candidate route generation is published.
+// The callback runs under writeMu and must only read in-memory dependency snapshots.
+func (m *RouteConfigManager) SetReferenceValidator(validate func([]RouteConfig) error) error {
+	m.writeMu.Lock()
+	defer m.writeMu.Unlock()
+	if validate != nil {
+		if err := validate(m.base.Snapshot(configmgr.ListQuery{})); err != nil {
+			return err
+		}
+	}
+	m.validateReferences = validate
+	return nil
+}
+func (m *RouteConfigManager) validateSnapshot(routes []RouteConfig) error {
+	if err := ValidateRouteConfigs(routes); err != nil {
+		return err
+	}
+	if m.validateReferences != nil {
+		return m.validateReferences(routes)
+	}
+	return nil
 }

@@ -54,9 +54,9 @@ func TestProviderAndModelWritesExposePendingRecovery(t *testing.T) {
 		handler            http.HandlerFunc
 	}{
 		{"provider create", http.MethodPost, `{"id":"p","provider_type":"openai"}`, h.handleCreateProvider},
-		{"model create", http.MethodPost, `{"provider_id":"p","upstream_model":"model"}`, h.handleCreateManagedModel},
-		{"model update", http.MethodPut, `{"enabled":true}`, h.handleUpdateManagedModel},
-		{"model delete", http.MethodDelete, "", h.handleDeleteManagedModel},
+		{"model create", http.MethodPost, `{"provider_id":"p","upstream_model":"model"}`, h.handleCreateProviderModel},
+		{"model update", http.MethodPut, `{"enabled":true}`, h.handleUpdateProviderModel},
+		{"model delete", http.MethodDelete, "", h.handleDeleteProviderModel},
 		{"model refresh", http.MethodPost, "", h.handleRefreshProviderModels},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

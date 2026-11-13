@@ -31,7 +31,7 @@ type commandState struct {
 	gwAdminHeaders                       []string
 	gatewayBundleFile                    string
 	gatewayExportFile                    string
-	gatewayManagedModelProviderID        string
+	gatewayProviderModelProviderID       string
 	gatewayCredentialType                string
 	gatewayCredentialProviderType        string
 	gatewayCredentialProviderID          string
@@ -90,10 +90,10 @@ type commandState struct {
 	gatewayModelsDiscoveredCmd           *cobra.Command
 	gatewayModelsDiscoveredListCmd       *cobra.Command
 	gatewayModelsDiscoveredRefreshCmd    *cobra.Command
-	gatewayModelsManagedCmd              *cobra.Command
-	gatewayModelsManagedListCmd          *cobra.Command
-	gatewayModelsManagedGetCmd           *cobra.Command
-	gatewayModelsManagedDeleteCmd        *cobra.Command
+	gatewayModelsProviderCmd             *cobra.Command
+	gatewayModelsProviderListCmd         *cobra.Command
+	gatewayModelsProviderGetCmd          *cobra.Command
+	gatewayModelsProviderDeleteCmd       *cobra.Command
 	gatewayCredentialListCmd             *cobra.Command
 	gatewayCredentialGetCmd              *cobra.Command
 	gatewayCredentialDeleteCmd           *cobra.Command

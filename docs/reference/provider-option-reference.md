@@ -115,7 +115,7 @@ client headers. See [the conversion contract](../design/provider-compatibility.m
 
 Behavior notes:
 
-- capability overrides are endpoint/model metadata only and do not introduce vendor-specific request fields; use managed-model `capability_overrides` when one provider exposes models with different limits
+- capability overrides are endpoint/model metadata only and do not introduce vendor-specific request fields; use provider-model `capability_overrides` when one provider exposes models with different limits
 - regular `thinking` blocks retain their opaque signatures and `redacted_thinking` blocks retain their opaque data across sync, streaming, and tool-result replay
 - current Anthropic effort levels `low`, `medium`, `high`, `xhigh`, and `max` are preserved; OpenAI `minimal` maps to `low`
 
@@ -141,7 +141,7 @@ Behavior notes:
   - set `coding_plan` explicitly when the Coding Plan API is exposed through a proxy or a custom URL
 - `option context_window <positive integer>` and `option max_output_tokens <positive integer>` override the provider-level capability defaults
 - `option vision <true|false>` and `option embeddings <true|false>` override the provider-level feature defaults
-- capability options are coarse provider defaults; use managed-model `capability_overrides` when models on one endpoint have different limits or features
+- capability options are coarse provider defaults; use provider-model `capability_overrides` when models on one endpoint have different limits or features
 - `option thinking_type <disabled|enabled|none>`
 - missing or `none` omits the field and uses the upstream GLM default; an inbound request-level `thinking` value overrides the provider option
 - normalizes Anthropic `thinking.type=adaptive` to GLM `enabled`; in the `coding_plan` profile, maps Codex/OpenAI reasoning efforts `minimal|low|medium|high` to GLM `high` and `xhigh|max` to GLM `max`
