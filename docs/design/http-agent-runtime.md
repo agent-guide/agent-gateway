@@ -152,7 +152,7 @@ the connect, response-header, idle-stream, and total-turn policy in §6.
 
 A2A v1.0 is a **lower protocol package**, analogous to `pkg/acp` and
 `pkg/mcp`. Both implemented paths reuse it. It is
-not an "HTTP Agent runtime" package: it contains no `agentruntime.Backend`, no
+not an "HTTP Agent runtime" package: it contains no `agentexecution.Backend`, no
 dispatcher handler, no VirtualKey logic, and no `auth_ref` resolution.
 
 ```text
@@ -263,7 +263,7 @@ header is a protocol requirement, not credential material.
 
 ### 5.5 Shared HTTP runtime snapshots
 
-`pkg/gateway/runtimebackend.HTTPRuntimeManager` is the single owner of immutable, Card-derived
+`pkg/agent/runtimebackend.HTTPRuntimeManager` is the single owner of immutable, Card-derived
 HTTP execution state. The implemented manager owns both Path A and Path B views
 and is registered exactly once as an Agent definition listener; `HTTPBackend`
 composes it rather than owning a second snapshot map. It imports `pkg/a2a/card`,
@@ -906,11 +906,11 @@ gateway-synthesized frame without violating Path A's no-reencoding contract.
 Non-stream responses are buffered only up to 4 MiB so an oversize can still be
 replaced by the `-32006` envelope before downstream commit.
 
-## 9. Path B: translating backend (`agentruntime`)
+## 9. Path B: translating backend (`agentexecution`)
 
 Path B makes `runtime.type = "http"` executable for existing
 `protocol agent` routes: an `HTTPBackend` registered in the
-`agentruntime.Registry` (`pkg/gateway/runtimebackend/runtime_backends.go`, wired in
+`agentexecution.Registry` (`pkg/agent/runtimebackend/runtime_backends.go`, wired in
 `agentgateway.go` alongside `ACPBackend`/`BuiltinBackend`). The backend
 consumes the shared manager's typed execution handle; that manager imports
 `pkg/a2a/client` and `pkg/a2a/card`. Together they speak A2A v1.0 JSON-RPC
@@ -1204,7 +1204,7 @@ Path A (implemented; protocol a2a, no event translation):
 Path B (implemented; protocol agent, translation):
   client --POST /turn + common envelope--> AgentRoute(protocol agent)
     -> existing dispatch (agent_handler.go)
-    -> agentruntime.Registry.Resolve("http") -> HTTPBackend
+    -> agentexecution.Registry.Resolve("http") -> HTTPBackend
     -> HTTPRuntimeManager.ResolveExecution(agent_id)
     -> pkg/a2a/client SendStreamingMessage to selected AgentInterface.url
     -> event mapping (§9.2) + sequencer re-stamp

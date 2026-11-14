@@ -9,18 +9,18 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/extensionstore"
+	runtimebackend "github.com/agent-guide/agent-gateway/pkg/agent/runtimebackend"
 	"github.com/agent-guide/agent-gateway/pkg/attribution"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"github.com/agent-guide/agent-gateway/pkg/event"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
-	runtimebackend "github.com/agent-guide/agent-gateway/pkg/gateway/runtimebackend"
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	builtinpkg "github.com/agent-guide/agent-gateway/pkg/agent/builtin"
-	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
+	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
@@ -68,7 +68,7 @@ type BootstrapOptions struct {
 	ACPRuntime runtimebackend.ACPTurnServer
 	// HTTPBackend overrides the registered HTTP Agent adapter in focused tests.
 	// Nil registers the production Path B backend over HTTPRuntimeManager.
-	HTTPBackend agentruntime.Backend
+	HTTPBackend agentexecution.Backend
 }
 
 type AgentGateway struct {
@@ -92,9 +92,9 @@ type AgentGateway struct {
 	mcpRuntimeRegistry  *mcptracking.Registry
 	agentManager        *agentpkg.Manager
 	backends            *runtimebackend.Set
-	runtimeRegistry     *agentruntime.Registry
-	runRegistry         *agentruntime.RunRegistry
-	permissionBroker    *agentruntime.PermissionBroker
+	runtimeRegistry     *agentexecution.Registry
+	runRegistry         *agentexecution.RunRegistry
+	permissionBroker    *agentexecution.PermissionBroker
 	attributionProducer attribution.Producer
 	attributionPolicy   attribution.Policy
 	eventPublisher      event.Publisher
@@ -110,9 +110,9 @@ func NewAgentGateway() *AgentGateway {
 	return &AgentGateway{
 		configured:         false,
 		mcpRuntimeRegistry: mcptracking.NewRegistry(),
-		runtimeRegistry:    agentruntime.NewRegistry(),
-		runRegistry:        agentruntime.NewRunRegistry(),
-		permissionBroker:   agentruntime.NewPermissionBroker(),
+		runtimeRegistry:    agentexecution.NewRegistry(),
+		runRegistry:        agentexecution.NewRunRegistry(),
+		permissionBroker:   agentexecution.NewPermissionBroker(),
 		usageObserver:      usage.NoopObserver{},
 	}
 }
@@ -234,7 +234,7 @@ func (g *AgentGateway) CloseContext(ctx context.Context) (result error) {
 	// before tearing down either native runtime. Claimed builtin decisions live
 	// outside the pending broker and are discarded explicitly as well.
 	if g.permissionBroker != nil {
-		g.permissionBroker.Close(agentruntime.WithPermissionSource(context.Background(), "process_shutdown"))
+		g.permissionBroker.Close(agentexecution.WithPermissionSource(context.Background(), "process_shutdown"))
 	}
 	if g.runtimeRegistry != nil {
 		if backend, err := g.runtimeRegistry.Resolve(agentpkg.RuntimeTypeBuiltin); err == nil {
@@ -271,9 +271,9 @@ func (g *AgentGateway) CloseContext(ctx context.Context) (result error) {
 	result = errors.Join(result, g.backends.CloseContext(shutdown))
 	g.backends = nil
 	g.agentManager = nil
-	g.runtimeRegistry = agentruntime.NewRegistry()
-	g.runRegistry = agentruntime.NewRunRegistry()
-	g.permissionBroker = agentruntime.NewPermissionBroker()
+	g.runtimeRegistry = agentexecution.NewRegistry()
+	g.runRegistry = agentexecution.NewRunRegistry()
+	g.permissionBroker = agentexecution.NewPermissionBroker()
 	g.usageObserver = usage.NoopObserver{}
 	g.usageQuery = nil
 	g.usageStats = nil
@@ -398,19 +398,19 @@ func (g *AgentGateway) HTTPRuntimeManager() *runtimebackend.HTTPRuntimeManager {
 // RuntimeRegistry returns the runtime-neutral Agent backend registry. Runtime
 // adapters are registered during Bootstrap and consumed by Agent-bound ACP
 // and builtin route turns.
-func (g *AgentGateway) RuntimeRegistry() *agentruntime.Registry {
+func (g *AgentGateway) RuntimeRegistry() *agentexecution.Registry {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.runtimeRegistry
 }
 
-func (g *AgentGateway) RunRegistry() *agentruntime.RunRegistry {
+func (g *AgentGateway) RunRegistry() *agentexecution.RunRegistry {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.runRegistry
 }
 
-func (g *AgentGateway) PermissionBroker() *agentruntime.PermissionBroker {
+func (g *AgentGateway) PermissionBroker() *agentexecution.PermissionBroker {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.permissionBroker

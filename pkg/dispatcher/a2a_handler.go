@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	runtimebackend "github.com/agent-guide/agent-gateway/pkg/gateway/runtimebackend"
+	runtimebackend "github.com/agent-guide/agent-gateway/pkg/agent/runtimebackend"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"

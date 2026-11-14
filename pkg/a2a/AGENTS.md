@@ -16,9 +16,9 @@ official SDK wrapper in `client/` are linked to the gateway `HTTPBackend`;
   is not an HTTP Agent runtime package.
 - Do not import `pkg/agent`, `pkg/dispatcher`, `pkg/gateway`, or
   `pkg/credential`.
-- Do not implement `agentruntime.Backend`, dispatcher handlers, VirtualKey
+- Do not implement `agentexecution.Backend`, dispatcher handlers, VirtualKey
   checks, or `auth_ref` resolution here. Path B's `HTTPBackend` lives in
-  `pkg/gateway`; Path A's handler lives in `pkg/dispatcher`.
+  `pkg/agent/runtimebackend`; Path A's handler lives in `pkg/dispatcher`.
 - Callers inject an `http.RoundTripper` / `*http.Client` that already carries
   live southbound auth behavior. This package never sees VirtualKey material,
   credential ids, or resolved secrets. The caller's RoundTripper resolves and
@@ -159,7 +159,7 @@ pkg/a2a/
   fingerprint per 30 seconds. The shared fetch has an independent 10-second
   context; one caller's cancellation stops only its wait and is never cached as
   runtime unhealthiness.
-- `pkg/gateway/runtimebackend.HTTPRuntimeManager`, not this protocol package or
+- `pkg/agent/runtimebackend.HTTPRuntimeManager`, not this protocol package or
   `HTTPBackend`, owns the immutable Card-derived snapshot shared by Path A and
   Path B. Path A resolves a ready proxy target through `AgentGateway` and
   never performs a config-store/Card fetch or reaches into the backend in the

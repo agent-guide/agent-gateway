@@ -14,7 +14,7 @@ import (
 	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	builtinpkg "github.com/agent-guide/agent-gateway/pkg/agent/builtin"
-	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
+	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/credential"
@@ -50,9 +50,9 @@ type Handler struct {
 	modelCatalog             modelcatalog.Service
 	mcpRuntimeRegistry       *mcptracking.Registry
 	acpRuntimeManager        *acphost.Manager
-	runtimeRegistry          *agentruntime.Registry
-	runRegistry              *agentruntime.RunRegistry
-	permissionBroker         *agentruntime.PermissionBroker
+	runtimeRegistry          *agentexecution.Registry
+	runRegistry              *agentexecution.RunRegistry
+	permissionBroker         *agentexecution.PermissionBroker
 	usageObserver            usage.InteractionObserver
 	usageQuery               usage.QueryService
 	usageStats               usage.RuntimeStats
@@ -83,9 +83,9 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 	var modelCatalogSvc modelcatalog.Service
 	var mcpRuntimeRegistry *mcptracking.Registry
 	var acpRuntimeManager *acphost.Manager
-	var runtimeRegistry *agentruntime.Registry
-	var runRegistry *agentruntime.RunRegistry
-	var permissionBroker *agentruntime.PermissionBroker
+	var runtimeRegistry *agentexecution.Registry
+	var runRegistry *agentexecution.RunRegistry
+	var permissionBroker *agentexecution.PermissionBroker
 	var usageObserver usage.InteractionObserver
 	var usageQuery usage.QueryService
 	var usageStats usage.RuntimeStats

@@ -24,10 +24,11 @@ Agent `policy.max_agent_depth` remains a builtin-host check; the independent
 process metrics limit checks incoming `X-Agent-Depth` in the dispatcher. Do not
 merge them or extend the Agent policy to other runtimes in this refactoring.
 
-- `runtime/`: the runtime-neutral, turn-first Agent execution contracts,
+- `execution/`: the runtime-neutral, turn-first Agent execution contracts,
   optional capability interfaces, normalized errors, and backend registry.
   It may depend on the `Agent` definition but must not import ACP, LLM, MCP, or
-  other runtime implementations; gateway-owned adapters sit above both sides.
+  other runtime implementations; adapters in `pkg/agent/runtimebackend` sit above
+  both sides.
   `AgentGateway` registers the shipping ACP and builtin adapters during
   bootstrap; all public ACP/builtin turns enter through unified AgentRoute
   dispatch and share its run sequencer and identity bridge.
@@ -47,8 +48,12 @@ merge them or extend the Agent policy to other runtimes in this refactoring.
   fields, never native payloads or tool arguments. Opaque continuation tokens
   are resolved only in backend-owned stores.
   Durable business workflows are owned by an upper-layer workbench and
-  external engine; their Workers use AgentRoute. `pkg/agent/runtime` must not grow a
+  external engine; their Workers use AgentRoute. `pkg/agent/execution` must not grow a
   gateway AgentTask state machine or import a Temporal SDK.
+- `runtimebackend/`: concrete ACP, builtin and HTTP execution adapters, the
+  shared HTTP runtime manager, and backend assembly/lifecycle. It depends on
+  `execution/` and lower runtimes, never `pkg/gateway`. Gateway injects shared
+  controls and owns application bootstrap/shutdown. Read its nested `AGENTS.md`.
 - `types.go`: the `Agent` model. Runtime is `acp` (gateway owns the lifecycle and
   stores execution config inline under `runtime.acp`), `http` (the agent owns
   its own lifecycle), or `builtin` (no separate process — a persisted
@@ -61,7 +66,7 @@ merge them or extend the Agent policy to other runtimes in this refactoring.
   not accepted. The
   selected Card interface owns the service URL and tenant. Path B dispatches
   HTTP Agents through the common `/turn` contract using the `HTTPBackend` in
-  `pkg/gateway`; native Path A proxy ingress executes through `protocol=a2a`
+  `pkg/agent/runtimebackend`; native Path A proxy ingress executes through `protocol=a2a`
   AgentRoutes. A2A wire types and the JSON-RPC client/proxy live in
   `pkg/a2a`; this package must not import it. HTTP `auth_ref` points to an
   existing credential with exact non-provider scope `http-agent:<agent_id>`;

@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	runtimebackend "github.com/agent-guide/agent-gateway/pkg/gateway/runtimebackend"
+	runtimebackend "github.com/agent-guide/agent-gateway/pkg/agent/runtimebackend"
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
-	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
+	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 )
 
@@ -28,7 +28,7 @@ func TestAgentViewExposesNonExecutableRuntime(t *testing.T) {
 	}
 
 	view := h.agentView(t.Context(), a, "config_store")
-	if view.RuntimeStatus == nil || view.RuntimeStatus.State != agentruntime.RuntimeStateNotExecutable {
+	if view.RuntimeStatus == nil || view.RuntimeStatus.State != agentexecution.RuntimeStateNotExecutable {
 		t.Fatalf("runtime status = %#v, want not_executable", view.RuntimeStatus)
 	}
 	if view.Capabilities == nil || view.Capabilities.Executable {
@@ -55,7 +55,7 @@ func TestAgentViewExposesHTTPRuntimeReadiness(t *testing.T) {
 	manager := runtimebackend.NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
 	manager.RefreshRuntimeConfigs(t.Context(), []agentpkg.Agent{agent})
 	backend := runtimebackend.NewHTTPBackend(manager)
-	registry := agentruntime.NewRegistry()
+	registry := agentexecution.NewRegistry()
 	if err := registry.Register(backend); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestAgentViewExposesHTTPRuntimeReadiness(t *testing.T) {
 	if view.Capabilities == nil || !view.Capabilities.Executable || !view.Capabilities.Turn.Streaming {
 		t.Fatalf("capabilities = %#v", view.Capabilities)
 	}
-	if view.RuntimeStatus == nil || view.RuntimeStatus.State != agentruntime.RuntimeStateReady || !view.RuntimeStatus.Healthy {
+	if view.RuntimeStatus == nil || view.RuntimeStatus.State != agentexecution.RuntimeStateReady || !view.RuntimeStatus.Healthy {
 		t.Fatalf("runtime status = %#v", view.RuntimeStatus)
 	}
 }
@@ -80,7 +80,7 @@ func TestAgentViewRetainsNotReadyHTTPRuntimeStatus(t *testing.T) {
 	manager := runtimebackend.NewHTTPRuntimeManager(nil, nil, server.Client(), nil)
 	manager.RefreshRuntimeConfigs(t.Context(), []agentpkg.Agent{agent})
 	backend := runtimebackend.NewHTTPBackend(manager)
-	registry := agentruntime.NewRegistry()
+	registry := agentexecution.NewRegistry()
 	if err := registry.Register(backend); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestAgentViewRetainsNotReadyHTTPRuntimeStatus(t *testing.T) {
 	if view.Capabilities == nil || view.Capabilities.Executable {
 		t.Fatalf("capabilities = %#v", view.Capabilities)
 	}
-	if view.RuntimeStatus == nil || view.RuntimeStatus.State != agentruntime.RuntimeStateUnhealthy || view.RuntimeStatus.Healthy {
+	if view.RuntimeStatus == nil || view.RuntimeStatus.State != agentexecution.RuntimeStateUnhealthy || view.RuntimeStatus.Healthy {
 		t.Fatalf("runtime status = %#v", view.RuntimeStatus)
 	}
 }
@@ -96,13 +96,13 @@ func TestAgentViewRetainsNotReadyHTTPRuntimeStatus(t *testing.T) {
 type permissionResponseBackend struct{ resolved bool }
 
 func (*permissionResponseBackend) RuntimeType() string { return agentpkg.RuntimeTypeBuiltin }
-func (*permissionResponseBackend) Capabilities(context.Context, agentpkg.Agent) (agentruntime.Capabilities, error) {
-	return agentruntime.Capabilities{Permissions: agentruntime.PermissionCapabilities{Interactive: true, ResumeMode: agentruntime.PermissionResumeNewStream}}, nil
+func (*permissionResponseBackend) Capabilities(context.Context, agentpkg.Agent) (agentexecution.Capabilities, error) {
+	return agentexecution.Capabilities{Permissions: agentexecution.PermissionCapabilities{Interactive: true, ResumeMode: agentexecution.PermissionResumeNewStream}}, nil
 }
-func (*permissionResponseBackend) ServeTurn(context.Context, agentpkg.Agent, agentruntime.TurnRequest, agentruntime.EventSink) error {
+func (*permissionResponseBackend) ServeTurn(context.Context, agentpkg.Agent, agentexecution.TurnRequest, agentexecution.EventSink) error {
 	return nil
 }
-func (b *permissionResponseBackend) ResolvePermission(context.Context, agentpkg.Agent, agentruntime.PermissionDecision) error {
+func (b *permissionResponseBackend) ResolvePermission(context.Context, agentpkg.Agent, agentexecution.PermissionDecision) error {
 	b.resolved = true
 	return nil
 }
@@ -110,22 +110,22 @@ func (b *permissionResponseBackend) ResolvePermission(context.Context, agentpkg.
 type retryableCancelBackend struct{}
 
 func (*retryableCancelBackend) RuntimeType() string { return agentpkg.RuntimeTypeBuiltin }
-func (*retryableCancelBackend) Capabilities(context.Context, agentpkg.Agent) (agentruntime.Capabilities, error) {
-	return agentruntime.Capabilities{Cancellation: agentruntime.CancelCapabilities{Force: true}}, nil
+func (*retryableCancelBackend) Capabilities(context.Context, agentpkg.Agent) (agentexecution.Capabilities, error) {
+	return agentexecution.Capabilities{Cancellation: agentexecution.CancelCapabilities{Force: true}}, nil
 }
-func (*retryableCancelBackend) ServeTurn(context.Context, agentpkg.Agent, agentruntime.TurnRequest, agentruntime.EventSink) error {
+func (*retryableCancelBackend) ServeTurn(context.Context, agentpkg.Agent, agentexecution.TurnRequest, agentexecution.EventSink) error {
 	return nil
 }
-func (*retryableCancelBackend) CancelRun(context.Context, agentpkg.Agent, agentruntime.CancelRequest) (agentruntime.CancelResult, error) {
-	return agentruntime.CancelResult{}, agentruntime.NewError(agentruntime.ErrorBackendUnavailable, "run cancellation is not ready; retry")
+func (*retryableCancelBackend) CancelRun(context.Context, agentpkg.Agent, agentexecution.CancelRequest) (agentexecution.CancelResult, error) {
+	return agentexecution.CancelResult{}, agentexecution.NewError(agentexecution.ErrorBackendUnavailable, "run cancellation is not ready; retry")
 }
 
 type claimedAuditContinuation struct{}
 
-func (claimedAuditContinuation) ValidateContinuationDecision(string, agentruntime.PendingPermission, agentruntime.PermissionDecision) error {
+func (claimedAuditContinuation) ValidateContinuationDecision(string, agentexecution.PendingPermission, agentexecution.PermissionDecision) error {
 	return nil
 }
-func (claimedAuditContinuation) ResolveContinuation(context.Context, string, agentruntime.PermissionDecision, time.Time) error {
+func (claimedAuditContinuation) ResolveContinuation(context.Context, string, agentexecution.PermissionDecision, time.Time) error {
 	return nil
 }
 func (claimedAuditContinuation) ExpireContinuation(context.Context, string) error { return nil }
@@ -137,7 +137,7 @@ func TestResolveBuiltinAgentPermissionRequiresNewStreamResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	backend := &permissionResponseBackend{}
-	registry := agentruntime.NewRegistry()
+	registry := agentexecution.NewRegistry()
 	if err := registry.Register(backend); err != nil {
 		t.Fatal(err)
 	}
@@ -167,14 +167,14 @@ func TestResolveAgentPermissionAuditRetainsClaimedRunCorrelation(t *testing.T) {
 		t.Fatal(err)
 	}
 	backend := &permissionResponseBackend{}
-	registry := agentruntime.NewRegistry()
+	registry := agentexecution.NewRegistry()
 	if err := registry.Register(backend); err != nil {
 		t.Fatal(err)
 	}
-	broker := agentruntime.NewPermissionBroker()
-	t.Cleanup(func() { broker.Close(agentruntime.WithPermissionSource(context.Background(), "test_cleanup")) })
+	broker := agentexecution.NewPermissionBroker()
+	t.Cleanup(func() { broker.Close(agentexecution.WithPermissionSource(context.Background(), "test_cleanup")) })
 	runID := "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	if _, err := broker.Register(agentruntime.PendingPermission{
+	if _, err := broker.Register(agentexecution.PendingPermission{
 		RequestID: "perm-claimed", AgentID: a.ID, RuntimeType: agentpkg.RuntimeTypeBuiltin,
 		RunID: runID, SessionID: "session-1", ExpiresAt: time.Now().Add(time.Minute),
 	}, "cont-claimed", claimedAuditContinuation{}); err != nil {
@@ -183,7 +183,7 @@ func TestResolveAgentPermissionAuditRetainsClaimedRunCorrelation(t *testing.T) {
 	// Simulate a concurrent entrypoint winning the atomic claim before this
 	// Admin request begins; the bounded claimed metadata must still correlate
 	// the audit span.
-	if err := broker.Resolve(t.Context(), a.ID, agentruntime.PermissionDecision{RequestID: "perm-claimed", Outcome: "allow"}); err != nil {
+	if err := broker.Resolve(t.Context(), a.ID, agentexecution.PermissionDecision{RequestID: "perm-claimed", Outcome: "allow"}); err != nil {
 		t.Fatal(err)
 	}
 	sink := &adminCaptureSink{}
@@ -212,7 +212,7 @@ func TestCancelAgentRunBackendUnavailableIsRetryable(t *testing.T) {
 	if err := store.Create(t.Context(), a); err != nil {
 		t.Fatal(err)
 	}
-	registry := agentruntime.NewRegistry()
+	registry := agentexecution.NewRegistry()
 	if err := registry.Register(&retryableCancelBackend{}); err != nil {
 		t.Fatal(err)
 	}

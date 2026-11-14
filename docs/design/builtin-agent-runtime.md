@@ -252,7 +252,7 @@ lower protocol layers still never import `pkg/agent`.
   events map onto the supported common turn events (`delta`, `content`,
   `tool_call`, `usage`, `done`, and `error`).
 - **Unified turn adapter**: builtin is registered as a turn-first
-  `agentruntime.Backend`; AgentRoute is its only public ingress.
+  `agentexecution.Backend`; AgentRoute is its only public ingress.
 - **External Workflow Activity**: an upper-layer Worker invokes the same
   AgentRoute/turn adapter as any other caller. Temporal or another external
   engine may own durable business state, but it does not make the builtin

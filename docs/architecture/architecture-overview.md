@@ -81,8 +81,13 @@ authoritative runtime design.
 
 ## 4. Main Components
 
+`pkg/agent/execution` defines the common Agent execution contracts and shared
+run, permission, identity and event sequencing mechanisms. It has no concrete
+runtime dependencies. `Agent.runtime` selects the execution mechanism and its
+configuration; the field remains `runtime` in persisted and API definitions.
+
 Concrete ACP, builtin and HTTP adapters, including the single HTTPRuntimeManager,
-live in `pkg/gateway/runtimebackend`. This package depends on Agent contracts and
+live in `pkg/agent/runtimebackend`. This package depends on Agent contracts and
 lower runtimes and has no dependency on the Gateway root. Its `Assemble` function
 creates one owned runtime Set from explicit application capabilities and shared
 run/permission controls; Gateway Bootstrap delegates registration to that assembly. Trusted client identity
@@ -691,7 +696,7 @@ call chains. It does not own an Agent's internal reasoning loop. See
 [Agent Control Plane](../design/agents-control-plane.md).
 
 The execution boundary for ACP and builtin turns is one
-turn-first `agentruntime.Backend` layer registered by `AgentGateway`. The
+turn-first `agentexecution.Backend` layer registered by `AgentGateway`. The
 gateway-owned adapters execute through one run sequencer behind a unified
 `AgentRoute.agent_id` relationship. There is no unbound ACP ingress or
 runtime-specific public route family. HTTP Agents execute through the same

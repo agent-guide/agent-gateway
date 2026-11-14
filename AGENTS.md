@@ -129,7 +129,7 @@ LLM protocol handler. The runtime `RoutedProvider` selects and, when required,
 refreshes an OAuth-backed credential before provider execution. With `mcp` or
 `agent` enabled the dispatcher also
 resolves those route kinds and dispatches to `pkg/connector` or the
-registered `pkg/gateway/runtimebackend` ACP/builtin adapters, tracks in-flight turns, and
+registered `pkg/agent/runtimebackend` ACP/builtin adapters, tracks in-flight turns, and
 stamps Agent identity on the interaction span. Subsystem detail:
 `pkg/gateway/AGENTS.md`, `pkg/acp/AGENTS.md`, `pkg/agent/AGENTS.md`.
 
@@ -200,7 +200,7 @@ or a cross-cutting adapter for it (for example `caddy/admin`,
 - `pkg/mcp/` — MCP protocol primitives, `transport/` wire transports and `tracking/` ingress request tracking → `pkg/mcp/AGENTS.md`
 - `pkg/a2a/` — A2A Protocol 1.0 JSON-RPC (Path B translating client/backend and Path A governed native proxy are implemented) → `pkg/a2a/AGENTS.md`
 - `pkg/configstore/` — generic config store/backends (persisted backend: `sqlite`; stores `providers`, `credentials`, `routes`, `connectors`, `agents`, `virtual_keys`, `provider_models`, `logical_models`, `extensions`) → `pkg/configstore/AGENTS.md`
-- `pkg/agent/` — agent control plane (`pkg/agent/runtime` contracts, `Agent` model, route/service → agent index) → `pkg/agent/AGENTS.md`; builtin eino ADK host → `pkg/agent/builtin/AGENTS.md`
+- `pkg/agent/` — agent control plane (`pkg/agent/execution` contracts, `Agent` model, route/service → agent index) → `pkg/agent/AGENTS.md`; builtin eino ADK host → `pkg/agent/builtin/AGENTS.md`
 - `internal/observability/` — usage events, event pipeline, OTLP export, `einotap` → `internal/observability/AGENTS.md`
 - `pkg/dispatcher/llmapi/` — LLM protocol handler runtimes; see "Protocol handler modules" above
 - `pkg/gateway/virtualkey/limiter/` — protected backend SPI (v0.7.0), generation

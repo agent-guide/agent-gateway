@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/agent"
-	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
-	"github.com/agent-guide/agent-gateway/pkg/agent/runtime/runtimetest"
+	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
+	"github.com/agent-guide/agent-gateway/pkg/agent/execution/executiontest"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	configschema "github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	configstoresqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
@@ -47,7 +47,7 @@ func TestAgentGatewayResetReplacesRuntimeRegistry(t *testing.T) {
 	t.Parallel()
 
 	gateway := NewAgentGateway()
-	backend := runtimetest.NewBackend("fake")
+	backend := executiontest.NewBackend("fake")
 	if err := gateway.RuntimeRegistry().Register(backend); err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
@@ -58,7 +58,7 @@ func TestAgentGatewayResetReplacesRuntimeRegistry(t *testing.T) {
 	if current == nil || current == old {
 		t.Fatal("Reset() did not install a fresh runtime registry")
 	}
-	if _, err := current.Resolve("fake"); !errors.Is(err, agentruntime.ErrRuntimeNotExecutable) {
+	if _, err := current.Resolve("fake"); !errors.Is(err, agentexecution.ErrRuntimeNotExecutable) {
 		t.Fatalf("Resolve(fake) after Reset error = %v", err)
 	}
 }
@@ -66,15 +66,15 @@ func TestAgentGatewayResetReplacesRuntimeRegistry(t *testing.T) {
 // Gateway owns orchestration; concrete backend continuation storage is covered
 // inside runtimebackend without introducing a reverse dependency on this package.
 type shutdownBackend struct {
-	*runtimetest.Backend
+	*executiontest.Backend
 	order []string
 }
 
 func (b *shutdownBackend) DiscardAllContinuations() { b.order = append(b.order, "discard") }
-func (*shutdownBackend) ValidateContinuationDecision(string, agentruntime.PendingPermission, agentruntime.PermissionDecision) error {
+func (*shutdownBackend) ValidateContinuationDecision(string, agentexecution.PendingPermission, agentexecution.PermissionDecision) error {
 	return nil
 }
-func (*shutdownBackend) ResolveContinuation(context.Context, string, agentruntime.PermissionDecision, time.Time) error {
+func (*shutdownBackend) ResolveContinuation(context.Context, string, agentexecution.PermissionDecision, time.Time) error {
 	return nil
 }
 func (b *shutdownBackend) ExpireContinuation(context.Context, string) error {
@@ -85,11 +85,11 @@ func (b *shutdownBackend) ExpireContinuation(context.Context, string) error {
 func TestAgentGatewayResetDrainsBeforeBackendDiscard(t *testing.T) {
 	g := NewAgentGateway()
 	old := g.PermissionBroker()
-	backend := &shutdownBackend{Backend: runtimetest.NewBackend(agent.RuntimeTypeBuiltin)}
+	backend := &shutdownBackend{Backend: executiontest.NewBackend(agent.RuntimeTypeBuiltin)}
 	if err := g.RuntimeRegistry().Register(backend); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := old.Register(agentruntime.PendingPermission{RequestID: "permission", AgentID: "a", RuntimeType: agent.RuntimeTypeBuiltin, RunID: "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ExpiresAt: time.Now().Add(time.Hour)}, "continuation", backend); err != nil {
+	if _, err := old.Register(agentexecution.PendingPermission{RequestID: "permission", AgentID: "a", RuntimeType: agent.RuntimeTypeBuiltin, RunID: "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ExpiresAt: time.Now().Add(time.Hour)}, "continuation", backend); err != nil {
 		t.Fatal(err)
 	}
 	g.Reset()
@@ -99,7 +99,7 @@ func TestAgentGatewayResetDrainsBeforeBackendDiscard(t *testing.T) {
 	if g.PermissionBroker() == old || len(old.List("a")) != 0 {
 		t.Fatal("broker ownership was not retired")
 	}
-	if _, err := old.Register(agentruntime.PendingPermission{RequestID: "late", AgentID: "a", RuntimeType: agent.RuntimeTypeBuiltin, RunID: "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ExpiresAt: time.Now().Add(time.Hour)}, "late", backend); !errors.Is(err, agentruntime.ErrBackendUnavailable) {
+	if _, err := old.Register(agentexecution.PendingPermission{RequestID: "late", AgentID: "a", RuntimeType: agent.RuntimeTypeBuiltin, RunID: "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ExpiresAt: time.Now().Add(time.Hour)}, "late", backend); !errors.Is(err, agentexecution.ErrBackendUnavailable) {
 		t.Fatalf("old broker admitted continuation: %v", err)
 	}
 }

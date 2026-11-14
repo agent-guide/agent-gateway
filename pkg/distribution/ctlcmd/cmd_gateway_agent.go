@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
+	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
 
 	"github.com/spf13/cobra"
 )
@@ -145,14 +145,14 @@ func (s *commandState) initAgent() {
 		return s.newGatewayClient().ListAgentPermissions(ctx, id)
 	})
 	s.gatewayAgentCancelCmd = &cobra.Command{Use: "cancel <agent-id> <run-id>", Short: "Cancel one exact agent run", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
-		resp, err := s.newGatewayClient().CancelAgentRun(cmd.Context(), args[0], args[1], agentruntime.CancelMode(s.agentCancelMode))
+		resp, err := s.newGatewayClient().CancelAgentRun(cmd.Context(), args[0], args[1], agentexecution.CancelMode(s.agentCancelMode))
 		if err != nil {
 			return err
 		}
 		return s.printJSON(resp)
 	}}
 	s.gatewayAgentDecideCmd = &cobra.Command{Use: "decide <agent-id> <request-id>", Short: "Resolve one pending agent permission", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
-		decision := agentruntime.PermissionDecision{RequestID: args[1], Outcome: s.agentPermissionOutcome, OptionID: s.agentPermissionOptionID}
+		decision := agentexecution.PermissionDecision{RequestID: args[1], Outcome: s.agentPermissionOutcome, OptionID: s.agentPermissionOptionID}
 		if s.agentPermissionDecisions != "" {
 			if err := json.Unmarshal([]byte(s.agentPermissionDecisions), &decision.Decisions); err != nil {
 				return fmt.Errorf("decode --decisions: %w", err)

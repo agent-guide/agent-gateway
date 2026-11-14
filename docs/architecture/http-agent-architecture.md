@@ -17,7 +17,7 @@ the checked-in components realize those decisions.
 ```text
 Agent definition (runtime.type=http)
   -> pkg/agent.Manager
-  -> pkg/gateway/runtimebackend.HTTPRuntimeManager
+  -> pkg/agent/runtimebackend.HTTPRuntimeManager
        -> fetch and validate Agent Card
        -> select same-origin JSONRPC interface
        -> resolve auth_ref through credential manager
@@ -25,7 +25,7 @@ Agent definition (runtime.type=http)
             - Path B execution target
             - Path A proxy target and public Card template
 
-AgentRoute(protocol=agent) -> pkg/gateway/runtimebackend.HTTPBackend -> pkg/a2a/client
+AgentRoute(protocol=agent) -> pkg/agent/runtimebackend.HTTPBackend -> pkg/a2a/client
 AgentRoute(protocol=a2a)   -> pkg/dispatcher A2A path -> pkg/a2a/proxy
 ```
 

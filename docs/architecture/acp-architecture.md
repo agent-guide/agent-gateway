@@ -18,11 +18,11 @@ helper.
   in-memory definition snapshot.
 - `pkg/gateway/agentroute` owns unified ingress matching and `agent_id`
   targeting.
-- `pkg/gateway/runtimebackend.ACPBackend` adapts common Agent execution to the native ACP
+- `pkg/agent/runtimebackend.ACPBackend` adapts common Agent execution to the native ACP
   runtime and maintains the canonical `agent_id -> hostconfig.Config` snapshot.
 - `pkg/acp/host.Manager` owns process pools, native sessions, permissions,
   transcripts, and exact-run cancellation.
-- `pkg/agent/runtime` owns common run IDs, event envelopes, capabilities,
+- `pkg/agent/execution` owns common run IDs, event envelopes, capabilities,
   permission brokering, and normalized errors.
 
 The dependency direction remains one-way: gateway adapters compose Agent and

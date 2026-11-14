@@ -12,7 +12,7 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
-	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
+	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	"go.uber.org/zap"
 )
@@ -66,20 +66,20 @@ func (h *Handler) dispatchAgent(w http.ResponseWriter, r *http.Request, next Nex
 		return WriteDispatchError(h.logger, string(route.Protocol), route.ID, "", http.StatusServiceUnavailable, w, rewritten, "dispatch agent request", "agent manager is not configured", fmt.Errorf("agent manager is not configured"))
 	}
 	if err := agentManager.CheckExecutionID(route.AgentID); err != nil {
-		return writeRuntimePreStreamError(w, rewritten, agentruntime.NewError(agentruntime.ErrorBackendUnavailable, err.Error()))
+		return writeRuntimePreStreamError(w, rewritten, agentexecution.NewError(agentexecution.ErrorBackendUnavailable, err.Error()))
 	}
 	a, ok := agentManager.GetSnapshot(route.AgentID)
 	if !ok {
-		return writeRuntimePreStreamError(w, rewritten, agentruntime.NewError(agentruntime.ErrorAgentNotFound, "agent not found"))
+		return writeRuntimePreStreamError(w, rewritten, agentexecution.NewError(agentexecution.ErrorAgentNotFound, "agent not found"))
 	}
 	if err := agentManager.CheckExecution(a); err != nil {
-		return writeRuntimePreStreamError(w, rewritten, agentruntime.NewError(agentruntime.ErrorBackendUnavailable, err.Error()))
+		return writeRuntimePreStreamError(w, rewritten, agentexecution.NewError(agentexecution.ErrorBackendUnavailable, err.Error()))
 	}
 	// Record the typed operation identity as soon as the target Agent is known,
 	// but do not declare success until the selected operation completes.
 	setAgentOperationExtension(rewritten.Context(), a, endpoint, sessionID, "")
 	if a.Disabled {
-		return writeAgentRuntimePreStreamError(w, rewritten, a, endpoint, sessionID, agentruntime.NewError(agentruntime.ErrorAgentDisabled, "agent is disabled"))
+		return writeAgentRuntimePreStreamError(w, rewritten, a, endpoint, sessionID, agentexecution.NewError(agentexecution.ErrorAgentDisabled, "agent is disabled"))
 	}
 	backend, err := h.gateway.RuntimeRegistry().Resolve(a.Runtime.Type)
 	if err != nil {
@@ -90,7 +90,7 @@ func (h *Handler) dispatchAgent(w http.ResponseWriter, r *http.Request, next Nex
 		return writeAgentRuntimePreStreamError(w, rewritten, a, endpoint, sessionID, err)
 	}
 	if !caps.Executable {
-		return writeAgentRuntimePreStreamError(w, rewritten, a, endpoint, sessionID, agentruntime.NewError(agentruntime.ErrorRuntimeNotExecutable, "agent runtime is not executable"))
+		return writeAgentRuntimePreStreamError(w, rewritten, a, endpoint, sessionID, agentexecution.NewError(agentexecution.ErrorRuntimeNotExecutable, "agent runtime is not executable"))
 	}
 
 	switch endpoint {
@@ -151,20 +151,20 @@ func matchAgentRouteEndpoint(path string) (endpoint string, sessionID string, ma
 	return "transcript", strings.TrimSpace(id), true
 }
 
-func (h *Handler) serveAgentTurn(w http.ResponseWriter, r *http.Request, backend agentruntime.Backend, a agentpkg.Agent) error {
+func (h *Handler) serveAgentTurn(w http.ResponseWriter, r *http.Request, backend agentexecution.Backend, a agentpkg.Agent) error {
 	if r.Body != nil {
 		r.Body = http.MaxBytesReader(w, r.Body, MaxACPRequestBodyBytes)
 	}
 	// The AgentRouteConfig wire accepts only the common fields plus the versioned
 	// options envelope; unknown top-level, envelope, or selected-runtime
 	// fields fail with unsupported_option instead of being ignored (§6.5).
-	req, err := agentruntime.DecodeTurnRequest(r.Body)
+	req, err := agentexecution.DecodeTurnRequest(r.Body)
 	if err != nil {
 		return writeAgentRuntimePreStreamError(w, r, a, "turn", "", err)
 	}
 	req.Input = strings.TrimSpace(req.Input)
 	if req.Input == "" && req.Permission == nil {
-		return writeAgentRuntimePreStreamError(w, r, a, "turn", req.SessionID, agentruntime.NewError(agentruntime.ErrorInvalidRequest, "input or permission is required"))
+		return writeAgentRuntimePreStreamError(w, r, a, "turn", req.SessionID, agentexecution.NewError(agentexecution.ErrorInvalidRequest, "input or permission is required"))
 	}
 	if a.Runtime.Type == agentpkg.RuntimeTypeACP {
 		var opts struct {
@@ -174,14 +174,14 @@ func (h *Handler) serveAgentTurn(w http.ResponseWriter, r *http.Request, backend
 			FreshSession    bool              `json:"fresh_session"`
 			ConfigOverrides map[string]string `json:"config_overrides"`
 		}
-		if err := agentruntime.DecodeRuntimeOptions(req.Options.Runtime, &opts); err == nil {
+		if err := agentexecution.DecodeRuntimeOptions(req.Options.Runtime, &opts); err == nil {
 			usage.SpanFromContext(r.Context()).SetExtension(usage.ACPExtension{
 				ThreadID: strings.TrimSpace(opts.ThreadID), SessionID: strings.TrimSpace(req.SessionID),
 				FreshSession: usage.Bool(opts.FreshSession),
 			})
 		}
 	}
-	sequencer, err := agentruntime.NewTurnSequencer(r.Context(), backend, a, req)
+	sequencer, err := agentexecution.NewTurnSequencer(r.Context(), backend, a, req)
 	if err != nil {
 		return writeAgentRuntimePreStreamError(w, r, a, "turn", req.SessionID, err)
 	}
@@ -194,7 +194,7 @@ func (h *Handler) serveAgentTurn(w http.ResponseWriter, r *http.Request, backend
 	// validation failures return real HTTP status codes; mid-stream failures
 	// become the sequencer-owned terminal SSE error event.
 	sink := newAgentSSESink(w)
-	emit := agentruntime.EventSink(sink.emit)
+	emit := agentexecution.EventSink(sink.emit)
 	if a.Runtime.Type == agentpkg.RuntimeTypeACP {
 		counts := map[string]int{}
 		emit = observeAgentACPEvents(r.Context(), emit, counts)
@@ -202,19 +202,19 @@ func (h *Handler) serveAgentTurn(w http.ResponseWriter, r *http.Request, backend
 	var outcome atomic.Value
 	outcome.Store("success")
 	next := emit
-	emit = func(ev agentruntime.TurnEvent) error {
-		if ev.Event == agentruntime.EventError {
+	emit = func(ev agentexecution.TurnEvent) error {
+		if ev.Event == agentexecution.EventError {
 			outcome.Store("error")
 		}
-		if ev.Event == agentruntime.EventDone {
+		if ev.Event == agentexecution.EventDone {
 			var terminal struct {
 				StopReason string `json:"stop_reason"`
 			}
 			if json.Unmarshal(ev.Data, &terminal) == nil {
 				switch terminal.StopReason {
-				case agentruntime.StopReasonCancelled:
+				case agentexecution.StopReasonCancelled:
 					outcome.Store("cancelled")
-				case agentruntime.StopReasonPermissionRequired:
+				case agentexecution.StopReasonPermissionRequired:
 					outcome.Store("permission_required")
 				}
 			}
@@ -224,7 +224,7 @@ func (h *Handler) serveAgentTurn(w http.ResponseWriter, r *http.Request, backend
 	result, serveErr := sequencer.ServeSegment(r.Context(), backend, a, req, emit)
 	if serveErr != nil {
 		setAgentOperationExtension(r.Context(), a, "turn", req.SessionID, "error")
-		code, _ := agentruntime.ErrorCodeOf(serveErr)
+		code, _ := agentexecution.ErrorCodeOf(serveErr)
 		if !result.Started {
 			usage.SpanFromContext(r.Context()).AddAnnotation("error_type", string(code))
 			return writeRuntimePreStreamError(w, r, serveErr)
@@ -237,22 +237,22 @@ func (h *Handler) serveAgentTurn(w http.ResponseWriter, r *http.Request, backend
 	return nil
 }
 
-func (h *Handler) serveAgentPermission(w http.ResponseWriter, r *http.Request, backend agentruntime.Backend, a agentpkg.Agent, caps agentruntime.Capabilities) error {
-	resolver, ok := backend.(agentruntime.PermissionResolver)
+func (h *Handler) serveAgentPermission(w http.ResponseWriter, r *http.Request, backend agentexecution.Backend, a agentpkg.Agent, caps agentexecution.Capabilities) error {
+	resolver, ok := backend.(agentexecution.PermissionResolver)
 	// Route-scoped /permission resolves a pending request while its original
 	// turn stream stays active. A new_stream backend (builtin) continues its
 	// permission decision on POST /turn, so this operation stays fail-closed
 	// there until a separate permission-contract decision changes it (§6.5).
-	if !ok || !caps.Permissions.Interactive || caps.Permissions.ResumeMode != agentruntime.PermissionResumeActiveStream {
-		return writeAgentRuntimePreStreamError(w, r, a, "permission", "", agentruntime.NewError(agentruntime.ErrorCapabilityNotSupported, "permission resolution is not supported on this route"))
+	if !ok || !caps.Permissions.Interactive || caps.Permissions.ResumeMode != agentexecution.PermissionResumeActiveStream {
+		return writeAgentRuntimePreStreamError(w, r, a, "permission", "", agentexecution.NewError(agentexecution.ErrorCapabilityNotSupported, "permission resolution is not supported on this route"))
 	}
-	var decision agentruntime.PermissionDecision
+	var decision agentexecution.PermissionDecision
 	if r.Body != nil {
 		r.Body = http.MaxBytesReader(w, r.Body, MaxACPRequestBodyBytes)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&decision); err != nil {
 		setAgentOperationExtension(r.Context(), a, "permission", "", "error")
-		usage.SpanFromContext(r.Context()).AddAnnotation("error_type", string(agentruntime.ErrorInvalidRequest))
+		usage.SpanFromContext(r.Context()).AddAnnotation("error_type", string(agentexecution.ErrorInvalidRequest))
 		return httpjson.Error(w, RequestBodyErrorStatus(err, http.StatusBadRequest), fmt.Sprintf("decode request: %v", err))
 	}
 	decision.RequestID = strings.TrimSpace(decision.RequestID)
@@ -263,11 +263,11 @@ func (h *Handler) serveAgentPermission(w http.ResponseWriter, r *http.Request, b
 	} else if a.Runtime.Type == agentpkg.RuntimeTypeBuiltin {
 		usage.SpanFromContext(r.Context()).SetExtension(usage.BuiltinExtension{PermissionRequestID: decision.RequestID})
 	}
-	if err := resolver.ResolvePermission(agentruntime.WithPermissionSource(r.Context(), "agent_route"), a, decision); err != nil {
+	if err := resolver.ResolvePermission(agentexecution.WithPermissionSource(r.Context(), "agent_route"), a, decision); err != nil {
 		setAgentOperationExtension(r.Context(), a, "permission", "", "error")
-		public := agentruntime.PublicError(err)
+		public := agentexecution.PublicError(err)
 		usage.SpanFromContext(r.Context()).AddAnnotation("error_type", string(public.ErrorType))
-		return httpjson.Write(w, agentruntime.HTTPStatus(err), public)
+		return httpjson.Write(w, agentexecution.HTTPStatus(err), public)
 	}
 	setAgentOperationExtension(r.Context(), a, "permission", "", "success")
 	return httpjson.Write(w, http.StatusOK, map[string]string{"status": "resolved"})
@@ -294,21 +294,21 @@ func setAgentOperationExtension(ctx context.Context, a agentpkg.Agent, operation
 	}
 }
 
-func observeAgentACPEvents(ctx context.Context, next agentruntime.EventSink, counts map[string]int) agentruntime.EventSink {
-	return func(ev agentruntime.TurnEvent) error {
+func observeAgentACPEvents(ctx context.Context, next agentexecution.EventSink, counts map[string]int) agentexecution.EventSink {
+	return func(ev agentexecution.TurnEvent) error {
 		name := strings.TrimSpace(ev.Event)
 		if name == "" {
-			name = agentruntime.EventDelta
+			name = agentexecution.EventDelta
 		}
 		counts[name]++
 		ext := usage.ACPExtension{EventCounts: counts}
 		if ev.SessionID != "" {
 			ext.SessionID = ev.SessionID
 		}
-		if ev.RequestID != "" && name == agentruntime.EventPermission {
+		if ev.RequestID != "" && name == agentexecution.EventPermission {
 			ext.PermissionRequestID = ev.RequestID
 		}
-		if name == agentruntime.EventUsage && len(ev.Data) > 0 {
+		if name == agentexecution.EventUsage && len(ev.Data) > 0 {
 			ext.UsageJSON = string(ev.Data)
 		}
 		usage.SpanFromContext(ctx).SetExtension(ext)
@@ -316,12 +316,12 @@ func observeAgentACPEvents(ctx context.Context, next agentruntime.EventSink, cou
 	}
 }
 
-func (h *Handler) serveAgentSessions(w http.ResponseWriter, r *http.Request, backend agentruntime.Backend, a agentpkg.Agent, caps agentruntime.Capabilities) error {
-	lister, ok := backend.(agentruntime.SessionLister)
+func (h *Handler) serveAgentSessions(w http.ResponseWriter, r *http.Request, backend agentexecution.Backend, a agentpkg.Agent, caps agentexecution.Capabilities) error {
+	lister, ok := backend.(agentexecution.SessionLister)
 	if !ok || !caps.Sessions.List {
-		return writeAgentRuntimePreStreamError(w, r, a, "sessions", "", agentruntime.NewError(agentruntime.ErrorCapabilityNotSupported, "session listing is not supported on this route"))
+		return writeAgentRuntimePreStreamError(w, r, a, "sessions", "", agentexecution.NewError(agentexecution.ErrorCapabilityNotSupported, "session listing is not supported on this route"))
 	}
-	result, err := lister.ListSessions(r.Context(), a, agentruntime.ListSessionsRequest{
+	result, err := lister.ListSessions(r.Context(), a, agentexecution.ListSessionsRequest{
 		CWD:    strings.TrimSpace(r.URL.Query().Get("cwd")),
 		Cursor: strings.TrimSpace(r.URL.Query().Get("cursor")),
 	})
@@ -332,12 +332,12 @@ func (h *Handler) serveAgentSessions(w http.ResponseWriter, r *http.Request, bac
 	return httpjson.Write(w, http.StatusOK, result)
 }
 
-func (h *Handler) serveAgentTranscript(w http.ResponseWriter, r *http.Request, backend agentruntime.Backend, a agentpkg.Agent, sessionID string, caps agentruntime.Capabilities) error {
-	loader, ok := backend.(agentruntime.TranscriptLoader)
+func (h *Handler) serveAgentTranscript(w http.ResponseWriter, r *http.Request, backend agentexecution.Backend, a agentpkg.Agent, sessionID string, caps agentexecution.Capabilities) error {
+	loader, ok := backend.(agentexecution.TranscriptLoader)
 	if !ok || !caps.Sessions.Transcript {
-		return writeAgentRuntimePreStreamError(w, r, a, "transcript", sessionID, agentruntime.NewError(agentruntime.ErrorCapabilityNotSupported, "transcript loading is not supported on this route"))
+		return writeAgentRuntimePreStreamError(w, r, a, "transcript", sessionID, agentexecution.NewError(agentexecution.ErrorCapabilityNotSupported, "transcript loading is not supported on this route"))
 	}
-	result, err := loader.LoadTranscript(r.Context(), a, agentruntime.TranscriptRequest{
+	result, err := loader.LoadTranscript(r.Context(), a, agentexecution.TranscriptRequest{
 		SessionID: sessionID,
 		CWD:       strings.TrimSpace(r.URL.Query().Get("cwd")),
 	})
@@ -363,7 +363,7 @@ func newAgentSSESink(w http.ResponseWriter) *agentSSESink {
 	return &agentSSESink{w: w, flusher: NewResponseFlusher(w)}
 }
 
-func (s *agentSSESink) emit(ev agentruntime.TurnEvent) error {
+func (s *agentSSESink) emit(ev agentexecution.TurnEvent) error {
 	if !s.started {
 		s.w.Header().Set("Content-Type", "text/event-stream")
 		s.w.Header().Set("Cache-Control", "no-cache")
@@ -373,7 +373,7 @@ func (s *agentSSESink) emit(ev agentruntime.TurnEvent) error {
 	}
 	name := strings.TrimSpace(ev.Event)
 	if name == "" {
-		name = agentruntime.EventDelta
+		name = agentexecution.EventDelta
 	}
 	payload, err := json.Marshal(ev)
 	if err != nil {

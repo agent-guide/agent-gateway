@@ -426,7 +426,7 @@ A runtime backend is the turn-first seam between a stable Agent identity and
 one native execution runtime. It is selected by `agent.runtime.type` and is
 shared by direct AgentRoute callers and upper-layer Workflow Workers.
 
-The required contract lives in `pkg/agent/runtime`:
+The required contract lives in `pkg/agent/execution`:
 
 ```go
 type Backend interface {
@@ -457,7 +457,7 @@ handoff; the backend owns one Agent turn and its native capability behavior.
 
 The classification axis is **who owns the agent's lifecycle, and whether a
 separate process exists**, which yields three Agent runtime categories. Each
-runtime executes behind an `agentruntime.Backend`. HTTP behavior is defined in
+runtime executes behind an `agentexecution.Backend`. HTTP behavior is defined in
 [HTTP Agent Runtime](http-agent-runtime.md): A2A Protocol 1.0
 JSON-RPC is the first southbound dialect under `runtime.http.protocol`,
 reached through a shared `pkg/a2a` protocol package, the translating
@@ -474,7 +474,7 @@ path.
   interface over the dialect selected by `runtime.http.protocol` (A2A
   Protocol 1.0 JSON-RPC first; see
   [HTTP Agent Runtime](http-agent-runtime.md)). The adapter lives in
-  `pkg/gateway` and calls `pkg/a2a`; it does not own durable remote-task
+  `pkg/agent/runtimebackend` and calls `pkg/a2a`; it does not own durable remote-task
   state. A remote stateful agent still fits here; its session is an id
   passed over HTTP, not a process owned by the gateway.
 - **`builtin`** — there is no separate process. The adapter invokes the

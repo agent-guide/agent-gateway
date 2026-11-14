@@ -333,7 +333,7 @@ mapping, and join operations that do not belong to LLM or MCP runtimes.
 ### 5.4 Why There Is No Agent Step
 
 An Agent turn is already a first-class operation exposed by AgentRoute and
-implemented by `agentruntime.Backend.ServeTurn`. Wrapping it in a Gateway
+implemented by `agentexecution.Backend.ServeTurn`. Wrapping it in a Gateway
 Pipeline would either remain request-bound, adding little value, or reintroduce
 the durable scheduling and recovery engine rejected by this design.
 

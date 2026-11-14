@@ -132,7 +132,7 @@ Provider implementations, MCP transports, and Agent runtime backends must not
 import `pkg/guardrail`. The gateway assembly, `RoutedProvider`, and dispatcher
 compose it. Existing protocol adapters continue to own wire parsing and
 rendering; dispatcher-side projectors operate on `PreparedLLMApiRequest`, MCP
-`transport.Message`, and `agentruntime.TurnRequest` after those values pass their
+`transport.Message`, and `agentexecution.TurnRequest` after those values pass their
 normal validation.
 
 ## 5. Trust boundary
@@ -463,8 +463,8 @@ not replace tool exposure policy.
 ### 12.3 Unified Agent ingress
 
 `POST /<agent-route>/turn` input is evaluated after
-`agentruntime.DecodeTurnRequest` and Agent/runtime resolution, but before
-`agentruntime.NewTurnSequencer` starts a run or the selected backend executes it.
+`agentexecution.DecodeTurnRequest` and Agent/runtime resolution, but before
+`agentexecution.NewTurnSequencer` starts a run or the selected backend executes it.
 Permission continuations contain decisions rather than a new user prompt and
 are not treated as fresh Guardrails input. The optional `/permission`,
 `/sessions`, and transcript operations remain governed by their existing

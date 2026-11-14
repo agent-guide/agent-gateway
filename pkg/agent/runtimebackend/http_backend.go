@@ -1,0 +1,826 @@
+package runtimebackend
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/a2aproject/a2a-go/v2/a2a"
+	a2aclient "github.com/agent-guide/agent-gateway/pkg/a2a/client"
+	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
+	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
+	"github.com/google/uuid"
+)
+
+const (
+	httpBindingTTL = 24 * time.Hour
+	httpBindingCap = 1024
+)
+
+type httpSessionBinding struct {
+	scope      string
+	contextID  string
+	taskID     a2a.TaskID
+	claimed    bool
+	expiresAt  time.Time
+	lastUsedAt time.Time
+}
+
+type httpSessionBindings struct {
+	mu      sync.Mutex
+	entries map[string]httpSessionBinding
+	now     func() time.Time
+}
+
+type httpRunSlot struct {
+	mu              sync.Mutex
+	taskID          a2a.TaskID
+	cancelRequested bool
+	cancelIssued    bool
+	upstreamDone    bool
+	receiveCancel   context.CancelFunc
+}
+
+type httpRunSlots struct {
+	mu      sync.Mutex
+	entries map[string]*httpRunSlot
+}
+
+func newHTTPRunSlots() *httpRunSlots { return &httpRunSlots{entries: map[string]*httpRunSlot{}} }
+
+func (r *httpRunSlots) begin(runID string, cancel context.CancelFunc) *httpRunSlot {
+	slot := &httpRunSlot{receiveCancel: cancel}
+	if strings.TrimSpace(runID) == "" {
+		return slot
+	}
+	r.mu.Lock()
+	if r.entries[runID] == nil {
+		r.entries[runID] = slot
+	}
+	r.mu.Unlock()
+	return slot
+}
+
+func (r *httpRunSlots) remove(runID string, slot *httpRunSlot) {
+	if strings.TrimSpace(runID) == "" {
+		return
+	}
+	r.mu.Lock()
+	if r.entries[runID] == slot {
+		delete(r.entries, runID)
+	}
+	r.mu.Unlock()
+}
+
+func (r *httpRunSlots) count() int {
+	if r == nil {
+		return 0
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.entries)
+}
+
+// retire arms every active slot for cancellation and best-effort cancels tasks
+// that have already exposed an A2A task id. Slots that bind concurrently will
+// observe cancelRequested and issue the same exactly-once cancellation.
+func (r *httpRunSlots) retire(ctx context.Context, execution *HTTPExecution) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	slots := make([]*httpRunSlot, 0, len(r.entries))
+	for _, slot := range r.entries {
+		slots = append(slots, slot)
+	}
+	r.mu.Unlock()
+	var wg sync.WaitGroup
+	for _, slot := range slots {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = slot.requestCancel(ctx, execution)
+		}()
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+}
+
+func (s *httpRunSlot) requestCancel(ctx context.Context, execution *HTTPExecution) error {
+	s.mu.Lock()
+	if s.upstreamDone {
+		s.mu.Unlock()
+		return agentexecution.NewError(agentexecution.ErrorRunNotFound, "HTTP Agent run already finished")
+	}
+	s.cancelRequested = true
+	if s.taskID == "" {
+		s.mu.Unlock()
+		return agentexecution.NewError(agentexecution.ErrorBackendUnavailable, "HTTP Agent cancellation is not ready; retry")
+	}
+	if s.cancelIssued {
+		s.mu.Unlock()
+		return nil
+	}
+	s.cancelIssued = true
+	taskID := s.taskID
+	receiveCancel := s.receiveCancel
+	s.mu.Unlock()
+	err := cancelHTTPTask(ctx, execution, taskID)
+	if err == nil && receiveCancel != nil {
+		receiveCancel()
+	}
+	if err != nil {
+		s.mu.Lock()
+		if !s.upstreamDone {
+			s.cancelIssued = false
+		}
+		s.mu.Unlock()
+	}
+	return err
+}
+
+func (s *httpRunSlot) taskBound() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.taskID != ""
+}
+
+func (s *httpRunSlot) bindTask(execution *HTTPExecution, taskID a2a.TaskID) error {
+	if strings.TrimSpace(string(taskID)) == "" {
+		return agentexecution.NewError(agentexecution.ErrorTurnFailed, "A2A task id is empty")
+	}
+	s.mu.Lock()
+	if s.taskID != "" && s.taskID != taskID {
+		s.mu.Unlock()
+		return agentexecution.NewError(agentexecution.ErrorTurnFailed, "A2A task id changed")
+	}
+	s.taskID = taskID
+	issue := s.cancelRequested && !s.cancelIssued && !s.upstreamDone
+	if issue {
+		s.cancelIssued = true
+	}
+	receiveCancel := s.receiveCancel
+	s.mu.Unlock()
+	if !issue {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = cancelHTTPTask(ctx, execution, taskID)
+	if receiveCancel != nil {
+		receiveCancel()
+	}
+	return nil
+}
+
+func (s *httpRunSlot) markDone() {
+	s.mu.Lock()
+	s.upstreamDone = true
+	s.mu.Unlock()
+}
+
+func (s *httpRunSlot) cancellationRequested() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cancelRequested
+}
+
+func cancelHTTPTask(ctx context.Context, execution *HTTPExecution, taskID a2a.TaskID) error {
+	if execution == nil || execution.Client == nil {
+		return agentexecution.NewError(agentexecution.ErrorBackendUnavailable, "HTTP Agent client is unavailable")
+	}
+	if _, deadline := ctx.Deadline(); !deadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+	}
+	_, err := execution.Client.CancelTask(ctx, &a2a.CancelTaskRequest{ID: taskID})
+	return mapHTTPError(err)
+}
+
+func newHTTPSessionBindings() *httpSessionBindings {
+	return &httpSessionBindings{entries: map[string]httpSessionBinding{}, now: time.Now}
+}
+
+type httpBindingClaim struct {
+	scope       string
+	sessionID   string
+	original    httpSessionBinding
+	hadOriginal bool
+	resumed     bool
+	resetReason string
+}
+
+func (b *httpSessionBindings) claim(sessionID string, supplied bool, scope string) (httpBindingClaim, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := b.now().UTC()
+	claim := httpBindingClaim{sessionID: sessionID, scope: scope}
+	existing, ok := b.entries[sessionID]
+	if ok && !existing.expiresAt.IsZero() && !now.Before(existing.expiresAt) {
+		delete(b.entries, sessionID)
+		ok = false
+		claim.resetReason = "binding_expired"
+	}
+	// A supplied identifier is never authority for an authenticated route.
+	// Expiry, eviction and restart require that client to start a new session.
+	if scope != "" && ((supplied && !ok) || (ok && existing.scope != scope)) {
+		return claim, agentexecution.NewError(agentexecution.ErrorSessionNotFound, "session is not available to this client")
+	}
+	if ok {
+		claim.scope = existing.scope
+		if existing.claimed {
+			return claim, agentexecution.NewError(agentexecution.ErrorSessionBusy, "HTTP Agent session is busy")
+		}
+		claim.original, claim.hadOriginal, claim.resumed = existing, true, true
+		existing.claimed = true
+		b.entries[sessionID] = existing
+		return claim, nil
+	}
+	if supplied && claim.resetReason == "" {
+		claim.resetReason = "binding_missing"
+	}
+	b.entries[sessionID] = httpSessionBinding{scope: scope, claimed: true, lastUsedAt: now}
+	return claim, nil
+}
+
+func (b *httpSessionBindings) finish(claim httpBindingClaim, contextID string, taskID a2a.TaskID) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := b.now().UTC()
+	b.entries[claim.sessionID] = httpSessionBinding{
+		scope: claim.scope, contextID: contextID, taskID: taskID, expiresAt: now.Add(httpBindingTTL), lastUsedAt: now,
+	}
+	b.evictLocked()
+}
+
+func (b *httpSessionBindings) drop(claim httpBindingClaim) {
+	b.mu.Lock()
+	delete(b.entries, claim.sessionID)
+	b.mu.Unlock()
+}
+
+// restore releases a claim after a failure that happened before any
+// southbound request could have reached the remote Agent. Existing bindings
+// keep their original expiry; a newly allocated placeholder is removed.
+func (b *httpSessionBindings) restore(claim httpBindingClaim) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !claim.hadOriginal {
+		delete(b.entries, claim.sessionID)
+		return
+	}
+	original := claim.original
+	original.claimed = false
+	b.entries[claim.sessionID] = original
+}
+
+func (b *httpSessionBindings) evictLocked() {
+	for len(b.entries) > httpBindingCap {
+		var oldestID string
+		var oldest time.Time
+		for id, entry := range b.entries {
+			if entry.claimed {
+				continue
+			}
+			if oldestID == "" || entry.lastUsedAt.Before(oldest) {
+				oldestID, oldest = id, entry.lastUsedAt
+			}
+		}
+		if oldestID == "" {
+			return
+		}
+		delete(b.entries, oldestID)
+	}
+}
+
+func (b *httpSessionBindings) count() int {
+	if b == nil {
+		return 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.entries)
+}
+
+// HTTPBackend translates the common Agent turn contract to A2A 1.0 JSON-RPC.
+type HTTPBackend struct {
+	checkExecution func(agentpkg.Agent) error
+	manager        *HTTPRuntimeManager
+	runs           *agentexecution.RunRegistry
+}
+
+func NewHTTPBackend(manager *HTTPRuntimeManager, controls ...RuntimeControls) *HTTPBackend {
+	backend := &HTTPBackend{manager: manager}
+	if len(controls) > 0 {
+		backend.runs = controls[0].Runs
+		backend.checkExecution = controls[0].CheckExecution
+	}
+	return backend
+}
+
+func (*HTTPBackend) RuntimeType() string { return agentpkg.RuntimeTypeHTTP }
+
+func (b *HTTPBackend) Capabilities(_ context.Context, agent agentpkg.Agent) (agentexecution.Capabilities, error) {
+	if err := validateBackendAgent(agent, agentpkg.RuntimeTypeHTTP); err != nil {
+		return agentexecution.Capabilities{}, err
+	}
+	execution, err := b.resolve(agent.ID)
+	if err != nil {
+		return agentexecution.Capabilities{}, err
+	}
+	return agentexecution.Capabilities{
+		Executable:   true,
+		Turn:         agentexecution.TurnCapabilities{Streaming: execution.Streaming},
+		Sessions:     agentexecution.SessionCapabilities{Resume: true},
+		Cancellation: agentexecution.CancelCapabilities{Force: true},
+		Events: []string{
+			agentexecution.EventSession, agentexecution.EventContent,
+			agentexecution.EventDone, agentexecution.EventError,
+		},
+	}, nil
+}
+
+func (b *HTTPBackend) ServeTurn(ctx context.Context, agent agentpkg.Agent, req agentexecution.TurnRequest, emit agentexecution.EventSink) (returnErr error) {
+	if b != nil && b.checkExecution != nil {
+		if err := b.checkExecution(agent); err != nil {
+			return agentexecution.NewError(agentexecution.ErrorBackendUnavailable, err.Error())
+		}
+	}
+	if err := validateBackendAgent(agent, agentpkg.RuntimeTypeHTTP); err != nil {
+		return err
+	}
+	if err := validateRuntimeOptionsVersion(req.Options); err != nil {
+		return err
+	}
+	var noOptions struct{}
+	if err := agentexecution.DecodeRuntimeOptions(req.Options.Runtime, &noOptions); err != nil {
+		return err
+	}
+	if req.Permission != nil {
+		return agentexecution.NewError(agentexecution.ErrorCapabilityNotSupported, "HTTP Agent permissions are not supported")
+	}
+	if strings.TrimSpace(req.Input) == "" {
+		return agentexecution.NewError(agentexecution.ErrorInvalidRequest, "input is required")
+	}
+	execution, err := b.resolve(agent.ID)
+	if err != nil {
+		return err
+	}
+	suppliedSession := strings.TrimSpace(req.SessionID) != ""
+	sessionID := strings.TrimSpace(req.SessionID)
+	if sessionID == "" {
+		sessionID = uuid.NewString()
+	}
+	claim, err := execution.bindings.claim(sessionID, suppliedSession, agentClientScope(ctx, agent))
+	if err != nil {
+		return err
+	}
+	finished := false
+	southboundStarted := false
+	defer func() {
+		if finished {
+			return
+		}
+		if southboundStarted {
+			execution.bindings.drop(claim)
+			return
+		}
+		execution.bindings.restore(claim)
+	}()
+	turnTimeout := execution.Timeout
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining < turnTimeout {
+			turnTimeout = remaining
+		}
+	}
+	turnCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), turnTimeout)
+	defer cancel()
+	slot := execution.runs.begin(req.RunID, cancel)
+	disconnectWatchDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = slot.requestCancel(cleanupCtx, execution)
+			cleanupCancel()
+			if slot.taskBound() {
+				cancel()
+				return
+			}
+			timer := time.NewTimer(5 * time.Second)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+				cancel()
+			case <-disconnectWatchDone:
+			}
+		case <-disconnectWatchDone:
+		}
+	}()
+	defer close(disconnectWatchDone)
+	defer func() {
+		slot.markDone()
+		execution.runs.remove(req.RunID, slot)
+	}()
+	if b.runs != nil {
+		if err := b.runs.Begin(agent.ID, agent.Runtime.Type, req.RunID, sessionID, func(cancelCtx context.Context, mode agentexecution.CancelMode) error {
+			if mode != agentexecution.CancelModeForce {
+				return agentexecution.NewError(agentexecution.ErrorCapabilityNotSupported, "HTTP Agent graceful cancellation is not supported")
+			}
+			return slot.requestCancel(cancelCtx, execution)
+		}); err != nil {
+			return err
+		}
+		defer func() {
+			state, stopReason := agentexecution.RunStateCompleted, ""
+			if returnErr != nil {
+				state = agentexecution.RunStateFailed
+			}
+			if slot.cancellationRequested() || errors.Is(returnErr, context.Canceled) {
+				state, stopReason = agentexecution.RunStateCancelled, agentexecution.StopReasonCancelled
+			}
+			b.runs.Complete(agent.ID, req.RunID, state, stopReason)
+		}()
+	}
+	sessionData, _ := json.Marshal(map[string]any{
+		"resumed": claim.resumed, "reset_reason": claim.resetReason,
+	})
+	if err := emit(agentexecution.TurnEvent{Event: agentexecution.EventSession, SessionID: sessionID, Data: sessionData}); err != nil {
+		return err
+	}
+
+	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart(req.Input))
+	if claim.hadOriginal {
+		message.ContextID = claim.original.contextID
+		message.TaskID = claim.original.taskID
+	}
+	sendRequest := &a2a.SendMessageRequest{Message: message}
+	var terminal terminalBinding
+	southboundStarted = true
+	if execution.Streaming {
+		terminal, err = b.serveStreaming(turnCtx, execution, slot, sendRequest, emit)
+	} else {
+		var result a2a.SendMessageResult
+		result, err = execution.Client.SendMessage(turnCtx, sendRequest)
+		if err == nil {
+			terminal, err = b.serveResult(execution, slot, result, emit)
+		}
+	}
+	if err != nil {
+		if slot.taskBound() && !terminal.suppressCancel {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = slot.requestCancel(cleanupCtx, execution)
+			cleanupCancel()
+		}
+		if terminal.contextID != "" {
+			execution.bindings.finish(claim, terminal.contextID, "")
+			finished = true
+		}
+		return mapHTTPError(err)
+	}
+	if terminal.direct {
+		contextID := terminal.contextID
+		if strings.TrimSpace(contextID) == "" && claim.hadOriginal {
+			contextID = claim.original.contextID
+		}
+		if strings.TrimSpace(contextID) == "" {
+			execution.bindings.drop(claim)
+		} else {
+			execution.bindings.finish(claim, contextID, "")
+		}
+	} else {
+		execution.bindings.finish(claim, terminal.contextID, terminal.interruptedTaskID)
+	}
+	finished = true
+	return nil
+}
+
+type terminalBinding struct {
+	contextID         string
+	interruptedTaskID a2a.TaskID
+	direct            bool
+	suppressCancel    bool
+}
+
+func (b *HTTPBackend) serveResult(execution *HTTPExecution, slot *httpRunSlot, result a2a.SendMessageResult, emit agentexecution.EventSink) (terminalBinding, error) {
+	switch event := result.(type) {
+	case *a2a.Message:
+		if err := emitA2AMessage(event, emit); err != nil {
+			return terminalBinding{}, err
+		}
+		if err := emitHTTPDone(emit, "stop", nil); err != nil {
+			return terminalBinding{}, err
+		}
+		return terminalBinding{contextID: event.ContextID, direct: true}, nil
+	case *a2a.Task:
+		binding, terminal, err := emitA2ATask(event, func(taskID a2a.TaskID) error { return slot.bindTask(execution, taskID) }, emit)
+		if binding.suppressCancel {
+			slot.markDone()
+		}
+		if err != nil {
+			return binding, err
+		}
+		if !terminal {
+			cancelCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = slot.requestCancel(cancelCtx, execution)
+			cancel()
+			return terminalBinding{}, agentexecution.NewError(agentexecution.ErrorTurnFailed, "synchronous A2A turn returned before terminal state")
+		}
+		slot.markDone()
+		return binding, nil
+	default:
+		return terminalBinding{}, agentexecution.NewError(agentexecution.ErrorTurnFailed, "A2A response has an unsupported result")
+	}
+}
+
+func (b *HTTPBackend) serveStreaming(ctx context.Context, execution *HTTPExecution, slot *httpRunSlot, request *a2a.SendMessageRequest, emit agentexecution.EventSink) (terminalBinding, error) {
+	first := true
+	direct := false
+	var taskID a2a.TaskID
+	var contextID string
+	var result terminalBinding
+	terminal := false
+	for event, err := range execution.Client.SendStreamingMessage(ctx, request) {
+		if err != nil {
+			return terminalBinding{}, err
+		}
+		if first {
+			first = false
+			switch initial := event.(type) {
+			case *a2a.Message:
+				direct = true
+				contextID = initial.ContextID
+				if err := emitA2AMessage(initial, emit); err != nil {
+					return terminalBinding{}, err
+				}
+				continue
+			case *a2a.Task:
+				taskID, contextID = initial.ID, initial.ContextID
+				var statusTerminal bool
+				result, statusTerminal, err = emitA2ATask(initial, func(taskID a2a.TaskID) error { return slot.bindTask(execution, taskID) }, emit)
+				if result.suppressCancel {
+					slot.markDone()
+				}
+				if err != nil {
+					return result, err
+				}
+				terminal = statusTerminal
+				continue
+			default:
+				return terminalBinding{}, agentexecution.NewError(agentexecution.ErrorTurnFailed, "A2A stream must begin with task or message")
+			}
+		}
+		if direct || terminal {
+			return terminalBinding{}, agentexecution.NewError(agentexecution.ErrorTurnFailed, "A2A stream continued after a terminal event")
+		}
+		switch update := event.(type) {
+		case *a2a.TaskStatusUpdateEvent:
+			if update.TaskID != taskID || update.ContextID != contextID {
+				return terminalBinding{}, agentexecution.NewError(agentexecution.ErrorTurnFailed, "A2A task identity changed during stream")
+			}
+			result, terminal, err = emitA2AStatus(update.Status, taskID, contextID, emit)
+			if terminal {
+				slot.markDone()
+			}
+			if err != nil {
+				return result, err
+			}
+		case *a2a.TaskArtifactUpdateEvent:
+			if update.TaskID != taskID || update.ContextID != contextID || update.Artifact == nil {
+				return terminalBinding{}, agentexecution.NewError(agentexecution.ErrorTurnFailed, "invalid A2A artifact update")
+			}
+			if err := emitA2AArtifact(update.Artifact, emit); err != nil {
+				return terminalBinding{}, err
+			}
+		default:
+			return terminalBinding{}, agentexecution.NewError(agentexecution.ErrorTurnFailed, "unsupported A2A stream event")
+		}
+	}
+	if first {
+		return terminalBinding{}, agentexecution.NewError(agentexecution.ErrorTurnFailed, "A2A stream closed without an event")
+	}
+	if direct {
+		if err := emitHTTPDone(emit, "stop", nil); err != nil {
+			return terminalBinding{}, err
+		}
+		return terminalBinding{contextID: contextID, direct: true}, nil
+	}
+	if !terminal {
+		return terminalBinding{}, agentexecution.NewError(agentexecution.ErrorTurnFailed, "A2A task stream closed before terminal state")
+	}
+	return result, nil
+}
+
+func emitA2ATask(task *a2a.Task, bind func(a2a.TaskID) error, emit agentexecution.EventSink) (terminalBinding, bool, error) {
+	if task == nil || strings.TrimSpace(string(task.ID)) == "" || strings.TrimSpace(task.ContextID) == "" {
+		return terminalBinding{}, false, agentexecution.NewError(agentexecution.ErrorTurnFailed, "A2A task is missing id or contextId")
+	}
+	if bind != nil {
+		if err := bind(task.ID); err != nil {
+			return terminalBinding{}, false, err
+		}
+	}
+	if task.Status.Message != nil {
+		if err := emitA2AMessage(task.Status.Message, emit); err != nil {
+			return terminalBinding{}, false, err
+		}
+	}
+	for _, artifact := range task.Artifacts {
+		if artifact == nil {
+			return terminalBinding{}, false, agentexecution.NewError(agentexecution.ErrorTurnFailed, "A2A task contains a nil artifact")
+		}
+		if err := emitA2AArtifact(artifact, emit); err != nil {
+			return terminalBinding{}, false, err
+		}
+	}
+	return emitA2AStatus(a2a.TaskStatus{State: task.Status.State}, task.ID, task.ContextID, emit)
+}
+
+func emitA2AStatus(status a2a.TaskStatus, taskID a2a.TaskID, contextID string, emit agentexecution.EventSink) (terminalBinding, bool, error) {
+	binding := terminalBinding{contextID: contextID}
+	if status.Message != nil {
+		if err := emitA2AMessage(status.Message, emit); err != nil {
+			return terminalBinding{}, false, err
+		}
+	}
+	switch status.State {
+	case a2a.TaskStateSubmitted, a2a.TaskStateWorking:
+		return binding, false, nil
+	case a2a.TaskStateCompleted:
+		binding.suppressCancel = true
+		return binding, true, emitHTTPDone(emit, "stop", nil)
+	case a2a.TaskStateCanceled:
+		binding.suppressCancel = true
+		return binding, true, emitHTTPDone(emit, agentexecution.StopReasonCancelled, nil)
+	case a2a.TaskStateInputRequired:
+		binding.suppressCancel = true
+		binding.interruptedTaskID = taskID
+		return binding, true, emitHTTPDone(emit, "input_required", map[string]any{"task_id": taskID, "context_id": contextID})
+	case a2a.TaskStateAuthRequired:
+		binding.suppressCancel = true
+		return binding, true, agentexecution.NewError(agentexecution.ErrorTurnFailed, "A2A task requires unsupported authentication interaction")
+	case a2a.TaskStateFailed:
+		binding.suppressCancel = true
+		return binding, true, agentexecution.NewError(agentexecution.ErrorTurnFailed, "A2A task failed")
+	case a2a.TaskStateRejected:
+		binding.suppressCancel = true
+		return binding, true, agentexecution.NewError(agentexecution.ErrorTurnFailed, "A2A task was rejected")
+	default:
+		return terminalBinding{}, false, agentexecution.NewError(agentexecution.ErrorTurnFailed, "A2A task returned an unknown state")
+	}
+}
+
+func emitA2AMessage(message *a2a.Message, emit agentexecution.EventSink) error {
+	if message == nil || message.Role != a2a.MessageRoleAgent {
+		return agentexecution.NewError(agentexecution.ErrorTurnFailed, "A2A response message must be agent-authored")
+	}
+	var text strings.Builder
+	for _, part := range message.Parts {
+		if part == nil {
+			return agentexecution.NewError(agentexecution.ErrorTurnFailed, "A2A message contains a nil part")
+		}
+		if value, ok := part.Content.(a2a.Text); ok {
+			text.WriteString(string(value))
+		}
+	}
+	data, err := json.Marshal(map[string]any{"parts": message.Parts})
+	if err != nil {
+		return agentexecution.WrapError(agentexecution.ErrorTurnFailed, "encode A2A message parts", err)
+	}
+	return emit(agentexecution.TurnEvent{Event: agentexecution.EventContent, Text: text.String(), Data: data})
+}
+
+func emitA2AArtifact(artifact *a2a.Artifact, emit agentexecution.EventSink) error {
+	var text strings.Builder
+	for _, part := range artifact.Parts {
+		if part == nil {
+			return agentexecution.NewError(agentexecution.ErrorTurnFailed, "A2A artifact contains a nil part")
+		}
+		if value, ok := part.Content.(a2a.Text); ok {
+			text.WriteString(string(value))
+		}
+	}
+	data, err := json.Marshal(map[string]any{"artifact": artifact})
+	if err != nil {
+		return agentexecution.WrapError(agentexecution.ErrorTurnFailed, "encode A2A artifact", err)
+	}
+	return emit(agentexecution.TurnEvent{Event: agentexecution.EventContent, Text: text.String(), Data: data})
+}
+
+func emitHTTPDone(emit agentexecution.EventSink, stopReason string, extra map[string]any) error {
+	payload := map[string]any{"stop_reason": stopReason}
+	for key, value := range extra {
+		payload[key] = value
+	}
+	data, _ := json.Marshal(payload)
+	return emit(agentexecution.TurnEvent{Event: agentexecution.EventDone, Data: data})
+}
+
+func (b *HTTPBackend) resolve(agentID string) (*HTTPExecution, error) {
+	if b == nil || b.manager == nil {
+		return nil, agentexecution.NewError(agentexecution.ErrorRuntimeNotExecutable, "HTTP runtime is not executable")
+	}
+	execution, err := b.manager.ResolveExecution(agentID)
+	if err != nil {
+		return nil, agentexecution.WrapError(agentexecution.ErrorBackendUnavailable, "HTTP runtime is not ready", err)
+	}
+	return execution, nil
+}
+
+func mapHTTPError(err error) error {
+	if err == nil || agentexecution.IsNormalized(err) {
+		return err
+	}
+	var responseError *a2aclient.ResponseError
+	var networkError net.Error
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return agentexecution.WrapError(agentexecution.ErrorBackendTimeout, "HTTP Agent turn timed out", err)
+	case errors.Is(err, context.Canceled):
+		return agentexecution.WrapError(agentexecution.ErrorTurnCancelled, "HTTP Agent turn cancelled", err)
+	case errors.As(err, &responseError) && responseError.StatusCode >= 500:
+		return agentexecution.WrapError(agentexecution.ErrorBackendUnavailable, "HTTP Agent is unavailable", err)
+	case errors.As(err, &networkError) && networkError.Timeout():
+		return agentexecution.WrapError(agentexecution.ErrorBackendTimeout, "HTTP Agent turn timed out", err)
+	case errors.As(err, &networkError):
+		return agentexecution.WrapError(agentexecution.ErrorBackendUnavailable, "HTTP Agent is unavailable", err)
+	default:
+		return agentexecution.WrapError(agentexecution.ErrorTurnFailed, "HTTP Agent turn failed", err)
+	}
+}
+
+func (b *HTTPBackend) CancelRun(ctx context.Context, agent agentpkg.Agent, req agentexecution.CancelRequest) (agentexecution.CancelResult, error) {
+	if req.Mode != agentexecution.CancelModeForce {
+		return agentexecution.CancelResult{}, agentexecution.NewError(agentexecution.ErrorCapabilityNotSupported, "HTTP Agent supports force cancellation only")
+	}
+	if b == nil || b.runs == nil {
+		return agentexecution.CancelResult{}, agentexecution.NewError(agentexecution.ErrorCapabilityNotSupported, "HTTP Agent cancellation is not configured")
+	}
+	return b.runs.Cancel(ctx, agent.ID, req)
+}
+
+func (b *HTTPBackend) Health(ctx context.Context, agent agentpkg.Agent) (agentexecution.Health, error) {
+	checkedAt := time.Now().UTC()
+	if err := validateBackendAgent(agent, agentpkg.RuntimeTypeHTTP); err != nil {
+		return agentexecution.Health{Healthy: false, State: agentexecution.RuntimeStateUnhealthy, CheckedAt: checkedAt}, err
+	}
+	if b == nil || b.manager == nil {
+		return agentexecution.Health{Healthy: false, State: agentexecution.RuntimeStateNotExecutable, CheckedAt: checkedAt}, agentexecution.NewError(agentexecution.ErrorRuntimeNotExecutable, "HTTP runtime is not executable")
+	}
+	probe := b.manager.ProbeHealth(ctx, agent.ID)
+	state := agentexecution.RuntimeStateReady
+	if !probe.Healthy {
+		state = agentexecution.RuntimeStateUnhealthy
+	} else if probe.Drift {
+		state = agentexecution.RuntimeStateDegraded
+	}
+	details, _ := json.Marshal(map[string]any{"card_drift": probe.Drift})
+	return agentexecution.Health{Healthy: probe.Healthy, State: state, CheckedAt: probe.CheckedAt, Message: probe.Message, Details: details}, nil
+}
+
+func (b *HTTPBackend) RuntimeSummary(ctx context.Context, agent agentpkg.Agent) (agentexecution.RuntimeSummary, error) {
+	if err := validateBackendAgent(agent, agentpkg.RuntimeTypeHTTP); err != nil {
+		return agentexecution.RuntimeSummary{}, err
+	}
+	if b == nil || b.manager == nil {
+		return agentexecution.RuntimeSummary{
+			Type: agent.Runtime.Type, State: agentexecution.RuntimeStateNotExecutable,
+		}, nil
+	}
+	health, err := b.Health(ctx, agent)
+	if err != nil {
+		return agentexecution.RuntimeSummary{}, err
+	}
+	summary := agentexecution.RuntimeSummary{
+		Type: agent.Runtime.Type, Healthy: health.Healthy, State: health.State,
+	}
+	if execution, resolveErr := b.manager.ResolveExecution(agent.ID); resolveErr == nil {
+		summary.Executable = true
+		summary.ActiveRuns = execution.runs.count()
+		summary.SessionCount = execution.bindings.count()
+	}
+	details := map[string]any{}
+	_ = json.Unmarshal(health.Details, &details)
+	if health.Message != "" {
+		details["message"] = health.Message
+	}
+	summary.Details, _ = json.Marshal(details)
+	return summary, nil
+}
+
+var _ agentexecution.Backend = (*HTTPBackend)(nil)
+var _ agentexecution.RunCanceller = (*HTTPBackend)(nil)
+var _ agentexecution.HealthChecker = (*HTTPBackend)(nil)
+var _ agentexecution.RuntimeInspector = (*HTTPBackend)(nil)

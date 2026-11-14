@@ -21,6 +21,8 @@
 # ProviderModel targets use one Provider and real model names; cross-provider
 # selection and aliases belong to LogicalModels.
 # Legacy Provider-only targets require offline conversion with an explicit model list.
+# Agent.runtime selects acp/http/builtin execution in Agent Bundles; it is not
+# a Caddyfile directive.
 # Agent budgets are unsupported: omit policy.budget or set it to null in Bundles.
 # Provider deletion requires detaching LLM routes and removing/rebinding its
 # credentials. ProviderModels are cleaned up atomically; secrets never cascade.

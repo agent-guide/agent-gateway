@@ -140,7 +140,9 @@ A request can enter through an AgentRoute, execute through the selected ACP,
 builtin, or HTTP runtime, and call back through LLM or MCP routes. VirtualKeys,
 routing, configuration, and telemetry apply at the relevant boundaries. See
 the [architecture overview](docs/architecture/architecture-overview.md) for the
-runtime flow and dependency boundaries.
+runtime flow and dependency boundaries. In the Go source, `pkg/agent/execution`
+owns common execution contracts and shared controls; `pkg/agent/runtimebackend`
+implements the ACP, builtin, and HTTP backends selected by `Agent.runtime.type`.
 
 ## Choose your starting point
 

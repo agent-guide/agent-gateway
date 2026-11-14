@@ -17,8 +17,8 @@ import (
 	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
 	"github.com/agent-guide/agent-gateway/pkg/acp/hostconfig"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
-	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
-	"github.com/agent-guide/agent-gateway/pkg/agent/runtime/runtimetest"
+	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
+	"github.com/agent-guide/agent-gateway/pkg/agent/execution/executiontest"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	configschema "github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	configstoresqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
@@ -78,21 +78,21 @@ func eventsOfType[T any](events []any) []T {
 }
 
 type agentHandlerCapabilityBackend struct {
-	*runtimetest.Backend
-	permissionCalls []agentruntime.PermissionDecision
-	transcriptCalls []agentruntime.TranscriptRequest
+	*executiontest.Backend
+	permissionCalls []agentexecution.PermissionDecision
+	transcriptCalls []agentexecution.TranscriptRequest
 }
 
-func (b *agentHandlerCapabilityBackend) ResolvePermission(_ context.Context, _ agentpkg.Agent, decision agentruntime.PermissionDecision) error {
+func (b *agentHandlerCapabilityBackend) ResolvePermission(_ context.Context, _ agentpkg.Agent, decision agentexecution.PermissionDecision) error {
 	b.permissionCalls = append(b.permissionCalls, decision)
 	return nil
 }
 
-func (b *agentHandlerCapabilityBackend) LoadTranscript(_ context.Context, _ agentpkg.Agent, req agentruntime.TranscriptRequest) (agentruntime.TranscriptResponse, error) {
+func (b *agentHandlerCapabilityBackend) LoadTranscript(_ context.Context, _ agentpkg.Agent, req agentexecution.TranscriptRequest) (agentexecution.TranscriptResponse, error) {
 	b.transcriptCalls = append(b.transcriptCalls, req)
-	return agentruntime.TranscriptResponse{
+	return agentexecution.TranscriptResponse{
 		SessionID: req.SessionID,
-		Messages:  []agentruntime.TranscriptMessage{{Role: "assistant", Text: "saved reply"}},
+		Messages:  []agentexecution.TranscriptMessage{{Role: "assistant", Text: "saved reply"}},
 	}, nil
 }
 
@@ -299,7 +299,7 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 	if err := json.Unmarshal([]byte(firstData), &envelope); err != nil {
 		t.Fatalf("decode envelope %q: %v", firstData, err)
 	}
-	if envelope.AgentID != "unified" || !agentruntime.ValidRunID(envelope.RunID) || envelope.Sequence != 1 {
+	if envelope.AgentID != "unified" || !agentexecution.ValidRunID(envelope.RunID) || envelope.Sequence != 1 {
 		t.Fatalf("common envelope = %+v", envelope)
 	}
 	// M6 keeps route_kind/protocol unified while selecting the typed builtin
@@ -327,7 +327,7 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 	}
 	failedTurnEvents := eventsOfType[usage.BuiltinUsageEvent](sink.events)
 	failedTurn := failedTurnEvents[len(failedTurnEvents)-1]
-	if failedTurn.Success || failedTurn.ResultStatus != "error" || failedTurn.ErrorType != string(agentruntime.ErrorUnsupportedOption) {
+	if failedTurn.Success || failedTurn.ResultStatus != "error" || failedTurn.ErrorType != string(agentexecution.ErrorUnsupportedOption) {
 		t.Fatalf("pre-stream decode event = %+v, want typed error status", failedTurn)
 	}
 	if rec := turn(`{"input":"hello","options":{"version":"v1","runtime":{"cwd":"/tmp"}}}`); rec.Code != http.StatusBadRequest {
@@ -358,7 +358,7 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 	}
 	capabilityEvents := eventsOfType[usage.BuiltinUsageEvent](sink.events)
 	capabilityEvent := capabilityEvents[len(capabilityEvents)-1]
-	if capabilityEvent.Success || capabilityEvent.ResultStatus != "error" || capabilityEvent.ErrorType != string(agentruntime.ErrorCapabilityNotSupported) {
+	if capabilityEvent.Success || capabilityEvent.ResultStatus != "error" || capabilityEvent.ErrorType != string(agentexecution.ErrorCapabilityNotSupported) {
 		t.Fatalf("capability rejection event = %+v, want typed error status", capabilityEvent)
 	}
 
@@ -446,17 +446,17 @@ type agentRouteACPRuntime struct {
 
 func (r *agentRouteACPRuntime) ServeConfiguredTurn(_ context.Context, owner string, cfg hostconfig.Config, req acphost.TurnRequest, emit acphost.EventSink) error {
 	r.owner, r.cfg, r.req = owner, cfg, req
-	if err := emit(acphost.TurnEvent{Event: agentruntime.EventSession, SessionID: "native-session"}); err != nil {
+	if err := emit(acphost.TurnEvent{Event: agentexecution.EventSession, SessionID: "native-session"}); err != nil {
 		return err
 	}
-	if err := emit(acphost.TurnEvent{Event: agentruntime.EventContent, Text: "acp answer"}); err != nil {
+	if err := emit(acphost.TurnEvent{Event: agentexecution.EventContent, Text: "acp answer"}); err != nil {
 		return err
 	}
 	reason := r.stopReason
 	if reason == "" {
 		reason = "end_turn"
 	}
-	return emit(acphost.TurnEvent{Event: agentruntime.EventDone, StopReason: reason})
+	return emit(acphost.TurnEvent{Event: agentexecution.EventDone, StopReason: reason})
 }
 
 func (r *agentRouteACPRuntime) RetireOwnerDeferred(ownerID, keep string) (int, func()) {
@@ -539,7 +539,7 @@ func TestDispatchAgentRouteACPTurnSuccess(t *testing.T) {
 		if err := json.Unmarshal([]byte(data), &envelope); err != nil {
 			t.Fatalf("decode envelope %q: %v", data, err)
 		}
-		if envelope.AgentID != "acp-agent" || !agentruntime.ValidRunID(envelope.RunID) {
+		if envelope.AgentID != "acp-agent" || !agentexecution.ValidRunID(envelope.RunID) {
 			t.Fatalf("common envelope = %+v", envelope)
 		}
 		sequences = append(sequences, envelope.Sequence)
@@ -607,9 +607,9 @@ func TestServeAgentPermissionDecodeFailureMarksTypedError(t *testing.T) {
 			AgentType: baseacp.AgentTypeOpencode,
 		}},
 	}
-	backend := &agentHandlerCapabilityBackend{Backend: runtimetest.NewBackend(agentpkg.RuntimeTypeACP)}
-	caps := agentruntime.Capabilities{Executable: true, Permissions: agentruntime.PermissionCapabilities{
-		Interactive: true, ResumeMode: agentruntime.PermissionResumeActiveStream,
+	backend := &agentHandlerCapabilityBackend{Backend: executiontest.NewBackend(agentpkg.RuntimeTypeACP)}
+	caps := agentexecution.Capabilities{Executable: true, Permissions: agentexecution.PermissionCapabilities{
+		Interactive: true, ResumeMode: agentexecution.PermissionResumeActiveStream,
 	}}
 	req := httptest.NewRequest(http.MethodPost, "/agents/acp/permission", strings.NewReader(`{"request_id":`)).WithContext(ctx)
 	rec := httptest.NewRecorder()
@@ -618,10 +618,10 @@ func TestServeAgentPermissionDecodeFailureMarksTypedError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("serveAgentPermission: %v", err)
 	}
-	span.Finish(usage.InteractionOutcome{Success: false, StatusCode: rec.Code, ErrorType: string(agentruntime.ErrorInvalidRequest)})
+	span.Finish(usage.InteractionOutcome{Success: false, StatusCode: rec.Code, ErrorType: string(agentexecution.ErrorInvalidRequest)})
 
 	event := sink.Events[0].(usage.ACPUsageEvent)
-	if rec.Code != http.StatusBadRequest || event.Success || event.Operation != "permission" || event.ResultStatus != "error" || event.ErrorType != string(agentruntime.ErrorInvalidRequest) {
+	if rec.Code != http.StatusBadRequest || event.Success || event.Operation != "permission" || event.ResultStatus != "error" || event.ErrorType != string(agentexecution.ErrorInvalidRequest) {
 		t.Fatalf("malformed permission status/event = %d/%+v", rec.Code, event)
 	}
 }
@@ -636,13 +636,13 @@ func TestDispatchAgentOptionalCapabilitiesAndPreBackendRejections(t *testing.T) 
 		t.Fatalf("register default stores: %v", err)
 	}
 
-	fake := &agentHandlerCapabilityBackend{Backend: runtimetest.NewBackend(agentpkg.RuntimeTypeHTTP)}
-	fake.CapabilitiesResult = agentruntime.Capabilities{
+	fake := &agentHandlerCapabilityBackend{Backend: executiontest.NewBackend(agentpkg.RuntimeTypeHTTP)}
+	fake.CapabilitiesResult = agentexecution.Capabilities{
 		Executable: true,
-		Sessions:   agentruntime.SessionCapabilities{Transcript: true},
-		Permissions: agentruntime.PermissionCapabilities{
+		Sessions:   agentexecution.SessionCapabilities{Transcript: true},
+		Permissions: agentexecution.PermissionCapabilities{
 			Interactive: true,
-			ResumeMode:  agentruntime.PermissionResumeActiveStream,
+			ResumeMode:  agentexecution.PermissionResumeActiveStream,
 		},
 	}
 	gw := gateway.NewAgentGateway()
@@ -684,7 +684,7 @@ func TestDispatchAgentOptionalCapabilitiesAndPreBackendRejections(t *testing.T) 
 	if got := fake.transcriptCalls[0]; got.SessionID != "session-1" || got.CWD != "/workspace" {
 		t.Fatalf("transcript request = %+v", got)
 	}
-	var transcriptBody agentruntime.TranscriptResponse
+	var transcriptBody agentexecution.TranscriptResponse
 	if err := json.Unmarshal(recTranscript.Body.Bytes(), &transcriptBody); err != nil {
 		t.Fatalf("decode transcript response: %v", err)
 	}
@@ -692,7 +692,7 @@ func TestDispatchAgentOptionalCapabilitiesAndPreBackendRejections(t *testing.T) 
 		t.Fatalf("transcript response = %+v", transcriptBody)
 	}
 
-	fake.SetCapabilities(agentruntime.Capabilities{Executable: false}, nil)
+	fake.SetCapabilities(agentexecution.Capabilities{Executable: false}, nil)
 	nonExecutableTurn := httptest.NewRequest(http.MethodPost, "/agents/capable/turn", strings.NewReader(`{"input":"hello"}`))
 	recNonExecutable := httptest.NewRecorder()
 	if err := handler.Dispatch(recNonExecutable, nonExecutableTurn, nil); err != nil {
@@ -701,7 +701,7 @@ func TestDispatchAgentOptionalCapabilitiesAndPreBackendRejections(t *testing.T) 
 	if recNonExecutable.Code != http.StatusNotImplemented || len(fake.TurnCalls()) != 0 {
 		t.Fatalf("non-executable status/ServeTurn calls = %d/%d, body = %q", recNonExecutable.Code, len(fake.TurnCalls()), recNonExecutable.Body.String())
 	}
-	fake.SetCapabilities(agentruntime.Capabilities{Executable: true}, nil)
+	fake.SetCapabilities(agentexecution.Capabilities{Executable: true}, nil)
 
 	a.Disabled = true
 	if err := gw.AgentManager().Update(ctx, a.ID, a); err != nil {

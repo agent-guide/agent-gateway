@@ -8,7 +8,7 @@ import (
 
 	adminapi "github.com/agent-guide/agent-gateway/pkg/admin"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
-	agentruntime "github.com/agent-guide/agent-gateway/pkg/agent/runtime"
+	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
 )
 
 type AgentConfig = agentpkg.Agent
@@ -107,7 +107,7 @@ func (c *Client) GetAgentTranscript(ctx context.Context, id, sessionID, cwd stri
 	}
 	return c.getAgentRawQuery(ctx, id, "sessions/"+url.PathEscape(sessionID)+"/transcript", q)
 }
-func (c *Client) CancelAgentRun(ctx context.Context, id, runID string, mode agentruntime.CancelMode) (json.RawMessage, error) {
+func (c *Client) CancelAgentRun(ctx context.Context, id, runID string, mode agentexecution.CancelMode) (json.RawMessage, error) {
 	var resp json.RawMessage
 	path := "/admin/agents/" + url.PathEscape(id) + "/runs/" + url.PathEscape(runID)
 	if mode != "" {
@@ -118,7 +118,7 @@ func (c *Client) CancelAgentRun(ctx context.Context, id, runID string, mode agen
 	}
 	return resp, nil
 }
-func (c *Client) ResolveAgentPermission(ctx context.Context, id, requestID string, decision agentruntime.PermissionDecision) (json.RawMessage, error) {
+func (c *Client) ResolveAgentPermission(ctx context.Context, id, requestID string, decision agentexecution.PermissionDecision) (json.RawMessage, error) {
 	var resp json.RawMessage
 	if err := c.do(ctx, http.MethodPost, "/admin/agents/"+url.PathEscape(id)+"/permissions/"+url.PathEscape(requestID), decision, &resp, true, http.StatusOK); err != nil {
 		return nil, err
