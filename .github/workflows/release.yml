@@ -527,19 +527,21 @@ jobs:
             test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$ref")" = "$VERSION"
           done
       - name: Package and verify first-run from tagged source
+        working-directory: .release-source
         env:
           AGW_RELEASE_SOURCE_DIR: ${{ github.workspace }}/.release-source
           VERSION: ${{ steps.source.outputs.version }}
         run: |
-          ./scripts/package-first-run "$VERSION" "$GATEWAY_REF" "$FIXTURE_REF" dist
-          .release-source/scripts/verify-first-run-archive \
-            "dist/agent-gateway-first-run-v$VERSION.tar.gz" "$VERSION" "$GATEWAY_REF" "$FIXTURE_REF"
+          ../scripts/package-first-run "$VERSION" "$GATEWAY_REF" "$FIXTURE_REF" "$GITHUB_WORKSPACE/dist"
+          ./scripts/verify-first-run-archive \
+            "$GITHUB_WORKSPACE/dist/agent-gateway-first-run-v$VERSION.tar.gz" "$VERSION" "$GATEWAY_REF" "$FIXTURE_REF"
       - name: Execute recovered first-run archive outside the checkout
+        working-directory: .release-source
         env:
           AGW_FIRST_RUN_ARCHIVE: ${{ github.workspace }}/dist/agent-gateway-first-run-v${{ steps.source.outputs.version }}.tar.gz
           AGW_GATEWAY_IMAGE: ${{ env.GATEWAY_REF }}
           AGW_FIXTURE_IMAGE: ${{ env.FIXTURE_REF }}
-        run: .release-source/scripts/smoke-first-run "${{ steps.source.outputs.version }}"
+        run: ./scripts/smoke-first-run "${{ steps.source.outputs.version }}"
       - name: Verify archive identities and generate checksums
         env:
           SOURCE_COMMIT: ${{ steps.source.outputs.source_commit }}
@@ -582,6 +584,7 @@ jobs:
             dist/SHA256SUMS
           fail_on_unmatched_files: true
       - name: Verify public release and replay first-run anonymously
+        working-directory: .release-source
         env:
           VERSION: ${{ steps.source.outputs.version }}
           AGW_GATEWAY_IMAGE: ${{ env.GATEWAY_REF }}
@@ -590,4 +593,4 @@ jobs:
           gh release download "$RELEASE_TAG" --dir "$RUNNER_TEMP/public-release"
           (cd "$RUNNER_TEMP/public-release" && sha256sum -c SHA256SUMS)
           AGW_FIRST_RUN_ARCHIVE="$RUNNER_TEMP/public-release/agent-gateway-first-run-v$VERSION.tar.gz" \
-            .release-source/scripts/smoke-first-run "$VERSION"
+            ./scripts/smoke-first-run "$VERSION"
