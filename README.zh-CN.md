@@ -24,6 +24,9 @@ Code 和 MCP 的入口。
 无需启动 Admin 的离线配置检查与显式修复流程，参见
 [配置恢复指南](docs/guides/architecture-config-recovery.md)。
 
+Go 调用方可使用 Admin HTTP 客户端 `github.com/agent-guide/agent-gateway/pkg/admin/client`
+（包名为 `client`，通常使用导入别名 `adminclient`）。
+
 LLM Route 使用 `model_targets` 显式暴露已登记的 ProviderModel 和 LogicalModel。
 已移除的 Provider 直连目标需要通过离线工具，指定允许的模型列表后转换。
 

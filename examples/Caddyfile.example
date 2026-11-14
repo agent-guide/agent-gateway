@@ -9,6 +9,7 @@
 # This is the consolidated Caddyfile reference. It runs as-is with the shared
 # SQLite config store; providers and routes can be managed through the Admin API
 # or gateway bundles (shared schema: pkg/gateway/bundle).
+# Go Admin API callers use pkg/admin/client (package client).
 # Optional static-provider and OTLP profiles are included
 # below as commented examples.
 #

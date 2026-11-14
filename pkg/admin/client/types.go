@@ -1,4 +1,4 @@
-package adminclient
+package client
 
 import (
 	"time"

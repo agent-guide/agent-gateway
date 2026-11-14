@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/agent-guide/agent-gateway/pkg/admin"
-	"github.com/agent-guide/agent-gateway/pkg/adminclient"
+	adminclient "github.com/agent-guide/agent-gateway/pkg/admin/client"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"go.uber.org/zap"

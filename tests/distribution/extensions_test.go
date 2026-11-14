@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/agent-guide/agent-gateway/pkg/adminclient"
+	adminclient "github.com/agent-guide/agent-gateway/pkg/admin/client"
 	"github.com/agent-guide/agent-gateway/pkg/attribution"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"github.com/agent-guide/agent-gateway/pkg/event"

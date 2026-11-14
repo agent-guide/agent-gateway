@@ -1,5 +1,9 @@
 # Admin transport adapters
 
+`client/` contains the Admin HTTP client (`package client`). Callers may import
+it as `adminclient`. It shares server DTOs through explicit imports of `pkg/admin`;
+keep server handlers independent of the client package.
+
 Root rules and the affected subsystem AGENTS apply. Provider, VirtualKey,
 credential, route, Agent and extension business invariants belong to their
 application managers; every internal, HTTP and Bundle entry must share them.

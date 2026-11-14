@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agent-guide/agent-gateway/pkg/adminclient"
+	adminclient "github.com/agent-guide/agent-gateway/pkg/admin/client"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey/limiter"

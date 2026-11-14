@@ -1,4 +1,4 @@
-package adminclient
+package client
 
 type boolStatusResponse struct {
 	Status       string `json:"status"`

@@ -395,7 +395,7 @@ through all existing VirtualKey surfaces:
 
 - config-store codec and SQLite JSON records
 - VirtualKey Admin create, get, list, and update APIs
-- `pkg/adminclient` request and response models
+- `pkg/admin/client` request and response models
 - GatewayBundle validate, apply, export, and comparison logic
 - `agwctl` output where VirtualKey policy is displayed
 

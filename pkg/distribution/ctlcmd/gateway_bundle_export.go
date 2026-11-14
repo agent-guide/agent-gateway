@@ -7,7 +7,7 @@ import (
 	"os"
 	"sort"
 
-	"github.com/agent-guide/agent-gateway/pkg/adminclient"
+	adminclient "github.com/agent-guide/agent-gateway/pkg/admin/client"
 	bundlepkg "github.com/agent-guide/agent-gateway/pkg/gateway/bundle"
 )
 

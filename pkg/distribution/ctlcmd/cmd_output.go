@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/agwctl/caddyadminclient"
-	"github.com/agent-guide/agent-gateway/pkg/adminclient"
+	adminclient "github.com/agent-guide/agent-gateway/pkg/admin/client"
 )
 
 func (s *commandState) initOutputFlag() {

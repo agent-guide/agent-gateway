@@ -25,6 +25,9 @@ is not an Agent framework or a durable workflow engine.
 For offline configuration inspection and explicit repairs without Admin, see
 [configuration recovery](docs/guides/architecture-config-recovery.md).
 
+Go callers can use the Admin HTTP client at `github.com/agent-guide/agent-gateway/pkg/admin/client`
+(`package client`, conventionally imported as `adminclient`).
+
 LLM routes expose registered ProviderModels and LogicalModels through explicit
 `model_targets`. Removed Provider-only targets require offline conversion with
 an explicit model allowlist.

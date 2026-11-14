@@ -202,6 +202,11 @@ and metrics adapters. Metric parsers share bounded limits and allowlist extracti
 each protocol keeps its own filter dimensions, concrete query and result DTO.
 Reference protection and atomic business operations belong to application managers.
 
+`pkg/admin/client/` provides the Admin HTTP client (`package client`), used by
+`pkg/distribution/ctlcmd` and integration tests with the import alias `adminclient`.
+Its response types reuse DTOs from `pkg/admin`; server handlers do not depend on
+the client package.
+
 Today it exposes working endpoints for:
 
 - health

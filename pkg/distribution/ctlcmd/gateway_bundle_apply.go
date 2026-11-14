@@ -10,7 +10,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/pkg/extension"
 
-	"github.com/agent-guide/agent-gateway/pkg/adminclient"
+	adminclient "github.com/agent-guide/agent-gateway/pkg/admin/client"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
 	agentroute "github.com/agent-guide/agent-gateway/pkg/gateway/agentroute"

@@ -209,6 +209,7 @@ or a cross-cutting adapter for it (for example `caddy/admin`,
 - `pkg/extension/` — linked registry, bounded envelopes and prepared generations → `pkg/extension/AGENTS.md`
 - `pkg/attribution/` and `pkg/event/` — trusted bounded context and sanitized public sink transport → their nested `AGENTS.md` files
 - `pkg/admin/` — thin Admin transport adapters and typed metrics query handling → `pkg/admin/AGENTS.md`
+- `pkg/admin/client/` — Admin HTTP client (`package client`); callers may alias imports as `adminclient`
 - `caddy/gateway/` — Caddy app wiring and global `agent_gateway` Caddyfile parsing; see "Caddy app" above
 
 Cross-cutting invariants:
