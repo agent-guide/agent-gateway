@@ -60,6 +60,11 @@ must be labeled as roadmap on the pages.
 
 ## Build & Run
 
+Releases use `vX.Y.Z-preview.N` or stable `vX.Y.Z` tags with matching
+`docs/releases/<tag>.md`. Both run the same release gates; previews are GitHub
+prereleases and never advance GitHub/container `latest`. See
+`docs/development/README.md` for candidate preparation.
+
 Offline configuration inspection and explicit transactional repairs use
 `scripts/repair-architecture-config`; see
 `docs/guides/architecture-config-recovery.md`. Recovery reads raw records without

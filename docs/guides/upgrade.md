@@ -4,6 +4,59 @@ Read every section between the installed version and the target version. Back
 up the SQLite store and retain the current binaries or image digest before
 starting a new release.
 
+## Upgrading to v0.8.0-preview.1
+
+This upgrade changes MCP services to Connectors and extracts LogicalModels
+from LLM routes. Prepare changes with the target source checkout and the
+[offline recovery guide](architecture-config-recovery.md). Keep a consistent
+backup and the previous binary/image plus static files; rollback requires
+restoring them together.
+
+1. Stop every server and store-opening CLI using the database. A legacy
+   `mcp_services` table prevents normal startup; the conversion must run before
+   the new server or CLI opens the store. Inspect the complete database and
+   static configuration with `scripts/repair-architecture-config`.
+2. Convert the legacy MCP service layout using `--convert-connectors`, an
+   unused `--backup` path and `--service-stopped`. Update source Bundles to
+   `connectors`, nested MCP connection settings and Connector references;
+   replace `/admin/mcp/services` integrations with `/admin/connectors`.
+   Conversion preserves IDs and stored references. Connector definitions are
+   dynamic resources; static definitions are rejected.
+3. Rename Bundle `managedModels` to `providerModels`, define independent
+   `logicalModels`, and expose explicit references in LLM `model_targets`.
+   For persisted inline logical targets, prepare `extract-models` operations.
+   For Provider-only targets, use `convert-target` with an explicit
+   `data.models` allowlist. ProviderModel routes use one Provider and real
+   upstream model names; aliases and cross-provider selection require
+   LogicalModels. Apply repairs with all applicable static configuration.
+   If legacy layout conversion also reports model hazards, include their
+   repairs in the conversion batch as described in the recovery guide.
+4. Inspect again until the tool reports an empty array with exit code zero.
+   Update Caddyfile/static inputs, automation and Bundle sources to match.
+   Start the target version and check all three manifests for
+   `0.8.0-preview.1`, health, route-visible models and tool execution.
+5. If rollback is needed, stop the preview and restore the original database
+   and static files with the retained binaries/image. Restore SQLite without
+   stale `-wal`/`-shm` companions.
+
+Update CLI scripts from `agwctl mcp-service` to `agwctl connector`, and use
+`agwctl model provider` or `agwctl model logical` for model inventory. Admin
+model integrations use `/admin/llm/models/provider` and
+`/admin/llm/models/logical` instead of `/admin/llm/models/managed`.
+
+HTTP API Connector credentials use `connector:<id>` scope and empty Provider
+fields. Create them separately before testing authenticated tools. Provision
+the outbound HTTP policy needed for the target API. Bundle apply is sequential
+and can partially succeed; inspect the results before retrying.
+
+Go integrations must update `pkg/adminclient` to `pkg/admin/client` (package
+`client`), `pkg/gatewaybundle` to `pkg/gateway/bundle`, `pkg/agent/runtime` to
+`pkg/agent/execution`, and runtime adapter imports to `pkg/agent/runtimebackend`.
+Helpers moved into `internal/` are unavailable to external modules; use the
+designated public distribution entry points. Strict JSON boundaries now reject
+duplicate keys, malformed Unicode and trailing JSON; correct producers instead
+of relying on permissive decoding.
+
 ## Upgrading to v0.7.3
 
 v0.7.3 requires explicit repair of configurations that use any of these shapes:

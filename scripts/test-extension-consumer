@@ -51,7 +51,7 @@ case "${1:-checkout}" in
 import json, pathlib, re, subprocess
 m = json.loads(subprocess.check_output(['go', 'mod', 'edit', '-json']))
 versions = [r['Version'] for r in m['Require'] if r['Path'] == 'github.com/agent-guide/agent-gateway']
-if m.get('Replace') or pathlib.Path('go.work').exists() or len(versions) != 1 or not re.fullmatch(r'v\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?', versions[0]):
+if m.get('Replace') or pathlib.Path('go.work').exists() or len(versions) != 1 or not re.fullmatch(r'v\d+\.\d+\.\d+(?:-preview\.[1-9]\d*)?', versions[0]):
     raise SystemExit('release requires one published Community tag, no replacements or workspace')
 PYTAG
   export GOMODCACHE="$work/modules"

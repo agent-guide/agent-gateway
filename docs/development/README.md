@@ -8,6 +8,25 @@ Current development pages:
 
 ## Release verification
 
+Use two release forms: `vX.Y.Z-preview.N` for evaluation and `vX.Y.Z` for a
+stable release. A stable version can follow any preview directly; alpha, beta
+and rc stages are not required. Each tag runs the same automated release gates.
+
+For each candidate, update the Community version in
+`pkg/distribution/assembly.go` and its version test, the Makefile release
+default and smoke-script defaults. Write `docs/releases/<exact-tag>.md` with
+changes since the preceding published release, migration steps, known limits
+and verification evidence; update the release index and remove those entries
+from `unreleased.md`. Keep README language versions aligned.
+
+Commit the candidate, run the checks below plus `make verify-adoption` and
+`make verify-release-archive`, and validate the exact commit with the immutable
+consumer gate. Push the version tag only when preparing to publish. The release
+workflow validates the tag, checks manifests against it and requires matching
+release notes. It publishes preview tags as GitHub prereleases with explicit
+version/SHA image tags, without moving GitHub's latest release or either
+container `latest`. Stable tags can advance `latest` after public verification.
+
 Run the same non-mutating release gates used by CI from a clean checkout:
 
 ```bash

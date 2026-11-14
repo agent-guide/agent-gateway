@@ -19,12 +19,13 @@ MCP_HTTP_URL=http://127.0.0.1:18080/mcp \
 MCP_HTTP_KEY=example-mcp-key \
 MCP_SSE_URL=http://127.0.0.1:18080/sse \
 MCP_FILESYSTEM_ROOT=/tmp \
+ORDERS_API_URL=https://orders.example.com \
 	find "$repo/examples" -type f \
 		\( -name 'gateway.bundle*.yaml' -o -name 'gateway.static*.yaml' \) \
-		-exec "$agwctl" validate -f {} \;
+		-exec sh -c 'for bundle do "$0" validate -f "$bundle" || exit $?; done' "$agwctl" {} +
 
 go test "$repo/tests/release" \
-	-run 'TestDocumentationLinks|TestBilingualWebsiteParity|TestReleaseFacingFilesArePortable' \
+	-run 'TestDocumentationLinks|TestBilingualReadmeParity|TestBilingualWebsiteParity|TestReleaseFacingFilesArePortable|TestAdoptionRejectsInvalidExample|TestReleaseWorkflow' \
 	-count=1
 
 find "$repo/examples" "$repo/scripts" -type f -name '*.sh' -exec sh -n {} +

@@ -4,6 +4,32 @@ Use the container first-run path for evaluation and a platform archive when you
 need host binaries. Release identity comes from each binary's `manifest`
 command, not from `agw version`, which reports the embedded Caddy version.
 
+## Select a preview explicitly
+
+Choose the exact tag when downloading a preview; GitHub's latest-release
+selection and container `latest` tags select stable releases. For example,
+download the macOS arm64 preview archive and its matching checksums with:
+
+```sh
+version=0.8.0-preview.1
+asset=agent-gateway-v${version}-darwin-arm64.tar.gz
+base=https://github.com/agent-guide/agent-gateway/releases/download/v${version}
+curl -LO "$base/$asset"
+curl -LO "$base/SHA256SUMS"
+grep " $asset\$" SHA256SUMS | shasum -a 256 -c -
+tar -xzf "$asset"
+cd "${asset%.tar.gz}"
+```
+
+Use `linux-amd64`, `linux-arm64` or `darwin-amd64` for other supported hosts;
+Linux can use `sha256sum -c -`. All three binary manifests must report
+`0.8.0-preview.1`. The container tag is
+`ghcr.io/agent-guide/agent-gateway:v0.8.0-preview.1`; the first-run asset is
+`agent-gateway-first-run-v0.8.0-preview.1.tar.gz` from the same release.
+Read the [upgrade steps](upgrade.md#upgrading-to-v080-preview1) before opening
+an existing database. Then follow the installation and authentication steps
+below using the chosen preview instead of the stable example version.
+
 ## Download and verify an archive
 
 Choose one asset from the v0.7.3 release:

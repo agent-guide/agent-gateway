@@ -20,6 +20,10 @@ to separately held callbacks; registries reject undeclared or nil factory entrie
 Read `pkg/extension/AGENTS.md` before changing registration or config behavior.
 Manifest queries never invoke factories or reconstruct a serving registry.
 
+Community runtime/validation manifests must use the release version selected
+in `assembly.go`, including the full `-preview.N` suffix for previews. Keep its
+version test and release packaging/smoke defaults aligned when preparing a tag.
+
 Constructors create independent flags and own copies of mutable options. Do not
 load dotenv, install signals, or call `os.Exit` during import or construction.
 Daemon/CLI `Run` return process exit codes; Caddy's process adapter delegates to

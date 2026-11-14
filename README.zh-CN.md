@@ -21,6 +21,11 @@ Code 和 MCP 的入口。
 [版本发布](https://github.com/agent-guide/agent-gateway/releases) ·
 [支持](https://github.com/agent-guide/agent-gateway/issues)
 
+当前预览版目标为 **v0.8.0-preview.1**。试用前请阅读
+[发布说明](docs/releases/v0.8.0-preview.1.md)和
+[升级步骤](docs/guides/upgrade.md#upgrading-to-v080-preview1)。
+下方下载示例选择正式版 v0.7.3；预览版需使用明确的版本标签，不会更新 `latest`。
+
 无需启动 Admin 的离线配置检查与显式修复流程，参见
 [配置恢复指南](docs/guides/architecture-config-recovery.md)。
 

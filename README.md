@@ -22,6 +22,12 @@ is not an Agent framework or a durable workflow engine.
 [Releases](https://github.com/agent-guide/agent-gateway/releases) ·
 [Support](https://github.com/agent-guide/agent-gateway/issues)
 
+The current preview target is **v0.8.0-preview.1**. Read its
+[release notes](docs/releases/v0.8.0-preview.1.md) and
+[upgrade instructions](docs/guides/upgrade.md#upgrading-to-v080-preview1)
+before evaluation. The download examples below select the stable v0.7.3;
+preview assets require their explicit version tag and do not update `latest`.
+
 For offline configuration inspection and explicit repairs without Admin, see
 [configuration recovery](docs/guides/architecture-config-recovery.md).
 
