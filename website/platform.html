@@ -4,18 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Platform — AgentGuide</title>
-<meta name="description" content="The AgentGuide platform: an LLM gateway with logical model routing and credential pooling, an MCP gateway for governed tools, and a self-hosted, config-as-code control plane.">
+<meta name="description" content="The AgentGuide platform: an LLM gateway with explicit model exposure and credential pooling, governed MCP and HTTP API tools, and a self-hosted, config-as-code control plane.">
 <link rel="canonical" href="https://agentguide.online/platform.html">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="AgentGuide">
 <meta property="og:locale" content="en_US">
 <meta property="og:locale:alternate" content="zh_CN">
 <meta property="og:title" content="Platform — AgentGuide">
-<meta property="og:description" content="Logical model routing, governed MCP tools, and a self-hosted config-as-code control plane.">
+<meta property="og:description" content="Explicit model exposure, MCP and HTTP API Connectors, and a self-hosted config-as-code control plane.">
 <meta property="og:url" content="https://agentguide.online/platform.html">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Platform — AgentGuide">
-<meta name="twitter:description" content="Logical model routing, governed MCP tools, and a self-hosted config-as-code control plane.">
+<meta name="twitter:description" content="Explicit model exposure, MCP and HTTP API Connectors, and a self-hosted config-as-code control plane.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -53,7 +53,7 @@
       <h1>The gateway your agents stand on.</h1>
       <p class="lede">
         AgentGuide brings three operational paths into one self-hosted runtime:
-        an LLM gateway for model access, an MCP gateway for tool access, and Agent
+        an LLM gateway for model access, Connectors for MCP and HTTP tools, and Agent
         runtimes for execution — with one control plane, config store, and event
         pipeline across them.
       </p>
@@ -75,17 +75,17 @@
           <span class="kicker">routing</span>
           <h3>Logical model routing</h3>
           <p>
-            Publish a model name like <code>chat-default</code>; behind it, bind
-            multiple candidate providers and upstream models. The catalog validates
-            candidates against discovered provider models, and failures fall through
-            to the next candidate automatically.
+            Register concrete ProviderModels, then reuse them in independent
+            LogicalModels for cross-provider selection and fallback. Routes explicitly
+            expose one kind of model reference; registering a model does not make it
+            accessible to clients until a route publishes it.
           </p>
         </div>
         <ul class="feature-list">
-          <li><b>Model-target routes</b> One logical name, many provider bindings, automatic fallback and retry policy.</li>
-          <li><b>Direct-provider routes</b> Pin a route straight to one provider when you want zero indirection.</li>
-          <li><b>Model catalog</b> Provider model discovery plus managed overlays; tool-capable candidates enforced where tools are required.</li>
-          <li><b>Protocol adapters</b> OpenAI-compatible, Anthropic-compatible, and a Claude Code-ready CLI profile, selected per route.</li>
+          <li><b>LogicalModels</b> Expose aliases such as <code>chat-default</code>; candidate selection, scheduling, and fallback belong to the logical model.</li>
+          <li><b>ProviderModels</b> Publish explicit upstream model bindings from one Provider, using their real model names.</li>
+          <li><b>Model catalog</b> Discover upstream models and manage ProviderModels and LogicalModels separately. Client model lists show only route-visible names.</li>
+          <li><b>Protocol adapters</b> OpenAI Chat/Responses, Anthropic Messages, and Claude Code ingress; capability checks select compatible candidates. Responses tool namespaces retain distinct identities across supported conversions.</li>
         </ul>
       </div>
 
@@ -101,7 +101,7 @@
         </div>
         <ul class="feature-list">
           <li><b>Credential pool</b> Multiple credentials per provider with selection state and scheduling.</li>
-          <li><b>CLI subscription auth</b> Sign in with Codex or Claude Code CLI subscriptions through the companion agw-auth tool; the gateway refreshes tokens at request time.</li>
+          <li><b>CLI subscription auth</b> Sign in through the separately installed agw-auth companion; the gateway invokes an external refresher for expiring OAuth credentials.</li>
           <li><b>Virtual keys</b> Consumers never see upstream secrets — issue, rotate, and revoke gateway-owned keys per app or team.</li>
           <li><b>Fail-closed auth</b> Routes can require a virtual key; unauthenticated traffic never reaches a provider.</li>
         </ul>
@@ -127,42 +127,46 @@
 
   <section class="section" id="mcp">
     <div class="wrap">
-      <p class="eyebrow">MCP gateway</p>
-      <h2>Tools become governed infrastructure.</h2>
+      <p class="eyebrow">Connectors &amp; MCP gateway</p>
+      <h2>MCP servers and HTTP APIs become governed tools.</h2>
       <p class="lede">
-        Model Context Protocol servers are registered once as services, then exposed
-        through routes with authentication policy. Agents and applications get tool
-        access; operators get an inventory, a policy point, and an operational event history.
+        Register MCP servers or HTTP APIs as Connectors. Use their tools in builtin
+        Agents or publish them through VirtualKey-protected MCP routes. HTTP APIs
+        need no upstream MCP server.
       </p>
       <div class="card-grid">
         <div class="card">
           <span class="kicker">catalog</span>
-          <h3>Service registry</h3>
+          <h3>One Connector inventory</h3>
           <p>
-            Register MCP services centrally with discovery of their tools. One
-            inventory of every tool any agent can reach — instead of N copies of
-            server config scattered across N agents.
+            Discover MCP tools or define HTTP tools with input schemas and GET/POST
+            mappings. Stable Connector IDs preserve references when display names
+            change. Builtin tool selection requires a complete, bounded MCP catalog.
           </p>
         </div>
         <div class="card">
           <span class="kicker">policy</span>
-          <h3>Routed, authenticated access</h3>
+          <h3>Controlled HTTP execution</h3>
           <p>
-            MCP routes carry auth policy and virtual-key checks like any other
-            route. Tool selection is fail-closed: a tool that isn't explicitly
-            available is an error, never a silent skip.
+            HTTP tools use scoped credentials, schema validation, egress policy,
+            concurrency limits, and deadlines. The default allows public HTTPS;
+            internal destinations need an explicit host policy. Calls are not retried
+            automatically, and uncertain POST outcomes are reported to the caller.
           </p>
         </div>
         <div class="card">
           <span class="kicker">operations</span>
-          <h3>Live runtime inspection</h3>
+          <h3>Inspect calls and outcomes</h3>
           <p>
-            See in-flight MCP requests and progress through the admin runtime view,
-            and query persisted tool-call usage events afterwards, with agent attribution
-            when route ownership is unambiguous.
+            Inspect in-flight MCP requests and query persisted tool events for both
+            Connector types. HTTP summaries record status, timing, and byte counts;
+            optional OTLP client spans connect the upstream call to its tool execution.
+            Referenced or busy Connectors reject execution changes and deletion.
+            Shared MCP routes across Agents remain deferred pending caller-isolated upstream sessions.
           </p>
         </div>
       </div>
+      <a class="more" href="https://github.com/agent-guide/agent-gateway/blob/main/docs/guides/http-api-connectors.md">Configure an HTTP API tool →</a>
     </div>
   </section>
 
@@ -171,7 +175,7 @@
       <p class="eyebrow">Control plane</p>
       <h2>Everything is an API object. Config is code.</h2>
       <p class="lede">
-        Providers, routes, credentials, virtual keys, MCP services, and agents
+        Providers, model resources, routes, credentials, virtual keys, Connectors, and Agents
         are persisted config objects with full CRUD over the Admin API —
         and a declarative bundle format for GitOps-style workflows.
       </p>
@@ -187,9 +191,10 @@
           </p>
         </div>
         <ul class="feature-list">
-          <li><b>Full CRUD</b> Providers, unified Agent routes, virtual keys, credentials, MCP services, agents.</li>
+          <li><b>Full CRUD</b> Providers, ProviderModels, LogicalModels, routes, VirtualKeys, credentials, Connectors, and Agents. Static resources remain read-only through Admin.</li>
           <li><b>Runtime views</b> Pooled agent instances, in-flight turns and requests, pending permissions.</li>
-          <li><b>Metrics API</b> Summaries, per-protocol timeseries, breakdowns, recent events, Prometheus exposition.</li>
+          <li><b>Metrics API</b> Summaries, unified interaction and per-protocol timeseries, breakdowns, recent events, and Prometheus exposition.</li>
+          <li><b>Linked extensions</b> Inspect the distribution manifest and manage linked module configuration through Admin APIs and Bundles.</li>
           <li><b>Pluggable auth</b> Mount behind basic auth, mTLS, or your reverse-proxy authenticator.</li>
         </ul>
       </div>
@@ -199,7 +204,7 @@
           <span class="kicker">agwctl + bundles</span>
           <h3>Declarative by default</h3>
           <p>
-            Describe the entire gateway — providers, routes, services, agents — in
+            Describe providers, models, routes, Connectors, and Agents in
             one reviewable bundle. Validate it locally, apply objects in dependency
             order, and export the live state back out. Your gateway config can live
             in version control. Apply is not a cross-object transaction.
@@ -209,7 +214,7 @@
           <li><b>agwctl apply</b> Push a full desired-state bundle in one command.</li>
           <li><b>agwctl validate</b> Catch broken references and invalid definitions before they ship.</li>
           <li><b>agwctl export</b> Snapshot live config for review, diff, and backup.</li>
-          <li><b>Reviewable changes</b> Keep agent and routing changes in pull requests when that matches your operating model.</li>
+          <li><b>Configuration recovery</b> Inspect and recover unconfirmed Agent, Provider, and Connector mutations. Offline repair supports explicit backed-up changes when invalid configuration prevents startup.</li>
         </ul>
       </div>
     </div>
@@ -218,12 +223,16 @@
   <section class="band" id="deploy">
     <div class="wrap">
       <p class="eyebrow">Deployment</p>
+      <p>The current capability overview follows repository source. Connector and explicit
+        model-resource changes are newer than this v0.7.3 walkthrough; use current
+        source for those features.</p>
       <h2>A provider-key-free first run in under ten minutes.</h2>
       <p class="lede">
         The published Compose asset starts the gateway and a deterministic A2A
         fixture without a local Go toolchain or model-provider credential. The base
         runtime uses embedded SQLite; ACP adapters, upstream services, and an
-        optional external credential refresher remain separate integrations.
+        optional external credential refresher remain separate integrations. Run the Caddy-based
+        <code>agw</code> host or standalone <code>agwd</code>, and manage either with <code>agwctl</code>.
       </p>
       <div class="code-block"><pre>curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.3/agent-gateway-first-run-v0.7.3.tar.gz
 curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.3/SHA256SUMS

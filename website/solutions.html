@@ -131,8 +131,8 @@
       <p class="pipeline-caption">amber = human decision point</p>
 
       <ul class="feature-list">
-        <li><b>Operational evidence</b> Five persisted usage-event families plus interaction spans capture route, tool, model, latency, result, and agent attribution when ownership is unambiguous.</li>
-        <li><b>Scoped builtin reviewers</b> Builtin definitions enforce their selected model route and declared MCP tools; platform-wide capability policy is a later control-plane layer.</li>
+        <li><b>Operational evidence</b> Five persisted usage-event families plus interaction spans capture route, tool, model, latency, result, and trusted Agent attribution on Agent turns and builtin inner calls.</li>
+        <li><b>Scoped builtin reviewers</b> Builtin definitions enforce their selected model route and declared Connector tools; platform-wide capability policy is a later control-plane layer.</li>
         <li><b>Human sign-off building block</b> Gated builtin MCP actions and ACP permission requests fail closed when unanswered.</li>
         <li><b>Data stays home</b> Self-hosted, single binary; you choose the model endpoints — including local models via Ollama for the most sensitive material.</li>
       </ul>
@@ -168,8 +168,8 @@
 
       <ul class="feature-list">
         <li><b>Four-eyes building block</b> Selected tool actions can require interactive human approval with a fail-closed timeout.</li>
-        <li><b>Operational attribution</b> Agent-bound events carry the responsible agent when ownership is unambiguous; failures are classified as client, upstream, or internal.</li>
-        <li><b>Contained blast radius</b> Recursion-depth limits stop agent-calls-agent loops; per-agent concurrency caps and timeouts reject rather than queue.</li>
+        <li><b>Operational attribution</b> Agent turns and builtin inner calls carry trusted execution identity; failures are classified as client, upstream, or internal.</li>
+        <li><b>Contained blast radius</b> Builtin depth, concurrency, and timeout controls bound inline execution; VirtualKey request limits govern LLM, MCP, and Agent ingress.</li>
         <li><b>Keys per desk</b> Each team or application gets its own virtual key — scope it to routes, expire or disable it, and revoke access centrally.</li>
       </ul>
     </div>
@@ -204,7 +204,7 @@
 
       <ul class="feature-list">
         <li><b>A staff of roles, not headcount</b> Inline planner, researcher, writer, and reviewer roles can compose in a builtin supervisor topology today. Codex runs as a managed ACP agent today; joining both runtimes in one durable flow requires the cross-agent workflow layer.</li>
-        <li><b>Your tools, scoped for builtin roles</b> Email, documents, calendars, and repositories can connect as MCP services; builtin roles receive only the tools declared in their definitions.</li>
+        <li><b>Your tools, scoped for builtin roles</b> Connect APIs through HTTP API Connectors or MCP servers; builtin roles receive the tools declared in their definitions. Upstream services supply the business capabilities.</li>
         <li><b>Drafts by default</b> Selected delivery actions can require interactive human approval; an unanswered request fails closed.</li>
         <li><b>Knowledge that compounds</b> Project FAQs, templates, and past reports settling into a reusable asset base — on the roadmap, via the artifact bus and shared memory.</li>
       </ul>

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>观测与治理 — AgentGuide</title>
-<meta name="description" content="为经网关路由的 LLM、MCP、ACP、builtin 与 HTTP/A2A 流量提供持久化用量事件、trace 和条件式 Agent 归因，并实施 fail-closed 运行控制。">
+<meta name="description" content="为 LLM、MCP 与 Agent 流量提供持久化用量事件和 Trace；调用携带可信执行身份时进行 Agent 归因，并实施 fail-closed 控制。">
 <link rel="canonical" href="https://agentguide.online/zh/observability.html">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="AgentGuide">
@@ -86,7 +86,7 @@
               <td class="mono-cell">14:02:11</td>
               <td><span class="tag">llm</span></td>
               <td class="mono-cell">support-triage</td>
-              <td class="mono-cell">anthropic · claude-sonnet-5</td>
+              <td class="mono-cell">logical model · support-default</td>
               <td class="num">8,412 / 1,203</td>
               <td class="num"><span class="ok-dot"></span>2.1s</td>
             </tr>
@@ -164,8 +164,8 @@
           <span class="kicker">内置</span>
           <h3>指标 Admin API</h3>
           <p>
-            带管道健康计数的汇总、按协议的时间序列与维度分解、近期交互事件，
-            以及按 agent 的用量与活动视图 —— 网关一启动即可查询。
+            带管道与公共事件 Sink 健康计数的汇总、统一交互时间序列、按协议的时间序列
+            与维度分解、近期事件，以及按 Agent 的用量视图 —— 网关一启动即可查询。
           </p>
         </div>
         <ul class="feature-list">
@@ -194,6 +194,7 @@
             <li>按应用、团队或 agent 发放虚拟密钥 —— 集中签发、轮换、吊销</li>
             <li>网关客户端不会接触上游密钥</li>
             <li>路由级鉴权要求，fail-closed</li>
+            <li>通用 HTTP 与 ACP 会话绑定经过鉴权的 VirtualKey、路由和运行时；共享密钥也会共享该客户端身份</li>
           </ul>
         </div>
         <div class="card">
@@ -209,8 +210,8 @@
           <span class="kicker">爆炸半径</span>
           <h3>失控防护</h3>
           <ul>
-            <li>agent 递归深度限制，在网关处掐断 agent 套 agent 的循环</li>
-            <li>按 agent 的并发上限与轮次超时，拒绝而非排队</li>
+            <li>builtin Agent 深度检查与 dispatcher 请求深度限制分别在各自执行边界生效</li>
+            <li>builtin 并发上限与轮次超时约束执行，VirtualKey 请求限流独立生效</li>
             <li>Panic Recovery 把故障限制在受支持的请求处理器内</li>
           </ul>
         </div>
@@ -218,11 +219,25 @@
           <span class="kicker">资源</span>
           <h3>能力有边界</h3>
           <ul>
-            <li>builtin 定义强制使用所选模型路由与声明的 MCP 工具；通用资源关联是管理视图</li>
+            <li>builtin 定义强制使用所选模型路由与声明的 MCP/HTTP Connector 工具；通用资源关联是管理视图</li>
             <li>ACP 会话只能从配置许可的根目录下启动；操作系统级 sandbox 仍由部署方负责</li>
             <li>缺失的工具大声报错 —— 没有静默降级</li>
-            <li>一条路由只属于一个 agent：归因始终无歧义</li>
+            <li>多个 Agent 可共享 LLM 路由，用量按可信执行身份归因；直接 LLM 调用只计入路由用量</li>
           </ul>
+        </div>
+        <div class="card">
+          <span class="kicker">准入</span>
+          <h3>按 VirtualKey 限流</h3>
+          <p>分别配置 LLM、MCP 与 Agent 的请求速率与突发量。Community 计数器仅在当前进程内生效。
+            配额耗尽返回 429；后端故障在有界时间内处理，默认拒绝请求。
+            分布式限流需要外部后端。</p>
+        </div>
+        <div class="card">
+          <span class="kicker">可靠性</span>
+          <h3>先校验，再对外服务</h3>
+          <p>有歧义的路由匹配在发布前被拒绝，非法刷新保留上一份有效配置。
+            LLM JSON 请求体上限可配置，默认 16 MiB。
+            OpenAI Responses 入口会将上游 Responses 失败及缺少终止事件的流记录为失败交互。</p>
         </div>
       </div>
     </div>

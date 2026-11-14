@@ -128,8 +128,8 @@
       <p class="pipeline-caption">琥珀色 = 人工决策点</p>
 
       <ul class="feature-list">
-        <li><b>运行证据</b> 五类持久化用量事件与交互 span 记录路由、工具、模型、时延、结果，以及归属明确时的 agent 身份。</li>
-        <li><b>有边界的 builtin 审核员</b> builtin 定义强制使用所选模型路由与声明的 MCP 工具；全平台能力策略属于后续控制面。</li>
+        <li><b>运行证据</b> 五类持久化用量事件与交互 span 记录路由、工具、模型、时延、结果，以及 Agent 轮次和 builtin 内部调用中的可信 Agent 归因。</li>
+        <li><b>有边界的 builtin 审核员</b> builtin 定义强制使用所选模型路由与声明的 Connector 工具；全平台能力策略属于后续控制面。</li>
         <li><b>人工签核积木</b> 被门禁的 builtin MCP 操作与 ACP 权限请求在未回应时 fail-closed。</li>
         <li><b>数据不出门</b> 自托管、单二进制；模型端点由你选择 —— 最敏感的材料可以走 Ollama 本地模型。</li>
       </ul>
@@ -163,8 +163,8 @@
 
       <ul class="feature-list">
         <li><b>双人复核积木</b> 选定的工具操作可以要求交互式人工审批，并在超时后 fail-closed。</li>
-        <li><b>运行归因</b> Agent 归属明确时，相关事件携带责任 agent；故障区分客户端、上游与内部三类。</li>
-        <li><b>爆炸半径受控</b> 递归深度限制掐断 agent 套 agent 的循环；按 agent 的并发上限与超时直接拒绝而非排队。</li>
+        <li><b>运行归因</b> Agent 轮次与 builtin 内部调用携带可信执行身份；故障区分客户端、上游与内部三类。</li>
+        <li><b>爆炸半径受控</b> builtin 深度、并发与超时控制约束内联执行；VirtualKey 请求限流覆盖 LLM、MCP 与 Agent 入口。</li>
         <li><b>按业务台发密钥</b> 每个团队或应用一把虚拟密钥 —— 限定可访问路由、设置过期或禁用，并集中吊销访问。</li>
       </ul>
     </div>
@@ -198,7 +198,7 @@
 
       <ul class="feature-list">
         <li><b>一支角色团队，而非一批人头</b> 内联的规划、检索、撰写、审阅角色今天可以组成 builtin supervisor 拓扑。Codex 今天可以作为托管 ACP agent 运行；让两种运行时加入同一条持久流程仍需要跨 Agent workflow。</li>
-        <li><b>接你已有的工具</b> 邮件、文档、日历、代码仓库可以作为 MCP 服务接入；builtin 角色在执行时只获得定义中声明的工具。</li>
+        <li><b>接你已有的工具</b> 通过 HTTP API Connector 或 MCP 服务接入已有 API；builtin 角色获得定义中声明的工具，具体业务能力由上游服务提供。</li>
         <li><b>默认只出草稿</b> 选定的交付操作可以要求交互式人工审批；未回应的请求 fail-closed。</li>
         <li><b>知识越攒越厚</b> 项目 FAQ、模板与历史周报沉淀成可复用的资产库 —— 在路线图上，经由工件总线与共享记忆实现。</li>
       </ul>

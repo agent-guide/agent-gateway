@@ -79,7 +79,7 @@
           <span class="kicker">runtime · builtin</span>
           <h3>Builtin — agents as configuration</h3>
           <p>
-            Declare an agent — its model route, its MCP tools, its topology — and
+            Declare an agent — its model route, its Connector tools, its topology — and
             the gateway materializes it in-process on an embedded agent framework.
             No container to build, no service to deploy. Definition updates take
             effect on the next turn while in-flight work drains gracefully.
@@ -87,7 +87,7 @@
         </div>
         <ul class="feature-list">
           <li><b>Deepest observability</b> Inner model calls and tool executions get their own traced spans under each turn.</li>
-          <li><b>Governed by construction</b> The agent's model goes through your LLM routes; its tools through your MCP services. It can't reach anything else.</li>
+          <li><b>Governed by construction</b> Builtin model calls use selected LLM routes; declared MCP and HTTP tools execute through governed Connectors. Custom Go factories remain trusted code.</li>
           <li><b>Fail-closed limits</b> Per-agent concurrency caps and turn timeouts reject rather than queue; every turn runs under panic containment.</li>
           <li><b>Capability-aware brains</b> Nodes that carry tools only bind tool-capable models; plan-execute roles can each run a different model — a cheap planner, a strong executor.</li>
           <li><b>Session continuity</b> Same-session turns serialize safely, and a conversation being continued can never lose its history to capacity eviction.</li>
@@ -111,7 +111,7 @@
         </div>
         <ul class="feature-list">
           <li><b>Process pooling</b> Idle reaping, instance caps, dead-instance eviction, session-aware reuse.</li>
-          <li><b>Sessions &amp; transcripts</b> List sessions, replay full conversations, resume threads.</li>
+          <li><b>Sessions &amp; transcripts</b> List, replay, and resume within authenticated VirtualKey/route/runtime ownership. Restart or ownership-cache eviction can require a new session.</li>
           <li><b>Human-in-the-loop</b> Permission requests surface on the live stream and resolve via API — with a fail-closed timeout.</li>
           <li><b>Streaming turn API</b> Deltas, reasoning, plans, tool calls, and usage as typed SSE events.</li>
         </ul>
@@ -130,7 +130,7 @@
         </div>
         <ul class="feature-list">
           <li><b>Same identity model</b> Routes, resources, policy, usage, and health like every other runtime.</li>
-          <li><b>Attribution references</b> Bound route traffic is attributed when route ownership is unambiguous.</li>
+          <li><b>Explicit turn attribution</b> Both ingress paths stamp Agent identity on interaction events. LLM resource references alone do not attribute external calls.</li>
           <li><b>Two ingress paths</b> Common turns use the request-bound translator; native A2A preserves JSON-RPC bodies and SSE frames behind the same governance.</li>
           <li><b>Framework-independent contract</b> LangChain, ADK, and custom stacks can connect when they expose the supported A2A contract.</li>
         </ul>
@@ -166,8 +166,8 @@
               <td>HTTP</td>
               <td>You (external service)</td>
               <td>Existing A2A-compatible agents</td>
-              <td><span class="tag-steel tag">A2A translated turns</span></td>
-              <td>Conditional route attribution</td>
+              <td><span class="tag-steel tag">Common turns + native A2A</span></td>
+              <td>Turn events with Agent identity</td>
             </tr>
           </tbody>
         </table>
@@ -191,7 +191,7 @@
           <h3>One inventory of your agent estate</h3>
           <p>
             Every agent — builtin, ACP, or HTTP — is a registered object with a
-            declared management shape: linked model and MCP resources, ingress
+            declared management shape: linked model and Connector resources, ingress
             routes, policy, and health. Builtin definitions additionally enforce
             their selected model route and tools at execution time.
           </p>
@@ -209,7 +209,7 @@
           <span class="kicker">agent as a product</span>
           <h3>Publish an agent like an API</h3>
           <p>
-            A builtin or ACP agent behind one runtime-neutral AgentRoute is an internal capability with a stable
+            A builtin, ACP, or HTTP agent behind a common AgentRoute is an internal capability with a stable
             endpoint: consumers get a URL and a virtual key; you keep versioned
             definitions, per-consumer metering, and the power to revoke access in
             one place. Ship agents to internal teams the way you ship services.
@@ -285,9 +285,9 @@
       <div class="card-grid cols-2">
         <div class="card">
           <span class="kicker">available now</span>
-          <h3>Agent workspace</h3>
+          <h3>Agent inspection APIs</h3>
           <p>
-            One pane of glass per agent: its definition and runtime state, live
+            Inspect each Agent through Admin APIs and agwctl: its definition and runtime state, live
             instances and in-flight turns, pending permission decisions, session
             and transcript references, linked model and tool resources, and its
             usage and interaction history.

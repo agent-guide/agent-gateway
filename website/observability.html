@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Observability &amp; Governance — AgentGuide</title>
-<meta name="description" content="Persisted usage events, traces, and conditional agent attribution for gateway-routed LLM, MCP, ACP, builtin, and HTTP/A2A traffic — plus fail-closed runtime controls.">
+<meta name="description" content="Usage events and traces for LLM, MCP, and Agent traffic, with Agent attribution when trusted execution identity is present, plus fail-closed controls.">
 <link rel="canonical" href="https://agentguide.online/observability.html">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="AgentGuide">
@@ -88,7 +88,7 @@
               <td class="mono-cell">14:02:11</td>
               <td><span class="tag">llm</span></td>
               <td class="mono-cell">support-triage</td>
-              <td class="mono-cell">anthropic · claude-sonnet-5</td>
+              <td class="mono-cell">logical model · support-default</td>
               <td class="num">8,412 / 1,203</td>
               <td class="num"><span class="ok-dot"></span>2.1s</td>
             </tr>
@@ -167,8 +167,8 @@
           <span class="kicker">built in</span>
           <h3>Metrics Admin API</h3>
           <p>
-            Summaries with pipeline health, per-protocol timeseries and breakdowns,
-            recent interaction events, and per-agent usage and activity views —
+            Summaries with pipeline and public sink health, unified interaction timeseries,
+            per-protocol timeseries and breakdowns, recent events, and per-agent usage —
             queryable the moment the gateway is running.
           </p>
         </div>
@@ -199,6 +199,7 @@
             <li>Virtual keys per app, team, or agent — issue, rotate, revoke centrally</li>
             <li>Upstream secrets are not exposed to gateway clients</li>
             <li>Route-level auth requirements, fail-closed</li>
+            <li>Common HTTP and ACP sessions bind to the authenticated VirtualKey, route, and runtime; sharing a key shares that client identity</li>
           </ul>
         </div>
         <div class="card">
@@ -214,8 +215,8 @@
           <span class="kicker">blast radius</span>
           <h3>Runaway protection</h3>
           <ul>
-            <li>Agent recursion-depth limits stop agent-calls-agent loops at the gate</li>
-            <li>Per-agent concurrency caps and turn timeouts reject rather than queue</li>
+            <li>Builtin Agent depth checks and dispatcher request-depth limits apply at their respective execution boundaries</li>
+            <li>Builtin concurrency caps and turn timeouts bound execution; VirtualKey rate limits apply separately</li>
             <li>Panic recovery bounds failures in supported request handlers</li>
           </ul>
         </div>
@@ -223,11 +224,26 @@
           <span class="kicker">resources</span>
           <h3>Scoped capability</h3>
           <ul>
-            <li>Builtin definitions enforce their selected model route and declared MCP tools; generic resource links are a management view</li>
+            <li>Builtin definitions enforce selected model routes and declared MCP/HTTP Connector tools; generic resource links are a management view</li>
             <li>ACP sessions may start only under configured allowed roots; OS-level sandboxing remains the deployer's responsibility</li>
             <li>Missing tools fail loudly — no silent fallback behavior</li>
-            <li>One route, one owning agent: attribution stays unambiguous</li>
+            <li>Agents can share LLM routes; usage follows trusted execution identity. Direct LLM calls remain route-level usage</li>
           </ul>
+        </div>
+        <div class="card">
+          <span class="kicker">admission</span>
+          <h3>Rate limits per VirtualKey</h3>
+          <p>Configure separate LLM, MCP, and Agent request rates and bursts. Community
+            counters are process-local. Exhaustion returns 429; backend failures are
+            bounded and fail closed by default. Distributed limiting requires an external backend.</p>
+        </div>
+        <div class="card">
+          <span class="kicker">resilience</span>
+          <h3>Validate before serving</h3>
+          <p>Ambiguous route matches are rejected before publication; invalid refreshes
+            retain the last valid configuration. LLM JSON bodies have a configurable
+            limit, defaulting to 16 MiB. OpenAI Responses ingress records upstream
+            Responses failures and streams missing a terminal event as failed interactions.</p>
         </div>
       </div>
     </div>

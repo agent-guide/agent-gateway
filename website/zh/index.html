@@ -4,18 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AgentGuide — Coding Agent 的自托管控制点</title>
-<meta name="description" content="通过一个自托管网关，统一运行和治理 Codex、OpenCode、A2A Agent、LLM 和 MCP 工具。">
+<meta name="description" content="通过一个自托管网关，统一运行和治理 Codex、OpenCode、A2A Agent、LLM 与 MCP/HTTP API 工具。">
 <link rel="canonical" href="https://agentguide.online/zh/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="AgentGuide">
 <meta property="og:locale" content="zh_CN">
 <meta property="og:locale:alternate" content="en_US">
 <meta property="og:title" content="AgentGuide — Coding Agent 的自托管控制点">
-<meta property="og:description" content="通过一个自托管网关，统一运行和治理 Codex、OpenCode、A2A Agent、LLM 和 MCP 工具。">
+<meta property="og:description" content="通过一个自托管网关，统一运行和治理 Codex、OpenCode、A2A Agent、LLM 与 MCP/HTTP API 工具。">
 <meta property="og:url" content="https://agentguide.online/zh/">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="AgentGuide — Coding Agent 的自托管控制点">
-<meta name="twitter:description" content="通过一个自托管网关，统一运行和治理 Codex、OpenCode、A2A Agent、LLM 和 MCP 工具。">
+<meta name="twitter:description" content="通过一个自托管网关，统一运行和治理 Codex、OpenCode、A2A Agent、LLM 与 MCP/HTTP API 工具。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -92,7 +92,7 @@
           <text class="dg-label" x="516" y="70">codex · opencode</text>
           <rect class="dg-box" x="500" y="88" width="130" height="40" rx="4"></rect>
           <text class="dg-label dg-label-strong" x="516" y="106">HTTP / A2A</text>
-          <text class="dg-label" x="516" y="120">翻译轮次</text>
+          <text class="dg-label" x="516" y="120">通用 + 原生</text>
 
           <!-- right: resources — call-back targets -->
           <text class="dg-label dg-group" x="500" y="168">resources</text>
@@ -100,8 +100,8 @@
           <text class="dg-label dg-label-strong" x="516" y="194">LLM providers</text>
           <text class="dg-label" x="516" y="208">openai, claude, …</text>
           <rect class="dg-box" x="500" y="226" width="130" height="40" rx="4"></rect>
-          <text class="dg-label dg-label-strong" x="516" y="244">MCP tools</text>
-          <text class="dg-label" x="516" y="258">governed services</text>
+          <text class="dg-label dg-label-strong" x="516" y="244">Connector tools</text>
+          <text class="dg-label" x="516" y="258">MCP + HTTP APIs</text>
 
           <!-- flows ①②: consumers drive agents -->
           <path class="dg-flow" d="M140 72 C 185 72, 190 100, 230 105"></path>
@@ -185,8 +185,8 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
           <h3>把网关流量变成结构化证据</h3>
           <p>
             LLM 请求、MCP 工具调用和 agent 轮次产生持久化用量事件：token
-            （含缓存与推理 token）、时延和错误。Agent 归属明确时写入归因；
-            builtin 轮次始终显式携带 agent 身份。
+            （含缓存与推理 token）、时延和错误。Agent 轮次与 builtin 内部调用携带可信执行身份；
+            即使多个 Agent 共享路由，直接 LLM 调用仍只计入路由用量。
           </p>
           <a class="more" href="observability.html">观测能力 →</a>
         </div>
@@ -195,7 +195,7 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
           <h3>策略收敛到网关，而不是散落在每个应用里</h3>
           <p>
             面向消费方的虚拟密钥、池化调度的上游凭据、agent 操作的交互式审批门禁、
-            递归深度限制，以及 fail-closed 的并发与超时控制。
+            按密钥区分 LLM/MCP/Agent 的请求限流、builtin 深度限制，以及 fail-closed 的并发与超时控制。
           </p>
           <a class="more" href="observability.html#governance">治理能力 →</a>
         </div>
@@ -246,7 +246,7 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
           <span class="kicker">runtime · builtin</span>
           <h3>Builtin Agent</h3>
           <p>
-            用配置声明 Agent、模型路由、MCP 工具和 Topology，由进程内 eino ADK
+            用配置声明 Agent、模型路由、Connector 工具和 Topology，由进程内 eino ADK
             Host 完成物化。
           </p>
         </div>
@@ -285,7 +285,7 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
           <ul>
             <li>OpenAI、Anthropic、Gemini、DeepSeek、通义千问、智谱、OpenRouter、Ollama 等</li>
             <li>OpenAI 与 Anthropic 兼容端点，外加 Claude Code 即插即用的 CLI profile</li>
-            <li>逻辑模型路由：一个模型名、多个候选提供商、自动回退</li>
+            <li>显式暴露 ProviderModel，或通过可复用的 LogicalModel 跨提供商选择与回退</li>
             <li>凭据池化调度 —— 包括 CLI 订阅凭据（Codex、Claude Code）</li>
           </ul>
           <a class="more" href="platform.html">平台详情 →</a>
@@ -294,10 +294,10 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
           <span class="kicker">mcp gateway</span>
           <h3>工具成为受治理的基础设施</h3>
           <ul>
-            <li>MCP 服务注册一次，即可经由带鉴权策略的路由对外暴露</li>
-            <li>工具发现、执行与在途请求巡检</li>
+            <li>注册 MCP 与 HTTP API Connector，通过带鉴权策略的 MCP 路由发布工具</li>
+            <li>通过 Schema 和 GET/POST 映射定义 HTTP 工具，无需额外 MCP 服务</li>
             <li>fail-closed 的工具选择 —— 缺失的工具是错误，绝不静默跳过</li>
-            <li>已持久化的工具调用共享一套事件模型，归属明确时写入 agent 归因</li>
+            <li>MCP 与 HTTP 工具调用共享持久化事件，builtin 执行携带可信 Agent 身份</li>
           </ul>
           <a class="more" href="platform.html#mcp">MCP 详情 →</a>
         </div>
@@ -317,7 +317,7 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
         <div class="card">
           <span class="kicker">现已交付 · 单 Agent 视图</span>
           <h3>在上下文中巡检一个 Agent</h3>
-          <p>定义、路由、运行时状态、待裁决权限、用量、交互记录和浅层健康状态汇聚到同一个运维视图。</p>
+          <p>通过 Admin API 与 agwctl 巡检定义、路由、运行时状态、待裁决权限、用量、交互与浅层健康状态。</p>
         </div>
         <div class="card">
           <span class="kicker">现已交付 · Builtin Topology</span>

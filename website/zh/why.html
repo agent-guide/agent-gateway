@@ -183,12 +183,12 @@
         </div>
         <div class="layer">
           <b>治理</b>
-          <p>虚拟密钥、带人工审批的权限门禁、递归深度限制、fail-closed 的并发与超时。</p>
+          <p>VirtualKey、进程内分域请求限流、人工审批门禁、builtin 深度与并发控制，以及有界超时。</p>
           <span class="tag tag-good">shipping</span>
         </div>
         <div class="layer">
           <b>观测</b>
-          <p>LLM/MCP/ACP/A2A 流量的条件式归因、builtin 显式归因、交互 span、Prometheus 与 OTLP 导出。</p>
+          <p>Agent 轮次与 builtin 内部调用的可信执行归因、共享 LLM 路由、统一交互时间序列、Prometheus 与 OTLP 导出。</p>
           <span class="tag tag-good">shipping</span>
         </div>
         <div class="layer">
@@ -198,7 +198,7 @@
         </div>
         <div class="layer">
           <b>连接</b>
-          <p>带逻辑模型路由与凭据池的 LLM 网关；MCP 网关；协议适配器。</p>
+          <p>显式 ProviderModel、可复用 LogicalModel、凭据池、MCP 与 HTTP API Connector，以及协议适配器。</p>
           <span class="tag tag-good">shipping</span>
         </div>
       </div>

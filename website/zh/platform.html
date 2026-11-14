@@ -4,18 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>平台 — AgentGuide</title>
-<meta name="description" content="AgentGuide 平台：具备逻辑模型路由与凭据池的 LLM 网关、治理工具访问的 MCP 网关，以及自托管、配置即代码的控制平面。">
+<meta name="description" content="AgentGuide 平台：具备显式模型暴露与凭据池的 LLM 网关、受治理的 MCP 与 HTTP API 工具，以及自托管、配置即代码的控制平面。">
 <link rel="canonical" href="https://agentguide.online/zh/platform.html">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="AgentGuide">
 <meta property="og:locale" content="zh_CN">
 <meta property="og:locale:alternate" content="en_US">
 <meta property="og:title" content="平台 — AgentGuide">
-<meta property="og:description" content="逻辑模型路由、受治理的 MCP 工具，以及自托管、配置即代码的控制平面。">
+<meta property="og:description" content="显式模型暴露、MCP 与 HTTP API Connector，以及自托管、配置即代码的控制平面。">
 <meta property="og:url" content="https://agentguide.online/zh/platform.html">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="平台 — AgentGuide">
-<meta name="twitter:description" content="逻辑模型路由、受治理的 MCP 工具，以及自托管、配置即代码的控制平面。">
+<meta name="twitter:description" content="显式模型暴露、MCP 与 HTTP API Connector，以及自托管、配置即代码的控制平面。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -53,7 +53,7 @@
       <h1>你的 Agent 站立其上的网关。</h1>
       <p class="lede">
         AgentGuide 把三条运维路径放进同一个自托管 Runtime：LLM 网关负责模型访问，
-        MCP 网关负责工具访问，Agent Runtime 负责执行 —— 共用一个控制平面、配置存储
+        Connector 负责 MCP 与 HTTP 工具访问，Agent Runtime 负责执行 —— 共用一个控制平面、配置存储
         和事件管道。
       </p>
     </div>
@@ -73,15 +73,16 @@
           <span class="kicker">routing</span>
           <h3>逻辑模型路由</h3>
           <p>
-            发布一个模型名（例如 <code>chat-default</code>），在它背后绑定多个候选提供商与上游模型。
-            模型目录会用发现到的提供商模型校验候选项，失败时自动落到下一个候选。
+            先注册具体的 ProviderModel，再通过独立的 LogicalModel 复用这些绑定，
+            实现跨提供商选择与回退。路由显式暴露其中一种模型引用；
+            注册模型不会自动开放客户端访问，必须由路由发布。
           </p>
         </div>
         <ul class="feature-list">
-          <li><b>模型目标路由</b> 一个逻辑名、多个提供商绑定、自动回退与重试策略。</li>
-          <li><b>直连提供商路由</b> 需要零间接层时，把路由钉死在一个提供商上。</li>
-          <li><b>模型目录</b> 提供商模型发现叠加受管模型覆盖；需要工具的场景强制只绑定支持工具调用的候选。</li>
-          <li><b>协议适配</b> OpenAI 兼容、Anthropic 兼容与 Claude Code 即插即用 CLI profile，由每条路由选择。</li>
+          <li><b>LogicalModel</b> 可暴露 <code>chat-default</code> 等别名，候选选择、调度和回退由逻辑模型管理。</li>
+          <li><b>ProviderModel</b> 显式发布同一 Provider 下的具体上游绑定，使用真实模型名。</li>
+          <li><b>模型目录</b> 发现上游模型，独立管理 ProviderModel 和 LogicalModel；客户端模型列表只返回路由已暴露的名称。</li>
+          <li><b>协议适配</b> 支持 OpenAI Chat/Responses、Anthropic Messages 与 Claude Code 入口，按能力筛选候选；受支持的 Responses 转换保留工具命名空间内的独立身份。</li>
         </ul>
       </div>
 
@@ -96,7 +97,7 @@
         </div>
         <ul class="feature-list">
           <li><b>凭据池</b> 每个提供商多条凭据，带选择状态与调度。</li>
-          <li><b>CLI 订阅登录</b> 通过配套的 agw-auth 工具用 Codex 或 Claude Code CLI 订阅登录；网关在请求时刷新 token。</li>
+          <li><b>CLI 订阅登录</b> 通过独立安装的 agw-auth 配套工具登录；OAuth 凭据接近过期时，网关调用外部刷新器。</li>
           <li><b>虚拟密钥</b> 消费方永远接触不到上游密钥 —— 按应用或团队签发、轮换、吊销网关自有密钥。</li>
           <li><b>fail-closed 鉴权</b> 路由可强制要求虚拟密钥；未鉴权的流量到不了任何提供商。</li>
         </ul>
@@ -122,38 +123,43 @@
 
   <section class="section" id="mcp">
     <div class="wrap">
-      <p class="eyebrow">MCP 网关</p>
-      <h2>工具成为受治理的基础设施。</h2>
+      <p class="eyebrow">Connector 与 MCP 网关</p>
+      <h2>让 MCP 服务与 HTTP API 成为受治理的工具。</h2>
       <p class="lede">
-        Model Context Protocol 服务器注册一次成为服务，再经由带鉴权策略的路由对外暴露。
-        agent 和应用获得工具访问；运营者获得一份清单、一个策略执行点和可查询的运行事件历史。
+        将 MCP 服务或 HTTP API 注册为 Connector（连接器），供 builtin Agent 调用，
+        或通过受 VirtualKey 保护的 MCP 路由发布。HTTP API 无需额外部署上游 MCP 服务。
       </p>
       <div class="card-grid">
         <div class="card">
-          <span class="kicker">catalog</span>
-          <h3>服务注册中心</h3>
+          <span class="kicker">目录</span>
+          <h3>统一的 Connector 清单</h3>
           <p>
-            集中注册 MCP 服务并发现其工具。任何 agent 能触达的每一个工具都在同一份清单里
-            —— 而不是 N 份服务器配置散落在 N 个 agent 中。
+            发现 MCP 工具，或通过输入 Schema 和 GET/POST 映射定义 HTTP 工具。
+            Connector ID 稳定不变，修改显示名称不影响引用。
+            Builtin 工具选择要求在数量与页数上限内取得完整的 MCP 目录。
           </p>
         </div>
         <div class="card">
-          <span class="kicker">policy</span>
-          <h3>经路由的受控访问</h3>
+          <span class="kicker">策略</span>
+          <h3>受控的 HTTP 执行</h3>
           <p>
-            MCP 路由与其他路由一样携带鉴权策略和虚拟密钥校验。
-            工具选择是 fail-closed 的：未显式可用的工具是错误，绝不静默跳过。
+            HTTP 工具使用专属凭据、Schema 校验、出站策略、并发限制和调用期限。
+            默认允许公网 HTTPS，内网目标需显式配置宿主策略。
+            请求不会自动重试，POST 结果不确定时会明确告知调用方。
           </p>
         </div>
         <div class="card">
-          <span class="kicker">operations</span>
-          <h3>运行时实时巡检</h3>
+          <span class="kicker">运维</span>
+          <h3>巡检调用与执行结果</h3>
           <p>
-            通过管理端运行时视图查看在途 MCP 请求与进度；
-            事后查询已持久化的工具调用用量事件；路由归属明确时同时携带 agent 归因。
+            查看在途 MCP 请求，查询两类 Connector 的持久化工具事件。
+            HTTP 摘要记录状态、耗时与字节数，可选 OTLP Client Span 关联上游请求。
+            有引用或在途工作的 Connector 会拒绝执行配置变更与删除。
+            跨 Agent 共享 MCP 路由仍待实现调用方隔离的上游会话后开放。
           </p>
         </div>
       </div>
+      <a class="more" href="https://github.com/agent-guide/agent-gateway/blob/main/docs/guides/http-api-connectors.md">配置 HTTP API 工具 →</a>
     </div>
   </section>
 
@@ -162,7 +168,7 @@
       <p class="eyebrow">控制平面</p>
       <h2>一切皆 API 对象，配置即代码。</h2>
       <p class="lede">
-        提供商、路由、凭据、虚拟密钥、MCP 服务和 agent 都是持久化配置对象，
+        提供商、模型资源、路由、凭据、虚拟密钥、Connector 和 Agent 都是持久化配置对象，
         Admin API 提供完整 CRUD —— 还有面向 GitOps 工作流的声明式 bundle 格式。
       </p>
 
@@ -176,9 +182,10 @@
           </p>
         </div>
         <ul class="feature-list">
-          <li><b>完整 CRUD</b> 提供商、统一 Agent 路由、虚拟密钥、凭据、MCP 服务、agent。</li>
+          <li><b>完整 CRUD</b> Provider、ProviderModel、LogicalModel、路由、VirtualKey、凭据、Connector 与 Agent；静态资源在 Admin 中保持只读。</li>
           <li><b>运行时视图</b> 池化 agent 实例、在途轮次与请求、待裁决权限。</li>
-          <li><b>指标 API</b> 汇总、按协议时间序列、维度分解、近期事件、Prometheus 暴露端点。</li>
+          <li><b>指标 API</b> 汇总、统一交互与按协议时间序列、维度分解、近期事件、Prometheus 暴露端点。</li>
+          <li><b>链接扩展</b> 巡检发行版 Manifest，通过 Admin API 与 Bundle 管理已链接模块的配置。</li>
           <li><b>可插拔鉴权</b> 挂在 basic auth、mTLS 或你的反向代理认证器之后。</li>
         </ul>
       </div>
@@ -188,7 +195,7 @@
           <span class="kicker">agwctl + bundles</span>
           <h3>默认声明式</h3>
           <p>
-            用一份可评审的 bundle 描述整个网关 —— 提供商、路由、服务、agent。
+            用一份可评审的 bundle 描述提供商、模型、路由、Connector 与 Agent。
             本地校验、按依赖顺序应用、把线上状态导出回来。配置可以进入版本控制；
             apply 不是跨对象事务。
           </p>
@@ -197,7 +204,7 @@
           <li><b>agwctl apply</b> 一条命令推送完整的期望状态。</li>
           <li><b>agwctl validate</b> 在上线前拦住失效引用和非法定义。</li>
           <li><b>agwctl export</b> 快照线上配置，用于评审、diff 和备份。</li>
-          <li><b>变更可评审</b> 如果符合你的运营方式，可让 agent 与路由变更通过 Pull Request 管理。</li>
+          <li><b>配置恢复</b> 巡检并恢复结果未确认的 Agent、Provider 与 Connector 变更；配置阻止启动时，可通过离线工具备份并显式修复。</li>
         </ul>
       </div>
     </div>
@@ -206,11 +213,14 @@
   <section class="band" id="deploy">
     <div class="wrap">
       <p class="eyebrow">部署</p>
+      <p>当前能力说明以仓库源码为准。Connector 与显式模型资源变更新于本节 v0.7.3
+        体验包；体验这些功能请使用当前源码。</p>
       <h2>十分钟内完成无需模型 Provider Key 的首次运行。</h2>
       <p class="lede">
         已发布的 Compose 资产会启动网关和确定性 A2A Fixture，无需本地 Go 工具链
         或模型 Provider 凭据。基础 Runtime 使用内嵌 SQLite；ACP Adapter、上游服务
-        和可选的外部凭据刷新器仍是独立集成。
+        和可选的外部凭据刷新器仍是独立集成。可选择基于 Caddy 的 <code>agw</code>
+        或独立守护进程 <code>agwd</code>，均可通过 <code>agwctl</code> 管理。
       </p>
       <div class="code-block"><pre>curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.3/agent-gateway-first-run-v0.7.3.tar.gz
 curl -LO https://github.com/agent-guide/agent-gateway/releases/download/v0.7.3/SHA256SUMS

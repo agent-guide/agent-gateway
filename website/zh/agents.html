@@ -76,14 +76,14 @@
           <span class="kicker">runtime · builtin</span>
           <h3>Builtin — Agent 即配置</h3>
           <p>
-            声明一个 agent —— 它的模型路由、MCP 工具、拓扑 —— 网关就在进程内
+            声明一个 agent —— 它的模型路由、Connector 工具、拓扑 —— 网关就在进程内
             基于内嵌的 agent 框架把它物化出来。不用构建容器，不用部署服务。
             定义更新在下一轮生效，在途工作优雅收尾。
           </p>
         </div>
         <ul class="feature-list">
           <li><b>最深的可观测性</b> 每一轮内部的模型调用与工具执行都有独立的追踪 span。</li>
-          <li><b>结构性治理</b> agent 的模型走你的 LLM 路由、工具走你的 MCP 服务，此外什么都碰不到。</li>
+          <li><b>结构性治理</b> builtin 模型调用走所选 LLM 路由，声明的 MCP 与 HTTP 工具通过受治理的 Connector 执行；自定义 Go 工厂仍属于受信任代码。</li>
           <li><b>fail-closed 限制</b> 按 agent 的并发上限与轮次超时直接拒绝而非排队；每一轮都有 panic 隔离。</li>
           <li><b>能力感知的"大脑"</b> 带工具的节点只绑定支持工具调用的模型；plan-execute 各角色可各配模型 —— 便宜的做规划，强的做执行。</li>
           <li><b>会话连续性</b> 同会话的轮次安全串行，进行中的对话绝不会被容量驱逐清掉历史。</li>
@@ -106,7 +106,7 @@
         </div>
         <ul class="feature-list">
           <li><b>进程池</b> 空闲回收、实例上限、死实例驱逐、会话感知复用。</li>
-          <li><b>会话与转录</b> 列出会话、回放完整对话、续接线程。</li>
+          <li><b>会话与转录</b> 在经过鉴权的 VirtualKey、路由与运行时归属内列出、回放和恢复；重启或归属缓存淘汰后可能需要新建会话。</li>
           <li><b>人在环中</b> 权限请求出现在实时流上、经 API 裁决 —— 超时即拒绝（fail-closed）。</li>
           <li><b>流式轮次 API</b> 增量、推理、计划、工具调用与用量，皆为类型化 SSE 事件。</li>
         </ul>
@@ -124,7 +124,7 @@
         </div>
         <ul class="feature-list">
           <li><b>同一套身份模型</b> 路由、资源、策略、用量与健康，与其他运行时一致。</li>
-          <li><b>归因引用</b> 路由归属明确时，绑定路由的流量会归因到该 agent。</li>
+          <li><b>显式轮次归因</b> 两种入口的交互事件都记录 Agent 身份；仅声明 LLM 资源引用不会让外部调用自动归因。</li>
           <li><b>双入口</b> 通用轮次使用请求绑定的翻译器；原生 A2A 在同一治理边界内保留 JSON-RPC 请求体与 SSE 帧。</li>
           <li><b>框架无关的契约</b> LangChain、ADK 与自研栈只要暴露受支持的 A2A 契约即可接入。</li>
         </ul>
@@ -160,8 +160,8 @@
               <td>HTTP</td>
               <td>你（外部服务）</td>
               <td>兼容 A2A 的存量 Agent</td>
-              <td><span class="tag-steel tag">A2A 翻译轮次</span></td>
-              <td>路由归属明确时归因</td>
+              <td><span class="tag-steel tag">通用轮次与原生 A2A</span></td>
+              <td>轮次事件显式记录 Agent 身份</td>
             </tr>
           </tbody>
         </table>
@@ -185,8 +185,8 @@
           <h3>一份完整的 agent 资产清单</h3>
           <p>
             每个 agent —— builtin、ACP 或 HTTP —— 都是有声明式管理形态的注册对象：
-            关联的模型与 MCP 资源、入口路由、策略和健康状态。builtin 定义还会在执行时
-            强制使用所选模型路由与工具。workspace 视图把这些汇聚在一个页面里。
+            关联的模型与 Connector 资源、入口路由、策略和健康状态。builtin 定义还会在执行时
+            强制使用所选模型路由与工具。通过 Admin API 与 agwctl 可查询这些信息。
           </p>
         </div>
         <ul class="feature-list">
@@ -202,7 +202,7 @@
           <span class="kicker">agent as a product</span>
           <h3>像发布 API 一样发布 Agent</h3>
           <p>
-            统一且与运行时无关的 AgentRoute 之后，builtin 或 ACP agent 是一个有稳定端点的内部能力：消费方拿到一个 URL 和一把虚拟密钥；
+            统一且与运行时无关的 AgentRoute 之后，builtin、ACP 或 HTTP agent 是一个有稳定端点的内部能力：消费方拿到一个 URL 和一把虚拟密钥；
             你保有版本化的定义、按消费方的计量，以及一处吊销访问的权力。
             像交付服务一样向内部团队交付 agent。
           </p>
@@ -275,9 +275,9 @@
       <div class="card-grid cols-2">
         <div class="card">
           <span class="kicker">现已可用</span>
-          <h3>Agent workspace</h3>
+          <h3>Agent 巡检 API</h3>
           <p>
-            每个 agent 一块单面板：定义与运行时状态、存活实例与在途轮次、
+            通过 Admin API 与 agwctl 巡检每个 Agent：定义与运行时状态、存活实例与在途轮次、
             待裁决的权限请求、会话与转录索引、绑定的模型与工具资源，以及用量与交互历史。
           </p>
         </div>

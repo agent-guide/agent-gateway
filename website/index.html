@@ -4,18 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AgentGuide — Self-hosted control point for coding agents</title>
-<meta name="description" content="Run and govern Codex, OpenCode, A2A agents, LLMs, and MCP tools through one self-hosted gateway.">
+<meta name="description" content="Run and govern Codex, OpenCode, A2A agents, LLMs, and MCP/HTTP API tools through one self-hosted gateway.">
 <link rel="canonical" href="https://agentguide.online/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="AgentGuide">
 <meta property="og:locale" content="en_US">
 <meta property="og:locale:alternate" content="zh_CN">
 <meta property="og:title" content="AgentGuide — Self-hosted control point for coding agents">
-<meta property="og:description" content="Run and govern Codex, OpenCode, A2A agents, LLMs, and MCP tools through one self-hosted gateway.">
+<meta property="og:description" content="Run and govern Codex, OpenCode, A2A agents, LLMs, and MCP/HTTP API tools through one self-hosted gateway.">
 <meta property="og:url" content="https://agentguide.online/">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="AgentGuide — Self-hosted control point for coding agents">
-<meta name="twitter:description" content="Run and govern Codex, OpenCode, A2A agents, LLMs, and MCP tools through one self-hosted gateway.">
+<meta name="twitter:description" content="Run and govern Codex, OpenCode, A2A agents, LLMs, and MCP/HTTP API tools through one self-hosted gateway.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -92,7 +92,7 @@
           <text class="dg-label" x="516" y="70">codex · opencode</text>
           <rect class="dg-box" x="500" y="88" width="130" height="40" rx="4"></rect>
           <text class="dg-label dg-label-strong" x="516" y="106">HTTP / A2A</text>
-          <text class="dg-label" x="516" y="120">translated turns</text>
+          <text class="dg-label" x="516" y="120">common + native</text>
 
           <!-- right: resources — call-back targets -->
           <text class="dg-label dg-group" x="500" y="168">resources</text>
@@ -100,8 +100,8 @@
           <text class="dg-label dg-label-strong" x="516" y="194">LLM providers</text>
           <text class="dg-label" x="516" y="208">openai, claude, …</text>
           <rect class="dg-box" x="500" y="226" width="130" height="40" rx="4"></rect>
-          <text class="dg-label dg-label-strong" x="516" y="244">MCP tools</text>
-          <text class="dg-label" x="516" y="258">governed services</text>
+          <text class="dg-label dg-label-strong" x="516" y="244">Connector tools</text>
+          <text class="dg-label" x="516" y="258">MCP + HTTP APIs</text>
 
           <!-- flows ①②: consumers drive agents -->
           <path class="dg-flow" d="M140 72 C 185 72, 190 100, 230 105"></path>
@@ -187,8 +187,8 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
           <p>
             LLM requests, MCP tool calls, and agent turns produce persisted usage
             events — tokens (including cached and reasoning tokens), latency, and
-            errors. Agent-bound traffic is attributed when ownership is unambiguous;
-            builtin turns carry explicit attribution.
+            errors. Agent turns and builtin inner calls carry trusted execution identity;
+            direct LLM calls stay at route level, even when Agents share that route.
           </p>
           <a class="more" href="observability.html">Observability →</a>
         </div>
@@ -197,7 +197,7 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
           <h3>Policy at the gateway, not in every app</h3>
           <p>
             Virtual keys for consumers, pooled and scheduled upstream credentials,
-            interactive permission gates for agent actions, recursion-depth limits,
+            per-key LLM/MCP/Agent rate limits, interactive permission gates, builtin depth limits,
             and fail-closed concurrency and timeout controls.
           </p>
           <a class="more" href="observability.html#governance">Governance →</a>
@@ -250,7 +250,7 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
           <span class="kicker">runtime · builtin</span>
           <h3>Builtin agents</h3>
           <p>
-            Define an agent, model route, MCP tools, and topology as configuration;
+            Define an agent, model route, Connector tools, and topology as configuration;
             the in-process eino ADK host materializes it.
           </p>
         </div>
@@ -290,7 +290,7 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
           <ul>
             <li>OpenAI, Anthropic, Gemini, DeepSeek, Qwen, Zhipu, OpenRouter, Ollama and more</li>
             <li>OpenAI- and Anthropic-compatible endpoints, plus a Claude Code-ready profile</li>
-            <li>Logical model routing: one model name, many candidate providers, automatic fallback</li>
+            <li>Explicit ProviderModel exposure or reusable LogicalModels with cross-provider selection and fallback</li>
             <li>Credential pooling with scheduling — including CLI subscription credentials (Codex, Claude Code)</li>
           </ul>
           <a class="more" href="platform.html">Platform details →</a>
@@ -299,10 +299,10 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
           <span class="kicker">mcp gateway</span>
           <h3>Tools as governed infrastructure</h3>
           <ul>
-            <li>Register MCP services once; expose them through routes with auth policy</li>
-            <li>Tool discovery, execution, and in-flight request inspection</li>
+            <li>Register MCP and HTTP API Connectors; publish tools through authenticated MCP routes</li>
+            <li>Define HTTP tools with schemas and GET/POST mappings; no upstream MCP server required</li>
             <li>Fail-closed tool selection — a missing tool is an error, never a silent skip</li>
-            <li>Persisted tool calls share one event model, with agent attribution when ownership is clear</li>
+            <li>MCP and HTTP tool calls share persisted events, with trusted Agent identity on builtin execution</li>
           </ul>
           <a class="more" href="platform.html#mcp">MCP details →</a>
         </div>
@@ -323,7 +323,7 @@ agentgateway_usage_requests_total{route_kind="agent",runtime_type="http"} 1</pre
         <div class="card">
           <span class="kicker">shipping now · per-agent view</span>
           <h3>Inspect one agent in context</h3>
-          <p>Definitions, routes, runtime state, pending permissions, usage, interactions, and shallow health share one operator view.</p>
+          <p>Inspect definitions, routes, runtime state, pending permissions, usage, interactions, and shallow health through Admin APIs and agwctl.</p>
         </div>
         <div class="card">
           <span class="kicker">shipping now · builtin topology</span>
