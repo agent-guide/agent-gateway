@@ -1,7 +1,7 @@
 package gateway
 
 import (
-	"github.com/agent-guide/agent-gateway/internal/distributionmetrics"
+	"github.com/agent-guide/agent-gateway/internal/serverassembly"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	"strconv"
 	"strings"
@@ -212,7 +212,7 @@ func parseMetricsOTLP(seg *caddyfile.Dispenser, app *App) error {
 			return seg.Errf("unknown otlp subdirective: %s", seg.Val())
 		}
 	}
-	if err := distributionmetrics.From(app.Metrics).OTLP.Validate(); err != nil {
+	if err := serverassembly.UsageConfig(app.Metrics).OTLP.Validate(); err != nil {
 		return seg.Err(err.Error())
 	}
 	return nil

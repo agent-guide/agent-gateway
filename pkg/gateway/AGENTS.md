@@ -243,7 +243,7 @@ never replace it with an identifier-only list or disable pagination. Ownership
 eviction/restart fails closed; Admin inspection retains its existing authority.
 
 Both hosts construct credential/scheduler and usage handles through
-`internal/runtimeassembly`. Its lifecycle calls Gateway.CloseContext before
+`internal/serverassembly`. Its lifecycle calls Gateway.CloseContext before
 draining usage and closing storage. Preserve bounded extension teardown errors
 in CloseContext; Reset/Close remain convenience calls that discard errors.
 

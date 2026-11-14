@@ -3,9 +3,7 @@ package gateway
 import (
 	"errors"
 	"fmt"
-	"github.com/agent-guide/agent-gateway/internal/distributionmetrics"
-	"github.com/agent-guide/agent-gateway/internal/distributionruntime"
-	"github.com/agent-guide/agent-gateway/internal/runtimeassembly"
+	"github.com/agent-guide/agent-gateway/internal/serverassembly"
 	"github.com/agent-guide/agent-gateway/internal/strictjson"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 
@@ -61,7 +59,7 @@ type App struct {
 	providers       map[string]provider.Provider
 	agentGateway    *runtimegateway.AgentGateway
 	usageService    *usage.UsageService
-	lifecycle       *runtimeassembly.Lifecycle
+	lifecycle       *serverassembly.Lifecycle
 }
 
 // CaddyModule returns the Caddy module information.
@@ -81,14 +79,14 @@ func (a *App) Provision(ctx caddy.Context) (provisionErr error) {
 	}()
 	a.logger = ctx.Logger(a)
 	a.agentGateway = runtimegateway.NewAgentGateway()
-	a.lifecycle = &runtimeassembly.Lifecycle{Runtime: a.agentGateway.CloseContext}
+	a.lifecycle = &serverassembly.Lifecycle{Runtime: a.agentGateway.CloseContext}
 
 	if err := a.provisionConfigStore(ctx); err != nil {
 		return fmt.Errorf("init config store: %w", err)
 	}
 	a.provisionUsageService()
 	a.lifecycle.Usage = a.usageService
-	assembly := distributionruntime.Current()
+	assembly := serverassembly.CurrentCaddyAssembly()
 	policy, err := assembly.AttributionPolicy()
 	if err != nil {
 		return err
@@ -106,7 +104,7 @@ func (a *App) Provision(ctx caddy.Context) (provisionErr error) {
 	} else {
 		provider.EnableAllProviderTypes()
 	}
-	credentials, err := runtimeassembly.NewCredentials(a.configBackend, a.CredentialRefreshCommand, a.CredentialRefreshArgs)
+	credentials, err := serverassembly.NewCredentials(a.configBackend, a.CredentialRefreshCommand, a.CredentialRefreshArgs)
 	if err != nil {
 		return err
 	}
@@ -137,7 +135,7 @@ func (a *App) Provision(ctx caddy.Context) (provisionErr error) {
 		UsageQuery:           a.usageService.Query(),
 		UsageStats:           a.usageService,
 		UsagePrometheus:      a.usageService.Prometheus(),
-		UsageConfig:          distributionmetrics.From(a.Metrics).Normalized(),
+		UsageConfig:          serverassembly.UsageConfig(a.Metrics).Normalized(),
 		Logger:               a.logger,
 	}); err != nil {
 		return fmt.Errorf("configure agent gateway: %w", err)
@@ -196,7 +194,7 @@ func (a *App) Start() error {
 func (a *App) Stop() error { return a.lifecycle.Close() }
 
 func (a *App) provisionUsageService() {
-	a.usageService = runtimeassembly.NewUsage(a.configBackend, a.logger, distributionmetrics.From(a.Metrics))
+	a.usageService = serverassembly.NewUsage(a.configBackend, a.logger, serverassembly.UsageConfig(a.Metrics))
 }
 
 // GetApp retrieves the agent gateway app from the Caddy context.

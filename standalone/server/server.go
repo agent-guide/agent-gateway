@@ -5,8 +5,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
-	"github.com/agent-guide/agent-gateway/internal/distributionmetrics"
-	"github.com/agent-guide/agent-gateway/internal/runtimeassembly"
+	"github.com/agent-guide/agent-gateway/internal/serverassembly"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"net"
@@ -61,7 +60,7 @@ func (o *Options) setDefaults() {
 	if o.ConfigStorePath == "" {
 		o.ConfigStorePath = "./data/configstore.db"
 	}
-	o.CredentialRefreshCommand, o.CredentialRefreshArgs = runtimeassembly.RefreshCommand(o.CredentialRefreshCommand, o.CredentialRefreshArgs)
+	o.CredentialRefreshCommand, o.CredentialRefreshArgs = serverassembly.RefreshCommand(o.CredentialRefreshCommand, o.CredentialRefreshArgs)
 }
 
 func Run(ctx context.Context, opts Options) (result error) {
@@ -83,7 +82,7 @@ func Run(ctx context.Context, opts Options) (result error) {
 	if err != nil {
 		return err
 	}
-	lifecycle := &runtimeassembly.Lifecycle{Runtime: agentGateway.CloseContext, Usage: usageService}
+	lifecycle := &serverassembly.Lifecycle{Runtime: agentGateway.CloseContext, Usage: usageService}
 	lifecycle.Store, _ = agentGateway.ConfigStoreBackend().(interface{ Close() error })
 	defer func() { result = errors.Join(result, lifecycle.Close()) }()
 	usageService.Start()
@@ -187,7 +186,7 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (_ 
 	if err != nil {
 		return nil, nil, fmt.Errorf("open config store: %w", err)
 	}
-	lifecycle := &runtimeassembly.Lifecycle{}
+	lifecycle := &serverassembly.Lifecycle{}
 	lifecycle.Store, _ = configstoreBackend.(interface{ Close() error })
 	bootstrapped := false
 	defer func() {
@@ -198,7 +197,7 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (_ 
 	if err := schema.RegisterDefaultStores(configstoreBackend); err != nil {
 		return nil, nil, err
 	}
-	usageService := runtimeassembly.NewUsage(configstoreBackend, logger, distributionmetrics.From(opts.Metrics))
+	usageService := serverassembly.NewUsage(configstoreBackend, logger, serverassembly.UsageConfig(opts.Metrics))
 	lifecycle.Usage = usageService
 	policy, err := opts.Assembly.AttributionPolicy()
 	if err != nil {
@@ -208,7 +207,7 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (_ 
 		return nil, nil, err
 	}
 
-	credentials, err := runtimeassembly.NewCredentials(configstoreBackend, opts.CredentialRefreshCommand, opts.CredentialRefreshArgs)
+	credentials, err := serverassembly.NewCredentials(configstoreBackend, opts.CredentialRefreshCommand, opts.CredentialRefreshArgs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -234,7 +233,7 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (_ 
 		UsageQuery:           usageService.Query(),
 		UsageStats:           usageService,
 		UsagePrometheus:      usageService.Prometheus(),
-		UsageConfig:          distributionmetrics.From(opts.Metrics).Normalized(),
+		UsageConfig:          serverassembly.UsageConfig(opts.Metrics).Normalized(),
 		Logger:               logger,
 	}); err != nil {
 		return nil, nil, fmt.Errorf("bootstrap agent gateway: %w", err)

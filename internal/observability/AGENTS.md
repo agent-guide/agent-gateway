@@ -47,7 +47,7 @@ traffic remains route-level. Observer write-time route fallback runs only for
 ## Integration points
 
 - Pipeline sinks are constructed once per lifecycle by
-  `internal/runtimeassembly`, called from both server hosts. Usage initialization
+  `internal/serverassembly`, called from both server hosts. Usage initialization
   failure retains an in-memory pipeline with no query, Prometheus or OTLP sink.
 - `metrics.max_agent_depth` rejects ingress when `X-Agent-Depth` reaches the
   configured limit; zero disables the gate.

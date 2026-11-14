@@ -1,6 +1,7 @@
-// Package runtimeassembly constructs services shared by the Caddy and standalone
-// hosts. Each call creates services owned by one server lifecycle.
-package runtimeassembly
+// Package serverassembly constructs services shared by the Caddy and standalone
+// servers and carries the process-scoped Caddy distribution assembly.
+// Each service constructor creates resources owned by one server lifecycle.
+package serverassembly
 
 import (
 	"fmt"

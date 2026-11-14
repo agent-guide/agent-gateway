@@ -1,4 +1,4 @@
-package runtimeassembly
+package serverassembly
 
 import (
 	"context"

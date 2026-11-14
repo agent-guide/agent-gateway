@@ -750,7 +750,7 @@ internal/observability/usage/
     event.go         common event; typed LLM, MCP, ACP, and builtin events
     observer.go      InteractionObserver and InteractionSpan interfaces
     noop.go          no-op observer
-    service.go       UsageService constructed by internal/runtimeassembly
+    service.go       UsageService constructed by internal/serverassembly
 
 internal/observability/pipeline/
     pipeline.go      EventPipeline: buffered input channel, fan-out loop, Sink interface

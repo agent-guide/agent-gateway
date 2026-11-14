@@ -32,7 +32,7 @@ selects the 16 MiB default; negative values fail before server/storage startup.
 Keep this host-owned request-byte limit aligned with the Caddy dispatcher setting.
 
 Public signatures and their required transitive types must not expose Community
-`internal/` types. Public metrics values translate through the internal adapter.
+`internal/` types. Public metrics values translate through `serverassembly.UsageConfig`.
 Run `make test-extension-consumer` when changing this boundary; root `go test
 ./...` alone cannot discover the separately rooted consumer module.
 

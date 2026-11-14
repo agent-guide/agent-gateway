@@ -1,10 +1,16 @@
 # Server service assembly
 
-Capability: Implemented for shared credentials, usage and host lifecycle.
+Capability: Implemented for shared credentials, usage, host lifecycle and Caddy distribution assembly handoff.
 
-Both Caddy and standalone call `internal/runtimeassembly`. Transport configuration,
+Both Caddy and standalone call `internal/serverassembly`. Transport configuration,
 provider type availability and static provider creation remain host responsibilities;
 the protected distribution command signatures do not expose internal handles.
+
+The package also carries the process-scoped Caddy distribution assembly. The
+Caddy command entry calls `InstallCaddyAssembly` to validate and store a defensive
+copy; the Caddy app and manifest command read independent snapshots through
+`CurrentCaddyAssembly`, which defaults to the Community assembly. Configuration
+cannot install an assembly. Standalone and CLI pass their assembly explicitly.
 
 | Resource | Creation and owner | Retirement |
 | --- | --- | --- |
@@ -18,6 +24,11 @@ The shared refresh-command normalization trims the executable, copies arguments,
 and defaults to `agw-auth refresh` when omitted. Explicit arguments are retained.
 The scheduler listener is installed before credentials load. Hosts retain a load
 boundary because Caddy provisions static providers between construction and load.
+
+`serverassembly.UsageConfig` converts public `distribution.MetricsConfig` into
+internal usage configuration and copies mutable OTLP headers. Both servers use
+this conversion for validation and service wiring, keeping internal types out of
+the public distribution interfaces.
 
 Usage borrows the generic Database connection; it never closes that connection.
 Its SQL implementation lives in internal/observability/persistence/sqlite, and

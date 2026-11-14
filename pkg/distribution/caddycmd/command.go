@@ -7,7 +7,7 @@ package caddycmd
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/agent-guide/agent-gateway/internal/distributionruntime"
+	"github.com/agent-guide/agent-gateway/internal/serverassembly"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	upstream "github.com/caddyserver/caddy/v2/cmd"
 	"github.com/spf13/cobra"
@@ -25,7 +25,7 @@ func (c *Command) Assembly() distribution.Assembly { return c.assembly.Clone() }
 
 // Run delegates command construction, lifecycle and exit codes to upstream.
 func (c *Command) Run() {
-	if err := distributionruntime.Install(c.assembly); err != nil {
+	if err := serverassembly.InstallCaddyAssembly(c.assembly); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -37,7 +37,7 @@ func (c *Command) Manifest() (distribution.Assembly, error) { return c.assembly.
 func init() {
 	upstream.RegisterCommand(upstream.Command{Name: "manifest", Short: "Show linked Agent Gateway capabilities", CobraFunc: func(cmd *cobra.Command) {
 		cmd.RunE = func(cmd *cobra.Command, args []string) error {
-			manifest, err := distributionruntime.Current().Manifest()
+			manifest, err := serverassembly.CurrentCaddyAssembly().Manifest()
 			if err != nil {
 				return err
 			}

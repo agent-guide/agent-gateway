@@ -1,4 +1,4 @@
-package distributionmetrics
+package serverassembly
 
 import (
 	"encoding/json"
@@ -16,7 +16,7 @@ func TestHTTPClientSpanPublicConfigurationAdapter(t *testing.T) {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	internal := From(decoded)
+	internal := UsageConfig(decoded)
 	decoded.OTLP.Headers["test"] = "two"
 	if !internal.OTLP.HTTPClientSpans || internal.OTLP.Headers["test"] != "one" {
 		t.Fatal("adapter lost HTTP span option or retained headers")

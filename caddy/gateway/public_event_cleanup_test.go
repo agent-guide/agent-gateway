@@ -3,12 +3,11 @@ package gateway
 import (
 	"context"
 	"encoding/json"
-	"github.com/agent-guide/agent-gateway/internal/runtimeassembly"
+	"github.com/agent-guide/agent-gateway/internal/serverassembly"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 
-	"github.com/agent-guide/agent-gateway/internal/distributionruntime"
 	"github.com/agent-guide/agent-gateway/internal/observability/pipeline"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/pkg/attribution"
@@ -27,9 +26,9 @@ func (s *cleanupSink) Flush(context.Context) error               { s.flushes.Add
 func (s *cleanupSink) Close(context.Context) error               { s.closes.Add(1); return nil }
 
 func TestCaddyValidationClosesProvisionedPublicSink(t *testing.T) {
-	previous := distributionruntime.Current()
+	previous := serverassembly.CurrentCaddyAssembly()
 	t.Cleanup(func() {
-		if err := distributionruntime.Install(previous); err != nil {
+		if err := serverassembly.InstallCaddyAssembly(previous); err != nil {
 			t.Error(err)
 		}
 	})
@@ -37,7 +36,7 @@ func TestCaddyValidationClosesProvisionedPublicSink(t *testing.T) {
 	var creates atomic.Int32
 	a := distribution.CommunityRuntime()
 	a.EventSinks = []event.Registration{{ModuleID: "online.agentguide.community.gateway", New: func(context.Context) (event.Sink, error) { creates.Add(1); return sink, nil }}}
-	if err := distributionruntime.Install(a); err != nil {
+	if err := serverassembly.InstallCaddyAssembly(a); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := json.Marshal(map[string]any{"config_store": map[string]any{"sqlite": map[string]string{"sqlite_path": filepath.Join(t.TempDir(), "config.db")}}})
@@ -59,7 +58,7 @@ func TestCleanupAfterStopDoesNotClosePublicSinkTwice(t *testing.T) {
 	if err := svc.ConfigurePublic(attribution.Policy{}, []event.Registration{{ModuleID: "online.agentguide.community.gateway", New: func(context.Context) (event.Sink, error) { return sink, nil }}}); err != nil {
 		t.Fatal(err)
 	}
-	a := &App{usageService: svc, lifecycle: &runtimeassembly.Lifecycle{Usage: svc}}
+	a := &App{usageService: svc, lifecycle: &serverassembly.Lifecycle{Usage: svc}}
 	t.Cleanup(func() { _ = a.Cleanup() })
 	if err := a.Stop(); err != nil {
 		t.Fatal(err)
