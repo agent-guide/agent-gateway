@@ -22,7 +22,9 @@ Related extension design notes live in `docs/` when a topic needs more detail
 than this architecture overview. The ConfigStore architecture and technical
 specification is documented in
 [configstore-architecture.md](configstore-architecture.md). The gateway bundle
-YAML contract is documented in
+schema, YAML encoding/decoding and local validation live in
+`pkg/gateway/bundle` (package `bundle`); CLI apply/export execution lives in
+`pkg/distribution/ctlcmd`. The YAML contract is documented in
 [../design/gateway-bundle-yaml.md](../design/gateway-bundle-yaml.md). Protected
 external SPI, reusable distribution entry points, and their designation gates
 are defined by the

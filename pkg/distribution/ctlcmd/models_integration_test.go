@@ -16,7 +16,7 @@ import (
 	configsqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
-	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
+	bundlepkg "github.com/agent-guide/agent-gateway/pkg/gateway/bundle"
 )
 
 func TestIndependentModelsApplyExportRoundTrip(t *testing.T) {
@@ -105,7 +105,7 @@ llmRoutes:
 	run("model", "provider", "get", "p", "m")
 	exported := filepath.Join(t.TempDir(), "export.yaml")
 	run("export", "-f", exported)
-	b, err := gatewaybundle.LoadFile(exported)
+	b, err := bundlepkg.LoadFile(exported)
 	if err != nil {
 		t.Fatal(err)
 	}

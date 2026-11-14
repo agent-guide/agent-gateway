@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
-	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
+	bundlepkg "github.com/agent-guide/agent-gateway/pkg/gateway/bundle"
 	"github.com/spf13/cobra"
 )
 
@@ -40,7 +40,7 @@ func (s *commandState) initGateway() {
 			if s.gatewayBundleFile == "" {
 				return fmt.Errorf("--file is required")
 			}
-			bundle, err := gatewaybundle.LoadFile(s.gatewayBundleFile)
+			bundle, err := bundlepkg.LoadFile(s.gatewayBundleFile)
 			if err != nil {
 				return err
 			}

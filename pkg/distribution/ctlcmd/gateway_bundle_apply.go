@@ -14,11 +14,11 @@ import (
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
 	agentroute "github.com/agent-guide/agent-gateway/pkg/gateway/agentroute"
+	bundlepkg "github.com/agent-guide/agent-gateway/pkg/gateway/bundle"
 	llmroutepkg "github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	virtualkeypkg "github.com/agent-guide/agent-gateway/pkg/gateway/virtualkey"
-	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
@@ -47,7 +47,7 @@ func (s *commandState) runGatewayApply(ctx context.Context, path string) error {
 	if path == "" {
 		return fmt.Errorf("--file is required")
 	}
-	bundle, err := gatewaybundle.LoadFile(path)
+	bundle, err := bundlepkg.LoadFile(path)
 	if err != nil {
 		return err
 	}
@@ -133,7 +133,7 @@ func (s *commandState) runGatewayApply(ctx context.Context, path string) error {
 	return nil
 }
 
-func ensureProviderTypesEnabled(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle) error {
+func ensureProviderTypesEnabled(ctx context.Context, client *adminclient.Client, bundle *bundlepkg.GatewayBundle) error {
 	items, err := client.ListProviderTypes(ctx)
 	if err != nil {
 		return err
@@ -158,7 +158,7 @@ func ensureProviderTypesEnabled(ctx context.Context, client *adminclient.Client,
 	return nil
 }
 
-func applyProviders(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+func applyProviders(ctx context.Context, client *adminclient.Client, bundle *bundlepkg.GatewayBundle, record func(kind, id, action string, err error)) error {
 	if err := ensureProviderTypesEnabled(ctx, client, bundle); err != nil {
 		return err
 	}
@@ -199,7 +199,7 @@ func applyProviders(ctx context.Context, client *adminclient.Client, bundle *gat
 	return nil
 }
 
-func applyProviderModels(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+func applyProviderModels(ctx context.Context, client *adminclient.Client, bundle *bundlepkg.GatewayBundle, record func(kind, id, action string, err error)) error {
 	items, err := client.ListProviderModels(ctx, adminclient.ProviderModelListOptions{})
 	if err != nil {
 		return err
@@ -241,7 +241,7 @@ func applyProviderModels(ctx context.Context, client *adminclient.Client, bundle
 	return nil
 }
 
-func applyLLMRoutes(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+func applyLLMRoutes(ctx context.Context, client *adminclient.Client, bundle *bundlepkg.GatewayBundle, record func(kind, id, action string, err error)) error {
 	items, err := client.ListLLMRoutes(ctx, adminclient.LLMRouteListOptions{})
 	if err != nil {
 		return err
@@ -291,7 +291,7 @@ func applyLLMRoutes(ctx context.Context, client *adminclient.Client, bundle *gat
 	return nil
 }
 
-func applyVirtualKeys(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+func applyVirtualKeys(ctx context.Context, client *adminclient.Client, bundle *bundlepkg.GatewayBundle, record func(kind, id, action string, err error)) error {
 	items, err := client.ListVirtualKeys(ctx, adminclient.VirtualKeyListOptions{})
 	if err != nil {
 		return err
@@ -367,7 +367,7 @@ func normalizeComparableVirtualKey(key virtualkeypkg.VirtualKey) virtualkeypkg.V
 	return key
 }
 
-func bundleVirtualKeyConfig(key gatewaybundle.BundleVirtualKey) adminclient.VirtualKeyConfig {
+func bundleVirtualKeyConfig(key bundlepkg.BundleVirtualKey) adminclient.VirtualKeyConfig {
 	return adminclient.VirtualKeyConfig{
 		ID:              key.ID,
 		Tag:             key.Tag,
@@ -380,7 +380,7 @@ func bundleVirtualKeyConfig(key gatewaybundle.BundleVirtualKey) adminclient.Virt
 	}
 }
 
-func applyConnectors(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+func applyConnectors(ctx context.Context, client *adminclient.Client, bundle *bundlepkg.GatewayBundle, record func(kind, id, action string, err error)) error {
 	items, err := client.ListConnectors(ctx)
 	if err != nil {
 		return err
@@ -420,7 +420,7 @@ func applyConnectors(ctx context.Context, client *adminclient.Client, bundle *ga
 	return nil
 }
 
-func applyMCPRoutes(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+func applyMCPRoutes(ctx context.Context, client *adminclient.Client, bundle *bundlepkg.GatewayBundle, record func(kind, id, action string, err error)) error {
 	items, err := client.ListMCPRoutes(ctx)
 	if err != nil {
 		return err
@@ -462,7 +462,7 @@ func applyMCPRoutes(ctx context.Context, client *adminclient.Client, bundle *gat
 	return nil
 }
 
-func applyAgentRoutes(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+func applyAgentRoutes(ctx context.Context, client *adminclient.Client, bundle *bundlepkg.GatewayBundle, record func(kind, id, action string, err error)) error {
 	items, err := client.ListAgentRoutes(ctx)
 	if err != nil {
 		return err
@@ -504,7 +504,7 @@ func applyAgentRoutes(ctx context.Context, client *adminclient.Client, bundle *g
 	return nil
 }
 
-func applyAgents(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+func applyAgents(ctx context.Context, client *adminclient.Client, bundle *bundlepkg.GatewayBundle, record func(kind, id, action string, err error)) error {
 	if len(bundle.Agents) == 0 {
 		return nil
 	}
@@ -671,7 +671,7 @@ func (s *commandState) printGatewayApplySummary(summary gatewayApplySummary) {
 	)
 }
 
-func applyExtensions(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(string, string, string, error)) error {
+func applyExtensions(ctx context.Context, client *adminclient.Client, bundle *bundlepkg.GatewayBundle, record func(string, string, string, error)) error {
 	if len(bundle.Extensions) == 0 {
 		return nil
 	}
@@ -704,7 +704,7 @@ func applyExtensions(ctx context.Context, client *adminclient.Client, bundle *ga
 	return nil
 }
 
-func applyLogicalModels(ctx context.Context, client *adminclient.Client, bundle *gatewaybundle.GatewayBundle, record func(kind, id, action string, err error)) error {
+func applyLogicalModels(ctx context.Context, client *adminclient.Client, bundle *bundlepkg.GatewayBundle, record func(kind, id, action string, err error)) error {
 	items, err := client.ListLogicalModels(ctx)
 	if err != nil {
 		return err

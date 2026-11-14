@@ -8,7 +8,7 @@ import (
 	"sort"
 
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
-	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
+	bundlepkg "github.com/agent-guide/agent-gateway/pkg/gateway/bundle"
 )
 
 func (s *commandState) runGatewayExport(ctx context.Context, path string) error {
@@ -55,11 +55,11 @@ func (s *commandState) runGatewayExport(ctx context.Context, path string) error 
 		return err
 	}
 
-	bundle := &gatewaybundle.GatewayBundle{
+	bundle := &bundlepkg.GatewayBundle{
 		Extensions:    extensions,
 		LogicalModels: logicalModels,
-		APIVersion:    gatewaybundle.APIVersionV1Alpha1,
-		Kind:          gatewaybundle.KindGatewayBundle,
+		APIVersion:    bundlepkg.APIVersionV1Alpha1,
+		Kind:          bundlepkg.KindGatewayBundle,
 	}
 	for _, item := range providers {
 		bundle.Providers = append(bundle.Providers, item.ProviderConfig)
@@ -79,7 +79,7 @@ func (s *commandState) runGatewayExport(ctx context.Context, path string) error 
 		bundle.LLMRoutes = append(bundle.LLMRoutes, cfg)
 	}
 	for _, item := range virtualKeys {
-		bundle.VirtualKeys = append(bundle.VirtualKeys, gatewaybundle.BundleVirtualKeyFromRuntime(item.VirtualKey))
+		bundle.VirtualKeys = append(bundle.VirtualKeys, bundlepkg.BundleVirtualKeyFromRuntime(item.VirtualKey))
 	}
 	for _, item := range connectors {
 		bundle.Connectors = append(bundle.Connectors, item.ConnectorConfig)
@@ -95,7 +95,7 @@ func (s *commandState) runGatewayExport(ctx context.Context, path string) error 
 	}
 
 	sortGatewayBundle(bundle)
-	yamlBytes, err := gatewaybundle.EncodeYAML(bundle)
+	yamlBytes, err := bundlepkg.EncodeYAML(bundle)
 	if err != nil {
 		return err
 	}
@@ -116,7 +116,7 @@ func (s *commandState) runGatewayExport(ctx context.Context, path string) error 
 	return nil
 }
 
-func sortGatewayBundle(bundle *gatewaybundle.GatewayBundle) {
+func sortGatewayBundle(bundle *bundlepkg.GatewayBundle) {
 	sort.Slice(bundle.LogicalModels, func(i, j int) bool { return bundle.LogicalModels[i].ID < bundle.LogicalModels[j].ID })
 	sort.Slice(bundle.Extensions, func(i, j int) bool { return bundle.Extensions[i].ModuleID < bundle.Extensions[j].ModuleID })
 	sort.Slice(bundle.Providers, func(i, j int) bool {

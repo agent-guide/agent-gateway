@@ -1,4 +1,4 @@
-package gatewaybundle
+package bundle
 
 import (
 	"encoding/json"

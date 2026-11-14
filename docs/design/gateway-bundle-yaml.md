@@ -287,7 +287,7 @@ That means `credentials` are already classified as configuration-type objects, b
 
 ## 9. Parsing And Serialization
 
-The shared implementation lives in `pkg/gatewaybundle/`.
+The shared implementation lives in `pkg/gateway/bundle/`.
 
 Current responsibilities of that package:
 
@@ -338,7 +338,7 @@ Current validation includes:
 - AgentRoute references to Agents inside the bundle
 - route normalization and route definition validation through existing route helpers
 
-`GatewayBundle.ValidateWithRegistry(ctx, registry)` in `pkg/gatewaybundle` is
+`GatewayBundle.ValidateWithRegistry(ctx, registry)` in `pkg/gateway/bundle` is
 the dynamic validation entry used by `agwctl validate` and `apply`. It first runs
 `ValidateExtensions`, including secret classification, ordinary extension
 environment expansion, linked module/schema checks and dependency validation,

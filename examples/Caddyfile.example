@@ -8,7 +8,8 @@
 #
 # This is the consolidated Caddyfile reference. It runs as-is with the shared
 # SQLite config store; providers and routes can be managed through the Admin API
-# or gateway bundles. Optional static-provider and OTLP profiles are included
+# or gateway bundles (shared schema: pkg/gateway/bundle).
+# Optional static-provider and OTLP profiles are included
 # below as commented examples.
 #
 # LLM routes may be shared by Agents and direct clients; Agent usage follows

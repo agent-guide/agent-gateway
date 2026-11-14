@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
-	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
+	bundlepkg "github.com/agent-guide/agent-gateway/pkg/gateway/bundle"
 )
 
 var prometheusMetricPattern = regexp.MustCompile(`agentgateway_[a-z_]+_total`)
@@ -25,7 +25,7 @@ func TestFirstRunBundleIsLocallyValid(t *testing.T) {
 		filepath.Join(root, "examples", "gateway.bundle.acp-evaluation.yaml"),
 	} {
 		t.Run(filepath.Base(path), func(t *testing.T) {
-			bundle, err := gatewaybundle.LoadFile(path)
+			bundle, err := bundlepkg.LoadFile(path)
 			if err != nil {
 				t.Fatal(err)
 			}

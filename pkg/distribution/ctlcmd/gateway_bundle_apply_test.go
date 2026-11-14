@@ -11,7 +11,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/adminclient"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/agentroute"
-	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
+	bundlepkg "github.com/agent-guide/agent-gateway/pkg/gateway/bundle"
 )
 
 func TestApplyAgentRoutesStripsExportedManagedTimestamps(t *testing.T) {
@@ -43,7 +43,7 @@ func TestApplyAgentRoutesStripsExportedManagedTimestamps(t *testing.T) {
 	defer srv.Close()
 
 	now := time.Now().UTC()
-	bundle := &gatewaybundle.GatewayBundle{AgentRoutes: []agentroute.AgentRouteConfig{{
+	bundle := &bundlepkg.GatewayBundle{AgentRoutes: []agentroute.AgentRouteConfig{{
 		RouteMetadata: agentroute.RouteMetadata{
 			ID: "agent:reviewer:review", MatchPolicy: agentroute.RouteMatch{PathPrefix: "/review"},
 			CreatedAt: now, UpdatedAt: now,
@@ -93,7 +93,7 @@ func TestApplyExtensionsPreservesLargeIntegerChanges(t *testing.T) {
 				w.WriteHeader(http.StatusNotFound)
 			}))
 			defer srv.Close()
-			bundle := &gatewaybundle.GatewayBundle{Extensions: []extension.Envelope{{ModuleID: id, SchemaVersion: 1, Config: json.RawMessage(tc.desired)}}}
+			bundle := &bundlepkg.GatewayBundle{Extensions: []extension.Envelope{{ModuleID: id, SchemaVersion: 1, Config: json.RawMessage(tc.desired)}}}
 			action := ""
 			err := applyExtensions(context.Background(), adminclient.New(adminclient.Config{BaseURL: srv.URL}), bundle, func(_, _, a string, err error) {
 				if err != nil {

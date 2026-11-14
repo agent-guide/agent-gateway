@@ -246,6 +246,10 @@ The binaries have separate roles:
 | `agwd` | Standalone gateway daemon backed by the shared config store |
 | `agwctl` | Management CLI for Bundle validation/apply/export and Admin operations |
 
+The shared Go Bundle schema, YAML codec, and local validation live in
+[`pkg/gateway/bundle`](pkg/gateway/bundle); apply/export execution lives in
+`pkg/distribution/ctlcmd`.
+
 Use the [Bundle guide](docs/guides/bundle-yaml.md) for dynamic configuration,
 the [Caddyfile reference](docs/reference/caddyfile-reference.md) for the Caddy
 runtime, and the [runtime modes reference](docs/reference/runtime-modes.md) to

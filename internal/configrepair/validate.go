@@ -8,11 +8,11 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	"github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/agentroute"
+	bundlepkg "github.com/agent-guide/agent-gateway/pkg/gateway/bundle"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
-	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
@@ -23,8 +23,8 @@ func Validate(records []Record) error {
 		i := issues[0]
 		return fmt.Errorf("%s/%s %s: %s", i.Family, i.ID, i.Field, i.Action)
 	}
-	b := gatewaybundle.GatewayBundle{APIVersion: gatewaybundle.APIVersionV1Alpha1, Kind: gatewaybundle.KindGatewayBundle}
-	staticBundle := gatewaybundle.GatewayBundle{APIVersion: gatewaybundle.APIVersionV1Alpha1, Kind: gatewaybundle.KindGatewayBundle}
+	b := bundlepkg.GatewayBundle{APIVersion: bundlepkg.APIVersionV1Alpha1, Kind: bundlepkg.KindGatewayBundle}
+	staticBundle := bundlepkg.GatewayBundle{APIVersion: bundlepkg.APIVersionV1Alpha1, Kind: bundlepkg.KindGatewayBundle}
 	index := map[string]map[string]bool{}
 	routeKinds := map[string]routecore.RouteKind{}
 	staticProviders := map[string]bool{}
@@ -105,7 +105,7 @@ func Validate(records []Record) error {
 				staticBundle.Connectors = append(staticBundle.Connectors, v)
 			}
 		case "virtual_keys":
-			var v gatewaybundle.BundleVirtualKey
+			var v bundlepkg.BundleVirtualKey
 			err = json.Unmarshal(r.Data, &v)
 			b.VirtualKeys = append(b.VirtualKeys, v)
 			if r.StaticInput {

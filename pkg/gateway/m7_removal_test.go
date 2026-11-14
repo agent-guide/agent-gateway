@@ -49,11 +49,11 @@ func TestM7RemovedRuntimeSpecificSource(t *testing.T) {
 		"internal/observability/persistence/sqlite/usage_test.go": {
 			"ACPServiceID": true, "acp_services": true,
 		},
-		"pkg/gatewaybundle/bundle.go": {
+		"pkg/gateway/bundle/bundle.go": {
 			"acpServices": true, "acpRoutes": true, "builtinRoutes": true,
 			"runtime.acp.service_id": true,
 		},
-		"pkg/gatewaybundle/bundle_test.go": {
+		"pkg/gateway/bundle/bundle_test.go": {
 			"acpServices": true,
 		},
 		"scripts/migrate-unified-agent-runtime-go/main.go": {

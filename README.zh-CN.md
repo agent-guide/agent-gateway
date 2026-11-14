@@ -209,6 +209,10 @@ make build
 | `agwd` | 使用共享 ConfigStore 的独立 Gateway Daemon |
 | `agwctl` | 用于 Bundle validate/apply/export 和 Admin 操作的管理 CLI |
 
+共享的 Go Bundle 模型、YAML 编解码和本地校验位于
+[`pkg/gateway/bundle`](pkg/gateway/bundle)，apply/export 执行逻辑位于
+`pkg/distribution/ctlcmd`。
+
 动态配置见 [Bundle 指南](docs/guides/bundle-yaml.md)，Caddy Runtime 配置见
 [Caddyfile 参考](docs/reference/caddyfile-reference.md)，如何在 `agw` 和 `agwd`
 之间选择见 [Runtime 模式参考](docs/reference/runtime-modes.md)。

@@ -24,9 +24,9 @@ import (
 	ccapi "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/cc"
 	openaiapi "github.com/agent-guide/agent-gateway/pkg/dispatcher/llmapi/openai"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
+	bundlepkg "github.com/agent-guide/agent-gateway/pkg/gateway/bundle"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/modelcatalog"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
-	"github.com/agent-guide/agent-gateway/pkg/gatewaybundle"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -263,7 +263,7 @@ func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) 
 		return cfg, nil
 	}
 
-	bundle, err := gatewaybundle.LoadFile(opts.StaticConfigPath)
+	bundle, err := bundlepkg.LoadFile(opts.StaticConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("load static gateway bundle: %w", err)
 	}
@@ -281,7 +281,7 @@ func loadStaticConfig(ctx context.Context, opts Options) (*staticConfig, error) 
 	return cfg, nil
 }
 
-func instantiateStaticProviders(bundle *gatewaybundle.GatewayBundle) (map[string]provider.Provider, error) {
+func instantiateStaticProviders(bundle *bundlepkg.GatewayBundle) (map[string]provider.Provider, error) {
 	out := make(map[string]provider.Provider, len(bundle.Providers))
 	for _, cfg := range bundle.Providers {
 		cfg = provider.NormalizeConfig(cfg, cfg.Id, cfg.ProviderType)

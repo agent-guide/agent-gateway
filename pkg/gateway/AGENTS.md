@@ -1,6 +1,6 @@
 # pkg/gateway — AGENTS.md
 
-Scope: the runtime gateway core and the route-model packages under
+Scope: the runtime gateway core, route-model packages, and configuration Bundle package under
 `pkg/gateway/`. Paths are repository-root relative. The global rules in the
 root `AGENTS.md` (change policy, terminology, build/test) apply here.
 
@@ -71,6 +71,14 @@ generations, and Get reads only published cached state after initial loading.
 Runtime ties return `ErrAmbiguousRoute` with stable diagnostics; never resolve
 them by ID sorting. Startup errors direct operators to offline configuration
 recovery. `InitStaticRoutes` callers must handle its error.
+
+## `bundle/`
+
+Package `bundle` owns the GatewayBundle schema, YAML encoding/decoding,
+environment expansion and local validation. CLI apply/export execution belongs
+in `pkg/distribution/ctlcmd`; standalone startup consumes the shared schema.
+Keep Bundle loading outside the request path and the gateway runtime core
+independent of this configuration entry package.
 
 ## Route id convention (`llmroute`, `mcproute`, `agentroute`)
 
