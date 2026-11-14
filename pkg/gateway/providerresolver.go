@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/agent-guide/agent-gateway/internal/configresolve"
 	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
-	"github.com/agent-guide/agent-gateway/pkg/gateway/runtimecore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
@@ -46,7 +46,7 @@ type ProviderManager struct {
 
 	configs         *configmgr.BaseConfigManager[provider.ProviderConfig]
 	staticProviders map[string]provider.Provider
-	resolver        *runtimecore.Resolver[provider.ProviderConfig, provider.Provider, ProviderListOptions]
+	resolver        *configresolve.Resolver[provider.ProviderConfig, provider.Provider, ProviderListOptions]
 
 	store configstore.ConfigStore
 	guard configmgr.MutationGuard[provider.ProviderConfig]
@@ -247,9 +247,9 @@ func (m *ProviderManager) ResolveProvider(ctx context.Context, providerID string
 	return resolver.Get(ctx, providerID)
 }
 
-func newDynamicProviderRuntimeResolver(manager *ProviderManager) *runtimecore.Resolver[provider.ProviderConfig, provider.Provider, ProviderListOptions] {
-	return runtimecore.NewResolver(
-		runtimecore.FuncSource[provider.ProviderConfig, ProviderListOptions]{
+func newDynamicProviderRuntimeResolver(manager *ProviderManager) *configresolve.Resolver[provider.ProviderConfig, provider.Provider, ProviderListOptions] {
+	return configresolve.NewResolver(
+		configresolve.FuncSource[provider.ProviderConfig, ProviderListOptions]{
 			GetFunc: func(ctx context.Context, providerID string) (provider.ProviderConfig, error) {
 				if manager == nil || manager.configs == nil {
 					return provider.ProviderConfig{}, fmt.Errorf("provider manager is not configured")

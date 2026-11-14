@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/agent-guide/agent-gateway/internal/configresolve"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
-	"github.com/agent-guide/agent-gateway/pkg/gateway/runtimecore"
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
@@ -15,14 +15,14 @@ type ProviderResolver interface {
 
 type LLMRouteResolver struct {
 	configManager *routecore.RouteConfigManager
-	base          *runtimecore.Resolver[routecore.RouteConfig, *LLMRoute, routecore.RouteListOptions]
+	base          *configresolve.Resolver[routecore.RouteConfig, *LLMRoute, routecore.RouteListOptions]
 }
 
 func NewLLMRouteResolver(configManager *routecore.RouteConfigManager) *LLMRouteResolver {
 	resolver := &LLMRouteResolver{
 		configManager: configManager,
-		base: runtimecore.NewResolver(
-			runtimecore.FuncSource[routecore.RouteConfig, routecore.RouteListOptions]{
+		base: configresolve.NewResolver(
+			configresolve.FuncSource[routecore.RouteConfig, routecore.RouteListOptions]{
 				GetFunc: func(ctx context.Context, routeID string) (routecore.RouteConfig, error) {
 					if configManager == nil {
 						return routecore.RouteConfig{}, fmt.Errorf("route config manager is not configured")

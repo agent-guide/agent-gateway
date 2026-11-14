@@ -1,4 +1,4 @@
-package runtimecore
+package configresolve
 
 import (
 	"context"

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/agent-guide/agent-gateway/internal/configresolve"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
-	"github.com/agent-guide/agent-gateway/pkg/gateway/runtimecore"
 )
 
 var (
@@ -16,14 +16,14 @@ var (
 
 type MCPRouteResolver struct {
 	configManager *routecore.RouteConfigManager
-	base          *runtimecore.Resolver[routecore.RouteConfig, *MCPRoute, RouteListOptions]
+	base          *configresolve.Resolver[routecore.RouteConfig, *MCPRoute, RouteListOptions]
 }
 
 func NewMCPRouteResolver(configManager *routecore.RouteConfigManager) *MCPRouteResolver {
 	resolver := &MCPRouteResolver{
 		configManager: configManager,
-		base: runtimecore.NewResolver(
-			runtimecore.FuncSource[routecore.RouteConfig, RouteListOptions]{
+		base: configresolve.NewResolver(
+			configresolve.FuncSource[routecore.RouteConfig, RouteListOptions]{
 				GetFunc: func(ctx context.Context, routeID string) (routecore.RouteConfig, error) {
 					if configManager == nil {
 						return routecore.RouteConfig{}, fmt.Errorf("route config manager is not configured")

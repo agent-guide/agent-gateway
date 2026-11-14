@@ -6,6 +6,10 @@ root `AGENTS.md` (change policy, terminology, build/test) apply here.
 
 ## Runtime core
 
+Provider and route resolvers use `internal/configresolve` for generic config
+decoding, fingerprinting, and versioned materialization. Keep domain-specific
+validation and resolution in the Gateway packages.
+
 Important files:
 
 - `agentgateway.go`: runtime route, VirtualKey, and provider resolution

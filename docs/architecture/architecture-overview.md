@@ -90,6 +90,10 @@ rules are shared there; ACP ownership and HTTP execution claims remain distinct.
 
 ### 4.1 `caddy/gateway/`, `standalone/server/`, And `pkg/gateway/`: Runtime Assembly And Backbone
 
+Provider and route resolvers share `internal/configresolve`, which provides
+generic config decoding, fingerprinting, and versioned materialization caches.
+Domain-specific validation and runtime resolution remain in `pkg/gateway`.
+
 The `caddy/gateway.App` type is the root Caddy app module with module ID `agent_gateway`. The standalone daemon in `standalone/server/` assembles the same core runtime services without depending on a Caddy app lifecycle.
 
 The thin `cmd/agw`, `cmd/agwd`, and `cmd/agwctl` mains retain edition-specific
