@@ -4,6 +4,24 @@ on:
   push:
     tags:
       - "v[0-9]*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable preview tag to resume
+        required: true
+      source_run_id:
+        description: Release run whose only failure was first-run packaging
+        required: true
+      gateway_digest:
+        description: Verified gateway image digest (sha256:...)
+        required: true
+      fixture_digest:
+        description: Verified fixture image digest (sha256:...)
+        required: true
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -14,6 +32,7 @@ env:
 
 jobs:
   preflight:
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -434,3 +453,141 @@ jobs:
           docker buildx imagetools create \
             --tag "${FIXTURE_IMAGE}:latest" \
             "${FIXTURE_IMAGE}@${{ needs.images.outputs.fixture_digest }}"
+
+  resume-preview:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      GATEWAY_REF: ghcr.io/agent-guide/agent-gateway@${{ inputs.gateway_digest }}
+      FIXTURE_REF: ghcr.io/agent-guide/agent-gateway-a2a-fixture@${{ inputs.fixture_digest }}
+    steps:
+      # Keep runtime source and all existing artifacts on the original tag.
+      # Only packaging tools come from the dispatch revision.
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          path: .release-source
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: .release-source/go.mod
+          cache-dependency-path: .release-source/go.sum
+          cache: true
+      - name: Validate immutable source and successful prior gates
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]; then exit 1; fi
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > "$RUNNER_TEMP/source-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?per_page=100" > "$RUNNER_TEMP/source-jobs.json"
+          python3 scripts/verify-preview-resume.py \
+            "$RUNNER_TEMP/source-run.json" "$RUNNER_TEMP/source-jobs.json" \
+            "$RELEASE_TAG" "$(git -C .release-source rev-parse HEAD)" \
+            "$GATEWAY_REF" "$FIXTURE_REF" >> "$GITHUB_OUTPUT"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release already exists; refusing to replace published assets" >&2
+            exit 1
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+          pattern: release-archive-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+          name: release-source-sbom
+          path: dist
+      - uses: docker/setup-buildx-action@v3
+      - name: Verify unchanged public images
+        shell: bash
+        env:
+          SOURCE_COMMIT: ${{ steps.source.outputs.source_commit }}
+          VERSION: ${{ steps.source.outputs.version }}
+        run: |
+          set -euo pipefail
+          test "$(docker buildx imagetools inspect "$GATEWAY_IMAGE:$RELEASE_TAG" --format '{{.Manifest.Digest}}')" = "${GATEWAY_REF##*@}"
+          test "$(docker buildx imagetools inspect "$FIXTURE_IMAGE:$RELEASE_TAG" --format '{{.Manifest.Digest}}')" = "${FIXTURE_REF##*@}"
+          for ref in "$GATEWAY_REF" "$FIXTURE_REF"; do
+            docker pull "$ref"
+            test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$ref")" = "$SOURCE_COMMIT"
+            test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$ref")" = "$VERSION"
+          done
+      - name: Package and verify first-run from tagged source
+        env:
+          AGW_RELEASE_SOURCE_DIR: ${{ github.workspace }}/.release-source
+          VERSION: ${{ steps.source.outputs.version }}
+        run: |
+          ./scripts/package-first-run "$VERSION" "$GATEWAY_REF" "$FIXTURE_REF" dist
+          .release-source/scripts/verify-first-run-archive \
+            "dist/agent-gateway-first-run-v$VERSION.tar.gz" "$VERSION" "$GATEWAY_REF" "$FIXTURE_REF"
+      - name: Execute recovered first-run archive outside the checkout
+        env:
+          AGW_FIRST_RUN_ARCHIVE: ${{ github.workspace }}/dist/agent-gateway-first-run-v${{ steps.source.outputs.version }}.tar.gz
+          AGW_GATEWAY_IMAGE: ${{ env.GATEWAY_REF }}
+          AGW_FIXTURE_IMAGE: ${{ env.FIXTURE_REF }}
+        run: .release-source/scripts/smoke-first-run "${{ steps.source.outputs.version }}"
+      - name: Verify archive identities and generate checksums
+        env:
+          SOURCE_COMMIT: ${{ steps.source.outputs.source_commit }}
+          VERSION: ${{ steps.source.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, tarfile
+          version = os.environ['VERSION']
+          for target in ('linux-amd64', 'linux-arm64', 'darwin-amd64', 'darwin-arm64'):
+              name = f'agent-gateway-v{version}-{target}'
+              with tarfile.open(f'dist/{name}.tar.gz') as archive:
+                  metadata = json.load(archive.extractfile(f'{name}/RELEASE-METADATA.json'))
+              assert metadata['version'] == version
+              assert metadata['source_commit'] == os.environ['SOURCE_COMMIT']
+              assert metadata['target'] == dict(zip(('os', 'arch'), target.split('-')))
+          assert len(list(pathlib.Path('dist').glob('*.tar.gz'))) == 5
+          assert len(list(pathlib.Path('dist').glob('*.spdx.json'))) == 1
+          PY
+          (cd dist && find . -maxdepth 1 -name '*.tar.gz' -type f -print \
+            | sed 's|^./||' | LC_ALL=C sort | xargs sha256sum) > dist/SHA256SUMS
+          (cd dist && sha256sum -c SHA256SUMS)
+          cp ".release-source/docs/releases/$RELEASE_TAG.md" "$RUNNER_TEMP/release-notes.md"
+          printf '\nPublication resumed from [verified source run](https://github.com/%s/actions/runs/%s) with [packaging tools](https://github.com/%s/commit/%s). The original tag and runtime artifacts are unchanged.\n' \
+            "$GITHUB_REPOSITORY" "$SOURCE_RUN_ID" "$GITHUB_REPOSITORY" "$GITHUB_SHA" >> "$RUNNER_TEMP/release-notes.md"
+      - uses: actions/attest@v4
+        with:
+          subject-checksums: dist/SHA256SUMS
+      - uses: actions/attest@v4
+        with:
+          subject-path: dist/*.spdx.json
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          body_path: ${{ runner.temp }}/release-notes.md
+          prerelease: true
+          make_latest: "false"
+          files: |
+            dist/*.tar.gz
+            dist/*.spdx.json
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true
+      - name: Verify public release and replay first-run anonymously
+        env:
+          VERSION: ${{ steps.source.outputs.version }}
+          AGW_GATEWAY_IMAGE: ${{ env.GATEWAY_REF }}
+          AGW_FIXTURE_IMAGE: ${{ env.FIXTURE_REF }}
+        run: |
+          gh release download "$RELEASE_TAG" --dir "$RUNNER_TEMP/public-release"
+          (cd "$RUNNER_TEMP/public-release" && sha256sum -c SHA256SUMS)
+          AGW_FIRST_RUN_ARCHIVE="$RUNNER_TEMP/public-release/agent-gateway-first-run-v$VERSION.tar.gz" \
+            .release-source/scripts/smoke-first-run "$VERSION"

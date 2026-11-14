@@ -27,6 +27,20 @@ release notes. It publishes preview tags as GitHub prereleases with explicit
 version/SHA image tags, without moving GitHub's latest release or either
 container `latest`. Stable tags can advance `latest` after public verification.
 
+Before tagging, also run `make verify-first-run-archive` with immutable
+`GATEWAY_IMAGE_REF` and `FIXTURE_IMAGE_REF` values. Packaging pins those digests
+even when the source walkthrough defaults to a different stable version.
+
+Never move a tag that has become publicly downloadable. If the only failed
+release step is first-run packaging, the Release workflow's manual dispatch can
+resume a preview using the original run ID, tag and two verified image digests.
+Run it from a revision containing the packaging fix. Recovery verifies the
+original source/archive/image gates, retains the tagged runtime source and
+artifacts, checks the public image identities, rebuilds only the first-run
+archive, runs its full smoke, attests all assets and verifies public downloads
+and first-run replay. It refuses stable tags, previously published releases,
+other failed gates and changed source identities. It never promotes `latest`.
+
 Run the same non-mutating release gates used by CI from a clean checkout:
 
 ```bash

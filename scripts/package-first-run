@@ -36,7 +36,7 @@ validate_image_ref() {
 validate_image_ref ghcr.io/agent-guide/agent-gateway "$gateway_ref"
 validate_image_ref ghcr.io/agent-guide/agent-gateway-a2a-fixture "$fixture_ref"
 
-repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+repo=${AGW_RELEASE_SOURCE_DIR:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}
 source_dir="$repo/examples/first-run"
 archive_base="agent-gateway-first-run-v${version}"
 temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/agw-first-run-package.XXXXXX")
@@ -62,11 +62,11 @@ cp "$source_dir/observability/grafana/provisioning/dashboards/dashboards.yaml" \
 cp "$source_dir/observability/grafana/provisioning/datasources/datasources.yaml" \
 	"$stage/observability/grafana/provisioning/datasources/"
 
-sed \
-	-e "s|ghcr.io/agent-guide/agent-gateway:v${version}|$gateway_ref|g" \
-	-e "s|ghcr.io/agent-guide/agent-gateway-a2a-fixture:v${version}|$fixture_ref|g" \
+sed -E \
+	-e "s|ghcr[.]io/agent-guide/agent-gateway:v[0-9][0-9A-Za-z.-]*|$gateway_ref|g" \
+	-e "s|ghcr[.]io/agent-guide/agent-gateway-a2a-fixture:v[0-9][0-9A-Za-z.-]*|$fixture_ref|g" \
 	"$source_dir/compose.yaml" >"$stage/compose.yaml"
-sed "s|ghcr.io/agent-guide/agent-gateway:v${version}|$gateway_ref|g" \
+sed -E "s|ghcr[.]io/agent-guide/agent-gateway:v[0-9][0-9A-Za-z.-]*|$gateway_ref|g" \
 	"$source_dir/setup.sh" >"$stage/setup.sh"
 chmod 0755 "$stage"/*.sh
 

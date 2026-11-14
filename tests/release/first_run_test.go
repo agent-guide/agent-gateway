@@ -3,6 +3,7 @@ package release_test
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -13,6 +14,39 @@ import (
 )
 
 var prometheusMetricPattern = regexp.MustCompile(`agentgateway_[a-z_]+_total`)
+
+func TestFirstRunArchivePinsImagesAcrossVersions(t *testing.T) {
+	root := repositoryRoot(t)
+	output := t.TempDir()
+	// Source templates keep a stable default; packaging can target a new preview.
+	version := "0.8.0-preview.999"
+	gateway := "ghcr.io/agent-guide/agent-gateway@sha256:" + strings.Repeat("a", 64)
+	fixture := "ghcr.io/agent-guide/agent-gateway-a2a-fixture@sha256:" + strings.Repeat("b", 64)
+	cmd := exec.Command("sh", filepath.Join(root, "scripts", "package-first-run"), version, gateway, fixture, output)
+	cmd.Env = append(os.Environ(), "AGW_RELEASE_SOURCE_DIR="+root)
+	if logs, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("package preview: %v\n%s", err, logs)
+	}
+	archive := filepath.Join(output, "agent-gateway-first-run-v"+version+".tar.gz")
+	for file, refs := range map[string][]string{
+		"compose.yaml": {gateway, fixture},
+		"setup.sh":     {gateway},
+	} {
+		data, err := exec.Command("tar", "-xOf", archive, "agent-gateway-first-run-v"+version+"/"+file).Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, ref := range refs {
+			if !bytes.Contains(data, []byte(ref)) {
+				t.Errorf("%s did not pin %s", file, ref)
+			}
+		}
+		if bytes.Contains(data, []byte("ghcr.io/agent-guide/agent-gateway:v")) ||
+			bytes.Contains(data, []byte("ghcr.io/agent-guide/agent-gateway-a2a-fixture:v")) {
+			t.Errorf("%s retained a mutable version tag", file)
+		}
+	}
+}
 
 func TestFirstRunBundleIsLocallyValid(t *testing.T) {
 	root := repositoryRoot(t)

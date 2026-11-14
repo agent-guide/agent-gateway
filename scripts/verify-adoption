@@ -25,7 +25,7 @@ ORDERS_API_URL=https://orders.example.com \
 		-exec sh -c 'for bundle do "$0" validate -f "$bundle" || exit $?; done' "$agwctl" {} +
 
 go test "$repo/tests/release" \
-	-run 'TestDocumentationLinks|TestBilingualReadmeParity|TestBilingualWebsiteParity|TestReleaseFacingFilesArePortable|TestAdoptionRejectsInvalidExample|TestReleaseWorkflow' \
+	-run 'TestDocumentationLinks|TestBilingualReadmeParity|TestBilingualWebsiteParity|TestReleaseFacingFilesArePortable|TestAdoptionRejectsInvalidExample|TestReleaseWorkflow|TestFirstRunArchivePinsImagesAcrossVersions|TestPreviewResume' \
 	-count=1
 
 find "$repo/examples" "$repo/scripts" -type f -name '*.sh' -exec sh -n {} +
