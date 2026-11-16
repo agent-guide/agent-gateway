@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/agent-guide/agent-gateway/pkg/acp/hostconfig"
 	acptransport "github.com/agent-guide/agent-gateway/pkg/acp/transport"
 )
@@ -270,7 +272,10 @@ func (m *Manager) ServeConfiguredTurn(ctx context.Context, ownerID string, runti
 	return m.serveTurn(ctx, cfg, req, emit, true)
 }
 
-func (m *Manager) serveTurn(ctx context.Context, cfg hostconfig.Config, req TurnRequest, emit EventSink, enforceOwnerFingerprint bool) error {
+func (m *Manager) serveTurn(ctx context.Context, cfg hostconfig.Config, req TurnRequest, emit EventSink, enforceOwnerFingerprint bool) (turnErr error) {
+	finish := diagnosticPhase(ctx, "turn", zap.String("session_id", req.SessionID), zap.Bool("fresh_session", req.FreshSession), zap.String("agent_type", cfg.AgentType))
+	var diagnosticErr error
+	defer func() { finish(errors.Join(turnErr, diagnosticErr)) }()
 	req.ThreadID = strings.TrimSpace(req.ThreadID)
 	req.SessionID = strings.TrimSpace(req.SessionID)
 	req.Input = strings.TrimSpace(req.Input)
@@ -309,7 +314,9 @@ func (m *Manager) serveTurn(ctx context.Context, cfg hostconfig.Config, req Turn
 	}
 	defer release()
 
+	resolved := diagnosticPhase(ctx, "resolve instance")
 	inst, err := m.resolveInstanceForOwner(ctx, scope, cfg, req, enforceOwnerFingerprint)
+	resolved(err)
 	if err != nil {
 		return err
 	}
@@ -319,6 +326,9 @@ func (m *Manager) serveTurn(ctx context.Context, cfg hostconfig.Config, req Turn
 		}
 	}
 	stopReason, err := inst.prompt(ctx, req, emit)
+	if stopReason == "cancelled" {
+		diagnosticErr = cancelledDiagnosticError(ctx)
+	}
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return ErrTurnCancelled
@@ -485,6 +495,7 @@ func (m *Manager) resolveInstanceForOwner(ctx context.Context, scope string, cfg
 			item.lastUsed = time.Now().UTC()
 			inst := item.instance
 			m.mu.Unlock()
+			diagnostic(ctx, "instance reused", zap.String("session_id", inst.sessionID))
 			return inst, nil
 		}
 		delete(m.instances, scope)
@@ -493,6 +504,7 @@ func (m *Manager) resolveInstanceForOwner(ctx context.Context, scope string, cfg
 		_ = stale.close()
 	} else if inst := m.adoptSessionInstanceLocked(scope, fingerprint, cfg, req); inst != nil {
 		m.mu.Unlock()
+		diagnostic(ctx, "instance adopted", zap.String("session_id", inst.sessionID))
 		return inst, nil
 	} else {
 		if cfg.MaxInstances > 0 && m.ownerInstanceCountLocked(cfg.OwnerID) >= cfg.MaxInstances {
@@ -502,6 +514,7 @@ func (m *Manager) resolveInstanceForOwner(ctx context.Context, scope string, cfg
 		m.mu.Unlock()
 	}
 
+	diagnostic(ctx, "instance creating")
 	inst, err := newInstance(ctx, cfg, req, m.permissions, m.notifyObserver)
 	if err != nil {
 		return nil, err

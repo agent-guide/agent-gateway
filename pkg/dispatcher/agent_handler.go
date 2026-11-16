@@ -8,9 +8,11 @@ import (
 	"net/url"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
+	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
@@ -189,6 +191,12 @@ func (h *Handler) serveAgentTurn(w http.ResponseWriter, r *http.Request, backend
 	r = r.WithContext(bindRuntimeRequestContext(r.Context(), a.ID, a.Runtime.Type, req.RunID, req.SessionID, permissionRequestID(req.Permission)))
 	usage.SpanFromContext(r.Context()).SetExtension(usage.CommonExtension{AgentID: a.ID, RuntimeType: a.Runtime.Type, RunID: req.RunID})
 	logRequestPhase(h.logger, "dispatcher: agent run initialized", r)
+	if a.Runtime.Type == agentpkg.RuntimeTypeACP {
+		dims, _ := usage.DimensionsFromContext(r.Context())
+		logger := h.logger.With(zap.String("agent_id", a.ID), zap.String("runtime_type", a.Runtime.Type),
+			zap.String("run_id", req.RunID), zap.String("trace_id", dims.TraceID), zap.String("span_id", dims.SpanID))
+		r = r.WithContext(acphost.WithDiagnosticLogger(r.Context(), logger))
+	}
 
 	// SSE headers are written lazily on the first event so synchronous backend
 	// validation failures return real HTTP status codes; mid-stream failures
@@ -221,7 +229,10 @@ func (h *Handler) serveAgentTurn(w http.ResponseWriter, r *http.Request, backend
 		}
 		return next(ev)
 	}
+	segmentStart := time.Now()
 	result, serveErr := sequencer.ServeSegment(r.Context(), backend, a, req, emit)
+	logRequestPhase(h.logger, "dispatcher: agent run completed", r,
+		zap.Int64("duration_ms", time.Since(segmentStart).Milliseconds()), zap.Bool("success", serveErr == nil && outcome.Load().(string) != "cancelled" && outcome.Load().(string) != "error"), zap.String("outcome", outcome.Load().(string)))
 	if serveErr != nil {
 		setAgentOperationExtension(r.Context(), a, "turn", req.SessionID, "error")
 		code, _ := agentexecution.ErrorCodeOf(serveErr)

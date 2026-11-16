@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"go.uber.org/zap"
+
 	baseacp "github.com/agent-guide/agent-gateway/pkg/acp"
 	"github.com/agent-guide/agent-gateway/pkg/acp/agentspi"
 	"github.com/agent-guide/agent-gateway/pkg/acp/host/acpupdate"
@@ -43,6 +45,7 @@ type instance struct {
 	permissions *permissionBroker
 	emitMu      sync.Mutex
 	turnEmit    EventSink
+	turnContext context.Context
 }
 
 func (i *instance) setTurnSink(emit EventSink) {
@@ -141,7 +144,9 @@ func newInstance(ctx context.Context, cfg hostconfig.Config, req TurnRequest, pe
 		return nil, err
 	}
 	inst := &instance{cfg: cfg, cwd: cwd, model: model, sessionID: strings.TrimSpace(req.SessionID), agent: agent, permissions: permissions}
+	opened := diagnosticPhase(ctx, "process open")
 	t, err := agent.Open(ctx, acptransport.Handlers{Permission: inst.permissionFunc()})
+	opened(err)
 	if err != nil {
 		return nil, err
 	}
@@ -159,10 +164,14 @@ func newInstance(ctx context.Context, cfg hostconfig.Config, req TurnRequest, pe
 	// the client disconnects. Streaming (prompt) is intentionally not bounded.
 	setupCtx, cancel := context.WithTimeout(ctx, initializeTimeout)
 	defer cancel()
+	initialized := diagnosticPhase(ctx, "initialize session")
 	if err := inst.initialize(setupCtx, req.FreshSession); err != nil {
+		initialized(err)
 		_ = inst.close()
 		return nil, err
 	}
+	initialized(nil)
+	diagnostic(ctx, "session ready", zap.String("session_id", inst.sessionID))
 	return inst, nil
 }
 
@@ -198,7 +207,7 @@ func (i *instance) consumeMetadata(updates <-chan acptransport.Message) {
 }
 
 func (i *instance) initialize(ctx context.Context, fresh bool) error {
-	if _, err := i.t.Request(ctx, "initialize", i.agent.InitializeParams()); err != nil {
+	if _, err := i.request(ctx, "initialize", i.agent.InitializeParams()); err != nil {
 		return fmt.Errorf("initialize: %w", err)
 	}
 	if i.sessionID != "" && !fresh {
@@ -216,14 +225,14 @@ func (i *instance) initialize(ctx context.Context, fresh bool) error {
 				boundID = strings.TrimSpace(resolvedBoundID)
 			}
 		}
-		if _, err := i.t.Request(ctx, "session/load", i.agent.SessionLoadParams(loadID)); err != nil {
+		if _, err := i.request(ctx, "session/load", i.agent.SessionLoadParams(loadID)); err != nil {
 			return fmt.Errorf("session/load: %w", err)
 		}
 		i.rawSessionID = loadID
 		i.sessionID = boundID
 		return nil
 	}
-	result, err := i.t.Request(ctx, "session/new", i.agent.SessionNewParams(i.model))
+	result, err := i.request(ctx, "session/new", i.agent.SessionNewParams(i.model))
 	if err != nil {
 		return fmt.Errorf("session/new: %w", err)
 	}
@@ -275,7 +284,9 @@ func (i *instance) resolveStableSessionID(ctx context.Context, emit EventSink) {
 		i.stablePending = false
 		return
 	}
+	resolved := diagnosticPhase(ctx, "resolve stable session")
 	bound, err := resolver.ResolveBoundSessionID(ctx, i.t, i.cwd, i.rawSessionID)
+	resolved(err)
 	if err != nil || strings.TrimSpace(bound) == "" {
 		return
 	}
@@ -448,7 +459,7 @@ func (i *instance) applyConfigOverrides(ctx context.Context, overrides map[strin
 		if id == "" {
 			continue
 		}
-		if _, err := i.t.Request(ctx, "session/set_config_option", map[string]any{
+		if _, err := i.request(ctx, "session/set_config_option", map[string]any{
 			"sessionId": i.protocolSessionID(),
 			"configId":  id,
 			"value":     value,
@@ -472,7 +483,7 @@ func (i *instance) applySessionModel(ctx context.Context) error {
 	if !ok {
 		return nil
 	}
-	if _, err := selector.SelectSessionModel(ctx, i.t, i.protocolSessionID(), i.model, nil); err != nil {
+	if _, err := selector.SelectSessionModel(ctx, diagnosticTransport{Transport: i.t, instance: i}, i.protocolSessionID(), i.model, nil); err != nil {
 		return fmt.Errorf("select session model: %w", err)
 	}
 	return nil
@@ -494,10 +505,42 @@ var postResultIdleGrace = 250 * time.Millisecond
 // model selection). It is a var so tests can shorten it.
 var initializeTimeout = 30 * time.Second
 
-func (i *instance) prompt(ctx context.Context, req TurnRequest, emit EventSink) (string, error) {
+func (i *instance) prompt(ctx context.Context, req TurnRequest, emit EventSink) (stop string, promptErr error) {
+	counts := map[string]int{}
+	lastUpdate := time.Now()
+	defer func() {
+		err := promptErr
+		if stop == "cancelled" {
+			err = errors.Join(err, cancelledDiagnosticError(ctx))
+		}
+		diagnostic(ctx, "prompt finished", zap.String("session_id", i.sessionID), zap.Any("event_counts", counts), zap.Bool("success", err == nil), zap.Bool("cancelled", errors.Is(err, context.Canceled)), zap.Bool("deadline_exceeded", errors.Is(err, context.DeadlineExceeded)))
+	}()
+	i.emitMu.Lock()
+	i.turnContext = ctx
+	i.emitMu.Unlock()
+	defer func() { i.emitMu.Lock(); i.turnContext = nil; i.emitMu.Unlock() }()
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
 	// Serialize sink writes (the interactive permission handler emits from the
 	// transport goroutine) and register the sink for the duration of the turn
 	// so permission requests can reach this turn's client.
+	if emit != nil {
+		next := emit
+		firstWrites := map[string]bool{}
+		emit = func(ev TurnEvent) error {
+			first := !firstWrites[ev.Event]
+			firstWrites[ev.Event] = true
+			if first {
+				diagnostic(ctx, "client event started", zap.String("event_kind", ev.Event))
+			}
+			start := time.Now()
+			err := next(ev)
+			if first || time.Since(start) >= time.Second || err != nil {
+				diagnostic(ctx, "client write", zap.String("event_kind", ev.Event), zap.Int64("duration_ms", time.Since(start).Milliseconds()), zap.Bool("success", err == nil))
+			}
+			return err
+		}
+	}
 	emit = lockedEventSink(emit)
 	i.setTurnSink(emit)
 	defer i.setTurnSink(nil)
@@ -518,23 +561,47 @@ func (i *instance) prompt(ctx context.Context, req TurnRequest, emit EventSink) 
 		}
 	}
 	// Per-turn config overrides apply to the (shared) session before the prompt.
+	overrides := diagnosticPhase(ctx, "turn config overrides")
 	if err := i.applyConfigOverrides(ctx, req.ConfigOverrides); err != nil {
+		overrides(err)
 		return "", err
 	}
+	overrides(nil)
 	updates, unsubscribe := i.t.Updates(256)
 	defer unsubscribe()
 
 	done := make(chan promptResult, 1)
 	go func() {
-		raw, err := i.t.Request(ctx, "session/prompt", i.agent.PromptParams(i.protocolSessionID(), req.Input, firstNonEmpty(strings.TrimSpace(req.Model), i.model)))
+		raw, err := i.request(ctx, "session/prompt", i.agent.PromptParams(i.protocolSessionID(), req.Input, firstNonEmpty(strings.TrimSpace(req.Model), i.model)))
 		done <- promptResult{stopReason: parseStopReason(raw), err: err}
 	}()
 
 	emitUpdate := func(msg acptransport.Message) error {
-		if emit == nil || msg.Method != "session/update" {
+		if msg.Method != "session/update" {
 			return nil
 		}
+		lastUpdate = time.Now()
 		for _, ev := range acpupdate.Parse(msg.Params) {
+			kind := string(ev.Kind)
+			counts[kind]++
+			if counts[kind] == 1 {
+				diagnostic(ctx, "first update", zap.String("event_kind", kind), zap.String("session_id", i.sessionID))
+			}
+			if ev.Kind == acpupdate.KindToolCall {
+				var tool struct {
+					Status string `json:"status"`
+				}
+				_ = json.Unmarshal(ev.Data, &tool)
+				switch tool.Status {
+				case "pending", "in_progress", "completed", "failed":
+				default:
+					tool.Status = "unknown"
+				}
+				diagnostic(ctx, "tool update", zap.String("tool_status", tool.Status), zap.Int("tool_update_count", counts[kind]))
+			}
+			if emit == nil {
+				continue
+			}
 			if ev.Kind == acpupdate.KindReasoning && !i.acceptReasoning(msg.Params) {
 				continue
 			}
@@ -561,7 +628,10 @@ func (i *instance) prompt(ctx context.Context, req TurnRequest, emit EventSink) 
 
 	for {
 		select {
+		case <-ticker.C:
+			diagnostic(ctx, "prompt waiting", zap.Bool("result_received", resultReceived), zap.Int64("since_last_update_ms", time.Since(lastUpdate).Milliseconds()), zap.Any("event_counts", counts), zap.String("session_id", i.sessionID))
 		case <-ctx.Done():
+			diagnostic(ctx, "prompt cancelled")
 			// Exact-run cancellation writes session/cancel before cancelling
 			// the context. Do not emit a second native frame when that marked
 			// cancellation reaches the prompt loop. Ordinary parent timeout or
@@ -578,6 +648,7 @@ func (i *instance) prompt(ctx context.Context, req TurnRequest, emit EventSink) 
 				stopReason = res.stopReason
 			}
 			resultReceived = true
+			diagnostic(ctx, "result drain started")
 			// The turn's updates are expected to precede the session/prompt
 			// result, but agents race the two in practice (observed live: the
 			// real opencode binary can deliver the final agent_message_chunk
@@ -730,26 +801,40 @@ func (i *instance) permissionFunc() func(context.Context, json.RawMessage) acptr
 
 func (i *instance) interactivePermission(ctx context.Context, params json.RawMessage) acptransport.PermissionResponse {
 	cancelled := acptransport.PermissionResponse{Outcome: acptransport.PermissionOutcomeCancelled}
+	i.emitMu.Lock()
+	diagnosticCtx := i.turnContext
+	i.emitMu.Unlock()
+	if diagnosticCtx == nil {
+		diagnosticCtx = ctx
+	}
+	finish := diagnosticPhase(diagnosticCtx, "permission wait")
+	var waitErr error
+	defer func() { finish(waitErr) }()
 	emit := i.turnSink()
 	if emit == nil || i.permissions == nil {
 		// No streaming turn client to ask — fail closed.
+		waitErr = errors.New("permission client unavailable")
 		return cancelled
 	}
 	pending, err := i.permissions.create(i.cfg.OwnerID, i.sessionID, params)
 	if err != nil {
+		waitErr = err
 		return cancelled
 	}
 	defer i.permissions.remove(pending.info.RequestID)
 	expiresAt, _ := ctx.Deadline()
 	if err := emit(TurnEvent{Event: "permission", RequestID: pending.info.RequestID, SessionID: i.sessionID, PermissionExpiresAt: expiresAt, Data: params}); err != nil {
+		waitErr = err
 		return cancelled
 	}
 	select {
 	case resp := <-pending.decision:
+		diagnostic(diagnosticCtx, "permission decision", zap.String("outcome", resp.Outcome))
 		return resp
 	case <-ctx.Done():
 		// The transport's fail-closed permission timeout (or teardown) fired
 		// before the client answered.
+		waitErr = ctx.Err()
 		return cancelled
 	}
 }

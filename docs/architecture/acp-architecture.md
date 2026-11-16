@@ -80,6 +80,38 @@ Exact cancellation sends `session/cancel` to only that run. ACP thread close is
 a separate destructive recovery action and must not substitute for ordinary
 run cancellation.
 
+## Request Diagnostics
+
+With DEBUG module logging enabled, ACP AgentRoute turns emit request-scoped
+`acp:` records through the dispatcher's logger in both hosts. Records carry
+`agent_id`, `run_id`, `trace_id`, and `span_id`; session-related records also
+carry `session_id`. The explicit `timestamp` is RFC3339 UTC (ending in `Z`),
+independent of the logger's console timestamp format. `elapsed_ms` measures
+monotonic elapsed time from diagnostic context creation, and completed phases
+include `duration_ms`, `success`, `cancelled`, and `deadline_exceeded`.
+
+Records distinguish instance creation/reuse/adoption, process opening, session
+initialization (including adapter-owned model selection requests), individual ACP
+requests (`initialize`, `session/new`,
+`session/load`, `session/set_config_option`, `session/prompt`), per-turn config
+overrides, first updates by kind, tool status updates, interactive permission
+waits, post-result draining, deferred stable-session lookup, and turn completion.
+Permission wait completion reports delivery/setup failures separately from context
+cancellation and deadline expiry.
+The prompt loop emits a waiting record every ten seconds with event counts and
+time since the last session update. These are host-observed updates, not a
+measurement of provider time inside the subprocess. The first client write for
+each event kind is logged before and after delivery; subsequent writes are
+logged if they fail or take at least one second. A blocked synchronous write or
+setup operation does not produce prompt-loop waiting records.
+
+Logs contain no prompt/reply text, tool arguments/results, credentials,
+permission payloads, or raw upstream errors. Tool diagnostics retain only the
+allowlisted status and update count. Filter logs by `run_id` to compare phase
+boundaries; runtime/permission Admin APIs provide live state, while transcripts
+provide message history without a detailed timing timeline. Historical phase
+records exist only for requests handled after this instrumentation is deployed.
+
 ## Permissions
 
 Interactive permissions are fail-closed. Agent-bound requests are registered
