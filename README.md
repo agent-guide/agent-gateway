@@ -322,6 +322,13 @@ HTTP API tools can be configured without an upstream MCP server. See the
 [HTTP API connector guide](docs/guides/http-api-connectors.md) and
 [connector runtime architecture](docs/architecture/connectors.md). MCP ingress
 request, cancellation and progress tracking lives in `pkg/mcp/tracking`; shared
+Connector destinations are trusted by default, including HTTP and internal
+addresses. Optional host `connector_egress` mode `public_only` restricts both
+HTTP API and MCP HTTP/SSE to public HTTPS 443 plus exact `allow_origin` exceptions.
+Standalone uses `--connector-egress-mode public_only` and repeatable
+`--connector-egress-allow-origin` flags. See the guide above for configuration
+and migration from the removed HTTP-only policy file.
+
 Connector execution contracts live in `pkg/connector/runtime`. The parallel
 `pkg/connector/mcp` and `pkg/connector/httpapi` packages own upstream execution;
 Connector Manager owns shared admission and configuration changes. Builtin and

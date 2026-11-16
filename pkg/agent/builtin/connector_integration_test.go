@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,6 +18,7 @@ import (
 	configschema "github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
 	"github.com/agent-guide/agent-gateway/pkg/connector"
+	"github.com/agent-guide/agent-gateway/pkg/connector/egress"
 	"github.com/agent-guide/agent-gateway/pkg/connector/httpapi"
 	"github.com/cloudwego/eino/schema"
 )
@@ -135,8 +135,7 @@ func TestHTTPConnectorApprovalAndObservation(t *testing.T) {
 			}
 			store, _ := backend.Get(configschema.StoreConnectors)
 			manager := connector.NewManager(store)
-			p := httpapi.DefaultPolicy()
-			p.Rules = []httpapi.Rule{{Action: "allow", Schemes: []string{"http"}, Hosts: []string{"127.0.0.1"}, Ports: []int{server.Listener.Addr().(*net.TCPAddr).Port}, CIDRs: []string{"127.0.0.1/32"}}}
+			p := egress.Policy{}
 			engine, err := httpapi.NewEngine(p, nil)
 			if err != nil {
 				t.Fatal(err)

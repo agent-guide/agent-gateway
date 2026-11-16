@@ -14,6 +14,7 @@ import (
 	"slices"
 	"syscall"
 
+	"github.com/agent-guide/agent-gateway/pkg/connector/egress"
 	"github.com/agent-guide/agent-gateway/pkg/dispatcher"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"github.com/agent-guide/agent-gateway/standalone/server"
@@ -37,7 +38,7 @@ type ServerOptions struct {
 	CredentialRefreshCommand string
 	CredentialRefreshArgs    []string
 	AdminBasicAuthHash       string
-	HTTPAPIPolicyFile        string
+	ConnectorEgress          egress.Policy
 	Metrics                  distribution.MetricsConfig
 	MaxLLMRequestBodyBytes   int64
 }
@@ -49,6 +50,7 @@ func NewCommand(assembly Options) *cobra.Command {
 	opts := assembly.Server
 	opts.ProviderTypes = slices.Clone(opts.ProviderTypes)
 	opts.CredentialRefreshArgs = slices.Clone(opts.CredentialRefreshArgs)
+	opts.ConnectorEgress = opts.ConnectorEgress.Clone()
 	opts.Metrics.OTLP.Headers = maps.Clone(opts.Metrics.OTLP.Headers)
 	if opts.Addr == "" {
 		opts.Addr = "127.0.0.1:8080"
@@ -80,7 +82,7 @@ func NewCommand(assembly Options) *cobra.Command {
 			defer stop()
 			return server.Run(ctx, server.Options{
 				MaxLLMRequestBodyBytes: opts.MaxLLMRequestBodyBytes,
-				Registry:               registry, Assembly: assembly.Assembly, Addr: opts.Addr, AdminAddr: opts.AdminAddr, ConfigStorePath: opts.ConfigStorePath, StaticConfigPath: opts.StaticConfigPath, ProviderTypes: opts.ProviderTypes, CredentialRefreshCommand: opts.CredentialRefreshCommand, CredentialRefreshArgs: opts.CredentialRefreshArgs, AdminBasicAuthHash: opts.AdminBasicAuthHash, Metrics: opts.Metrics, HTTPAPIPolicyFile: opts.HTTPAPIPolicyFile,
+				Registry:               registry, Assembly: assembly.Assembly, Addr: opts.Addr, AdminAddr: opts.AdminAddr, ConfigStorePath: opts.ConfigStorePath, StaticConfigPath: opts.StaticConfigPath, ProviderTypes: opts.ProviderTypes, CredentialRefreshCommand: opts.CredentialRefreshCommand, CredentialRefreshArgs: opts.CredentialRefreshArgs, AdminBasicAuthHash: opts.AdminBasicAuthHash, Metrics: opts.Metrics, ConnectorEgress: opts.ConnectorEgress,
 			})
 		},
 	}
@@ -93,7 +95,8 @@ func NewCommand(assembly Options) *cobra.Command {
 	rootCmd.Flags().StringArrayVar(&opts.ProviderTypes, "provider-type", opts.ProviderTypes, "provider type enabled for this process; repeat to allow multiple types")
 	rootCmd.Flags().StringVar(&opts.CredentialRefreshCommand, "credential-refresh-command", opts.CredentialRefreshCommand, "external credential refresh executable (default: agw-auth)")
 	rootCmd.Flags().StringArrayVar(&opts.CredentialRefreshArgs, "credential-refresh-arg", opts.CredentialRefreshArgs, "static argument for the credential refresh executable; repeat as needed (default: refresh)")
-	rootCmd.Flags().StringVar(&opts.HTTPAPIPolicyFile, "http-api-policy-file", opts.HTTPAPIPolicyFile, "local HTTP API connector egress policy JSON file")
+	rootCmd.Flags().StringVar(&opts.ConnectorEgress.Mode, "connector-egress-mode", opts.ConnectorEgress.Mode, "connector egress mode: unrestricted (default) or public_only")
+	rootCmd.Flags().StringArrayVar(&opts.ConnectorEgress.AllowOrigins, "connector-egress-allow-origin", opts.ConnectorEgress.AllowOrigins, "exact HTTP(S) origin allowed by connector egress policy; repeat as needed")
 	rootCmd.Flags().IntVar(&opts.Metrics.RetentionDays, "metrics-retention-days", opts.Metrics.RetentionDays, "retention window in days for persisted usage events")
 	rootCmd.Flags().IntVar(&opts.Metrics.MaxAgentDepth, "max-agent-depth", opts.Metrics.MaxAgentDepth, "maximum inbound X-Agent-Depth allowed before rejecting a request; 0 disables enforcement")
 	rootCmd.Flags().StringVar(&opts.Metrics.OTLP.Endpoint, "metrics-otlp-endpoint", opts.Metrics.OTLP.Endpoint, "OTLP collector endpoint (host:port or URL) for exporting usage events as spans; empty disables export")

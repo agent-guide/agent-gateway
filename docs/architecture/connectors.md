@@ -46,13 +46,20 @@ history; it owns no upstream execution or sessions. Admin inspection keeps
 belong to `pkg/connector/mcp`; stored Connector JSON and Admin payloads retain
 their existing shape.
 
-Both hosts accept the local `http_api_policy_file` setting (standalone flag
-`--http-api-policy-file`). The default permits public HTTPS on port 443.
-Explicit policies can grant internal endpoints. Each invocation resolves and
-checks every DNS address, dials an admitted address and verifies the peer.
-Per-call transports disable connection reuse, proxies, redirects, compression
-and cookies. Coordinated global/connector admission counts waiting time against
-the call deadline without reserving active slots for queued work.
+Both hosts accept a shared `connector_egress` policy. Its default `unrestricted`
+mode trusts administrator-configured HTTP(S) destinations, including internal
+addresses and custom ports. Optional `public_only` mode permits public HTTPS 443
+plus exact `allow_origins` exceptions. Caddy uses a `connector_egress` block/JSON
+field; standalone uses `--connector-egress-mode` and repeatable
+`--connector-egress-allow-origin`. There is no policy file or CIDR selector.
+`pkg/connector/egress` provides shared destination and DNS admission for HTTP API
+and MCP HTTP/SSE. Every request checks all DNS answers, dials an admitted IP and
+verifies the peer; MCP redirects and SSE POST requests use the same guard. MCP
+stdio is outside network policy. Host reload/restart replaces policy generations.
+Per-request transports disable connection reuse and proxies. HTTP tools also
+reject redirects, compression and cookie state. HTTP global/per-connector
+admission keeps fixed defaults of 128/16 active and 256/32 queued; waiting time
+counts against the call deadline without reserving active slots.
 
 HTTP credentials reference one explicit `api_key` credential with exact scope
 `connector:<id>` and empty Provider fields. Missing or revoked credentials do

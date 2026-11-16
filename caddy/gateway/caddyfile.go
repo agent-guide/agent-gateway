@@ -62,9 +62,33 @@ func parseApp(d *caddyfile.Dispenser, existingVal any) (any, error) {
 			if err := parseRoute(d, app); err != nil {
 				return nil, err
 			}
-		case "http_api_policy_file":
-			if !d.AllArgs(&app.HTTPAPIPolicyFile) {
+		case "connector_egress":
+			if d.NextArg() {
 				return nil, d.ArgErr()
+			}
+			seenMode := false
+			for d.NextBlock(1) {
+				switch d.Val() {
+				case "mode":
+					if seenMode || !d.AllArgs(&app.ConnectorEgress.Mode) {
+						return nil, d.ArgErr()
+					}
+					seenMode = true
+				case "allow_origin":
+					var origin string
+					if !d.AllArgs(&origin) {
+						return nil, d.ArgErr()
+					}
+					app.ConnectorEgress.AllowOrigins = append(app.ConnectorEgress.AllowOrigins, origin)
+				default:
+					return nil, d.Errf("unknown connector_egress subdirective: %s", d.Val())
+				}
+				if d.NextBlock(2) {
+					return nil, d.Err("connector_egress options do not accept blocks")
+				}
+			}
+			if err := app.ConnectorEgress.Validate(); err != nil {
+				return nil, d.Err(err.Error())
 			}
 		case "metrics":
 			if err := parseMetrics(d, app); err != nil {

@@ -11,6 +11,7 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/extensionstore"
 	runtimebackend "github.com/agent-guide/agent-gateway/pkg/agent/runtimebackend"
 	"github.com/agent-guide/agent-gateway/pkg/attribution"
+	"github.com/agent-guide/agent-gateway/pkg/connector/egress"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"github.com/agent-guide/agent-gateway/pkg/event"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
@@ -42,7 +43,7 @@ import (
 
 type BootstrapOptions struct {
 	HTTPClientObserver   func(context.Context, httpapi.HTTPExecution, time.Time)
-	HTTPAPIPolicyFile    string
+	ConnectorEgress      egress.Policy
 	EventPublisher       event.Publisher
 	ExtensionRegistry    *extension.Registry
 	Distribution         distribution.Assembly
@@ -118,6 +119,9 @@ func NewAgentGateway() *AgentGateway {
 }
 
 func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) error {
+	if err := opts.ConnectorEgress.Validate(); err != nil {
+		return err
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.control = &controlPlane{backend: opts.ConfigStoreBackend, credentials: opts.CredentialManager}
@@ -595,10 +599,7 @@ func (g *AgentGateway) configureConnectorManager(ctx context.Context, opts Boots
 	if err != nil {
 		return err
 	}
-	policy, err := httpapi.LoadPolicy(opts.HTTPAPIPolicyFile)
-	if err != nil {
-		return err
-	}
+	policy := opts.ConnectorEgress
 	engine, err := httpapi.NewEngine(policy, opts.CredentialManager)
 	if err != nil {
 		return err
@@ -610,6 +611,9 @@ func (g *AgentGateway) configureConnectorManager(ctx context.Context, opts Boots
 	g.connectorManager = connectorpkg.NewManager(store)
 	engine.Observe = opts.HTTPClientObserver
 	g.connectorManager.ConfigureHTTP(engine)
+	if err := g.connectorManager.ConfigureEgress(policy); err != nil {
+		return err
+	}
 	g.control.connectors = g.connectorManager
 	g.connectorManager.Guard = g.control.connectorMutation
 	return g.connectorManager.Refresh(ctx)

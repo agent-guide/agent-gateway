@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -13,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/agent-guide/agent-gateway/internal/strictjson"
+	"github.com/agent-guide/agent-gateway/pkg/connector/egress"
 	cred "github.com/agent-guide/agent-gateway/pkg/credential/model"
 )
 
@@ -31,9 +31,7 @@ func testCatalog(t *testing.T, base string, extra string) *Catalog {
 }
 func localEngine(t *testing.T, server *httptest.Server, credentials CredentialReader) *Engine {
 	t.Helper()
-	p := DefaultPolicy()
-	port := server.Listener.Addr().(*net.TCPAddr).Port
-	p.Rules = []Rule{{Action: "allow", Schemes: []string{"http"}, Hosts: []string{"127.0.0.1"}, Ports: []int{port}, CIDRs: []string{"127.0.0.1/32"}}}
+	p := egress.Policy{}
 	e, err := NewEngine(p, credentials)
 	if err != nil {
 		t.Fatal(err)
@@ -174,7 +172,7 @@ func (mixedResolver) LookupNetIP(context.Context, string, string) ([]netip.Addr,
 }
 func TestMixedDNSDeniedBeforeHTTP(t *testing.T) {
 	cat := testCatalog(t, "https://example.com", "")
-	e, _ := NewEngine(DefaultPolicy(), nil)
+	e, _ := NewEngine(egress.Policy{Mode: "public_only"}, nil)
 	defer e.Close()
 	e.resolver = mixedResolver{}
 	ctx, summary := capture(context.Background())
@@ -203,5 +201,42 @@ func TestSchemaStrictnessAndNumericSemantics(t *testing.T) {
 		if (s.Validate(v) == nil) != want {
 			t.Fatalf("numeric validation: %s", raw)
 		}
+	}
+}
+
+func TestHTTPConnectorEgressRestrictionAndException(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{}`)
+	}))
+	defer server.Close()
+	cat := testCatalog(t, server.URL, "")
+	p := egress.Policy{Mode: "public_only"}
+	engine, err := NewEngine(p, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	if engine.CanAdmit(cat) {
+		t.Fatal("restricted HTTP destination admitted")
+	}
+	_, err = engine.call(t.Context(), "orders", cat, "lookup", map[string]any{"id": "1"})
+	if err == nil || calls.Load() != 0 {
+		t.Fatalf("restricted HTTP sent: %v calls=%d", err, calls.Load())
+	}
+	p.AllowOrigins = []string{server.URL}
+	if err := engine.Reload(p); err != nil {
+		t.Fatal(err)
+	}
+	if !engine.CanAdmit(cat) {
+		t.Fatal("explicit HTTP origin rejected")
+	}
+	if _, err := engine.call(t.Context(), "orders", cat, "lookup", map[string]any{"id": "1"}); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("allowed HTTP calls=%d", calls.Load())
 	}
 }

@@ -36,14 +36,49 @@ allowing route `orders-tools` for external clients. Ingress VirtualKeys and
 business-API credentials are separate. HTTP connectors advertise tools only;
 resources, prompts and upstream sessions are unsupported.
 
-Public HTTPS on port 443 works under the default host policy. For an internal
-endpoint, supply an explicit local JSON policy with exact scheme, host, port
-and CIDR grants through Caddy `http_api_policy_file` or standalone
-`--http-api-policy-file`. Connector creation and execution-configuration updates
-reject destinations that the host policy cannot admit. At execution time, DNS
-answers are checked again against the address policy; any denied address fails
-the call before HTTP transmission. Admission at creation does not bypass these
-execution-time checks.
+Connector destinations are trusted by default: HTTP, HTTPS, custom ports and
+internal addresses work without a policy file. Connector management must be
+restricted to trusted administrators. Upstream credentials and ingress
+VirtualKeys are independent of this network policy.
+
+For a restricted deployment, enable the host-owned `connector_egress` policy.
+It applies equally to HTTP API connectors and MCP HTTP/SSE connections:
+
+```caddyfile
+agent_gateway {
+    connector_egress {
+        mode public_only
+        allow_origin http://orders.internal:8080
+        allow_origin https://mcp.internal
+    }
+}
+```
+
+Caddy JSON uses `"connector_egress": {"mode": "public_only", "allow_origins":
+["http://orders.internal:8080", "https://mcp.internal"]}`. Standalone uses
+`--connector-egress-mode public_only` with repeatable
+`--connector-egress-allow-origin http://orders.internal:8080` flags.
+
+Omitted mode or `unrestricted` permits all administrator-configured HTTP(S)
+destinations. `public_only` permits public HTTPS on port 443; each `allow_origin`
+grants an exact scheme, host and effective port, including access to private
+addresses. Paths, credentials, queries, fragments and wildcards are not origin
+selectors. No CIDR configuration is needed. Hostnames are case-insensitive and
+omitted ports use 80/443. IPv6 literal origins use brackets.
+
+Connector creation and execution-configuration updates check destination
+admission without DNS. Each network request resolves DNS again, checks every
+answer and dials an admitted address directly, including MCP redirects and SSE
+POST endpoints. HTTP API tools continue to reject redirects. MCP stdio execution
+is outside this network policy. Connector/Agent/Bundle/Admin configuration cannot
+relax host policy. Invalid policy fails host preparation. Apply policy changes
+through host reload or restart.
+
+When upgrading, remove `http_api_policy_file` / `--http-api-policy-file` and
+translate required destinations into `allow_origin` entries. The old policy
+file schema is removed. HTTP execution/queue limits retain fixed defaults:
+128/256 globally and 16/32 per connector. The new default allows internal
+addresses; configure `public_only` explicitly if outbound isolation is required.
 
 Tool failures expose bounded categories. When a POST result is unconfirmed,
 verify the business operation through the API's own reconciliation mechanism

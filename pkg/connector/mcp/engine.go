@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/agent-guide/agent-gateway/pkg/connector/egress"
+	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 	"maps"
+	"net/http"
 	"slices"
 	"sync"
 	"time"
@@ -38,6 +41,8 @@ func NewTarget(id string, cfg Config) *Target {
 
 // Engine owns upstream MCP sessions; the composing Manager admits all work.
 type Engine struct {
+	policy           egress.Policy
+	client           *http.Client
 	ctx              context.Context
 	cancel           context.CancelFunc
 	exclusive        ExclusiveRetirement
@@ -54,7 +59,7 @@ type Engine struct {
 
 func NewEngine(exclusive ExclusiveRetirement) *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Engine{ctx: ctx, cancel: cancel, exclusive: exclusive, closeDone: make(chan struct{}), upstreamSessions: map[string]*Session{}, sessionViews: map[string]*GatewaySession{}}
+	return &Engine{client: egress.NewClient(egress.Policy{}), ctx: ctx, cancel: cancel, exclusive: exclusive, closeDone: make(chan struct{}), upstreamSessions: map[string]*Session{}, sessionViews: map[string]*GatewaySession{}}
 }
 
 // Session is an opaque upstream resource, cached until detached. Engine closes
@@ -141,4 +146,23 @@ func (m *Engine) BeginClose() <-chan struct{} {
 		go func() { m.closeSessions(sessions); close(m.closeDone) }()
 	})
 	return m.closeDone
+}
+
+// ConfigureEgress is called by host assembly before any sessions are opened.
+func (m *Engine) ConfigureEgress(p egress.Policy) {
+	m.policy = p.Clone()
+	m.client = egress.NewClient(p)
+}
+
+func (m *Engine) CheckConfig(c Config) error {
+	if c.Transport == basemcp.TransportStdio {
+		return nil
+	}
+	if err := m.policy.CheckURL(c.URL); err != nil {
+		return err
+	}
+	if c.Transport == basemcp.TransportSSE && c.PostURL != "" {
+		return m.policy.CheckURL(c.PostURL)
+	}
+	return nil
 }

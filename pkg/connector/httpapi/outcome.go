@@ -40,6 +40,9 @@ func (e *Engine) CallTool(ctx context.Context, id string, catalog *Catalog, call
 	}
 	uncertain := summary.Method == "POST" && (summary.RequestBodyBytes > 0 || summary.StatusCode != nil)
 	message := fmt.Sprintf("HTTP tool failed (%s)", category)
+	if category == "egress_denied" {
+		message += "; destination blocked by connector_egress policy; ask the administrator to add allow_origin"
+	}
 	if uncertain {
 		message += "; write outcome is unconfirmed; do not automatically retry"
 	}

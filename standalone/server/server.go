@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/agent-guide/agent-gateway/internal/serverassembly"
+	"github.com/agent-guide/agent-gateway/pkg/connector/egress"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"github.com/agent-guide/agent-gateway/pkg/extension"
 	"net"
@@ -45,7 +46,7 @@ type Options struct {
 	CredentialRefreshCommand string
 	CredentialRefreshArgs    []string
 	AdminBasicAuthHash       string
-	HTTPAPIPolicyFile        string
+	ConnectorEgress          egress.Policy
 	Metrics                  distribution.MetricsConfig
 	MaxLLMRequestBodyBytes   int64
 }
@@ -64,6 +65,9 @@ func (o *Options) setDefaults() {
 }
 
 func Run(ctx context.Context, opts Options) (result error) {
+	if err := opts.ConnectorEgress.Validate(); err != nil {
+		return err
+	}
 	opts.setDefaults()
 	if opts.MaxLLMRequestBodyBytes < 0 {
 		return fmt.Errorf("max_llm_request_body_bytes must not be negative")
@@ -221,7 +225,7 @@ func bootstrapGateway(ctx context.Context, opts Options, logger *zap.Logger) (_ 
 	if err := agentGateway.Bootstrap(ctx, gateway.BootstrapOptions{
 		ExtensionRegistry: opts.Registry, Distribution: opts.Assembly, EventPublisher: usageService,
 		HTTPClientObserver:   usageService.HTTPClientObserver,
-		HTTPAPIPolicyFile:    opts.HTTPAPIPolicyFile,
+		ConnectorEgress:      opts.ConnectorEgress,
 		StaticLLMRoutes:      staticConfig.LLMRoutes,
 		StaticProviderModels: staticConfig.ProviderModels,
 		StaticLogicalModels:  staticConfig.LogicalModels,

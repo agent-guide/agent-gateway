@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/agent-guide/agent-gateway/internal/strictjson"
+	"github.com/agent-guide/agent-gateway/pkg/connector/egress"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 )
 
@@ -239,8 +240,8 @@ func Compile(c Config) (*Catalog, error) {
 	if base.Path != "" && !safePath(base.EscapedPath(), false) {
 		return nil, fmt.Errorf("invalid base path")
 	}
-	if _, e := destination(base); e != nil {
-		return nil, e
+	if !(egress.Policy{}).CanAdmit(base) {
+		return nil, fmt.Errorf("invalid base_url destination")
 	}
 	if c.Auth != nil {
 		a := c.Auth

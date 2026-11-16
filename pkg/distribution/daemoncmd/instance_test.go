@@ -2,6 +2,7 @@ package daemoncmd
 
 import (
 	"context"
+	"github.com/agent-guide/agent-gateway/pkg/connector/egress"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"io"
 	"os"
@@ -54,5 +55,40 @@ func TestBodyLimitFlagReachesServerValidation(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("invalid flag created storage: %v", err)
+	}
+}
+
+func TestConnectorEgressFlagsOwnOrigins(t *testing.T) {
+	opts := Options{Server: ServerOptions{ConnectorEgress: egress.Policy{Mode: "public_only", AllowOrigins: []string{"http://orders.internal:8080"}}}}
+	a, b := NewCommand(opts), NewCommand(opts)
+	opts.Server.ConnectorEgress.AllowOrigins[0] = "http://mutated"
+	origins, _ := a.Flags().GetStringArray("connector-egress-allow-origin")
+	if len(origins) != 1 || origins[0] != "http://orders.internal:8080" {
+		t.Fatalf("caller origins retained: %v", origins)
+	}
+	if err := a.Flags().Set("connector-egress-allow-origin", "http://another.internal"); err != nil {
+		t.Fatal(err)
+	}
+	origins, _ = b.Flags().GetStringArray("connector-egress-allow-origin")
+	if len(origins) != 1 || origins[0] != "http://orders.internal:8080" {
+		t.Fatalf("shared origins: %v", origins)
+	}
+	if a.Flags().Lookup("http-api-policy-file") != nil {
+		t.Fatal("legacy policy flag retained")
+	}
+}
+
+func TestConnectorEgressFlagReachesServerValidation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.db")
+	cmd := NewCommand(Options{Assembly: distribution.CommunityRuntime()})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--connector-egress-mode", "invalid", "--config-store", path})
+	err := cmd.ExecuteContext(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "connector_egress mode") {
+		t.Fatalf("egress flag not validated: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("invalid egress created storage: %v", err)
 	}
 }

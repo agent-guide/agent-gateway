@@ -165,7 +165,7 @@ func (m *Engine) sessionClient(ctx context.Context, target *Target) (transport.C
 	if cached := m.lookupSession(id, signature); cached != nil {
 		return cached.transport, true, nil
 	}
-	candidate, err := newUpstreamTransport(cfg)
+	candidate, err := newUpstreamTransport(cfg, m.client)
 	if err != nil {
 		return nil, false, err
 	}
@@ -181,11 +181,11 @@ type connectingCaller interface {
 
 // newUpstreamTransport only constructs the selected transport; lifecycle and
 // network operations are shared by initializeSession.
-func newUpstreamTransport(cfg Config) (connectingCaller, error) {
+func newUpstreamTransport(cfg Config, httpClient *http.Client) (connectingCaller, error) {
 	var client connectingCaller
 	switch cfg.Transport {
 	case basemcp.TransportStreamableHTTP:
-		client = transport.NewStreamableHTTPTransport(cfg.URL, http.DefaultClient)
+		client = transport.NewStreamableHTTPTransport(cfg.URL, httpClient)
 	case basemcp.TransportStdio:
 		client = transport.NewStdioTransport(cfg.Command, cfg.Args, osEnvWithOverrides(cfg.Env))
 	case basemcp.TransportSSE:
@@ -193,7 +193,7 @@ func newUpstreamTransport(cfg Config) (connectingCaller, error) {
 		if postURL == "" {
 			postURL = deriveSSEPostURL(cfg.URL)
 		}
-		client = transport.NewSSETransport(cfg.URL, postURL, http.DefaultClient)
+		client = transport.NewSSETransport(cfg.URL, postURL, httpClient)
 	default:
 		return nil, fmt.Errorf("MCP upstream transport %q does not support discovery yet", cfg.Transport)
 	}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/connector"
+	"github.com/agent-guide/agent-gateway/pkg/connector/egress"
 	"github.com/agent-guide/agent-gateway/pkg/connector/httpapi"
 	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
 	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
@@ -37,8 +37,7 @@ func httpManager(t *testing.T, server *httptest.Server) *connector.Manager {
 }
 func configureLocalEngine(t *testing.T, m *connector.Manager, s *httptest.Server) {
 	t.Helper()
-	p := httpapi.DefaultPolicy()
-	p.Rules = []httpapi.Rule{{Action: "allow", Schemes: []string{"http"}, Hosts: []string{"127.0.0.1"}, Ports: []int{s.Listener.Addr().(*net.TCPAddr).Port}, CIDRs: []string{"127.0.0.1/32"}}}
+	p := egress.Policy{}
 	engine, err := httpapi.NewEngine(p, nil)
 	if err != nil {
 		t.Fatal(err)

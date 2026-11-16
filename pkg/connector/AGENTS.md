@@ -79,3 +79,13 @@ Use Connector terminology for domain helpers, identifiers and errors. Manager
 fields distinguish httpEngine/mcpEngine and MCP targets; the MCP engine separates
 upstreamSessions resources from sessionViews inspection data. Historical event
 ServiceID and SQLite service_id are intentionally retained.
+
+Host-owned `connector_egress` defaults to `unrestricted` for trusted administrator
+configuration. Optional `public_only` permits public HTTPS 443 plus exact
+`allow_origins` exceptions (including private destinations), shared by HTTP API
+and MCP HTTP/SSE. `egress/` owns policy, all-answer DNS checks and the guarded MCP
+client; pin admitted IPs and verify peers, including redirects and SSE POSTs.
+MCP stdio is outside network policy. Policy is fixed during host assembly and
+changes through reload/restart. No HTTP-only policy files, CIDR rules or legacy
+flags remain. HTTP admission retains fixed active/queued defaults (128/256 global,
+16/32 per connector); it is separate from the egress policy.

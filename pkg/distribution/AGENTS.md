@@ -60,3 +60,9 @@ fixture configuration, probe routes, sinks and backends.
 Model Bundle apply order is Providers, ProviderModels, LogicalModels, LLM Routes.
 Export includes `providerModels` and `logicalModels`. CLI inventory commands live
 under `model provider` and `model logical`; create/update uses Bundle apply.
+
+`daemoncmd.ServerOptions.ConnectorEgress` carries the shared public
+`egress.Policy` configuration. Clone its origin slice per command. Flags
+`--connector-egress-mode` and repeatable `--connector-egress-allow-origin` feed
+server preparation; invalid policy fails before storage opens. The removed
+HTTP-only policy-file option has no legacy flag alias.

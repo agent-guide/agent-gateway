@@ -12,6 +12,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	"github.com/agent-guide/agent-gateway/pkg/connector/egress"
 	"github.com/agent-guide/agent-gateway/pkg/connector/httpapi"
 	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
 	"github.com/google/uuid"
@@ -50,7 +51,7 @@ type Manager struct {
 
 func NewManager(store configstore.ConfigStore) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
-	engine, _ := httpapi.NewEngine(httpapi.DefaultPolicy(), nil)
+	engine, _ := httpapi.NewEngine(egress.Policy{}, nil)
 	m := &Manager{ctx: ctx, cancel: cancel, active: map[string]int{}, changed: make(chan struct{}), store: store, pending: map[string]*pendingWrite{}, entries: map[string]*entry{}, httpEngine: engine}
 	m.mcpEngine = connectormcp.NewEngine(m.withExclusiveSession)
 	return m
@@ -63,6 +64,27 @@ func (m *Manager) ConfigureHTTP(engine *httpapi.Engine) {
 	m.httpEngine.Close()
 	m.httpEngine = engine
 }
+
+// ConfigureEgress installs the shared host policy during assembly, before use.
+func (m *Manager) ConfigureEgress(p egress.Policy) error {
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	m.writeMu.Lock()
+	defer m.writeMu.Unlock()
+	m.snapshotMu.RLock()
+	started := m.loaded || m.closed
+	m.snapshotMu.RUnlock()
+	if started {
+		return fmt.Errorf("connector_egress must be configured before connector manager use; reload or restart the host")
+	}
+	if err := m.httpEngine.Reload(p); err != nil {
+		return err
+	}
+	m.mcpEngine.ConfigureEgress(p)
+	return nil
+}
+
 func cloneConfig(c ConnectorConfig) ConnectorConfig {
 	b, _ := json.Marshal(c)
 	var out ConnectorConfig
@@ -89,6 +111,9 @@ func (m *Manager) prepare(c ConnectorConfig) (*entry, error) {
 	}
 	v := &entry{config: c, incarnation: uuid.NewString(), token: uuid.NewString()}
 	if c.Type == "mcp" {
+		if err := m.mcpEngine.CheckConfig(*c.MCP); err != nil {
+			return nil, err
+		}
 		v.mcpTarget = connectormcp.NewTarget(c.ID, *c.MCP)
 	}
 	if c.Type == "http_api" {
@@ -97,7 +122,7 @@ func (m *Manager) prepare(c ConnectorConfig) (*entry, error) {
 			return nil, e
 		}
 		if !m.httpEngine.CanAdmit(cat) {
-			return nil, fmt.Errorf("HTTP destination denied by host policy")
+			return nil, fmt.Errorf("destination blocked by connector_egress policy; ask the administrator to add allow_origin")
 		}
 		v.catalog = cat
 	}

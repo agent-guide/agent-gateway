@@ -3,10 +3,8 @@ package dispatcher
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,7 +14,6 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/configstore/schema"
 	"github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
 	"github.com/agent-guide/agent-gateway/pkg/connector"
-	"github.com/agent-guide/agent-gateway/pkg/connector/httpapi"
 	"github.com/agent-guide/agent-gateway/pkg/gateway"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 )
@@ -41,21 +38,14 @@ func TestHTTPConnectorPublishedThroughMCPIngress(t *testing.T) {
 	if err := schema.RegisterDefaultStores(backend); err != nil {
 		t.Fatal(err)
 	}
-	p := httpapi.DefaultPolicy()
-	p.Rules = []httpapi.Rule{{Action: "allow", Schemes: []string{"http"}, Hosts: []string{"127.0.0.1"}, Ports: []int{server.Listener.Addr().(*net.TCPAddr).Port}, CIDRs: []string{"127.0.0.1/32"}}}
-	raw, _ := json.Marshal(p)
-	policyFile := t.TempDir() + "/policy.json"
-	if err := os.WriteFile(policyFile, raw, 0600); err != nil {
-		t.Fatal(err)
-	}
 	events := &usage.InMemorySink{}
 	g := gateway.NewAgentGateway()
-	if err := g.Bootstrap(t.Context(), gateway.BootstrapOptions{ConfigStoreBackend: backend, HTTPAPIPolicyFile: policyFile, UsageObserver: usage.NewObserver(events)}); err != nil {
+	if err := g.Bootstrap(t.Context(), gateway.BootstrapOptions{ConfigStoreBackend: backend, UsageObserver: usage.NewObserver(events)}); err != nil {
 		t.Fatal(err)
 	}
 	defer g.Close()
 	var cfg connector.ConnectorConfig
-	raw = []byte(fmt.Sprintf(`{"id":"docs","name":"Documents","type":"http_api","http_api":{"base_url":%q,"tools":[{"name":"fetch_doc","description":"Fetch a document","input_schema":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]},"request":{"method":"GET","path":"/docs","query":{"id":{"argument":"id"}}}}]}}`, server.URL))
+	raw := []byte(fmt.Sprintf(`{"id":"docs","name":"Documents","type":"http_api","http_api":{"base_url":%q,"tools":[{"name":"fetch_doc","description":"Fetch a document","input_schema":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]},"request":{"method":"GET","path":"/docs","query":{"id":{"argument":"id"}}}}]}}`, server.URL))
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		t.Fatal(err)
 	}

@@ -82,8 +82,12 @@
 		# Admin-managed connectors use immutable id and editable display name.
 		# Execution edits/deletion require no Agent/MCP route references or active work.
 		# Display-only edits preserve sessions; disablement/revocation remain available.
-		# Optional host-owned HTTP connector egress policy (default: public HTTPS :443).
-		# http_api_policy_file /etc/agw/http-api-policy.json
+		# Optional shared HTTP API/MCP network restriction (default: unrestricted).
+		# connector_egress {
+		#     mode public_only
+		#     allow_origin http://orders.internal:8080
+		#     allow_origin https://mcp.internal
+		# }
 
 		config_store sqlite {
 			path ./data/configstore.db

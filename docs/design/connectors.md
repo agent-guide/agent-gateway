@@ -617,8 +617,8 @@ Existing credential revocation remains independent of connector edit admission.
 ### 6.2 Network and Resource Limits
 
 - `base_url` is fixed and rejects userinfo, query, fragment, and model-controlled
-  hosts. HTTPS is the production default; HTTP requires an explicit host-policy
-  exception.
+  hosts. HTTP and HTTPS are accepted; administrator-configured destinations
+  are trusted by default.
 - `request.path` is a template relative to the base path. It must begin with one
   `/` and contain no query/fragment. That slash is a joining separator, not a URL
   reference that replaces the base path. Strip trailing `/` from the base path
@@ -629,9 +629,10 @@ Existing credential revocation remains independent of connector edit admission.
 - Reject absolute URLs, protocol-relative URLs, and any configuration that can
   override the base origin/path. Verify the final origin and base-path segment
   boundary before sending.
-- Host egress policy restricts domains, ports, and address ranges. Configuration
-  objects cannot relax it. Loopback, link-local, private, and other nonpublic
-  targets are denied by default; internal APIs need explicit administrator grants.
+- Optional host egress policy applies uniformly to HTTP API and MCP HTTP/SSE.
+  The default trusts administrator-configured destinations. In `public_only`
+  mode, nonpublic addresses, HTTP and non-443 ports need exact origin grants.
+  Configuration objects cannot relax the host policy.
 - Check addresses after DNS resolution and at actual dialing to prevent rebinding.
   Disable implicit environment proxies. Initially disable automatic redirects to
   prevent credential forwarding across destinations.
@@ -649,103 +650,82 @@ Existing credential revocation remains independent of connector edit admission.
 - Initially use no CookieJar, forward no Set-Cookie, cache no responses, and share
   no mutable caller-header state.
 
-Both hosts load the same local JSON policy file. Host settings are
-`http_api_policy_file <path>` inside the global Caddy `agent_gateway` block, a
-matching Caddy JSON field, and standalone `--http-api-policy-file <path>`. They
-inject the same immutable policy structure. The file defines egress rules, HTTP
-exceptions, and global/per-connector execution and queue limits. Limits must be
-positive, with per-connector limits no greater than global limits. Without a file,
-use the defaults above and public HTTPS targets only. Policy is not stored in
-`connectors` or relaxed through Agent/Bundle/Admin configuration. Invalid policy
-fails host startup or reload rather than reverting to permissive behavior.
-Changes take effect through host configuration reload or restart; file watching
-is not promised.
+Both hosts accept the same shared `connector_egress` policy. It is host-owned,
+not persisted in Connector records or relaxed through Agent/Bundle/Admin writes.
+Invalid configuration fails host preparation. Changes take effect on host reload
+or restart. HTTP admission limits retain the fixed defaults above and are
+independent of network policy.
 
-### 6.3 Host Policy File Schema and Evaluation
+### 6.3 Shared Connector Egress Policy
 
-The file is a UTF-8 JSON object, at most 1 MiB, with duplicate/unknown fields
-and explicit null rejected. It is read locally during host preparation, never
-through a URL. `version` is required and initially equals 1. Omitted fields use
-the following complete defaults:
+`pkg/connector/egress` owns destination admission and the guarded MCP HTTP client.
+HTTP tool execution uses the same policy and DNS admission implementation while
+retaining its own response limits, observation, no-retry and no-redirect behavior.
+
+The zero policy or `mode: unrestricted` trusts destinations configured by trusted
+administrators. HTTP, HTTPS, custom ports and internal addresses work without an
+additional file. This assumes Connector management is an administrative capability;
+it is not a sandbox for untrusted users creating arbitrary connections.
+
+`mode: public_only` permits public HTTPS on effective port 443. Exact
+`allow_origins` exceptions grant scheme/host/effective-port access, including
+private addresses. They do not constrain CIDRs: the administrator authorizes the
+named origin even when it resolves to an internal address. DNS hostname matching
+is case-insensitive; omitted ports use 80/443. No wildcard, credentials, path
+(other than an optional root slash), query or fragment is accepted. Duplicate
+canonical origins and unknown modes are rejected.
+
+Caddyfile configuration:
+
+```caddyfile
+agent_gateway {
+    connector_egress {
+        mode public_only
+        allow_origin http://orders.internal:8080
+        allow_origin https://mcp.internal
+    }
+}
+```
+
+The matching Caddy JSON field is:
 
 ```json
 {
-  "version": 1,
-  "default_action": "public_https",
-  "rules": [],
-  "limits": {
-    "global_active": 128,
-    "global_queued": 256,
-    "connector_active": 16,
-    "connector_queued": 32
+  "connector_egress": {
+    "mode": "public_only",
+    "allow_origins": ["http://orders.internal:8080", "https://mcp.internal"]
   }
 }
 ```
 
-`default_action` is `public_https` or `deny`. `public_https` admits public HTTPS
-on port 443 only; other ports, HTTP and nonpublic addresses require an explicit
-allow rule. `deny` requires an explicit allow for every destination. `limits`
-accepts only the four fields above, each an integer from 1 through 65536;
-per-connector active/queued limits cannot exceed their respective global limit.
-An omitted file is equivalent to the object above. The limits are uniform
-across connector IDs; per-ID overrides are outside initial scope.
+Standalone flags are `--connector-egress-mode` and repeatable
+`--connector-egress-allow-origin`. The previous HTTP-only policy file, its flags,
+rule/CIDR schema and configurable queue limits are removed. On upgrade, translate
+required exceptions into origins and explicitly select `public_only` to retain
+outbound isolation. The default is now unrestricted.
 
-Each rule contains exactly `action`, `schemes`, `hosts`, `ports`, and `cidrs`.
-`action` is `allow` or `deny`; all four selector arrays are required, nonempty
-and duplicate-free. A rule matches when every dimension matches:
+Both Connector types validate configured destinations before publication without
+DNS or upstream calls. MCP SSE validates both the stream and configured POST URL.
+At execution, every DNS answer must be admitted; no answers or resolution failure
+fails the request. The `public_only` public set excludes private, loopback,
+link-local, documentation, multicast, reserved, CGNAT and other special-use ranges
+using the explicit tested prefix table. Exact origin exceptions intentionally
+permit otherwise excluded addresses.
 
-- `schemes`: `http` and/or `https`.
-- `hosts`: lowercase ASCII DNS names or canonical IP literals without brackets.
-  A single leading `*.` matches one or more subdomain labels, never the apex;
-  other wildcards, Unicode names, URL syntax and trailing dots are rejected.
-  Requests normalize DNS name case and IP spelling before matching. IPv6 zones
-  are unsupported and IPv4-mapped IPv6 is evaluated as IPv4.
-- `ports`: integers 1-65535, matched against the effective port (443 or 80 when
-  absent in the URL).
-- `cidrs`: canonical IPv4/IPv6 networks; `0.0.0.0/0` and `::/0` explicitly mean
-  every address in that family. An exception should use the narrow networks it
-  intends to grant, for example `10.20.0.0/16` for an internal service.
+Dial only IPs from the admitted answer set, retain the configured hostname for
+Host and TLS/SNI, and verify the connected peer before sending HTTP bytes. Never
+validate one resolution then let the default dialer resolve again. Per-request
+transports disable connection reuse and environment proxies so cached peers or
+proxy DNS cannot bypass admission. MCP checks every redirect target and SSE POST
+request through the guarded HTTP client. HTTP API tools do not follow redirects
+and retain their no-cookie/no-compression behavior. Network policy does not govern
+MCP stdio process execution.
 
-Rule order is irrelevant: any matching deny wins, then a matching allow, then
-the default action. The default public-address set is globally routable unicast;
-exclude private, loopback, link-local, multicast, unspecified, reserved,
-documentation, benchmarking, carrier-grade NAT and other special-use ranges.
-Maintain an explicit, tested special-use prefix table in the implementation;
-checking only a language library's private-address predicate is insufficient.
-An administrator can grant otherwise excluded ranges with an explicit allow
-rule, subject to deny precedence.
-
-For example, with `default_action=deny`, this rule grants just the named HTTPS
-service on the selected private network:
-
-```json
-{
-  "action": "allow",
-  "schemes": ["https"],
-  "hosts": ["orders.internal.example"],
-  "ports": [443],
-  "cidrs": ["10.20.0.0/16"]
-}
-```
-
-Static connector admission checks scheme/host/port and whether policy can permit
-the configured destination, without DNS or business API calls. If a CIDR deny
-can only be decided after resolution, defer that part to execution. For each
-execution, resolve through the host resolver, bound resolution by the call
-deadline, and require every returned address to pass the complete rule set.
-No answers, denied answers or resolution failure fail closed. Dial only an
-admitted IP from that resolution result, retain the configured host for TLS
-verification/SNI, and verify the actual peer before sending HTTP bytes. Never
-validate one resolution then let the default dialer resolve again.
-
-Connection reuse is keyed by origin and current host-policy revision; a reused
-peer must belong to the call's admitted resolution result and still pass
-destination admission before a new request. A policy
-reload fences old pools and closes idle connections. New calls, including those
-using an old connector lease, use current policy and current pools. Requests
-already sent may finish under their admission decision; tightening policy does
-not claim retroactive recall. Disabling environment proxies, redirects,
-compression and cookie state remains mandatory even for explicitly allowed hosts.
+Policy is immutable for a serving host generation. Reload/restart assembles new
+engines and clients; normal host lifecycle cancellation and draining retire the
+old generation. No separate network policy watcher or pool retirement mechanism
+is introduced. Policy errors identify `connector_egress` and suggest an
+administrator `allow_origin` grant without exposing credentials or request data.
 
 ## 7. Unified Observability
 

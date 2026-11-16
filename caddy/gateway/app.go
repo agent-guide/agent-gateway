@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/agent-guide/agent-gateway/internal/serverassembly"
 	"github.com/agent-guide/agent-gateway/internal/strictjson"
+	"github.com/agent-guide/agent-gateway/pkg/connector/egress"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 
 	"github.com/caddyserver/caddy/v2"
@@ -47,10 +48,10 @@ type App struct {
 	CredentialRefreshArgs []string `json:"credential_refresh_args,omitempty"`
 	// LLMRoutes lists statically configured gateway LLM route configs from the Caddyfile app block.
 	LLMRoutes []routecore.RouteConfig `json:"llm_routes,omitempty"`
-	// Metrics configures observability retention, agent-chain governance, and
-	// optional OTLP span export of usage events.
-	HTTPAPIPolicyFile string                     `json:"http_api_policy_file,omitempty"`
-	Metrics           distribution.MetricsConfig `json:"metrics,omitzero"`
+	// ConnectorEgress controls outbound HTTP API and MCP HTTP/SSE destinations.
+	ConnectorEgress egress.Policy `json:"connector_egress,omitzero"`
+	// Metrics configures observability retention, agent-chain governance and OTLP.
+	Metrics distribution.MetricsConfig `json:"metrics,omitzero"`
 
 	logger          *zap.Logger
 	credentialMgr   *credential.Manager
@@ -72,6 +73,9 @@ func (App) CaddyModule() caddy.ModuleInfo {
 
 // Provision sets up the app.
 func (a *App) Provision(ctx caddy.Context) (provisionErr error) {
+	if err := a.ConnectorEgress.Validate(); err != nil {
+		return err
+	}
 	defer func() {
 		if provisionErr != nil {
 			provisionErr = errors.Join(provisionErr, a.lifecycle.Close())
@@ -123,7 +127,7 @@ func (a *App) Provision(ctx caddy.Context) (provisionErr error) {
 	if err := a.agentGateway.Bootstrap(ctx, runtimegateway.BootstrapOptions{
 		ExtensionRegistry: registry, Distribution: assembly, EventPublisher: a.usageService,
 		HTTPClientObserver:   a.usageService.HTTPClientObserver,
-		HTTPAPIPolicyFile:    a.HTTPAPIPolicyFile,
+		ConnectorEgress:      a.ConnectorEgress,
 		StaticLLMRoutes:      a.LLMRoutes,
 		StaticProviderModels: a.ProviderModels,
 		StaticLogicalModels:  a.LogicalModels,

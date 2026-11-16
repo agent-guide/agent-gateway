@@ -318,7 +318,10 @@ func TestCaddyfileRejectsExtensionConfiguration(t *testing.T) {
 
 func TestParseHTTPConnectorHostSettings(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`agent_gateway {
- http_api_policy_file /etc/agw/http.json
+ connector_egress {
+  mode public_only
+  allow_origin http://orders.internal:8080
+ }
  metrics {
   otlp {
    endpoint localhost:4317
@@ -334,7 +337,7 @@ func TestParseHTTPConnectorHostSettings(t *testing.T) {
 	if err := json.Unmarshal(value.(httpcaddyfile.App).Value, &app); err != nil {
 		t.Fatal(err)
 	}
-	if app.HTTPAPIPolicyFile != "/etc/agw/http.json" || !app.Metrics.OTLP.HTTPClientSpans {
+	if app.ConnectorEgress.Mode != "public_only" || len(app.ConnectorEgress.AllowOrigins) != 1 || app.ConnectorEgress.AllowOrigins[0] != "http://orders.internal:8080" || !app.Metrics.OTLP.HTTPClientSpans {
 		t.Fatal("HTTP connector settings lost")
 	}
 }
@@ -461,5 +464,24 @@ func TestParseProviderModelRouteConstraints(t *testing.T) {
 				t.Fatalf("parseApp error=%v valid=%v", err, tc.valid)
 			}
 		})
+	}
+}
+
+func TestConnectorEgressRejectsInvalidConfiguration(t *testing.T) {
+	for _, block := range []string{
+		"http_api_policy_file /does/not/exist",
+		"connector_egress {\n mode deny\n}",
+		"connector_egress {\n allow_origin https://example.com/path\n}",
+		"connector_egress {\n allow_origin https://example.com\n allow_origin https://EXAMPLE.com:443\n}",
+		"connector_egress {\n unexpected value\n}",
+		"connector_egress {\n mode public_only\n mode unrestricted\n}",
+	} {
+		if _, err := parseApp(caddyfile.NewTestDispenser("agent_gateway {\n"+block+"\n}"), nil); err == nil {
+			t.Fatalf("invalid block accepted: %s", block)
+		}
+	}
+	var app App
+	if err := json.Unmarshal([]byte(`{"http_api_policy_file":"/does/not/exist"}`), &app); err == nil {
+		t.Fatal("legacy JSON option accepted")
 	}
 }

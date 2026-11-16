@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/strictjson"
+	"github.com/agent-guide/agent-gateway/pkg/connector/egress"
 	connectorruntime "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	cred "github.com/agent-guide/agent-gateway/pkg/credential/model"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
@@ -47,34 +48,29 @@ func capture(ctx context.Context) (context.Context, *HTTPExecution) {
 type Engine struct {
 	Observe     func(context.Context, HTTPExecution, time.Time)
 	mu          sync.RWMutex
-	policy      Policy
+	policy      egress.Policy
 	credentials CredentialReader
-	resolver    Resolver
+	resolver    egress.Resolver
 	admission   *admission
 	ctx         context.Context
 	cancel      context.CancelFunc
 }
 
-func NewEngine(p Policy, c CredentialReader) (*Engine, error) {
+func NewEngine(p egress.Policy, c CredentialReader) (*Engine, error) {
 	if e := p.Validate(); e != nil {
 		return nil, e
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Engine{policy: p, credentials: c, resolver: net.DefaultResolver, admission: newAdmission(p.Limits), ctx: ctx, cancel: cancel}, nil
+	return &Engine{policy: p.Clone(), credentials: c, resolver: net.DefaultResolver, admission: newAdmission(Limits{128, 256, 16, 32}), ctx: ctx, cancel: cancel}, nil
 }
 func (e *Engine) Close() { e.cancel() }
-func (e *Engine) Reload(p Policy) error {
+func (e *Engine) Reload(p egress.Policy) error {
 	if err := p.Validate(); err != nil {
 		return err
 	}
 	e.mu.Lock()
-	e.policy = p
+	e.policy = p.Clone()
 	e.mu.Unlock()
-	e.admission.mu.Lock()
-	e.admission.limits = p.Limits
-	close(e.admission.changed)
-	e.admission.changed = make(chan struct{})
-	e.admission.mu.Unlock()
 	return nil
 }
 func (e *Engine) CanAdmit(c *Catalog) bool {
@@ -212,9 +208,18 @@ func (e *Engine) call(ctx context.Context, id string, c *Catalog, name string, a
 	e.mu.RLock()
 	p := e.policy
 	e.mu.RUnlock()
-	dest, addresses, jerr := resolve(ctx, e.resolver, p, &targetURL)
+	addresses, jerr := p.Resolve(ctx, e.resolver, &targetURL)
+	host := targetURL.Hostname()
+	port := targetURL.Port()
+	if port == "" {
+		if targetURL.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
 	if jerr != nil {
-		return nil, jerr
+		return nil, safeNetwork(jerr)
 	}
 	var summaryMu sync.Mutex
 	finished := false
@@ -230,24 +235,24 @@ func (e *Engine) call(ctx context.Context, id string, c *Catalog, name string, a
 			return true
 		}
 		started = time.Now()
-		summary = &HTTPExecution{Method: r.Method, HostPort: net.JoinHostPort(dest.host, strconv.Itoa(dest.port)), PathTemplate: strings.TrimRight(c.base.Path, "/") + r.Path}
+		summary = &HTTPExecution{Method: r.Method, HostPort: net.JoinHostPort(host, port), PathTemplate: strings.TrimRight(c.base.Path, "/") + r.Path}
 		return true
 	}
 	// A per-call transport deliberately avoids shared peers, cookies and mutable
 	// headers. Every dial uses this call's complete admitted DNS answer set.
-	transport := &http.Transport{Proxy: nil, DisableCompression: true, DisableKeepAlives: true, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, ServerName: dest.host}, DialContext: func(dctx context.Context, network, addr string) (net.Conn, error) {
+	transport := &http.Transport{Proxy: nil, DisableCompression: true, DisableKeepAlives: true, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, ServerName: host}, DialContext: func(dctx context.Context, network, addr string) (net.Conn, error) {
 		if !start() {
 			return nil, context.Canceled
 		}
 		var last error
 		for _, a := range addresses {
-			conn, err := (&net.Dialer{}).DialContext(dctx, "tcp", net.JoinHostPort(a.String(), strconv.Itoa(dest.port)))
+			conn, err := (&net.Dialer{}).DialContext(dctx, "tcp", net.JoinHostPort(a.String(), port))
 			if err != nil {
 				last = err
 				continue
 			}
 			peer, err := netip.ParseAddrPort(conn.RemoteAddr().String())
-			if err != nil || peer.Addr().Unmap() != a || !p.admits(dest, peer.Addr().Unmap()) {
+			if err != nil || peer.Addr().Unmap() != a || !p.AdmitsPeer(&targetURL, peer.Addr().Unmap()) {
 				conn.Close()
 				return nil, failure("egress_denied")
 			}
@@ -372,6 +377,10 @@ func (e *Engine) call(ctx context.Context, id string, c *Catalog, name string, a
 	return &basemcp.ToolResult{StructuredContent: selected, Content: []any{map[string]any{"type": "text", "text": string(text)}}}, nil
 }
 func safeNetwork(err error) error {
+	var denied *egress.DeniedError
+	if errors.As(err, &denied) {
+		return failure("egress_denied")
+	}
 	var safe *Error
 	if errors.As(err, &safe) {
 		return err

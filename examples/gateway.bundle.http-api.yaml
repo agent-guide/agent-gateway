@@ -1,7 +1,8 @@
 apiVersion: gateway.agw/v1alpha1
 kind: GatewayBundle
 
-# Supply a public HTTPS API origin, with no credentials/query/fragment.
+# Supply a fixed HTTP(S) API origin, with no credentials/query/fragment.
+# Host connector_egress policy may restrict destinations; see the connector guide.
 # Provision api_key credential "orders-token" separately with scope
 # connector:order-api and no provider_type/provider_id. Until then the
 # connector is stored but unready. This Bundle contains no HTTP API secret.

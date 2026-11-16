@@ -12,6 +12,7 @@ import (
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/connector"
+	"github.com/agent-guide/agent-gateway/pkg/connector/egress"
 	"github.com/agent-guide/agent-gateway/pkg/connector/httpapi"
 	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
@@ -253,8 +254,7 @@ func TestConnectorToolCallClientErrors(t *testing.T) {
 	gateway := newTestAgentGateway(&testConfigStore{connectorStore: store}, nil, nil, nil, nil)
 	t.Cleanup(gateway.Close)
 	// No upstream request may be made for either invalid call.
-	policy := httpapi.DefaultPolicy()
-	policy.DefaultAction = "deny"
+	policy := egress.Policy{}
 	engine, err := httpapi.NewEngine(policy, nil)
 	if err != nil {
 		t.Fatal(err)

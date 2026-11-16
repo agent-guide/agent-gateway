@@ -872,6 +872,11 @@ for generation leases, credential ownership, egress policy, observation and
 the current publication boundary. MCP publishing targets use `connector_id`;
 Agent declarations use `resources.connector_ids`.
 
+Host `connector_egress` defaults to trusting administrator-configured HTTP(S)
+destinations. Optional `public_only` mode restricts HTTP API and MCP HTTP/SSE to
+public HTTPS 443 plus exact origin exceptions, with shared DNS and peer checks.
+MCP stdio remains outside network policy. No HTTP-only policy file is used.
+
 Connector identity is `id` (immutable, case-sensitive) plus `name` (editable,
 non-unique display text), with no separate slug. Display renames preserve
 references; Connector updates reject a different ID in the request body.

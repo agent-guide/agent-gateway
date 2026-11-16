@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/connector"
+	"github.com/agent-guide/agent-gateway/pkg/connector/egress"
 	"github.com/agent-guide/agent-gateway/pkg/connector/httpapi"
 	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
 	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
@@ -210,8 +210,7 @@ func TestConnectorShutdownDeadlineRetainsUnfinishedWork(t *testing.T) {
 	}))
 	defer server.Close()
 	manager := connector.NewManager(newTestConfigStore(t))
-	policy := httpapi.DefaultPolicy()
-	policy.Rules = []httpapi.Rule{{Action: "allow", Schemes: []string{"http"}, Hosts: []string{"127.0.0.1"}, Ports: []int{server.Listener.Addr().(*net.TCPAddr).Port}, CIDRs: []string{"127.0.0.1/32"}}}
+	policy := egress.Policy{}
 	engine, err := httpapi.NewEngine(policy, nil)
 	if err != nil {
 		t.Fatal(err)

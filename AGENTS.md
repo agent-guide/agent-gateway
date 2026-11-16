@@ -368,11 +368,17 @@ If you change module IDs, route semantics, provider registration, or Admin API p
 Connector domain rules live in `pkg/connector/AGENTS.md`. Connector `id` is
 immutable and case-sensitive; `name` is mutable, non-unique display text. There
 is no separate connector `slug`; updates reject differing body/path IDs.
-Both hosts accept
-`http_api_policy_file` (standalone `--http-api-policy-file`) and optional OTLP
-`http_client_spans` (standalone `--metrics-otlp-http-client-spans`). HTTP API
-credentials use exact `connector:<id>` scope with empty Provider fields. Static
-connector definitions are rejected. Legacy `mcp_services` tables require explicit
+Both hosts accept shared host-owned `connector_egress` (standalone `--connector-egress-mode` plus
+repeatable `--connector-egress-allow-origin`) and optional OTLP
+`http_client_spans` (standalone `--metrics-otlp-http-client-spans`).
+Default `unrestricted` trusts administrator-configured HTTP(S) destinations.
+Optional `public_only` permits public HTTPS 443 plus exact origin exceptions,
+uniformly for HTTP API and MCP HTTP/SSE; MCP stdio is outside network policy.
+The shared `pkg/connector/egress` checks DNS answers and pins admitted peers;
+MCP redirect and SSE POST targets are checked on every request. No policy files
+or CIDR selectors are supported. HTTP execution/queue limits keep fixed defaults.
+HTTP API credentials use exact `connector:<id>` scope with empty Provider
+fields. Static connector definitions are rejected. Legacy `mcp_services` tables require explicit
 stopped-service conversion before either host or a store-opening CLI can start.
 Connector references from Agents and MCP routes prevent deletion, including
 disabled references. Agent writes require the connector to exist. Each resource
