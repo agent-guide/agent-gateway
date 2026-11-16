@@ -520,6 +520,15 @@ cannot bypass restoration. No provider-global mapping or session store is used.
 Unsupported semantics are rejected before upstream execution; see
 [namespace compatibility](../design/provider-compatibility.md#responses-tool-namespaces).
 
+The Chat compatibility adapter separately lowers unscoped Responses custom tools
+to functions accepting an `input` string. Its execution-local map restores custom
+calls and explicit call/output history. Streamed JSON arguments are buffered
+(at most 1 MiB per custom call), decoded, then emitted as custom input delta/done
+events before item completion. Grammar tools are rejected by default. Provider
+`options.responses_custom_tool_grammar: "prompt"` explicitly enables grammar
+instructions without constrained decoding or validation; `reject` is the default.
+Native Responses paths bypass this compatibility option.
+
 Responses streams require a terminal event. EOF or `[DONE]` without one is a
 truncated stream, even after valid partial output. The OpenAI ingress preserves
 those deltas, emits an SSE error and records a failed interaction while retaining

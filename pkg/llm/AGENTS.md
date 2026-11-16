@@ -146,7 +146,7 @@ reordering/removal, retries and candidates; never mutate caller requests or
 store maps on shared providers. Buffer only incomplete streamed identities with
 bounded pending data, reject unknown/incomplete aliases, and release on close.
 
-Only ordinary function namespaces are lowered. Reject custom, nested, deferred
+Only ordinary function namespaces are lowered. Reject namespaced custom, nested, deferred
 or hosted/search semantics, invalid namespaces and `previous_response_id` on
 this path. The Chat bridge also rejects strict or unknown function semantics
 that its shared tool model cannot represent; native lowering preserves strict
@@ -154,6 +154,18 @@ and unknown ordinary function fields. Allowed-tool sets are lowered for native
 Responses but rejected by Chat if not representable. Ordinary portable function
 namespaces do not add native-only route requirements. Preserve native advanced
 tools on the default native path.
+
+The Chat-only `responses_custom.go` adapter separately emulates unscoped custom
+tools with one string input function before namespace lowering. Restore custom
+choices, explicit history, ordinary output and custom SSE input delta/done events;
+never expose JSON wrapper arguments. Reject grammar tools by default. Validate
+Provider `options.responses_custom_tool_grammar` as exactly `reject` (default) or
+`prompt` before Chat upstream execution. Only explicit prompt mode preserves
+grammars as instructions, without grammar constrained decoding/validation.
+Never let request payloads opt themselves in. Native Responses bypasses this
+Chat-only option.
+Bound streamed custom arguments to 1 MiB. Reject unknown/deferred/namespaced
+semantics and previous_response_id. Restoration errors stop fallback.
 
 ## Scoped execution helper
 

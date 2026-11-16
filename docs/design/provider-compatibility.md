@@ -108,7 +108,7 @@ pending buffer is bounded to 1 MiB across at most 4096 calls, with names capped
 at 64 bytes. A name is never published partially. Response restoration errors do
 not trigger a second upstream generation.
 
-Lowering is limited to ordinary functions: custom tools, nested namespaces,
+Namespace lowering is limited to ordinary functions: custom tools inside namespaces, nested namespaces,
 `defer_loading: true`, and hosted/search tools mixed into a lowered request
 fail before upstream execution. The shared Chat bridge additionally rejects
 `strict: true` and unknown function fields that it cannot express; native
@@ -116,3 +116,32 @@ lowering preserves strict and other ordinary function fields. Native paths
 continue carrying advanced tool structures unchanged. Portable function
 namespace lowering does not require native-only routing capabilities; future
 native-only requirements belong in the existing atomic protocol feature system.
+
+## Responses custom tools via Chat
+
+Capability status: **Implemented** as compatibility emulation for unscoped tools.
+
+Before namespace lowering, the Chat adapter copies unscoped custom definitions
+into ordinary functions with deterministic aliases and one required string
+`input` property. Forced custom choices and explicit `custom_tool_call` /
+`custom_tool_call_output` history are lowered together. History-only tools do
+not become callable. Native Responses execution bypasses this adapter.
+
+Free-form text is supported by default. Provider option
+`responses_custom_tool_grammar` accepts exactly `reject` (default) or `prompt`.
+The Chat bridge validates this option before upstream execution. In default mode,
+grammar tools fail with a diagnostic naming the tool and the explicit opt-in.
+Only `prompt` mode carries Lark/regex grammar definitions in the function
+description as model instructions, including Codex's `apply_patch` grammar.
+This does not provide constrained decoding or grammar validation;
+applications requiring those guarantees must use native Responses. Deferred,
+namespaced and unknown custom semantics are rejected. Explicit history is
+required; `previous_response_id` cannot be used on this path.
+
+Ordinary responses restore `custom_tool_call` with the original name, call ID
+and decoded string input. JSON wrapper arguments never reach the client.
+Streams restore custom item-added/item-done and final output; custom argument
+fragments are buffered to a 1 MiB limit, decoded, and published in
+`response.custom_tool_call_input.delta` and `.done` events at item completion.
+Empty strings remain explicit inputs. Invalid wrappers fail restoration without
+starting another generation. Maps remain local to each execution.

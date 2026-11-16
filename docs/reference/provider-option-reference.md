@@ -72,8 +72,41 @@ For native Responses providers `openai`, `grok`, and `codex`:
 Responses-via-Chat providers flatten ordinary function namespaces automatically.
 The Chat bridge rejects strict or unknown function semantics it cannot preserve,
 and does not implement allowed-tool sets or tool search.
+Unscoped custom tools are emulated as functions accepting a string `input`,
+including custom choices, history and stream events. Grammar tools require an
+explicit Provider compatibility option; grammar constrained decoding requires
+native Responses.
+Custom tools inside namespaces remain unsupported by flattening.
 This option controls namespace shaping, independently of `compact` and HTTP
 client headers. See [the conversion contract](../design/provider-compatibility.md#responses-tool-namespaces).
+
+## Responses Custom Tool Grammar Compatibility
+
+For Providers using Responses-via-Chat (including `deepseek`),
+`options.responses_custom_tool_grammar` accepts these case-sensitive strings:
+
+- `reject` (default): reject custom tools with grammar format before upstream
+  execution, identifying the tool and the explicit compatibility option.
+- `prompt`: emulate Lark/regex grammars as model instructions in a function
+  description. This supports the Codex `apply_patch` request format but provides
+  no grammar constrained decoding or grammar validation.
+
+Other values and non-string values fail when the Chat bridge validates the option.
+Plain-text custom tools do not require opt-in. This option does not enable
+namespaced custom tools, tool search or deferred tools. Native Responses paths
+preserve their original tool semantics and bypass this compatibility option.
+
+Provider JSON fragment:
+
+```json
+{
+  "options": {
+    "responses_custom_tool_grammar": "prompt"
+  }
+}
+```
+
+Equivalent Provider Caddyfile directive: `option responses_custom_tool_grammar prompt`.
 
 ## Built-In Provider Defaults
 

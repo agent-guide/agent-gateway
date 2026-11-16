@@ -19,7 +19,11 @@ import (
 // CreateResponsesViaChat adapts a Responses API request onto the provider Chat API.
 // Providers opt into this compatibility path explicitly by calling this helper.
 func CreateResponsesViaChat(ctx context.Context, prov Provider, req *ResponsesRequest) (*ResponsesResponse, error) {
-	flat, names, err := FlattenResponsesNamespaces(req)
+	lowered, custom, err := lowerResponsesCustomTools(req, prov.Config().Options)
+	if err != nil {
+		return nil, err
+	}
+	flat, names, err := FlattenResponsesNamespaces(lowered)
 	if err != nil {
 		return nil, err
 	}
@@ -36,14 +40,22 @@ func CreateResponsesViaChat(ctx context.Context, prov Provider, req *ResponsesRe
 	if err != nil {
 		return nil, err
 	}
-	return names.RestoreResponse(ResponsesFromChatResponse(resp, chatReq.Model))
+	out, err := names.RestoreResponse(ResponsesFromChatResponse(resp, chatReq.Model))
+	if err != nil {
+		return nil, err
+	}
+	return custom.restoreResponse(out)
 }
 
 // StreamResponsesViaChat adapts a streaming Responses API request onto the provider
 // Chat stream API. Providers opt into this compatibility path explicitly by
 // calling this helper.
 func StreamResponsesViaChat(ctx context.Context, prov Provider, req *ResponsesRequest) (*schema.StreamReader[*ResponsesStreamEvent], error) {
-	flat, names, err := FlattenResponsesNamespaces(req)
+	lowered, custom, err := lowerResponsesCustomTools(req, prov.Config().Options)
+	if err != nil {
+		return nil, err
+	}
+	flat, names, err := FlattenResponsesNamespaces(lowered)
 	if err != nil {
 		return nil, err
 	}
@@ -62,6 +74,9 @@ func StreamResponsesViaChat(ctx context.Context, prov Provider, req *ResponsesRe
 	}
 
 	stream = names.prepareChatStream(stream)
+	if names == nil && custom != nil {
+		stream = custom.prepareChatStream(stream, flat)
+	}
 	sr, sw := schema.Pipe[*ResponsesStreamEvent](16)
 	go func() {
 		defer stream.Close()
@@ -163,7 +178,8 @@ func StreamResponsesViaChat(ctx context.Context, prov Provider, req *ResponsesRe
 			resp.Usage = responsesUsageFromMessage(chunk)
 		}
 	}()
-	return schema.StreamReaderWithConvert(sr, names.RestoreEvent), nil
+	restored := schema.StreamReaderWithConvert(sr, names.RestoreEvent)
+	return custom.restoreStream(restored), nil
 }
 
 // toolCallKey returns a key that is stable across streamed tool-call deltas.
@@ -197,8 +213,14 @@ func mergeToolCallInto(item *ResponsesResponseOutput, tc schema.ToolCall) {
 }
 
 // ResponsesToChatRequest converts a minimal Responses API request into ChatRequest.
+// Grammar custom tools are rejected; provider execution helpers can explicitly
+// opt into prompt emulation through the provider configuration.
 func ResponsesToChatRequest(req *ResponsesRequest) (*ChatRequest, error) {
-	flat, names, err := FlattenResponsesNamespaces(req)
+	lowered, _, err := lowerResponsesCustomTools(req, nil)
+	if err != nil {
+		return nil, err
+	}
+	flat, names, err := FlattenResponsesNamespaces(lowered)
 	if err != nil {
 		return nil, err
 	}

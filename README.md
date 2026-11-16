@@ -209,6 +209,14 @@ providers (`openai`, `grok`, `codex`) accept
 See [namespace compatibility](docs/design/provider-compatibility.md#responses-tool-namespaces)
 for supported conversions and explicit rejection boundaries.
 
+Responses-via-Chat also emulates unscoped `custom` tools, including Codex
+`apply_patch`, using a function with one string `input` argument. Calls, streaming
+events and explicit history are restored to custom-tool format. Grammar tools are
+rejected by default. Set Provider `options.responses_custom_tool_grammar: "prompt"`
+to explicitly emulate Lark/regex grammars as model instructions, including Codex
+`apply_patch`. This provides no grammar constrained decoding or validation; use a
+native Responses upstream when those guarantees are required.
+
 Provider implementations and protocol fidelity vary by upstream. Check the
 [provider guide](docs/guides/providers.md),
 [provider option reference](docs/reference/provider-option-reference.md), and

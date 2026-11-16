@@ -106,6 +106,13 @@
 		# matching route needed for local experiments. Bundle/Admin API objects
 		# stored in SQLite can be used instead.
 
+		# For a Responses-via-Chat provider (for example provider_type deepseek),
+		# grammar custom tools such as Codex apply_patch are rejected by default.
+		# Explicit opt-in inside that provider block:
+		#     option responses_custom_tool_grammar prompt
+		# This passes grammar as instructions without constrained decoding or
+		# grammar validation. It does not enable tool_search or deferred tools.
+
 		# OpenAI API-key baseline.
 		# provider openai-main {
 		# 	provider_type openai

@@ -171,8 +171,16 @@ providers `openai`, `grok`, and `codex` accept
 `options.responses_tool_namespaces` (`native` or `flatten`). Never deduplicate
 same-name tools across namespaces. Rewrite choice/history and restore ordinary,
 SSE and final response identities, including raw JSON. Flattening requires
-explicit input history, never `previous_response_id`; custom/deferred/search
+explicit input history, never `previous_response_id`; namespaced custom/deferred/search
 semantics require a native path. See `pkg/llm/AGENTS.md`.
+
+Responses-via-Chat emulates unscoped custom tools (including Codex apply_patch)
+as string-input functions and restores custom calls, SSE and explicit history.
+Grammar tools are rejected by default; Provider option
+`responses_custom_tool_grammar` accepts exactly `reject` (default) or `prompt`.
+Only explicit prompt mode converts grammars into instructions, without native
+grammar constrained decoding or validation. Native Responses preserves the
+original tool semantics and bypasses this Chat compatibility option.
 
 The `cc` handler is the Claude Code CLI-compatible Anthropic Messages profile.
 Its currently declared ingress difference is the local `count_tokens` estimate

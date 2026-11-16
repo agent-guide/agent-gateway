@@ -166,6 +166,7 @@ type ResponsesResponseOutput struct {
 	Name      string                          `json:"name,omitempty"`
 	Namespace string                          `json:"namespace,omitempty"`
 	Arguments string                          `json:"arguments,omitempty"`
+	Input     *string                         `json:"input,omitempty"`
 	Summary   []ResponsesReasoningSummaryPart `json:"summary,omitempty"`
 }
 
@@ -206,6 +207,7 @@ type ResponsesStreamEvent struct {
 	Response     *ResponsesResponse             `json:"response,omitempty"`
 	Item         *ResponsesResponseOutput       `json:"item,omitempty"`
 	Delta        string                         `json:"delta,omitempty"`
+	Input        *string                        `json:"input,omitempty"`
 	ItemID       string                         `json:"item_id,omitempty"`
 	OutputIndex  int                            `json:"output_index,omitempty"`
 	ContentIndex int                            `json:"content_index,omitempty"`
