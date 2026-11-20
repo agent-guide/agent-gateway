@@ -119,9 +119,12 @@ func (t *invokableTool) RunWithOutcome(ctx context.Context, arguments string, _ 
 		return "", outcome, err
 	}
 	rendered := renderToolResult(outcome.Result)
-	if outcome.Result != nil && outcome.Result.IsError {
-		return "", outcome, fmt.Errorf("tool %q: %s", t.name, rendered)
-	}
+	// An MCP isError result is tool-level failure content, not a transport
+	// error: surface it to the model (mirroring Anthropic tool_result.is_error
+	// and OpenAI tool messages) instead of returning a Go error. Returning an
+	// error made the eino tool node fail the whole turn, so the model never saw
+	// recoverable tool failures such as a 404 — the builtin agent aborted with
+	// an error where an ACP (opencode) agent recovered gracefully.
 	return rendered, outcome, nil
 }
 

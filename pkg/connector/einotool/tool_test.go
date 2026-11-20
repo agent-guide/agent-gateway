@@ -124,7 +124,9 @@ func TestInvokableRunPassesArgsAndFlattensText(t *testing.T) {
 	}
 }
 
-func TestInvokableRunToolErrorFailsClosed(t *testing.T) {
+func TestInvokableRunToolErrorFeedsModel(t *testing.T) {
+	// An MCP isError result is tool-level failure content, not a transport
+	// error, so it must reach the model instead of failing the turn.
 	caller := &fakeResolver{
 		tools: testTools(),
 		result: &basemcp.ToolResult{
@@ -136,9 +138,12 @@ func TestInvokableRunToolErrorFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Tools() error = %v", err)
 	}
-	_, err = tools[0].(tool.InvokableTool).InvokableRun(t.Context(), `{}`)
-	if err == nil || !strings.Contains(err.Error(), "permission denied") {
-		t.Fatalf("InvokableRun() error = %v, want tool error carrying the result text", err)
+	text, err := tools[0].(tool.InvokableTool).InvokableRun(t.Context(), `{}`)
+	if err != nil {
+		t.Fatalf("InvokableRun() error = %v, want IsError result surfaced to the model as content", err)
+	}
+	if !strings.Contains(text, "permission denied") {
+		t.Fatalf("InvokableRun() text = %q, want the result text carried through", text)
 	}
 }
 
