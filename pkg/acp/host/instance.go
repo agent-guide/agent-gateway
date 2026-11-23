@@ -15,12 +15,11 @@ import (
 	baseacp "github.com/agent-guide/agent-gateway/pkg/acp"
 	"github.com/agent-guide/agent-gateway/pkg/acp/agentspi"
 	"github.com/agent-guide/agent-gateway/pkg/acp/host/acpupdate"
-	"github.com/agent-guide/agent-gateway/pkg/acp/hostconfig"
 	acptransport "github.com/agent-guide/agent-gateway/pkg/acp/transport"
 )
 
 type instance struct {
-	cfg   hostconfig.Config
+	cfg   Config
 	cwd   string
 	model string
 	agent agentspi.Agent
@@ -130,7 +129,7 @@ func (c *sessionMetaCache) turnStartEvents() []TurnEvent {
 	return events
 }
 
-func newInstance(ctx context.Context, cfg hostconfig.Config, req TurnRequest, permissions *permissionBroker, observers ...func(string, json.RawMessage)) (*instance, error) {
+func newInstance(ctx context.Context, cfg Config, req TurnRequest, permissions *permissionBroker, observers ...func(string, json.RawMessage)) (*instance, error) {
 	cwd := strings.TrimSpace(req.CWD)
 	if cwd == "" {
 		cwd = cfg.CWD
@@ -139,7 +138,7 @@ func newInstance(ctx context.Context, cfg hostconfig.Config, req TurnRequest, pe
 	if model == "" {
 		model = cfg.DefaultModel
 	}
-	agent, err := agentspi.New(cfg.AgentType, agentspi.OpenRequest{Config: cfg, CWD: cwd})
+	agent, err := agentspi.New(cfg.AgentType, cfg.openRequest(cwd))
 	if err != nil {
 		return nil, err
 	}
@@ -322,12 +321,12 @@ func (i *instance) cacheNewSessionConfigOptions(result json.RawMessage) {
 	i.meta.store(acpupdate.KindConfigOptions, synthesized)
 }
 
-func listAgentSessions(ctx context.Context, cfg hostconfig.Config, req ListSessionsRequest) (ListSessionsResponse, error) {
+func listAgentSessions(ctx context.Context, cfg Config, req ListSessionsRequest) (ListSessionsResponse, error) {
 	openCWD := strings.TrimSpace(req.CWD)
 	if openCWD == "" {
 		openCWD = cfg.CWD
 	}
-	agent, err := agentspi.New(cfg.AgentType, agentspi.OpenRequest{Config: cfg, CWD: openCWD})
+	agent, err := agentspi.New(cfg.AgentType, cfg.openRequest(openCWD))
 	if err != nil {
 		return ListSessionsResponse{}, err
 	}

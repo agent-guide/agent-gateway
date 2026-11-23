@@ -11,7 +11,6 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
-	"github.com/agent-guide/agent-gateway/pkg/acp/hostconfig"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	builtinhost "github.com/agent-guide/agent-gateway/pkg/agent/builtin"
 	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
@@ -30,7 +29,7 @@ type acpRuntimeOptionsV1 struct {
 // drives. The production implementation is the process-pool runtime manager;
 // tests inject a fake through BootstrapOptions.ACPRuntime.
 type ACPTurnServer interface {
-	ServeConfiguredTurn(context.Context, string, hostconfig.Config, acphost.TurnRequest, acphost.EventSink) error
+	ServeConfiguredTurn(context.Context, string, acphost.Config, acphost.TurnRequest, acphost.EventSink) error
 }
 
 // acpAgentConfig is one canonical, identity-free ACP execution config entry
@@ -38,7 +37,7 @@ type ACPTurnServer interface {
 // Agent-owned runtime.acp config; turn dispatch, capability discovery, and
 // session/transcript reads consume only this shape.
 type acpAgentConfig struct {
-	config      hostconfig.Config
+	config      acphost.Config
 	fingerprint string
 	disabled    bool
 	configError string
@@ -73,9 +72,12 @@ func (b *ACPBackend) PrepareRuntimeConfigs(ctx context.Context, agents []agentpk
 		if a.Runtime.Type != agentpkg.RuntimeTypeACP || a.Runtime.ACP == nil {
 			continue
 		}
-		runtimeCfg := runtimeConfigFromAgent(*a.Runtime.ACP)
+		runtimeCfg, err := a.Runtime.ACP.HostConfig()
 		disabled := a.Disabled
-		fingerprint, err := runtimeCfg.Fingerprint(a.ID)
+		var fingerprint string
+		if err == nil {
+			fingerprint, err = runtimeCfg.Fingerprint(a.ID)
+		}
 		if err != nil {
 			message := "ACP runtime config fingerprint is invalid"
 			next[a.ID] = acpAgentConfig{disabled: disabled, configError: message}
@@ -180,24 +182,8 @@ func (b *ACPBackend) agentRuntimeConfig(agentID string) (acpAgentConfig, error) 
 	if entry.configError != "" {
 		return acpAgentConfig{}, agentexecution.NewError(agentexecution.ErrorBackendUnavailable, entry.configError)
 	}
-	entry.config = cloneRuntimeConfig(entry.config)
+	entry.config = entry.config.Clone()
 	return entry, nil
-}
-
-func runtimeConfigFromAgent(cfg agentpkg.ACPRuntime) hostconfig.Config {
-	return hostconfig.Config{
-		AgentType: cfg.AgentType, CWD: cfg.CWD, AllowedRoots: append([]string(nil), cfg.AllowedRoots...),
-		DefaultModel: cfg.DefaultModel, Env: cloneStringMap(cfg.Env), ConfigOverrides: cloneStringMap(cfg.ConfigOverrides),
-		IdleTTL: cfg.IdleTTL, MaxInstances: cfg.MaxInstances, PermissionMode: cfg.PermissionMode, Codex: cloneCodexConfig(cfg.Codex),
-	}
-}
-
-func cloneRuntimeConfig(cfg hostconfig.Config) hostconfig.Config {
-	cfg.AllowedRoots = append([]string(nil), cfg.AllowedRoots...)
-	cfg.Env = cloneStringMap(cfg.Env)
-	cfg.ConfigOverrides = cloneStringMap(cfg.ConfigOverrides)
-	cfg.Codex = cloneCodexConfig(cfg.Codex)
-	return cfg
 }
 
 type acpPermissionContinuation struct {
@@ -477,7 +463,7 @@ func (b *ACPBackend) ResolvePermission(ctx context.Context, a agentpkg.Agent, de
 
 func (b *ACPBackend) ListSessions(ctx context.Context, a agentpkg.Agent, req agentexecution.ListSessionsRequest) (agentexecution.ListSessionsResponse, error) {
 	provider, ok := b.runtime.(interface {
-		ListConfiguredSessions(context.Context, string, hostconfig.Config, acphost.ListSessionsRequest) (acphost.ListSessionsResponse, error)
+		ListConfiguredSessions(context.Context, string, acphost.Config, acphost.ListSessionsRequest) (acphost.ListSessionsResponse, error)
 	})
 	if !ok {
 		return agentexecution.ListSessionsResponse{}, agentexecution.NewError(agentexecution.ErrorCapabilityNotSupported, "session listing is not supported")
@@ -506,7 +492,7 @@ func (b *ACPBackend) LoadTranscript(ctx context.Context, a agentpkg.Agent, req a
 	}
 
 	provider, ok := b.runtime.(interface {
-		LoadConfiguredTranscript(context.Context, string, hostconfig.Config, acphost.TranscriptRequest) (acphost.TranscriptResponse, error)
+		LoadConfiguredTranscript(context.Context, string, acphost.Config, acphost.TranscriptRequest) (acphost.TranscriptResponse, error)
 	})
 	if !ok {
 		return agentexecution.TranscriptResponse{}, agentexecution.NewError(agentexecution.ErrorCapabilityNotSupported, "transcript loading is not supported")
@@ -611,13 +597,13 @@ func (b *ACPBackend) Health(_ context.Context, a agentpkg.Agent) (agentexecution
 	return agentexecution.Health{Healthy: healthy, State: state, CheckedAt: time.Now().UTC()}, err
 }
 
-func (b *ACPBackend) runtimeConfig(_ context.Context, a agentpkg.Agent) (hostconfig.Config, error) {
+func (b *ACPBackend) runtimeConfig(_ context.Context, a agentpkg.Agent) (acphost.Config, error) {
 	entry, err := b.agentRuntimeConfig(a.ID)
 	if err != nil {
-		return hostconfig.Config{}, err
+		return acphost.Config{}, err
 	}
 	if entry.disabled {
-		return hostconfig.Config{}, agentexecution.NewError(agentexecution.ErrorAgentDisabled, "acp runtime is disabled")
+		return acphost.Config{}, agentexecution.NewError(agentexecution.ErrorAgentDisabled, "acp runtime is disabled")
 	}
 	return entry.config, nil
 }
@@ -1267,16 +1253,6 @@ func cloneStringMap(in map[string]string) map[string]string {
 		out[key] = value
 	}
 	return out
-}
-
-func cloneCodexConfig(in *hostconfig.CodexConfig) *hostconfig.CodexConfig {
-	if in == nil {
-		return nil
-	}
-	out := *in
-	out.AdapterArgs = append([]string(nil), in.AdapterArgs...)
-	out.AppServerArgs = append([]string(nil), in.AppServerArgs...)
-	return &out
 }
 
 var _ agentexecution.Backend = (*ACPBackend)(nil)

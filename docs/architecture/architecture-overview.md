@@ -339,8 +339,8 @@ Current status:
   - `pkg/mcp/tracking` tracks in-flight requests and progress for the MCP dispatcher
   - `streamable_http`, `stdio`, and legacy `sse` are integrated upstream transports
 - `pkg/acp/`
-  - Agent-owned runtime config, turn request/event types, agent SPI, stdio JSON-RPC transport, activity tracking, and Admin/dispatcher integration are active
-  - first-version service config allows only `codex` and `opencode`
+  - `Agent.runtime.acp` resolves to `host.Config` with effective execution settings. The host passes working directory, environment, and optional command and arguments via `agentspi.OpenRequest`
+  - ACP runtime config supports `codex` and `opencode`
   - `opencode` uses the fixed `opencode acp --cwd <cwd>` stdio process shape
   - `codex` uses the fixed external ACP adapter binary `codex-acp` by default; it does not launch `codex acp`
   - the runtime driver handles `initialize`, `session/new`, `session/load`, `session/prompt`, full `session/update` parsing (`pkg/acp/host/acpupdate`: text, reasoning, tool calls, plan, usage, available commands, session info, mode, config options), route-scoped and Admin `session/list` and transcript replay (`session/load` over a transient connection) after ACP capability checking, model selection and `config_overrides` via `session/set_config_option`, and spec-correct fail-closed permission replies with an off-loop timeout

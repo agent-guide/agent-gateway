@@ -2,16 +2,13 @@ package codex
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	baseacp "github.com/agent-guide/agent-gateway/pkg/acp"
+	codexconfig "github.com/agent-guide/agent-gateway/pkg/acp/agent/codex/config"
 	"github.com/agent-guide/agent-gateway/pkg/acp/agentspi"
-	"github.com/agent-guide/agent-gateway/pkg/acp/hostconfig"
 	"github.com/agent-guide/agent-gateway/pkg/acp/transport"
 )
-
-const defaultAdapterCommand = "codex-acp"
 
 func init() {
 	agentspi.Register(baseacp.AgentTypeCodex, New)
@@ -25,22 +22,15 @@ type Agent struct {
 }
 
 func New(req agentspi.OpenRequest) (agentspi.Agent, error) {
-	cfg := req.Config.Codex
-	if cfg == nil {
-		cfg = &hostconfig.CodexConfig{}
-	}
-	if strings.TrimSpace(cfg.Mode) != "" && strings.TrimSpace(cfg.Mode) != hostconfig.CodexModeAdapter {
-		return nil, fmt.Errorf("codex acp mode %q is not implemented", cfg.Mode)
-	}
-	command := strings.TrimSpace(cfg.AdapterCommand)
+	command := strings.TrimSpace(req.Command)
 	if command == "" {
-		command = defaultAdapterCommand
+		command = codexconfig.DefaultAdapterCommand
 	}
 	return &Agent{
 		cwd:     req.CWD,
 		command: command,
-		args:    append([]string(nil), cfg.AdapterArgs...),
-		env:     req.Config.Env,
+		args:    append([]string(nil), req.Args...),
+		env:     req.Env,
 	}, nil
 }
 

@@ -207,7 +207,7 @@ or a cross-cutting adapter for it (for example `caddy/admin`,
 `caddy/dispatcher`, `standalone/server`, `pkg/gateway/bundle`, or `pkg/distribution/ctlcmd`):
 
 - `pkg/gateway/` — runtime route/VirtualKey/provider resolution (`AgentGateway`) and the public route-model packages (`llmroute`, `modelcatalog`, `mcproute`, `agentroute`, `virtualkey`) → `pkg/gateway/AGENTS.md`
-- `pkg/acp/` — native ACP runtime (`codex`, `opencode`): pooling, sessions, permissions, transcripts → `pkg/acp/AGENTS.md`
+- `pkg/acp/` — native ACP runtime (`codex`, `opencode`): host configuration, pooling, sessions, permissions, transcripts → `pkg/acp/AGENTS.md`
 - `pkg/credential/` — cross-cutting credential model, persistence, scheduling, expiry detection, and external refresh transport → `pkg/credential/AGENTS.md`
 - `pkg/llm/` — provider interface/registry, built-in providers, and the `einomodel` eino bridge → `pkg/llm/AGENTS.md`
 - `pkg/connector/` — Connector management and shared admission, `httpapi/` and `mcp/` execution engines, `execution/` common tool contracts and builtin bridge → `pkg/connector/AGENTS.md`

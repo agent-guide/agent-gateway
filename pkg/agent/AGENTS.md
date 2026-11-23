@@ -59,7 +59,10 @@ merge them or extend the Agent policy to other runtimes in this refactoring.
   its own lifecycle), or `builtin` (no separate process — a persisted
   definition materialized by the in-process ADK host). LLM and MCP are
   `resources`, not runtime types. `policy` is runtime-agnostic; ACP operational
-  config stays under `Agent.runtime.acp`. HTTP execution is governed by
+  config stays under `Agent.runtime.acp`. The Agent projects common settings
+  and validated adapter launch options into `host.Config`. The ACP host
+  validates common settings and the Codex config package validates
+  `runtime.acp.codex`. HTTP execution is governed by
   `docs/design/http-agent-runtime.md`: A2A Protocol 1.0 JSON-RPC is the first
   southbound dialect; `HTTPRuntime` uses `card_url` plus required `protocol`
   and optional `timeout_seconds`; the obsolete design-only `endpoint` field is

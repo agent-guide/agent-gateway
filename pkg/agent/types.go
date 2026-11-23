@@ -9,14 +9,15 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/agent-guide/agent-gateway/internal/strictjson"
 	"net"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/agent-guide/agent-gateway/internal/strictjson"
 	baseacp "github.com/agent-guide/agent-gateway/pkg/acp"
-	"github.com/agent-guide/agent-gateway/pkg/acp/hostconfig"
+	codexconfig "github.com/agent-guide/agent-gateway/pkg/acp/agent/codex/config"
+	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
 )
 
 var (
@@ -67,16 +68,16 @@ type Runtime struct {
 // ACPRuntime is the Agent-owned ACP execution configuration. Agent identity,
 // lifecycle metadata, and disabled state stay on Agent itself.
 type ACPRuntime struct {
-	AgentType       string                  `json:"agent_type"`
-	CWD             string                  `json:"cwd"`
-	AllowedRoots    []string                `json:"allowed_roots,omitempty"`
-	DefaultModel    string                  `json:"default_model,omitempty"`
-	Env             map[string]string       `json:"env,omitempty"`
-	ConfigOverrides map[string]string       `json:"config_overrides,omitempty"`
-	IdleTTL         time.Duration           `json:"idle_ttl,omitempty"`
-	MaxInstances    int                     `json:"max_instances,omitempty"`
-	PermissionMode  string                  `json:"permission_mode,omitempty"`
-	Codex           *hostconfig.CodexConfig `json:"codex,omitempty"`
+	AgentType       string              `json:"agent_type"`
+	CWD             string              `json:"cwd"`
+	AllowedRoots    []string            `json:"allowed_roots,omitempty"`
+	DefaultModel    string              `json:"default_model,omitempty"`
+	Env             map[string]string   `json:"env,omitempty"`
+	ConfigOverrides map[string]string   `json:"config_overrides,omitempty"`
+	IdleTTL         time.Duration       `json:"idle_ttl,omitempty"`
+	MaxInstances    int                 `json:"max_instances,omitempty"`
+	PermissionMode  string              `json:"permission_mode,omitempty"`
+	Codex           *codexconfig.Config `json:"codex,omitempty"`
 }
 
 // HTTPRuntime identifies a remote Agent Card and the policy used to execute it.
@@ -182,7 +183,7 @@ func (a Agent) Validate() error {
 		if a.Runtime.Builtin != nil {
 			return fmt.Errorf("runtime.builtin must be empty for acp runtime")
 		}
-		if err := a.Runtime.ACP.validate(a.ID); err != nil {
+		if err := a.Runtime.ACP.validate(); err != nil {
 			return fmt.Errorf("runtime.acp: %w", err)
 		}
 	case RuntimeTypeHTTP:
@@ -257,55 +258,51 @@ func (c *ACPRuntime) normalize() {
 	if c == nil {
 		return
 	}
-	cfg := c.runtimeConfig()
+	cfg := c.commonHostConfig()
 	cfg.Normalize()
 	c.AgentType, c.CWD, c.AllowedRoots = cfg.AgentType, cfg.CWD, cfg.AllowedRoots
 	c.DefaultModel, c.Env, c.ConfigOverrides = cfg.DefaultModel, cfg.Env, cfg.ConfigOverrides
-	c.IdleTTL, c.MaxInstances, c.PermissionMode, c.Codex = cfg.IdleTTL, cfg.MaxInstances, cfg.PermissionMode, cfg.Codex
+	c.IdleTTL, c.MaxInstances, c.PermissionMode = cfg.IdleTTL, cfg.MaxInstances, cfg.PermissionMode
+	c.Codex = c.Codex.Normalized()
 }
 
-func (c ACPRuntime) validate(agentID string) error {
-	_ = agentID
-	cfg := c.runtimeConfig()
-	if err := cfg.Validate(); err != nil {
+func (c ACPRuntime) validate() error {
+	if err := c.commonHostConfig().Validate(); err != nil {
 		return err
+	}
+	if c.AgentType == baseacp.AgentTypeCodex {
+		return c.Codex.Validate()
 	}
 	return nil
 }
 
-func (c ACPRuntime) runtimeConfig() hostconfig.Config {
-	mode := strings.TrimSpace(c.PermissionMode)
-	if mode == "" {
-		mode = baseacp.PermissionModeDeny
+// HostConfig resolves the Agent-owned settings into normalized host settings.
+func (c ACPRuntime) HostConfig() (acphost.Config, error) {
+	cfg := c.commonHostConfig()
+	cfg.Normalize()
+	if cfg.AgentType == baseacp.AgentTypeCodex && c.Codex != nil {
+		codex := c.Codex.Normalized()
+		if err := codex.Validate(); err != nil {
+			return acphost.Config{}, err
+		}
+		cfg.Command, cfg.Args = codex.AdapterCommand, codex.AdapterArgs
 	}
-	return hostconfig.Config{
-		AgentType: c.AgentType, CWD: c.CWD,
-		AllowedRoots: append([]string(nil), c.AllowedRoots...), DefaultModel: c.DefaultModel,
-		Env: cloneStringMap(c.Env), ConfigOverrides: cloneStringMap(c.ConfigOverrides),
-		IdleTTL: c.IdleTTL, MaxInstances: c.MaxInstances, PermissionMode: mode,
-		Codex: cloneACPCodexConfig(c.Codex),
-	}
+	return cfg, nil
 }
 
-func cloneStringMap(in map[string]string) map[string]string {
-	if in == nil {
-		return nil
+func (c ACPRuntime) commonHostConfig() acphost.Config {
+	cfg := acphost.Config{
+		AgentType:       c.AgentType,
+		CWD:             c.CWD,
+		AllowedRoots:    c.AllowedRoots,
+		DefaultModel:    c.DefaultModel,
+		Env:             c.Env,
+		ConfigOverrides: c.ConfigOverrides,
+		IdleTTL:         c.IdleTTL,
+		MaxInstances:    c.MaxInstances,
+		PermissionMode:  c.PermissionMode,
 	}
-	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
-}
-
-func cloneACPCodexConfig(in *hostconfig.CodexConfig) *hostconfig.CodexConfig {
-	if in == nil {
-		return nil
-	}
-	out := *in
-	out.AdapterArgs = append([]string(nil), in.AdapterArgs...)
-	out.AppServerArgs = append([]string(nil), in.AppServerArgs...)
-	return &out
+	return cfg.Clone()
 }
 
 func (a *Agent) NormalizeTimestamps(now time.Time) {

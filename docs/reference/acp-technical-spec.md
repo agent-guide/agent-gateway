@@ -78,8 +78,9 @@ Each event carries `agent_id`, `run_id`, and a monotonically increasing
 
 - Runtime configuration is snapshotted exclusively from `Agent.runtime.acp`.
 - Pool ownership is keyed by `agent_id`, never a service ID.
-- A configuration fingerprint change, disable, runtime switch, or Agent
-  deletion retires stale instances; active turns drain before final cleanup.
+- A change to the effective host configuration fingerprint, disabling an Agent,
+  switching runtimes, or deleting an Agent retires stale instances. Active turns
+  drain before final cleanup.
 - A request cannot repopulate an instance with an obsolete fingerprint after
   retirement.
 - Session-addressed turns adopt an already-bound live instance when possible.

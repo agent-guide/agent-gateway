@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/acp/agentspi"
-	"github.com/agent-guide/agent-gateway/pkg/acp/hostconfig"
 	acptransport "github.com/agent-guide/agent-gateway/pkg/acp/transport"
 )
 
@@ -93,9 +92,9 @@ func newTestManager() *Manager {
 	}
 }
 
-func testRuntimeConfig(t *testing.T) hostconfig.Config {
+func testRuntimeConfig(t *testing.T) Config {
 	t.Helper()
-	return hostconfig.Config{OwnerID: "svc", AgentType: fakePoolAgent, CWD: t.TempDir()}
+	return Config{OwnerID: "svc", AgentType: fakePoolAgent, CWD: t.TempDir()}
 }
 
 func transportOf(t *testing.T, inst *instance) *fakePoolTransport {
@@ -583,7 +582,10 @@ func TestResolveInstanceEvictsStaleConfigFingerprint(t *testing.T) {
 func TestConfiguredResolveRejectsRetiredOwnerFingerprint(t *testing.T) {
 	m := newTestManager()
 	cfg := testRuntimeConfig(t)
-	oldFingerprint := configFingerprint(cfg)
+	oldFingerprint, err := configFingerprint(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	m.RetireOwner(cfg.OwnerID, oldFingerprint)
 	oldScope := buildScope(cfg.OwnerID, cfg.CWD, "old", "", "")
 	old, err := m.resolveInstanceForOwner(context.Background(), oldScope, cfg, TurnRequest{ThreadID: "old", Input: "hi"}, true)
@@ -593,7 +595,10 @@ func TestConfiguredResolveRejectsRetiredOwnerFingerprint(t *testing.T) {
 
 	changed := cfg
 	changed.DefaultModel = "model-b"
-	newFingerprint := configFingerprint(changed)
+	newFingerprint, err := configFingerprint(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
 	m.RetireOwner(cfg.OwnerID, newFingerprint)
 	if transportOf(t, old).Alive() {
 		t.Fatal("old idle instance survived owner fingerprint retirement")
@@ -649,7 +654,10 @@ func TestRetireOwnerClosesIdleAndDrainsActive(t *testing.T) {
 
 	changed := cfg
 	changed.DefaultModel = "model-b"
-	keep := configFingerprint(changed)
+	keep, err := configFingerprint(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if n := m.RetireOwner(cfg.OwnerID, keep); n != 2 {
 		t.Fatalf("RetireOwner = %d, want 2 (one closed, one marked)", n)
 	}

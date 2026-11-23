@@ -19,7 +19,12 @@ helper.
 - `pkg/gateway/agentroute` owns unified ingress matching and `agent_id`
   targeting.
 - `pkg/agent/runtimebackend.ACPBackend` adapts common Agent execution to the native ACP
-  runtime and maintains the canonical `agent_id -> hostconfig.Config` snapshot.
+  runtime and maintains the canonical `agent_id -> host.Config` snapshot.
+- `pkg/acp/host.Config` defines, normalizes, and validates ACP execution
+  settings. The Agent resolves the effective command and arguments using
+  the `runtime.acp.codex` schema and validator in `pkg/acp/agent/codex/config`.
+  The host passes the working directory, environment, and optional command and
+  arguments to the adapter via `agentspi.OpenRequest`.
 - `pkg/acp/host.Manager` owns process pools, native sessions, permissions,
   transcripts, and exact-run cancellation.
 - `pkg/agent/execution` owns common run IDs, event envelopes, capabilities,
@@ -39,10 +44,11 @@ Agent create/update/refresh uses the three-stage definition listener protocol:
 3. cleanup retires stale pools and drains obsolete continuation state with a
    bounded detached context.
 
-Any change to `runtime.acp`, disablement, runtime switch, or deletion retires
-instances whose fingerprint no longer matches. Active instances drain; idle
-ones close immediately. The native manager rechecks the accepted owner
-fingerprint before inserting a newly created process, preventing an old
+Changes to effective host settings, disablement, runtime switches, and deletion
+retire stale instances. The fingerprint covers the resolved command and
+arguments. Active instances drain and idle ones close immediately. The native
+manager rechecks the accepted owner fingerprint before inserting a newly
+created process, preventing an old
 request from repopulating retired state.
 
 ## Request Flow
@@ -57,7 +63,7 @@ POST /<agent-route>/turn
   -> resolve AgentRoute.agent_id from memory
   -> resolve Agent definition from immutable snapshot
   -> runtime registry selects ACPBackend
-  -> ACPBackend reads the agent_id keyed hostconfig.Config snapshot
+  -> ACPBackend reads the agent_id keyed host.Config snapshot
   -> native manager reuses or creates a fingerprint-matching process
   -> native ACP session/new or session/load + session/prompt
   -> common Agent SSE envelope

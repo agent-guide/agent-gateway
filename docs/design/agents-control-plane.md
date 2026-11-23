@@ -247,9 +247,12 @@ remain generic identity/lifecycle metadata and are not repeated inside
 `runtime.acp`. Conversely, ACP execution fields do not move into `policy`.
 This leaves one source of truth without erasing the runtime-specific schema.
 
-Reusable normalization and validation live in `pkg/acp/hostconfig` without
-service-management fields. The Agent adapter converts `Agent.runtime.acp` to
-that type; `pkg/acp` does not import `pkg/agent`.
+The host owns normalization and validation of common execution settings.
+The Codex config package owns the schema and validation for
+`runtime.acp.codex`. The Agent projects `Agent.runtime.acp` into `host.Config`
+with the effective command and arguments. The host projects process launch
+settings into `agentspi.OpenRequest`. The ACP packages remain below the Agent
+control plane.
 
 #### Source of truth: `runtime` vs `routes`
 
@@ -466,7 +469,7 @@ path.
 
 - **`acp`** — the gateway owns the agent's external process lifecycle. Its
   adapter translates the Agent-owned `runtime.acp` block into
-  `hostconfig.Config` and invokes the pool with `agent_id` as owner, reusing
+  `host.Config` and invokes the pool with `agent_id` as owner, reusing
   sessions, scope rebind, permission flow, and transcript. A turn ending does
   not tear down the process; the pool governs it by `IdleTTL`.
 - **`http`** — the agent service owns its lifecycle. Its Path B adapter

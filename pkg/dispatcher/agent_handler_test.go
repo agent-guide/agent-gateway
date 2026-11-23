@@ -15,7 +15,6 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	baseacp "github.com/agent-guide/agent-gateway/pkg/acp"
 	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
-	"github.com/agent-guide/agent-gateway/pkg/acp/hostconfig"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
 	"github.com/agent-guide/agent-gateway/pkg/agent/execution/executiontest"
@@ -439,12 +438,12 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 type agentRouteACPRuntime struct {
 	stopReason  string
 	owner       string
-	cfg         hostconfig.Config
+	cfg         acphost.Config
 	req         acphost.TurnRequest
 	retirements []string
 }
 
-func (r *agentRouteACPRuntime) ServeConfiguredTurn(_ context.Context, owner string, cfg hostconfig.Config, req acphost.TurnRequest, emit acphost.EventSink) error {
+func (r *agentRouteACPRuntime) ServeConfiguredTurn(_ context.Context, owner string, cfg acphost.Config, req acphost.TurnRequest, emit acphost.EventSink) error {
 	r.owner, r.cfg, r.req = owner, cfg, req
 	if err := emit(acphost.TurnEvent{Event: agentexecution.EventSession, SessionID: "native-session"}); err != nil {
 		return err

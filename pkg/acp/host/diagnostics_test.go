@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/acp/agentspi"
-	"github.com/agent-guide/agent-gateway/pkg/acp/hostconfig"
 	acptransport "github.com/agent-guide/agent-gateway/pkg/acp/transport"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
@@ -70,7 +69,7 @@ func TestRequestDiagnosticsRedactErrorsAndReportTimeout(t *testing.T) {
 func TestPermissionDiagnosticsUseActiveTurnLogger(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	ctx := WithDiagnosticLogger(context.Background(), zap.New(core).With(zap.String("run_id", "current-run")))
-	inst := &instance{cfg: hostconfig.Config{}, turnContext: ctx, permissions: newPermissionBroker()}
+	inst := &instance{cfg: Config{}, turnContext: ctx, permissions: newPermissionBroker()}
 	inst.setTurnSink(func(ev TurnEvent) error {
 		return inst.permissions.resolve(ev.RequestID, acptransport.PermissionResponse{Outcome: acptransport.PermissionOutcomeSelected, SelectedOptionID: "private-option"})
 	})

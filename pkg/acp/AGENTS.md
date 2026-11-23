@@ -11,12 +11,16 @@ status belong in `docs/architecture/acp-architecture.md`.
 - Supported runtime adapters are registered through `pkg/acp/agentspi`; shared
   wire parsing belongs in `pkg/acp/host`, with `session/update` parsing in
   `pkg/acp/host/acpupdate`.
-- At the gateway adapter boundary, pass the Agent-owned ACP config as an
-  identity-free `pkg/acp/hostconfig.Config` and use `agent_id` as the
-  runtime owner key. Keep Agent identity and control-plane dependencies out of
-  `pkg/acp`.
+- `pkg/acp/host` owns the complete ACP execution config, its normalization
+  and validation. At the gateway adapter boundary, pass the Agent-owned
+  settings as `host.Config` with `agent_id` supplied separately as the
+  runtime owner key. Keep Agent control-plane dependencies out of `pkg/acp`.
+  `pkg/acp/agent/codex/config` defines and validates the `runtime.acp.codex`
+  block independently of adapter registration. Convert that block into the
+  effective command and arguments when preparing `host.Config`. The host
+  passes process launch settings to the adapter SPI in `agentspi.OpenRequest`.
 - Pooled instances record the config content fingerprint they were created
-  under (`hostconfig.Config.Fingerprint` / the internal `configFingerprint`). A
+  under (`host.Config.Fingerprint` / the internal `configFingerprint`). A
   turn never reuses an instance whose fingerprint differs from the current
   config, and `Manager.RetireOwner(ownerID, keepFingerprint)` closes idle
   stale instances immediately while active ones drain their in-flight turn

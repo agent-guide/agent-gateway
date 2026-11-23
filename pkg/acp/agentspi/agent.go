@@ -7,13 +7,16 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/agent-guide/agent-gateway/pkg/acp/hostconfig"
 	"github.com/agent-guide/agent-gateway/pkg/acp/transport"
 )
 
+// OpenRequest supplies the process launch settings for an ACP adapter.
+// Command and Args are optional overrides for adapters that support them.
 type OpenRequest struct {
-	Config hostconfig.Config
-	CWD    string
+	CWD     string
+	Env     map[string]string
+	Command string
+	Args    []string
 }
 
 type Factory func(OpenRequest) (Agent, error)

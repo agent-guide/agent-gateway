@@ -5,14 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
+	baseacp "github.com/agent-guide/agent-gateway/pkg/acp"
+	codexconfig "github.com/agent-guide/agent-gateway/pkg/acp/agent/codex/config"
 	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
-	"github.com/agent-guide/agent-gateway/pkg/acp/hostconfig"
 	"github.com/agent-guide/agent-gateway/pkg/agent"
 	builtinhost "github.com/agent-guide/agent-gateway/pkg/agent/builtin"
 	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
@@ -22,18 +24,19 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-func inlineACPRuntime(cfg hostconfig.Config) *agent.ACPRuntime {
+func inlineACPRuntime(cfg acphost.Config) *agent.ACPRuntime {
+	cfg = cfg.Clone()
 	return &agent.ACPRuntime{
-		AgentType: cfg.AgentType, CWD: cfg.CWD, AllowedRoots: append([]string(nil), cfg.AllowedRoots...),
-		DefaultModel: cfg.DefaultModel, Env: cloneStringMap(cfg.Env), ConfigOverrides: cloneStringMap(cfg.ConfigOverrides),
-		IdleTTL: cfg.IdleTTL, MaxInstances: cfg.MaxInstances, PermissionMode: cfg.PermissionMode, Codex: cloneCodexConfig(cfg.Codex),
+		AgentType: cfg.AgentType, CWD: cfg.CWD, AllowedRoots: cfg.AllowedRoots,
+		DefaultModel: cfg.DefaultModel, Env: cfg.Env, ConfigOverrides: cfg.ConfigOverrides,
+		IdleTTL: cfg.IdleTTL, MaxInstances: cfg.MaxInstances, PermissionMode: cfg.PermissionMode,
 	}
 }
 
 type captureACPRuntime struct {
 	t     *testing.T
 	owner string
-	cfg   hostconfig.Config
+	cfg   acphost.Config
 	req   acphost.TurnRequest
 }
 
@@ -42,7 +45,7 @@ type preNativeRegistrationACPRuntime struct {
 	release chan struct{}
 }
 
-func (r *preNativeRegistrationACPRuntime) ServeConfiguredTurn(context.Context, string, hostconfig.Config, acphost.TurnRequest, acphost.EventSink) error {
+func (r *preNativeRegistrationACPRuntime) ServeConfiguredTurn(context.Context, string, acphost.Config, acphost.TurnRequest, acphost.EventSink) error {
 	close(r.entered)
 	<-r.release
 	return nil
@@ -52,7 +55,7 @@ func (*preNativeRegistrationACPRuntime) CancelRun(string, string) error {
 	return acphost.ErrRunNotFound
 }
 
-func (r *captureACPRuntime) ServeConfiguredTurn(ctx context.Context, owner string, cfg hostconfig.Config, req acphost.TurnRequest, emit acphost.EventSink) error {
+func (r *captureACPRuntime) ServeConfiguredTurn(ctx context.Context, owner string, cfg acphost.Config, req acphost.TurnRequest, emit acphost.EventSink) error {
 	r.owner, r.cfg, r.req = owner, cfg, req
 	ids, _ := agentexecution.IdentitiesFromContext(ctx)
 	dims, _ := usage.DimensionsFromContext(ctx)
@@ -69,7 +72,7 @@ func (r *captureACPRuntime) ServeConfiguredTurn(ctx context.Context, owner strin
 }
 
 func TestACPBackendTranslatesOptionsIntoIdentityFreeRuntime(t *testing.T) {
-	config := hostconfig.Config{
+	config := acphost.Config{
 		AgentType: "opencode", CWD: "/workspace",
 		AllowedRoots: []string{"/workspace"}, DefaultModel: "model-a", Env: map[string]string{"A": "B"},
 		ConfigOverrides: map[string]string{"base": "true"}, PermissionMode: "interactive",
@@ -115,7 +118,7 @@ func TestACPBackendTranslatesOptionsIntoIdentityFreeRuntime(t *testing.T) {
 }
 
 func TestACPBackendCancelBeforeNativeRegistrationIsRetryable(t *testing.T) {
-	config := hostconfig.Config{AgentType: "opencode", CWD: "/workspace", AllowedRoots: []string{"/workspace"}}
+	config := acphost.Config{AgentType: "opencode", CWD: "/workspace", AllowedRoots: []string{"/workspace"}}
 	native := &preNativeRegistrationACPRuntime{entered: make(chan struct{}), release: make(chan struct{})}
 	backend := NewACPBackend(native, RuntimeControls{Runs: agentexecution.NewRunRegistry()})
 	a := agent.Agent{ID: "agent-1", Runtime: agent.Runtime{Type: agent.RuntimeTypeACP, ACP: inlineACPRuntime(config)}}
@@ -791,8 +794,45 @@ func (r *retireRecordingACPRuntime) RetireOwnerDeferred(ownerID, keep string) (i
 	return 0, func() {}
 }
 
+func TestACPRefreshTracksEffectiveCodexLaunchSettings(t *testing.T) {
+	native := &retireRecordingACPRuntime{}
+	backend := NewACPBackend(native)
+	cfg := &agent.ACPRuntime{AgentType: baseacp.AgentTypeCodex, CWD: t.TempDir()}
+	a := agent.Agent{ID: "agent-1", Runtime: agent.Runtime{Type: agent.RuntimeTypeACP, ACP: cfg}}
+	backend.RefreshRuntimeConfigs(t.Context(), []agent.Agent{a})
+	initial, err := backend.agentRuntimeConfig(a.ID)
+	if err != nil || initial.config.Command != codexconfig.DefaultAdapterCommand {
+		t.Fatalf("initial Codex command = %q, err = %v", initial.config.Command, err)
+	}
+	initialOwnerFingerprint := a.ID + "|" + initial.fingerprint
+
+	cfg.Codex = &codexconfig.Config{Mode: codexconfig.ModeAdapter, TraceJSON: true}
+	backend.RefreshRuntimeConfigs(t.Context(), []agent.Agent{a})
+	unchanged, err := backend.agentRuntimeConfig(a.ID)
+	if err != nil || unchanged.fingerprint != initial.fingerprint ||
+		!slices.Equal(native.retirements, []string{initialOwnerFingerprint, initialOwnerFingerprint}) {
+		t.Fatalf("non-executed settings changed the accepted fingerprint: %v, err = %v", native.retirements, err)
+	}
+
+	cfg.Codex.AdapterArgs = []string{"--profile", "work"}
+	backend.RefreshRuntimeConfigs(t.Context(), []agent.Agent{a})
+	updated, err := backend.agentRuntimeConfig(a.ID)
+	if err != nil || len(native.retirements) != 3 || native.retirements[2] != a.ID+"|"+updated.fingerprint ||
+		updated.fingerprint == initial.fingerprint ||
+		!slices.Equal(updated.config.Args, cfg.Codex.AdapterArgs) {
+		t.Fatalf("updated Codex arguments = %v, retirements = %v, err = %v", updated.config.Args, native.retirements, err)
+	}
+
+	cfg.Codex.Mode = codexconfig.ModeAppServer
+	backend.RefreshRuntimeConfigs(t.Context(), []agent.Agent{a})
+	if _, err := backend.agentRuntimeConfig(a.ID); !errors.Is(err, agentexecution.ErrBackendUnavailable) ||
+		len(native.retirements) != 4 || native.retirements[3] != a.ID+"|" {
+		t.Fatalf("unsupported Codex mode retained an accepted fingerprint: %v, err = %v", native.retirements, err)
+	}
+}
+
 func TestACPRefreshRuntimeConfigsIsAtomicAndRetiresFingerprints(t *testing.T) {
-	config := hostconfig.Config{
+	config := acphost.Config{
 		AgentType: "opencode", CWD: "/workspace",
 		AllowedRoots: []string{"/workspace"}, DefaultModel: "model-a",
 	}
@@ -840,7 +880,7 @@ func TestACPRefreshRuntimeConfigsIsAtomicAndRetiresFingerprints(t *testing.T) {
 		t.Fatalf("retired fingerprint left permission claimable: pending=%v expired=%d", got, permissionResolver.count())
 	}
 
-	// Disabled is management state rather than part of hostconfig.Config, but its
+	// Disabled is management state rather than part of acphost.Config, but its
 	// transition still retires every Agent-owned instance and rejects execution.
 	a.Disabled = true
 	backend.RefreshRuntimeConfigs(t.Context(), []agent.Agent{a})

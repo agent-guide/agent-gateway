@@ -12,7 +12,6 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/agent-guide/agent-gateway/pkg/acp/hostconfig"
 	acptransport "github.com/agent-guide/agent-gateway/pkg/acp/transport"
 )
 
@@ -261,7 +260,7 @@ func (m *Manager) RetireOwnerDeferred(ownerID, keepFingerprint string) (int, fun
 // ServeConfiguredTurn executes an Agent-owned ACP runtime from an
 // identity-free snapshot. It performs no service-store lookup; ownerID is the
 // pool/permission ownership key and is never exposed through the common SPI.
-func (m *Manager) ServeConfiguredTurn(ctx context.Context, ownerID string, runtimeCfg hostconfig.Config, req TurnRequest, emit EventSink) error {
+func (m *Manager) ServeConfiguredTurn(ctx context.Context, ownerID string, runtimeCfg Config, req TurnRequest, emit EventSink) error {
 	if m == nil {
 		return fmt.Errorf("acp runtime manager is not configured")
 	}
@@ -272,7 +271,7 @@ func (m *Manager) ServeConfiguredTurn(ctx context.Context, ownerID string, runti
 	return m.serveTurn(ctx, cfg, req, emit, true)
 }
 
-func (m *Manager) serveTurn(ctx context.Context, cfg hostconfig.Config, req TurnRequest, emit EventSink, enforceOwnerFingerprint bool) (turnErr error) {
+func (m *Manager) serveTurn(ctx context.Context, cfg Config, req TurnRequest, emit EventSink, enforceOwnerFingerprint bool) (turnErr error) {
 	finish := diagnosticPhase(ctx, "turn", zap.String("session_id", req.SessionID), zap.Bool("fresh_session", req.FreshSession), zap.String("agent_type", cfg.AgentType))
 	var diagnosticErr error
 	defer func() { finish(errors.Join(turnErr, diagnosticErr)) }()
@@ -299,7 +298,7 @@ func (m *Manager) serveTurn(ctx context.Context, cfg hostconfig.Config, req Turn
 	if cwd == "" {
 		cwd = cfg.CWD
 	}
-	if err := hostconfig.ValidateCWDAllowed(cwd, cfg.AllowedRoots); err != nil {
+	if err := validateCWDAllowed(cwd, cfg.AllowedRoots); err != nil {
 		return err
 	}
 
@@ -367,13 +366,13 @@ func (m *Manager) ListActiveRuns(ownerID string) []ActiveRunInfo {
 	return m.runs.list(strings.TrimSpace(ownerID))
 }
 
-func (m *Manager) ListConfiguredSessions(ctx context.Context, ownerID string, runtimeCfg hostconfig.Config, req ListSessionsRequest) (ListSessionsResponse, error) {
+func (m *Manager) ListConfiguredSessions(ctx context.Context, ownerID string, runtimeCfg Config, req ListSessionsRequest) (ListSessionsResponse, error) {
 	cfg, err := ownerRuntimeConfig(runtimeCfg, ownerID)
 	if err != nil {
 		return ListSessionsResponse{}, err
 	}
 	if req.CWD = strings.TrimSpace(req.CWD); req.CWD != "" {
-		if err := hostconfig.ValidateCWDAllowed(req.CWD, cfg.AllowedRoots); err != nil {
+		if err := validateCWDAllowed(req.CWD, cfg.AllowedRoots); err != nil {
 			return ListSessionsResponse{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 		}
 	}
@@ -413,13 +412,13 @@ func (m *Manager) ListPendingPermissions() []PendingPermissionInfo {
 	return m.permissions.list()
 }
 
-func (m *Manager) LoadConfiguredTranscript(ctx context.Context, ownerID string, runtimeCfg hostconfig.Config, req TranscriptRequest) (TranscriptResponse, error) {
+func (m *Manager) LoadConfiguredTranscript(ctx context.Context, ownerID string, runtimeCfg Config, req TranscriptRequest) (TranscriptResponse, error) {
 	cfg, err := ownerRuntimeConfig(runtimeCfg, ownerID)
 	if err != nil {
 		return TranscriptResponse{}, err
 	}
 	if req.CWD = strings.TrimSpace(req.CWD); req.CWD != "" {
-		if err := hostconfig.ValidateCWDAllowed(req.CWD, cfg.AllowedRoots); err != nil {
+		if err := validateCWDAllowed(req.CWD, cfg.AllowedRoots); err != nil {
 			return TranscriptResponse{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 		}
 	}
@@ -473,12 +472,15 @@ func (m *Manager) ListOwnerInstances(ownerID string) []PooledInstanceInfo {
 	return out
 }
 
-func (m *Manager) resolveInstance(ctx context.Context, scope string, cfg hostconfig.Config, req TurnRequest) (*instance, error) {
+func (m *Manager) resolveInstance(ctx context.Context, scope string, cfg Config, req TurnRequest) (*instance, error) {
 	return m.resolveInstanceForOwner(ctx, scope, cfg, req, false)
 }
 
-func (m *Manager) resolveInstanceForOwner(ctx context.Context, scope string, cfg hostconfig.Config, req TurnRequest, enforceOwnerFingerprint bool) (*instance, error) {
-	fingerprint := configFingerprint(cfg)
+func (m *Manager) resolveInstanceForOwner(ctx context.Context, scope string, cfg Config, req TurnRequest, enforceOwnerFingerprint bool) (*instance, error) {
+	fingerprint, err := configFingerprint(cfg)
+	if err != nil {
+		return nil, err
+	}
 	// ServeTurn holds the per-scope activity lock for the whole turn, so only one
 	// turn resolves a given scope at a time and the janitor skips active scopes;
 	// no other goroutine mutates this scope's pool entry while we are here.
@@ -562,7 +564,7 @@ func (m *Manager) ownerInstanceCountLocked(ownerID string) int {
 // session_id) to explicit session addressing (later turns echo back the
 // session id from the session event), instead of spawning a second process and
 // replaying session/load. The caller must hold m.mu.
-func (m *Manager) adoptSessionInstanceLocked(scope string, fingerprint string, cfg hostconfig.Config, req TurnRequest) *instance {
+func (m *Manager) adoptSessionInstanceLocked(scope string, fingerprint string, cfg Config, req TurnRequest) *instance {
 	if req.FreshSession || req.SessionID == "" {
 		return nil
 	}

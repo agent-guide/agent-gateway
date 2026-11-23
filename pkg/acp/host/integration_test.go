@@ -12,7 +12,6 @@ import (
 
 	baseacp "github.com/agent-guide/agent-gateway/pkg/acp"
 	"github.com/agent-guide/agent-gateway/pkg/acp/agentspi"
-	"github.com/agent-guide/agent-gateway/pkg/acp/hostconfig"
 	acptransport "github.com/agent-guide/agent-gateway/pkg/acp/transport"
 )
 
@@ -80,7 +79,7 @@ func (a *fakeBinAgentImpl) Cancel(_ context.Context, t acptransport.Transport, i
 
 func TestIntegrationFakeBinaryFullLifecycle(t *testing.T) {
 	cwd := t.TempDir()
-	cfg := hostconfig.Config{OwnerID: "fake", AgentType: fakeBinAgent, CWD: cwd, AllowedRoots: []string{cwd}}
+	cfg := Config{OwnerID: "fake", AgentType: fakeBinAgent, CWD: cwd, AllowedRoots: []string{cwd}}
 	cfg.Normalize()
 
 	m := newTestManager()
@@ -139,7 +138,7 @@ func TestIntegrationFakeBinaryFullLifecycle(t *testing.T) {
 // observed back as the reply text.
 func TestIntegrationInteractivePermissionRoundTrip(t *testing.T) {
 	cwd := t.TempDir()
-	cfg := hostconfig.Config{
+	cfg := Config{
 		OwnerID: "fake-perm", AgentType: fakeBinPermAgent,
 		CWD: cwd, AllowedRoots: []string{cwd},
 		PermissionMode: baseacp.PermissionModeInteractive,
@@ -209,7 +208,7 @@ func TestIntegrationInteractivePermissionRoundTrip(t *testing.T) {
 
 func TestIntegrationExactRunCancelSendsNativeSessionCancel(t *testing.T) {
 	cwd := t.TempDir()
-	cfg := hostconfig.Config{OwnerID: "reviewer", AgentType: fakeBinPermAgent, CWD: cwd, AllowedRoots: []string{cwd}, PermissionMode: baseacp.PermissionModeInteractive, MaxInstances: 2}
+	cfg := Config{OwnerID: "reviewer", AgentType: fakeBinPermAgent, CWD: cwd, AllowedRoots: []string{cwd}, PermissionMode: baseacp.PermissionModeInteractive, MaxInstances: 2}
 	cfg.Normalize()
 	m := newTestManager()
 	defer m.Close()

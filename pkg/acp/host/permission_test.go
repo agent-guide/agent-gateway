@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agent-guide/agent-gateway/pkg/acp/hostconfig"
 	acptransport "github.com/agent-guide/agent-gateway/pkg/acp/transport"
 )
 
@@ -74,7 +73,7 @@ func TestManagerResolvePermissionValidatesDecision(t *testing.T) {
 
 func interactiveInstance(broker *permissionBroker) *instance {
 	return &instance{
-		cfg:         hostconfig.Config{OwnerID: "svc", PermissionMode: "interactive"},
+		cfg:         Config{OwnerID: "svc", PermissionMode: "interactive"},
 		sessionID:   "s1",
 		agent:       stubAgent{},
 		permissions: broker,
@@ -151,12 +150,12 @@ func TestInteractivePermissionFailsClosedOnTimeout(t *testing.T) {
 func TestPermissionFuncUsesConfiguredDecisionForNonInteractiveModes(t *testing.T) {
 	params := json.RawMessage(`{"options":[{"id":"allow-once","kind":"allow_once","name":"Allow once"}]}`)
 
-	deny := &instance{cfg: hostconfig.Config{PermissionMode: "deny"}}
+	deny := &instance{cfg: Config{PermissionMode: "deny"}}
 	if resp := deny.permissionFunc()(context.Background(), params); resp.Outcome != acptransport.PermissionOutcomeCancelled {
 		t.Fatalf("deny outcome = %q, want cancelled", resp.Outcome)
 	}
 
-	auto := &instance{cfg: hostconfig.Config{PermissionMode: "auto_approve"}}
+	auto := &instance{cfg: Config{PermissionMode: "auto_approve"}}
 	if resp := auto.permissionFunc()(context.Background(), params); resp.Outcome != acptransport.PermissionOutcomeSelected || resp.SelectedOptionID != "allow-once" {
 		t.Fatalf("auto_approve response = %+v, want selected allow-once", resp)
 	}
