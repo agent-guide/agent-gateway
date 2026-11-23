@@ -291,6 +291,7 @@ http://127.0.0.1:8080 {
 		llm_api anthropic
 		llm_api cc
 		# MCP ingress tracking: pkg/mcp/tracking; upstream execution: pkg/connector/mcp.
+		# Shared tool execution contracts live in pkg/connector/execution.
 		mcp
 		agent
 	}

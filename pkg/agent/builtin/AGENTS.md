@@ -62,6 +62,6 @@ runtime structure belongs in `docs/architecture/architecture-overview.md`.
   factory package in `cmd/agw/main.go`, `cmd/agwd/main.go`, and
   `cmd/agwctl/main.go`.
 
-Builtin tool bridges and custom factory dependencies use `connector/runtime.Resolver`
+Builtin tool bridges and custom factory dependencies use `connector/execution.Resolver`
 and retained `Lease` exclusively. Observation wraps the Lease and preserves its
 descriptor, catalog, generation rejection and full CallOutcome; no ToolCaller fallback.

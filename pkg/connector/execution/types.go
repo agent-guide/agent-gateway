@@ -1,14 +1,14 @@
-// Package runtime defines connector execution contracts independent of Agents,
-// management transports and persistence.
-package runtime
+// Package execution defines shared tool execution contracts for connectors.
+package execution
 
 import (
 	"context"
 	"fmt"
-	"github.com/agent-guide/agent-gateway/internal/strictjson"
-	"github.com/agent-guide/agent-gateway/pkg/mcp"
 	"net"
 	"strings"
+
+	"github.com/agent-guide/agent-gateway/internal/strictjson"
+	"github.com/agent-guide/agent-gateway/pkg/mcp"
 )
 
 type Resolver interface {

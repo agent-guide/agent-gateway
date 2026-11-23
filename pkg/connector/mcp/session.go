@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 	"github.com/agent-guide/agent-gateway/pkg/mcp/transport"
 	"github.com/google/uuid"
@@ -142,7 +142,7 @@ func (m *Engine) ListGatewaySessions() []GatewaySession {
 
 func (m *Engine) sessionClient(ctx context.Context, target *Target) (transport.Caller, bool, error) {
 	if target == nil {
-		return nil, false, &cr.CallError{Category: "unsupported_capability", Message: "capability unsupported by connector"}
+		return nil, false, &execution.CallError{Category: "unsupported_capability", Message: "capability unsupported by connector"}
 	}
 	id := target.id
 	cfg := target.config

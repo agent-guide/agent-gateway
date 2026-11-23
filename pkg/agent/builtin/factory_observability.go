@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	"github.com/cloudwego/eino/components/model"
 )
 
@@ -39,12 +39,12 @@ func (r factoryModels) ResolveChatModel(ctx context.Context, routeID, name strin
 }
 
 type factoryTools struct {
-	cr.Resolver
+	execution.Resolver
 	observer usage.InteractionObserver
 	agentID  string
 }
 
-func (t factoryTools) Acquire(ctx context.Context, id string) (cr.Lease, error) {
+func (t factoryTools) Acquire(ctx context.Context, id string) (execution.Lease, error) {
 	lease, err := t.Resolver.Acquire(ctx, id)
 	if err != nil {
 		return nil, err
@@ -53,12 +53,12 @@ func (t factoryTools) Acquire(ctx context.Context, id string) (cr.Lease, error) 
 }
 
 type factoryLease struct {
-	cr.Lease
+	execution.Lease
 	observer usage.InteractionObserver
 	agentID  string
 }
 
-func (t factoryLease) CallTool(ctx context.Context, call cr.ToolCall) (cr.CallOutcome, error) {
+func (t factoryLease) CallTool(ctx context.Context, call execution.ToolCall) (execution.CallOutcome, error) {
 	descriptor := t.Descriptor()
 	span, cctx := t.observer.Begin(ctx, childDims(ctx, "mcp", "", t.agentID))
 	span.SetExtension(usage.MCPExtension{ServiceID: descriptor.ConnectorID, ConnectorType: descriptor.Type, Method: "tools/call", ToolName: call.Name})

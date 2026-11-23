@@ -14,9 +14,9 @@ import (
 
 	"github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/connector/egress"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	"github.com/agent-guide/agent-gateway/pkg/connector/httpapi"
 	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 )
 
 func TestBusyHTTPRejectsEditsDeletionAndPreservesMetadataGeneration(t *testing.T) {
@@ -43,7 +43,7 @@ func TestBusyHTTPRejectsEditsDeletionAndPreservesMetadataGeneration(t *testing.T
 	generation := l.Descriptor().Generation
 	finished := make(chan error, 1)
 	go func() {
-		_, err := l.CallTool(t.Context(), cr.ToolCall{Name: "lookup", Arguments: map[string]any{"id": "1"}})
+		_, err := l.CallTool(t.Context(), execution.ToolCall{Name: "lookup", Arguments: map[string]any{"id": "1"}})
 		finished <- err
 	}()
 	<-started
@@ -76,7 +76,7 @@ func TestBusyHTTPRejectsEditsDeletionAndPreservesMetadataGeneration(t *testing.T
 	if err := m.Update(t.Context(), cfg.ID, changed); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := l.CallTool(t.Context(), cr.ToolCall{Name: "lookup", Arguments: map[string]any{"id": "1"}}); err == nil {
+	if _, err := l.CallTool(t.Context(), execution.ToolCall{Name: "lookup", Arguments: map[string]any{"id": "1"}}); err == nil {
 		t.Fatal("stale handle admitted")
 	}
 }
@@ -399,7 +399,7 @@ func TestMCPLeaseRetainsDisplayGenerationAndRejectsExecutionReplacement(t *testi
 	if err = manager.Update(t.Context(), cfg.ID, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = lease.CallTool(t.Context(), cr.ToolCall{Name: "echo"}); err == nil {
+	if _, err = lease.CallTool(t.Context(), execution.ToolCall{Name: "echo"}); err == nil {
 		t.Fatal("stale MCP lease executed")
 	}
 	if got := manager.GetGatewaySession(cfg.ID); got.State != connectormcp.SessionStateClosed {

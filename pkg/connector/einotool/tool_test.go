@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 	"github.com/cloudwego/eino/components/tool"
 )
@@ -21,24 +21,24 @@ type fakeResolver struct {
 	calledArgs map[string]any
 }
 
-func (f *fakeResolver) Acquire(_ context.Context, id string) (cr.Lease, error) {
+func (f *fakeResolver) Acquire(_ context.Context, id string) (execution.Lease, error) {
 	f.calledID = id
 	return fakeLease{f}, nil
 }
 
 type fakeLease struct{ f *fakeResolver }
 
-func (l fakeLease) Descriptor() cr.Descriptor {
-	return cr.Descriptor{ConnectorID: l.f.calledID, Type: "mcp"}
+func (l fakeLease) Descriptor() execution.Descriptor {
+	return execution.Descriptor{ConnectorID: l.f.calledID, Type: "mcp"}
 }
 func (l fakeLease) Close() error { return nil }
-func (l fakeLease) ListTools(context.Context) (cr.ToolCatalog, error) {
-	return cr.ToolCatalog{Tools: l.f.tools}, l.f.listErr
+func (l fakeLease) ListTools(context.Context) (execution.ToolCatalog, error) {
+	return execution.ToolCatalog{Tools: l.f.tools}, l.f.listErr
 }
-func (l fakeLease) CallTool(_ context.Context, call cr.ToolCall) (cr.CallOutcome, error) {
+func (l fakeLease) CallTool(_ context.Context, call execution.ToolCall) (execution.CallOutcome, error) {
 	l.f.calledName = call.Name
 	l.f.calledArgs = call.Arguments
-	return cr.CallOutcome{Result: l.f.result}, l.f.callErr
+	return execution.CallOutcome{Result: l.f.result}, l.f.callErr
 }
 
 func testTools() []basemcp.Tool {

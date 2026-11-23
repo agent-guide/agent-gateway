@@ -14,9 +14,9 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/configmgr"
 	"github.com/agent-guide/agent-gateway/pkg/connector"
 	"github.com/agent-guide/agent-gateway/pkg/connector/egress"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	"github.com/agent-guide/agent-gateway/pkg/connector/httpapi"
 	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 )
 
@@ -81,10 +81,10 @@ func TestHTTPLeasePinsCatalogAndMappingAndFencesIncarnations(t *testing.T) {
 	if _, err := old.ListTools(ctx); err == nil {
 		t.Fatal("stale catalog handle accepted")
 	}
-	if _, err := old.CallTool(ctx, cr.ToolCall{Name: "lookup", Arguments: map[string]any{"id": "one"}}); err == nil {
+	if _, err := old.CallTool(ctx, execution.ToolCall{Name: "lookup", Arguments: map[string]any{"id": "one"}}); err == nil {
 		t.Fatal("stale execution handle accepted")
 	}
-	out, err := current.CallTool(ctx, cr.ToolCall{Name: "lookup", Arguments: map[string]any{"id": "one"}})
+	out, err := current.CallTool(ctx, execution.ToolCall{Name: "lookup", Arguments: map[string]any{"id": "one"}})
 	if err != nil || out.Result.IsError || out.HTTP == nil {
 		t.Fatalf("call: %#v %v", out, err)
 	}
@@ -100,7 +100,7 @@ func TestHTTPLeasePinsCatalogAndMappingAndFencesIncarnations(t *testing.T) {
 	if err := m.Create(ctx, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := old.CallTool(ctx, cr.ToolCall{Name: "lookup", Arguments: map[string]any{"id": "one"}}); err == nil {
+	if _, err := old.CallTool(ctx, execution.ToolCall{Name: "lookup", Arguments: map[string]any{"id": "one"}}); err == nil {
 		t.Fatal("deleted lease revived after recreation")
 	}
 }
@@ -134,7 +134,7 @@ func TestHTTPLeaseConcurrentCatalogAndUncertainWrite(t *testing.T) {
 		}
 		token = v
 	}
-	out, err := lease.CallTool(ctx, cr.ToolCall{Name: "lookup", Arguments: map[string]any{"id": "one"}})
+	out, err := lease.CallTool(ctx, execution.ToolCall{Name: "lookup", Arguments: map[string]any{"id": "one"}})
 	if err != nil || out.Failure == nil || !out.Failure.OutcomeUncertain || out.Result == nil || !out.Result.IsError || strings.Contains(fmt.Sprint(out.Result.Content), "sensitive") {
 		t.Fatalf("unsafe failure: %#v %v", out, err)
 	}
@@ -194,7 +194,7 @@ func TestUnconfirmedConnectorWriteIsGatedAndRecoveredWithoutReplay(t *testing.T)
 	} {
 		t.Run(operation.name, func(t *testing.T) {
 			err := operation.call()
-			var boundary *cr.CallError
+			var boundary *execution.CallError
 			var management *configmgr.PendingMutationError
 			if !errors.As(err, &boundary) || boundary.Category != "mutation_pending" || !errors.Is(err, configmgr.ErrMutationPending) || !errors.As(err, &management) || management.Mutation.OperationID != pending.OperationID {
 				t.Fatalf("pending admission lost typed contracts: %v", err)

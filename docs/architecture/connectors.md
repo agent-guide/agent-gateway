@@ -15,7 +15,7 @@ ID; a different ID is rejected before mutation. Renaming the display name
 preserves Agent/route references, credential scopes and approval-entry strings.
 Tool `name` remains the protocol's callable identifier.
 
-`pkg/connector/runtime` defines generation leases, catalogs, tool calls and typed
+`pkg/connector/execution` defines generation leases, catalogs, tool calls and typed
 outcomes. HTTP calls through a retained lease use its compiled Schema and mapping.
 Admission compares its execution token and object incarnation with the current
 snapshot. Replaced or deleted/recreated objects reject stale handles; display

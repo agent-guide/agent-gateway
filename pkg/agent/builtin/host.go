@@ -16,7 +16,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/pkg/agent"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 )
 
 const (
@@ -28,7 +28,7 @@ const (
 type Config struct {
 	Agents   AgentSource
 	Models   ChatModelResolver
-	Tools    cr.Resolver
+	Tools    execution.Resolver
 	Observer usage.InteractionObserver
 }
 
@@ -47,7 +47,7 @@ type Host struct {
 	closeDone chan struct{}
 	agents    AgentSource
 	models    ChatModelResolver
-	tools     cr.Resolver
+	tools     execution.Resolver
 	observer  usage.InteractionObserver
 
 	mu       sync.Mutex

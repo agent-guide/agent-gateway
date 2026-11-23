@@ -14,8 +14,8 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
 	"github.com/agent-guide/agent-gateway/internal/strictjson"
 	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
@@ -225,8 +225,8 @@ func (h *Handler) dispatchJSONRPC(w http.ResponseWriter, r *http.Request, route 
 		var result *basemcp.ToolResult
 		if err == nil {
 			defer lease.Close()
-			var outcome cr.CallOutcome
-			outcome, err = lease.CallTool(requestCtx, cr.ToolCall{Name: strings.TrimSpace(name), Arguments: args, Progress: func(p cr.Progress) {
+			var outcome execution.CallOutcome
+			outcome, err = lease.CallTool(requestCtx, execution.ToolCall{Name: strings.TrimSpace(name), Arguments: args, Progress: func(p execution.Progress) {
 				select {
 				case progressCh <- connectormcp.UpstreamProgress{ProgressToken: p.ProgressToken, Progress: p.Progress, Total: p.Total, Message: p.Message}:
 				default:
@@ -457,7 +457,7 @@ func (h *Handler) storeProgressNotification(route *mcproute.MCPRoute, token any,
 }
 
 func (h *Handler) writeRequestError(w http.ResponseWriter, r *http.Request, route *mcproute.MCPRoute, msg transport.Message, err error) error {
-	var boundary *cr.CallError
+	var boundary *execution.CallError
 	if errors.As(err, &boundary) {
 		usage.SpanFromContext(r.Context()).SetExtension(usage.MCPExtension{ResultStatus: "error"})
 		code := -32000

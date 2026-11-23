@@ -1,10 +1,10 @@
 # Connector domain
 
 `pkg/connector` owns persisted `connectors`, immutable HTTP tool catalogs,
-connector management and shared admission. `runtime/` defines common generation
+connector management and shared admission. `execution/` defines common generation
 leases and tool execution contracts. Parallel `mcp/` and `httpapi/` packages own
 upstream execution; `mcp/` also owns MCP configuration, discovery and session
-resources. Neither executor nor `runtime/` imports this root package, Agents or
+resources. Neither executor nor `execution/` imports this root package, Agents or
 Admin/persistence. HTTP execution must not enter MCP reconnect/retry paths.
 MCP exclusive retirement callbacks check competing work and detach sessions
 under Manager snapshotMu; close detached resources outside that lock. Display
@@ -58,7 +58,7 @@ Bundle apply is sequential with partial success. Do not add cross-resource
 transactions, composite publication, group endpoints or group recovery. Release
 references before deletion; retain per-resource pending-write protection.
 
-Builtin tool bridges and custom factory dependencies use `connector/runtime.Resolver`
+Builtin tool bridges and custom factory dependencies use `connector/execution.Resolver`
 and retained `Lease` exclusively. Observation wraps the Lease and preserves its
 descriptor, catalog, generation rejection and full CallOutcome; no ToolCaller fallback.
 

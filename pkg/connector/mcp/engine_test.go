@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	"github.com/agent-guide/agent-gateway/pkg/mcp/transport"
 )
 
@@ -80,7 +80,7 @@ func TestMCPOnlyOperationsRejectMissingTarget(t *testing.T) {
 	engine := NewEngine(nil)
 	defer func() { <-engine.BeginClose() }()
 	_, err := engine.ListResourcesPage(t.Context(), nil, "")
-	var callErr *cr.CallError
+	var callErr *execution.CallError
 	if !errors.As(err, &callErr) || callErr.Category != "unsupported_capability" {
 		t.Fatalf("expected unsupported capability: %v", err)
 	}

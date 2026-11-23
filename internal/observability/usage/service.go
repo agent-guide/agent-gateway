@@ -2,11 +2,11 @@ package usage
 
 import (
 	"context"
-	connectorruntime "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"sync/atomic"
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/attribution"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	"github.com/agent-guide/agent-gateway/pkg/event"
 )
 
@@ -63,7 +63,7 @@ type QueryService interface {
 }
 
 type UsageService struct {
-	HTTPClientObserver func(context.Context, connectorruntime.HTTPExecution, time.Time)
+	HTTPClientObserver func(context.Context, execution.HTTPExecution, time.Time)
 	pipeline           Pipeline
 	query              QueryService
 	observer           InteractionObserver

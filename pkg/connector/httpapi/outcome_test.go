@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 )
 
 func TestCallToolProducesSafeTypedOutcomes(t *testing.T) {
@@ -29,7 +29,7 @@ func TestCallToolProducesSafeTypedOutcomes(t *testing.T) {
 			defer server.Close()
 			engine := localEngine(t, server, nil)
 			catalog := testCatalog(t, server.URL, "")
-			call := cr.ToolCall{Name: "lookup", Arguments: map[string]any{"id": "one"}}
+			call := execution.ToolCall{Name: "lookup", Arguments: map[string]any{"id": "one"}}
 			switch mode {
 			case "invalid_arguments":
 				call.Arguments = map[string]any{}
@@ -46,7 +46,7 @@ func TestCallToolProducesSafeTypedOutcomes(t *testing.T) {
 				if mode == "panic" {
 					category = "internal_error"
 				}
-				var callErr *cr.CallError
+				var callErr *execution.CallError
 				if !errors.As(err, &callErr) || callErr.Category != category || requests.Load() != 0 {
 					t.Fatalf("preflight sent work or leaked error: %#v %v", out, err)
 				}

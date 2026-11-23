@@ -9,7 +9,7 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/connector/einotool"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	"github.com/agent-guide/agent-gateway/pkg/mcp"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/tool"
@@ -72,31 +72,33 @@ func TestCustomFactoryProducesChildUsage(t *testing.T) {
 	}
 }
 
-type factoryTestResolver struct{ lease cr.Lease }
+type factoryTestResolver struct{ lease execution.Lease }
 
-func (r factoryTestResolver) Acquire(context.Context, string) (cr.Lease, error) { return r.lease, nil }
+func (r factoryTestResolver) Acquire(context.Context, string) (execution.Lease, error) {
+	return r.lease, nil
+}
 
 type factoryTestLease struct {
-	outcome cr.CallOutcome
+	outcome execution.CallOutcome
 	revoked bool
 	closed  bool
 }
 
-func (*factoryTestLease) Descriptor() cr.Descriptor {
-	return cr.Descriptor{ConnectorID: "orders", Type: "http_api", Generation: "generation-1", Incarnation: "incarnation-1"}
+func (*factoryTestLease) Descriptor() execution.Descriptor {
+	return execution.Descriptor{ConnectorID: "orders", Type: "http_api", Generation: "generation-1", Incarnation: "incarnation-1"}
 }
-func (*factoryTestLease) ListTools(context.Context) (cr.ToolCatalog, error) {
-	return cr.ToolCatalog{Generation: "catalog-1", Tools: []mcp.Tool{{Name: "lookup"}}}, nil
+func (*factoryTestLease) ListTools(context.Context) (execution.ToolCatalog, error) {
+	return execution.ToolCatalog{Generation: "catalog-1", Tools: []mcp.Tool{{Name: "lookup"}}}, nil
 }
 func (l *factoryTestLease) Close() error { l.closed = true; return nil }
-func (l *factoryTestLease) CallTool(context.Context, cr.ToolCall) (cr.CallOutcome, error) {
+func (l *factoryTestLease) CallTool(context.Context, execution.ToolCall) (execution.CallOutcome, error) {
 	if l.revoked {
-		return cr.CallOutcome{}, &cr.CallError{Category: "generation_unavailable", Message: "retired"}
+		return execution.CallOutcome{}, &execution.CallError{Category: "generation_unavailable", Message: "retired"}
 	}
 	return l.outcome, nil
 }
 func TestFactoryLeasePreservesOutcomeAndRevocation(t *testing.T) {
-	source := &factoryTestLease{outcome: cr.CallOutcome{Result: &mcp.ToolResult{IsError: true}, HTTP: &cr.HTTPExecution{Method: "POST"}, Failure: &cr.ExecutionFailure{Category: "timeout", OutcomeUncertain: true}}}
+	source := &factoryTestLease{outcome: execution.CallOutcome{Result: &mcp.ToolResult{IsError: true}, HTTP: &execution.HTTPExecution{Method: "POST"}, Failure: &execution.ExecutionFailure{Category: "timeout", OutcomeUncertain: true}}}
 	events := &usage.InMemorySink{}
 	wrapper := factoryTools{Resolver: factoryTestResolver{source}, observer: usage.NewObserver(events), agentID: "agent"}
 	lease, err := wrapper.Acquire(t.Context(), "orders")
@@ -110,7 +112,7 @@ func TestFactoryLeasePreservesOutcomeAndRevocation(t *testing.T) {
 	if err != nil || catalog.Generation != "catalog-1" {
 		t.Fatalf("catalog identity lost: %#v %v", catalog, err)
 	}
-	out, err := lease.CallTool(t.Context(), cr.ToolCall{Name: "lookup"})
+	out, err := lease.CallTool(t.Context(), execution.ToolCall{Name: "lookup"})
 	if err != nil || out.Result != source.outcome.Result || out.HTTP != source.outcome.HTTP || out.Failure != source.outcome.Failure {
 		t.Fatalf("outcome lost: %#v %v", out, err)
 	}
@@ -122,8 +124,8 @@ func TestFactoryLeasePreservesOutcomeAndRevocation(t *testing.T) {
 		t.Fatalf("observation lost: %#v", event)
 	}
 	source.revoked = true
-	_, err = lease.CallTool(t.Context(), cr.ToolCall{Name: "lookup"})
-	var callErr *cr.CallError
+	_, err = lease.CallTool(t.Context(), execution.ToolCall{Name: "lookup"})
+	var callErr *execution.CallError
 	if !errors.As(err, &callErr) || callErr.Category != "generation_unavailable" {
 		t.Fatalf("revoked lease executed: %v", err)
 	}
@@ -135,10 +137,10 @@ func TestFactoryLeasePreservesOutcomeAndRevocation(t *testing.T) {
 func TestObservedToolPreservesHTTPFailureCategory(t *testing.T) {
 	for _, category := range []string{"timeout", "cancelled", "egress_denied", "response_mapping", "network_error"} {
 		t.Run(category, func(t *testing.T) {
-			source := &factoryTestLease{outcome: cr.CallOutcome{
+			source := &factoryTestLease{outcome: execution.CallOutcome{
 				Result:  &mcp.ToolResult{IsError: true, Content: []any{map[string]any{"type": "text", "text": "write outcome is unconfirmed; do not automatically retry"}}},
-				HTTP:    &cr.HTTPExecution{Method: "POST"},
-				Failure: &cr.ExecutionFailure{Category: category, OutcomeUncertain: true},
+				HTTP:    &execution.HTTPExecution{Method: "POST"},
+				Failure: &execution.ExecutionFailure{Category: category, OutcomeUncertain: true},
 			}}
 			tools, err := einotool.Tools(t.Context(), factoryTestResolver{source}, "orders", "lookup")
 			if err != nil {

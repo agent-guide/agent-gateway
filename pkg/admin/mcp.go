@@ -14,8 +14,8 @@ import (
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	mcproute "github.com/agent-guide/agent-gateway/pkg/gateway/mcproute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 	mcptracking "github.com/agent-guide/agent-gateway/pkg/mcp/tracking"
@@ -554,7 +554,7 @@ func (h *Handler) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer lease.Close()
-	outcome, err := lease.CallTool(r.Context(), cr.ToolCall{Name: strings.TrimSpace(req.Name), Arguments: req.Arguments})
+	outcome, err := lease.CallTool(r.Context(), execution.ToolCall{Name: strings.TrimSpace(req.Name), Arguments: req.Arguments})
 	result := outcome.Result
 	if err != nil {
 		if writeControlPlaneError(w, err) {
@@ -565,7 +565,7 @@ func (h *Handler) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		status := http.StatusBadGateway
-		var callErr *cr.CallError
+		var callErr *execution.CallError
 		if errors.As(err, &callErr) {
 			switch callErr.Category {
 			case "invalid_arguments", "unknown_tool", "unsupported_capability":

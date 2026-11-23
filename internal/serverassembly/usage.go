@@ -2,7 +2,6 @@ package serverassembly
 
 import (
 	"context"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/observability/einotap"
@@ -10,6 +9,7 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/observability/pipeline"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -31,7 +31,7 @@ func NewUsage(backend configstore.ConfigStoreBackend, logger *zap.Logger, cfg us
 		return usage.NewUsageService(pipeline.NewEventPipeline(4096), nil)
 	}
 	promSink := pipeline.NewPrometheusSink()
-	var httpObserver func(context.Context, cr.HTTPExecution, time.Time)
+	var httpObserver func(context.Context, execution.HTTPExecution, time.Time)
 	sinks := []pipeline.Sink{sink, promSink}
 	if otlp := cfg.Normalized().OTLP; otlp.Enabled() {
 		exporter, err := otelexport.New(context.Background(), otlp)

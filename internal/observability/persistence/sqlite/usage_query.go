@@ -4,12 +4,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	"gorm.io/gorm"
 )
 
@@ -75,7 +75,7 @@ func (q *UsageQueries) ListEvents(kind string, opts usage.EventListOptions) (usa
 				default:
 					return response, fmt.Errorf("invalid stored HTTP summary")
 				}
-				var h cr.HTTPExecution
+				var h execution.HTTPExecution
 				if err := json.Unmarshal(b, &h); err != nil {
 					return response, err
 				}

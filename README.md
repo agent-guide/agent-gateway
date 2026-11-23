@@ -334,7 +334,7 @@ Standalone uses `--connector-egress-mode public_only` and repeatable
 `--connector-egress-allow-origin` flags. See the guide above for configuration
 and migration from the removed HTTP-only policy file.
 
-Connector execution contracts live in `pkg/connector/runtime`. The parallel
+Connector execution contracts live in `pkg/connector/execution`. The parallel
 `pkg/connector/mcp` and `pkg/connector/httpapi` packages own upstream execution;
 Connector Manager owns shared admission and configuration changes. Builtin and
 custom factory tools use the same generation-bound execution leases. Internal

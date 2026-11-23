@@ -7,7 +7,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	configsqlite "github.com/agent-guide/agent-gateway/pkg/configstore/sqlite"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 )
 
 func TestHTTPExecutionSummaryRoundTripAndLegacyNull(t *testing.T) {
@@ -22,7 +22,7 @@ func TestHTTPExecutionSummaryRoundTripAndLegacyNull(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	status := 200
-	event := usage.MCPUsageEvent{InteractionEvent: usage.InteractionEvent{EventID: "http-tool", SpanID: "span", RouteKind: "mcp", StartedAt: now, FinishedAt: now}, ConnectorType: "http_api", HTTPExecution: &cr.HTTPExecution{Method: "POST", HostPort: "api.example.com:443", PathTemplate: "/orders/{id}", StatusCode: &status, DurationMS: 3, RequestBodyBytes: 20, ResponseBodyBytes: 30}, ServiceID: "orders", Method: "tools/call"}
+	event := usage.MCPUsageEvent{InteractionEvent: usage.InteractionEvent{EventID: "http-tool", SpanID: "span", RouteKind: "mcp", StartedAt: now, FinishedAt: now}, ConnectorType: "http_api", HTTPExecution: &execution.HTTPExecution{Method: "POST", HostPort: "api.example.com:443", PathTemplate: "/orders/{id}", StatusCode: &status, DurationMS: 3, RequestBodyBytes: 20, ResponseBodyBytes: 30}, ServiceID: "orders", Method: "tools/call"}
 	if err := InsertMCPUsageEvent(db, event); err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestHTTPExecutionSummaryRoundTripAndLegacyNull(t *testing.T) {
 	for _, row := range rows.Items {
 		switch row["event_id"] {
 		case "http-tool":
-			summary, ok := row["http_execution"].(*cr.HTTPExecution)
+			summary, ok := row["http_execution"].(*execution.HTTPExecution)
 			if !ok || summary.PathTemplate != "/orders/{id}" || summary.StatusCode == nil || *summary.StatusCode != 200 || row["connector_type"] != "http_api" {
 				t.Fatalf("summary lost: %#v", row)
 			}
@@ -56,7 +56,7 @@ func TestHTTPExecutionSummaryRoundTripAndLegacyNull(t *testing.T) {
 }
 func TestHTTPExecutionRejectsUnknownAndMissingFields(t *testing.T) {
 	for _, raw := range []string{`{"method":"GET","host_port":"example.com:443","path_template":"/","status_code":null,"duration_ms":0,"request_body_bytes":0,"response_body_bytes":0,"body":"secret"}`, `{"method":"GET","host_port":"example.com:443","path_template":"/","duration_ms":0,"request_body_bytes":0,"response_body_bytes":0}`, `{"method":"GET","host_port":"example.com:443","path_template":"/","status_code":null,"duration_ms":-1,"request_body_bytes":0,"response_body_bytes":0}`} {
-		var h cr.HTTPExecution
+		var h execution.HTTPExecution
 		if json.Unmarshal([]byte(raw), &h) == nil {
 			t.Fatal("invalid summary accepted")
 		}

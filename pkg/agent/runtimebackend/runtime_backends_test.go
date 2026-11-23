@@ -16,7 +16,7 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/agent"
 	builtinhost "github.com/agent-guide/agent-gateway/pkg/agent/builtin"
 	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
@@ -613,20 +613,22 @@ func (m *hitlModel) WithTools(tools []*schema.ToolInfo) (einomodel.ToolCallingCh
 
 type hitlTools struct{ calls int }
 
-func (t *hitlTools) Acquire(context.Context, string) (cr.Lease, error) { return hitlLease{t}, nil }
+func (t *hitlTools) Acquire(context.Context, string) (execution.Lease, error) {
+	return hitlLease{t}, nil
+}
 
 type hitlLease struct{ t *hitlTools }
 
-func (l hitlLease) Descriptor() cr.Descriptor {
-	return cr.Descriptor{ConnectorID: "tools", Type: "mcp"}
+func (l hitlLease) Descriptor() execution.Descriptor {
+	return execution.Descriptor{ConnectorID: "tools", Type: "mcp"}
 }
 func (l hitlLease) Close() error { return nil }
-func (l hitlLease) ListTools(context.Context) (cr.ToolCatalog, error) {
-	return cr.ToolCatalog{Tools: []basemcp.Tool{{Name: "fetch_doc", Description: "Fetch", InputSchema: map[string]any{"type": "object"}}}}, nil
+func (l hitlLease) ListTools(context.Context) (execution.ToolCatalog, error) {
+	return execution.ToolCatalog{Tools: []basemcp.Tool{{Name: "fetch_doc", Description: "Fetch", InputSchema: map[string]any{"type": "object"}}}}, nil
 }
-func (l hitlLease) CallTool(context.Context, cr.ToolCall) (cr.CallOutcome, error) {
+func (l hitlLease) CallTool(context.Context, execution.ToolCall) (execution.CallOutcome, error) {
 	l.t.calls++
-	return cr.CallOutcome{Result: &basemcp.ToolResult{Content: []any{map[string]any{"type": "text", "text": "tool output"}}}}, nil
+	return execution.CallOutcome{Result: &basemcp.ToolResult{Content: []any{map[string]any{"type": "text", "text": "tool output"}}}}, nil
 }
 
 func TestBuiltinBackendRealCheckpointResumePreservesCommonSequenceAndSpanLink(t *testing.T) {

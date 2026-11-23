@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/agent-guide/agent-gateway/pkg/connector"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 )
 
 func TestMCPLeaseExecutesToolsFromLaterPages(t *testing.T) {
@@ -68,7 +68,7 @@ func TestMCPLeaseExecutesToolsFromLaterPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lease.Close()
-	outcome, err := lease.CallTool(t.Context(), cr.ToolCall{Name: "later"})
+	outcome, err := lease.CallTool(t.Context(), execution.ToolCall{Name: "later"})
 	if err != nil || outcome.Result == nil || outcome.Result.IsError {
 		t.Fatalf("later tool unavailable: %#v %v", outcome, err)
 	}

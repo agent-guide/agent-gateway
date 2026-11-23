@@ -958,7 +958,7 @@ No network I/O runs under these coordination or snapshot locks.
 ### 8.1 Neutral Runtime Interface and Generation Leases
 
 Introduce `pkg/connector` for connector models/management and
-`pkg/connector/runtime` for neutral execution contracts. The latter imports
+`pkg/connector/execution` for neutral execution contracts. The latter imports
 neither `pkg/agent` nor HTTP/Admin or observability persistence packages.
 Connector MCP adapters use `pkg/mcp` protocol primitives and the existing MCP
 transport/session runtime; the HTTP API executor implements the same tool
@@ -1296,13 +1296,13 @@ Related documents:
 
 Status: **Implemented**. `pkg/connector/mcp` and `pkg/connector/httpapi`
 separate upstream execution from Connector control-plane management.
-`pkg/connector/runtime` remains the common tool execution contract;
+`pkg/connector/execution` remains the common tool execution contract;
 `pkg/mcp/tracking` remains the independent ingress request registry.
 
 | Package | Ownership |
 | --- | --- |
 | `pkg/connector` | Persisted definitions, reference guards, mutation recovery, snapshots, generation/incarnation validation, shared admission and dispatch |
-| `pkg/connector/runtime` | Resolver/Lease, tool catalogs, calls, progress, outcomes and HTTP summaries |
+| `pkg/connector/execution` | Resolver/Lease, tool catalogs, calls, progress, outcomes and HTTP summaries |
 | `pkg/connector/mcp` | MCP configuration, initialization, discovery, tool/resource/prompt/completion execution, progress decoding, connector-scoped sessions and inspection |
 | `pkg/connector/httpapi` | HTTP configuration, schema/mapping compilation and HTTP tool execution |
 | `pkg/mcp` and `pkg/mcp/transport` | Protocol DTOs and wire transports |

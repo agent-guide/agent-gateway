@@ -2,7 +2,6 @@ package builtin
 
 import (
 	"context"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"io"
 
 	einomodel "github.com/cloudwego/eino/components/model"
@@ -10,6 +9,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 )
 
 // Inner LLM and MCP calls of a builtin turn get their own child interaction
@@ -184,10 +184,10 @@ func (t *observedTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 	var failed bool
 	errorType := "tool_call_failed"
 	if typed, ok := t.inner.(interface {
-		RunWithOutcome(context.Context, string, ...tool.Option) (string, cr.CallOutcome, error)
+		RunWithOutcome(context.Context, string, ...tool.Option) (string, execution.CallOutcome, error)
 		ConnectorType() string
 	}); ok {
-		var outcome cr.CallOutcome
+		var outcome execution.CallOutcome
 		out, outcome, err = typed.RunWithOutcome(cctx, argumentsInJSON, opts...)
 		failed = (outcome.Result != nil && outcome.Result.IsError) || outcome.Failure != nil
 		span.SetExtension(usage.MCPExtension{ConnectorType: typed.ConnectorType(), HTTPExecution: outcome.HTTP})

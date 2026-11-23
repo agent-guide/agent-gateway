@@ -21,7 +21,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/strictjson"
 	"github.com/agent-guide/agent-gateway/pkg/connector/egress"
-	connectorruntime "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	cred "github.com/agent-guide/agent-gateway/pkg/credential/model"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 )
@@ -34,7 +34,7 @@ func failure(category string) error { return &Error{Category: category} }
 type CredentialReader interface {
 	GetCredential(string) *cred.ManagedCredential
 }
-type HTTPExecution = connectorruntime.HTTPExecution
+type HTTPExecution = execution.HTTPExecution
 
 type executionKey struct{}
 

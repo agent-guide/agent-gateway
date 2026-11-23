@@ -1,8 +1,9 @@
 package usage
 
 import (
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	"time"
+
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 )
 
 // InteractionEvent captures fields common to every gateway interaction.
@@ -68,7 +69,7 @@ type LLMUsageEvent struct {
 
 type MCPUsageEvent struct {
 	ConnectorType string
-	HTTPExecution *cr.HTTPExecution
+	HTTPExecution *execution.HTTPExecution
 	InteractionEvent
 	RequestID          string
 	ServiceID          string
@@ -160,7 +161,7 @@ type LLMExtension struct {
 
 type MCPExtension struct {
 	ConnectorType      string
-	HTTPExecution      *cr.HTTPExecution
+	HTTPExecution      *execution.HTTPExecution
 	RequestID          string
 	ServiceID          string
 	Method             string

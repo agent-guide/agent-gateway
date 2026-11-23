@@ -15,7 +15,7 @@ import (
 	"strings"
 
 	"github.com/agent-guide/agent-gateway/internal/strictjson"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -27,7 +27,7 @@ import (
 // listed name must exist — a missing tool is an error, not a silent skip, so
 // an agent definition referencing a renamed tool fails loudly at
 // materialization time.
-func Tools(ctx context.Context, resolver cr.Resolver, connectorID string, names ...string) ([]tool.BaseTool, error) {
+func Tools(ctx context.Context, resolver execution.Resolver, connectorID string, names ...string) ([]tool.BaseTool, error) {
 	if resolver == nil {
 		return nil, fmt.Errorf("einotool: tool caller is nil")
 	}
@@ -80,7 +80,7 @@ func Tools(ctx context.Context, resolver cr.Resolver, connectorID string, names 
 }
 
 type invokableTool struct {
-	lease cr.Lease
+	lease execution.Lease
 	name  string
 	info  *schema.ToolInfo
 }
@@ -98,7 +98,7 @@ func (t *invokableTool) InvokableRun(ctx context.Context, arguments string, opts
 func (t *invokableTool) ConnectorType() string {
 	return t.lease.Descriptor().Type
 }
-func (t *invokableTool) RunWithOutcome(ctx context.Context, arguments string, _ ...tool.Option) (string, cr.CallOutcome, error) {
+func (t *invokableTool) RunWithOutcome(ctx context.Context, arguments string, _ ...tool.Option) (string, execution.CallOutcome, error) {
 	var args map[string]any
 	if strings.TrimSpace(arguments) == "" {
 		arguments = "{}"
@@ -112,9 +112,9 @@ func (t *invokableTool) RunWithOutcome(ctx context.Context, arguments string, _ 
 		}
 	}
 	if err != nil {
-		return "", cr.CallOutcome{}, &cr.CallError{Category: "invalid_arguments", Message: "invalid tool arguments"}
+		return "", execution.CallOutcome{}, &execution.CallError{Category: "invalid_arguments", Message: "invalid tool arguments"}
 	}
-	outcome, err := t.lease.CallTool(ctx, cr.ToolCall{Name: t.name, Arguments: args})
+	outcome, err := t.lease.CallTool(ctx, execution.ToolCall{Name: t.name, Arguments: args})
 	if err != nil {
 		return "", outcome, err
 	}

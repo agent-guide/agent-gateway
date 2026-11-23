@@ -11,7 +11,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/pkg/agent"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
@@ -117,7 +117,7 @@ type fakeToolResolver struct {
 	calls  int
 }
 
-func (f *fakeToolResolver) Acquire(_ context.Context, id string) (cr.Lease, error) {
+func (f *fakeToolResolver) Acquire(_ context.Context, id string) (execution.Lease, error) {
 	return fakeToolLease{f: f, id: id}, nil
 }
 
@@ -126,16 +126,16 @@ type fakeToolLease struct {
 	id string
 }
 
-func (l fakeToolLease) Descriptor() cr.Descriptor {
-	return cr.Descriptor{ConnectorID: l.id, Type: "mcp"}
+func (l fakeToolLease) Descriptor() execution.Descriptor {
+	return execution.Descriptor{ConnectorID: l.id, Type: "mcp"}
 }
 func (l fakeToolLease) Close() error { return nil }
-func (l fakeToolLease) ListTools(context.Context) (cr.ToolCatalog, error) {
-	return cr.ToolCatalog{Tools: l.f.tools}, nil
+func (l fakeToolLease) ListTools(context.Context) (execution.ToolCatalog, error) {
+	return execution.ToolCatalog{Tools: l.f.tools}, nil
 }
-func (l fakeToolLease) CallTool(context.Context, cr.ToolCall) (cr.CallOutcome, error) {
+func (l fakeToolLease) CallTool(context.Context, execution.ToolCall) (execution.CallOutcome, error) {
 	l.f.calls++
-	return cr.CallOutcome{Result: l.f.result}, nil
+	return execution.CallOutcome{Result: l.f.result}, nil
 }
 
 func testAgent(id string) agent.Agent {

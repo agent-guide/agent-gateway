@@ -9,7 +9,7 @@ import (
 	"github.com/cloudwego/eino/adk"
 
 	"github.com/agent-guide/agent-gateway/pkg/agent"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 )
 
 // FactoryDeps hands a custom factory the same gateway-governed building
@@ -18,7 +18,7 @@ import (
 // factories must not add a second usage event for the same call.
 type FactoryDeps struct {
 	Models ChatModelResolver
-	Tools  cr.Resolver
+	Tools  execution.Resolver
 }
 
 // Factory builds a custom ADK agent from a builtin definition. It is the

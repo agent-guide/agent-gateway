@@ -3,8 +3,8 @@ package connector
 import (
 	"context"
 
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 )
 
@@ -14,9 +14,9 @@ func (m *Manager) CallTool(ctx context.Context, id, name string, args map[string
 		return nil, err
 	}
 	defer lease.Close()
-	call := cr.ToolCall{Name: name, Arguments: args}
+	call := execution.ToolCall{Name: name, Arguments: args}
 	if progressCh != nil {
-		call.Progress = func(p cr.Progress) {
+		call.Progress = func(p execution.Progress) {
 			select {
 			case progressCh <- connectormcp.UpstreamProgress{ProgressToken: p.ProgressToken, Progress: p.Progress, Total: p.Total, Message: p.Message}:
 			default:

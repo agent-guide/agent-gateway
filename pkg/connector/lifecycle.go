@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/pkg/configmgr"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	connectormcp "github.com/agent-guide/agent-gateway/pkg/connector/mcp"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
 )
 
 var ErrConnectorBusy = errors.New("connector is in use")
@@ -18,7 +18,7 @@ var ErrConnectorBusy = errors.New("connector is in use")
 // execution error's text. Admin uses the cause for status and Retry-After;
 // execution adapters use the bounded CallError.
 type pendingAdmissionError struct {
-	boundary *cr.CallError
+	boundary *execution.CallError
 	pending  *configmgr.PendingMutationError
 }
 
@@ -71,26 +71,26 @@ func (m *Manager) admit(ctx context.Context, id, token string) (*entry, context.
 	m.snapshotMu.Lock()
 	if m.closed {
 		m.snapshotMu.Unlock()
-		return nil, ctx, nil, &cr.CallError{Category: "connector_unavailable", Message: "connector closed"}
+		return nil, ctx, nil, &execution.CallError{Category: "connector_unavailable", Message: "connector closed"}
 	}
 	v := m.entries[id]
 	if v == nil {
 		m.snapshotMu.Unlock()
-		return nil, ctx, nil, errors.Join(ErrConnectorNotConfigured, &cr.CallError{Category: "connector_unavailable", Message: "connector unavailable"})
+		return nil, ctx, nil, errors.Join(ErrConnectorNotConfigured, &execution.CallError{Category: "connector_unavailable", Message: "connector unavailable"})
 	}
 	if v.config.Disabled {
 		m.snapshotMu.Unlock()
-		return nil, ctx, nil, &cr.CallError{Category: "connector_unavailable", Message: "connector unavailable"}
+		return nil, ctx, nil, &execution.CallError{Category: "connector_unavailable", Message: "connector unavailable"}
 	}
 	if token != "" && v.token != token {
 		m.snapshotMu.Unlock()
-		return nil, ctx, nil, &cr.CallError{Category: "generation_unavailable", Message: "connector execution changed"}
+		return nil, ctx, nil, &execution.CallError{Category: "generation_unavailable", Message: "connector execution changed"}
 	}
 	if p := m.pending[id]; p != nil {
 		state := p.state
 		m.snapshotMu.Unlock()
 		return nil, ctx, nil, &pendingAdmissionError{
-			boundary: &cr.CallError{Category: "mutation_pending", Message: "connector requires recovery"},
+			boundary: &execution.CallError{Category: "mutation_pending", Message: "connector requires recovery"},
 			pending:  &configmgr.PendingMutationError{Mutation: state},
 		}
 	}

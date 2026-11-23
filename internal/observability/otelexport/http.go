@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -15,7 +15,7 @@ import (
 
 // ObserveHTTP exports a tracing-only child through the lifecycle exporter.
 // It never registers a global callback, emits usage or writes a history row.
-func (e *Exporter) ObserveHTTP(ctx context.Context, h cr.HTTPExecution, start time.Time) {
+func (e *Exporter) ObserveHTTP(ctx context.Context, h execution.HTTPExecution, start time.Time) {
 	dims, ok := usage.DimensionsFromContext(ctx)
 	if !ok || h.Validate() != nil {
 		return

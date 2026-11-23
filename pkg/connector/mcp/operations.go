@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	cr "github.com/agent-guide/agent-gateway/pkg/connector/runtime"
+	"github.com/agent-guide/agent-gateway/pkg/connector/execution"
 	basemcp "github.com/agent-guide/agent-gateway/pkg/mcp"
 	"github.com/agent-guide/agent-gateway/pkg/mcp/transport"
 )
@@ -22,7 +22,7 @@ type readResourceResult struct {
 	Contents []basemcp.ResourceContent `json:"contents"`
 }
 
-func (m *Engine) CallTool(ctx context.Context, target *Target, call cr.ToolCall) (*basemcp.ToolResult, error) {
+func (m *Engine) CallTool(ctx context.Context, target *Target, call execution.ToolCall) (*basemcp.ToolResult, error) {
 	var progress chan UpstreamProgress
 	var done chan struct{}
 	if call.Progress != nil {
@@ -31,7 +31,7 @@ func (m *Engine) CallTool(ctx context.Context, target *Target, call cr.ToolCall)
 		go func() {
 			defer func() { _ = recover(); close(done) }()
 			for p := range progress {
-				call.Progress(cr.Progress{ProgressToken: p.ProgressToken, Progress: p.Progress, Total: p.Total, Message: p.Message})
+				call.Progress(execution.Progress{ProgressToken: p.ProgressToken, Progress: p.Progress, Total: p.Total, Message: p.Message})
 			}
 		}()
 		defer func() { close(progress); <-done }()

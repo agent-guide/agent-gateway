@@ -333,7 +333,7 @@ Current status:
   - protocol DTOs, wire transports and ingress request tracking are active
   - `pkg/connector` manages `connectors`, shared admission and execution generations
   - `pkg/connector/mcp` owns MCP discovery, execution and upstream session reuse
-  - `pkg/connector/httpapi` executes HTTP API tools through `pkg/connector/runtime` contracts
+  - `pkg/connector/httpapi` executes HTTP API tools through `pkg/connector/execution` contracts
   - builtin and custom factory tools retain Resolver/Lease identity and full outcomes through observation
   - internal MCP tool catalogs collect bounded complete pagination; ingress preserves client cursors
   - `pkg/mcp/tracking` tracks in-flight requests and progress for the MCP dispatcher
