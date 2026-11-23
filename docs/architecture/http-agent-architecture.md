@@ -5,8 +5,8 @@
 This page describes the implemented `runtime.type = "http"` architecture.
 HTTP Agents are remote services that own their process and task lifecycle. The
 gateway discovers their A2A 1.0 Agent Card, publishes an immutable execution
-snapshot, and exposes either a translated common Agent turn or governed native
-A2A ingress.
+snapshot, and exposes Agent Turn Protocol (`at`) with translation or governed
+native A2A ingress.
 
 The durable protocol and security decisions are defined in
 [HTTP Agent Runtime](../design/http-agent-runtime.md). This page describes how
@@ -25,7 +25,7 @@ Agent definition (runtime.type=http)
             - Path B execution target
             - Path A proxy target and public Card template
 
-AgentRoute(protocol=agent) -> pkg/agent/runtimebackend.HTTPBackend -> pkg/a2a/client
+AgentRoute(protocol=at) -> pkg/agent/runtimebackend.HTTPBackend -> pkg/a2a/client
 AgentRoute(protocol=a2a)   -> pkg/dispatcher A2A path -> pkg/a2a/proxy
 ```
 
@@ -61,7 +61,7 @@ refresh update readiness or request-time authentication through the credential
 manager. Card-input changes rebuild the affected entry; unrelated definition
 changes reuse accepted snapshots.
 
-## Path B: Common Agent Turn
+## Path B: Agent Turn Protocol
 
 Path B lets callers use the runtime-neutral Agent API:
 
@@ -144,7 +144,7 @@ streaming responses.
 ## Observability
 
 Both paths use the dispatcher interaction span and stamp `agent_id` and
-`runtime_type=http`. Path B keeps `route_protocol=agent`; Path A uses
+`runtime_type=http`. Path B keeps `route_protocol=at`; Path A uses
 `route_protocol=a2a`. The current interaction span id is injected southbound,
 so a remote Agent span can use it as its parent.
 

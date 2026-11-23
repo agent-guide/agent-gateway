@@ -1,7 +1,8 @@
 # ACP Agent API Reference
 
-ACP executes through unified AgentRoutes. Replace `<agent-route>` with the
-configured route prefix and authenticate according to its VirtualKey policy.
+Clients invoke ACP Agents through Agent Turn Protocol (`at`). Replace
+`<agent-route>` with the configured route prefix and authenticate according to
+its VirtualKey policy.
 
 ## Stream A Turn
 

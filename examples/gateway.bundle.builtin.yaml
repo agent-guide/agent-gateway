@@ -10,7 +10,7 @@ kind: GatewayBundle
 #
 # Prerequisites:
 #   - DEEPSEEK_API_KEY set before apply
-#   - the dispatcher site block enables unified Agent turn handling:
+#   - the dispatcher site block enables Agent Turn Protocol handling:
 #       agent_route_dispatcher {
 #           llm_api openai
 #           agent
@@ -256,6 +256,7 @@ agentRoutes:
 
   # id defaults to the slash-free agent:<agent_id>:<path-slug> when omitted.
   - id: agent-support
+    protocol: at
     agent_id: support
     match_policy:
       path_prefix: /agents/support
@@ -263,6 +264,7 @@ agentRoutes:
       require_virtual_key: false
 
   # - id: agent-research-team
+  #   protocol: at
   #   agent_id: research-team
   #   match_policy:
   #     path_prefix: /agents/research-team

@@ -272,7 +272,7 @@ func TestAgentDeletionSerializesAgentRouteCreation(t *testing.T) {
 		if err := g.AgentManager().Create(t.Context(), a); err != nil {
 			t.Fatal(err)
 		}
-		cfg := routecore.RouteConfig{ID: id, Kind: routecore.RouteKindAgent, Protocol: routecore.RouteProtocolAgent, MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/" + id + "/"}, TargetPolicy: []byte(fmt.Sprintf(`{"agent_id":%q}`, id))}
+		cfg := routecore.RouteConfig{ID: id, Kind: routecore.RouteKindAgent, Protocol: routecore.RouteProtocolAT, MatchPolicy: routecore.RouteMatchPolicy{PathPrefix: "/" + id + "/"}, TargetPolicy: []byte(fmt.Sprintf(`{"agent_id":%q}`, id))}
 		var createErr, deleteErr error
 		var wg sync.WaitGroup
 		wg.Add(2)

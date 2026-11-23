@@ -278,12 +278,12 @@ still referenced by any Agent and lists the referencing identities. Shared-route
 changes affect all consumers.
 
 AgentRoute management validation always requires the target Agent to exist.
-For `protocol=agent`, it does not require the Agent to be enabled or currently
-executable: disabled Agents and HTTP Agents whose Path B runtime is not ready
-may be configured in advance, and dispatch later fails with `agent_disabled`
-or `runtime_not_executable`. For `protocol=a2a`, create and update instead fail
-closed unless the HTTP Agent has a ready Path A proxy target. Capability and
-workspace views expose the accepted runtime state.
+Agent Turn Protocol (`at`) routes may target disabled or currently
+non-executable Agents, including HTTP Agents whose Path B runtime is still
+preparing. Dispatch returns `agent_disabled` or `runtime_not_executable` if
+the target is unavailable. Creating or updating a `protocol=a2a` route requires
+a ready HTTP Path A proxy target. Capability and workspace views expose the
+accepted runtime state.
 
 The removed pre-unification tree implemented this indirectly through a second
 ACP identity and runtime-specific ingress route families. That shape is
@@ -640,7 +640,7 @@ ACP service CRUD is not a product surface.
 
 These endpoints are management-plane APIs. They are not the primary data-plane
 entrypoint for end-user chat or task execution. End users and business apps
-call unified AgentRoute endpoints:
+call the Agent Turn Protocol endpoints on their AgentRoute:
 
 ```text
 POST /<agent-route>/turn

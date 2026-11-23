@@ -20,7 +20,7 @@ func TestPrometheusSinkSnapshot(t *testing.T) {
 		t.Fatalf("snapshot = %+v, want one llm request and 7 tokens", snap)
 	}
 	if err := sink.Write(usage.ACPUsageEvent{InteractionEvent: usage.InteractionEvent{
-		RouteKind: "agent", RouteProtocol: "agent", RuntimeType: "acp", AgentID: "high-cardinality-agent-id", Success: false,
+		RouteKind: "agent", RouteProtocol: "at", RuntimeType: "acp", AgentID: "high-cardinality-agent-id", Success: false,
 	}}); err != nil {
 		t.Fatalf("Write(agent) error = %v", err)
 	}

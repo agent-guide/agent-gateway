@@ -340,9 +340,9 @@ protocol's `group_by` dimensions and filter keys (LLM:
 `route_id`/`provider_id`/`virtual_key_id`/`upstream_model`/`llm_api`; MCP:
 `route_id`/`service_id`/`virtual_key_id`/`method`/`tool_name`/`result_status`;
 ACP: `route_id`/`route_protocol`/`virtual_key_id`/`agent_type`/`operation`).
-The ACP `route_protocol` filter separates data-plane turns (`route_protocol=agent`)
-from the admin-plane audit spans the manager records when polling `/admin/acp`
-(`route_protocol=admin`).
+For ACP events, `route_protocol=at` selects new Agent Turn Protocol events,
+`route_protocol=agent` selects historical turn events recorded under the old
+value, and `route_protocol=admin` selects audit spans from `/admin/acp`.
 
 The LLM/MCP/ACP `breakdown`, `timeseries`, and `events` endpoints — and
 `interactions`/`interactions/{summary,timeseries}` — also accept an `agent_id` filter. Unlike a

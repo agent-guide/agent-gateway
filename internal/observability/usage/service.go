@@ -259,7 +259,7 @@ type BuiltinSummary struct {
 }
 
 // A2ASummary covers both native protocol=a2a ingress and translated
-// protocol=agent turns backed by runtime.type=http. Neither path fabricates
+// protocol=at turns backed by runtime.type=http. Neither path fabricates
 // token usage.
 type A2ASummary struct {
 	RequestCount int64   `json:"request_count"`

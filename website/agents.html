@@ -62,11 +62,12 @@
   <section class="section" id="runtimes">
     <div class="wrap">
       <p class="eyebrow">Runtimes</p>
-      <h2>Three execution runtimes, one governed turn API.</h2>
+      <h2>Three execution runtimes, one Agent Turn Protocol.</h2>
       <p class="lede">
         An agent is a first-class object with routes, resources, policy, usage, and
-        health. Builtin, ACP, and HTTP agents execute through the gateway today;
-        HTTP Path B translates the common turn API to A2A Protocol 1.0 JSON-RPC.
+        health. Builtin, ACP, and HTTP agents all support Agent Turn Protocol
+        (<code>at</code>). For HTTP agents, the gateway translates turns to A2A
+        Protocol 1.0 JSON-RPC.
       </p>
       <p class="lede">
         Claude Code is a model client, not a fourth Agent runtime. It connects through
@@ -124,14 +125,14 @@
           <p>
             Agents built on compatible frameworks and running on your infrastructure
             can register an Agent Card URL and management identity. Execution
-            uses A2A Protocol 1.0: choose the translated common <code>/turn</code>
-            API or native governed A2A JSON-RPC proxy ingress.
+            uses A2A Protocol 1.0. Clients can call Agent Turn Protocol at
+            <code>/turn</code> or use the governed native A2A JSON-RPC proxy.
           </p>
         </div>
         <ul class="feature-list">
           <li><b>Same identity model</b> Routes, resources, policy, usage, and health like every other runtime.</li>
           <li><b>Explicit turn attribution</b> Both ingress paths stamp Agent identity on interaction events. LLM resource references alone do not attribute external calls.</li>
-          <li><b>Two ingress paths</b> Common turns use the request-bound translator; native A2A preserves JSON-RPC bodies and SSE frames behind the same governance.</li>
+          <li><b>Two ingress paths</b> Agent Turn Protocol translates each turn to A2A. Native A2A preserves JSON-RPC bodies and SSE frames behind the same governance.</li>
           <li><b>Framework-independent contract</b> LangChain, ADK, and custom stacks can connect when they expose the supported A2A contract.</li>
         </ul>
       </div>
@@ -166,7 +167,7 @@
               <td>HTTP</td>
               <td>You (external service)</td>
               <td>Existing A2A-compatible agents</td>
-              <td><span class="tag-steel tag">Common turns + native A2A</span></td>
+              <td><span class="tag-steel tag">Agent Turn Protocol + native A2A</span></td>
               <td>Turn events with Agent identity</td>
             </tr>
           </tbody>

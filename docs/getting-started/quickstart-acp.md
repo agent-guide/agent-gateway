@@ -1,7 +1,7 @@
 # Quick Start: ACP Agent
 
-This guide runs a Codex ACP runtime behind a unified AgentRoute, sends a
-streamed turn, and inspects the Agent runtime.
+This guide runs a Codex ACP runtime, sends a streamed turn through Agent Turn
+Protocol (`at`), and inspects the Agent runtime.
 
 ## Prerequisites
 
@@ -83,6 +83,7 @@ agents:
 
 agentRoutes:
   - id: agent-codex
+    protocol: at
     agent_id: codex-main
     match_policy:
       path_prefix: /agents/codex

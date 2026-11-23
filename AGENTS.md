@@ -13,7 +13,7 @@ The current primary LLM path is:
 6. the credential manager invokes the configured external refresh command for an expiring `oauth_token` credential when required
 7. the selected provider executes `Generate` or `Stream`
 
-MCP is active through `agent_route_dispatcher` with MCP enabled. ACP, builtin, and HTTP execution enter through unified `kind=agent` routes (`pkg/gateway/agentroute`, dispatcher `agent` enablement, `POST /<agent-route>/turn` SSE); the target Agent's `runtime.type` selects the registered backend. ACP execution config is owned inline by `Agent.runtime.acp`, builtin definitions are materialized by the in-process eino ADK host, and HTTP Agents support both translated common turns and governed native A2A Protocol 1.0 JSON-RPC ingress. The agent control plane is exposed through `/admin/agents` and `/admin/agents/routes`. Memory is not implemented; `/admin/memory/...` is reserved and returns `501 Not Implemented`.
+MCP is active through `agent_route_dispatcher` with MCP enabled. ACP, builtin, and HTTP execution enter through unified `kind=agent` routes (`pkg/gateway/agentroute`, dispatcher `agent` enablement). The default Agent Turn Protocol (`at`) serves `POST /<agent-route>/turn` over SSE. The target Agent's `runtime.type` selects the registered backend. ACP execution config is owned inline by `Agent.runtime.acp`, builtin definitions are materialized by the in-process eino ADK host, and HTTP Agents also support governed native A2A Protocol 1.0 JSON-RPC ingress. The agent control plane is exposed through `/admin/agents` and `/admin/agents/routes`. Memory is not implemented; `/admin/memory/...` is reserved and returns `501 Not Implemented`.
 
 Future gateway Pipeline support is limited to synchronous, request-bound
 `llm`/`mcp`/`transform` composition. Durable Project/Team workflows, Agent
@@ -300,7 +300,7 @@ Important current directives:
 - `provider_types` is startup-only provider type availability; when omitted all registered provider types are enabled
 - providers use `provider_type <name>`
 - LLM `type: models` routes expose named `provider-model` references (Provider ID + upstream model) or `logical-model` references (`logical_model_id`). ProviderModels and LogicalModels are independent catalog resources; scheduling and fallback belong to LogicalModel. Model registration never implicitly expands route exposure. Caddyfile/Caddy JSON and standalone static Bundles support model declarations and references. Static models are read-only through Admin; static/dynamic identity conflicts fail loading. Old inline logical definitions require offline `extract-models` repair.
-- LLM routes use `protocol <openai|anthropic|cc>`, MCP routes use `protocol mcp`, and Agent ingress routes use `protocol agent` or `protocol a2a` (HTTP Agent native Path A; see `docs/design/http-agent-runtime.md`)
+- LLM routes use `protocol <openai|anthropic|cc>` and MCP routes use `protocol mcp`. Agent ingress routes use Agent Turn Protocol (`protocol: at`, the default) or native A2A (`protocol: a2a`, HTTP Agent Path A). Legacy AgentRoute input `protocol: agent` normalizes to `at` in Admin, Bundle, and persisted route loading. See `docs/design/http-agent-runtime.md`.
 - `agent_route_dispatcher` uses `llm_api <name>`, `mcp`, and `agent`
 - dispatcher `max_llm_request_body_bytes` (Caddyfile/Caddy JSON) and standalone
   `--max-llm-request-body-bytes` bound the received LLM JSON body. Omitted/zero

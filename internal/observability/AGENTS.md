@@ -13,7 +13,7 @@ operational descriptions in the architecture documentation rather than here.
   direct non-Agent traffic.
 - Unified `kind=agent` ingress selects the ACP/builtin typed event family from
   bounded `runtime_type` while preserving `route_kind=agent`.
-  `route_protocol=agent` identifies translated ingress and
+  `route_protocol=at` identifies Agent Turn Protocol ingress and
   `route_protocol=a2a` identifies native A2A ingress. Stamp `agent_id` directly
   from AgentRoute; never use the historical ACP `service_id` column as an
   active Agent identity.

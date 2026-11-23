@@ -24,7 +24,7 @@ type routeTable struct {
 func compileRouteTable(routes []RouteConfig) *routeTable {
 	table := &routeTable{routes: make([]compiledRoute, 0, len(routes)), byID: make(map[string]RouteConfig, len(routes))}
 	for _, route := range routes {
-		route = cloneRouteConfig(route)
+		route = cloneRouteConfig(route).withNormalizedProtocol()
 		table.routes = append(table.routes, compiledRoute{config: route, match: EffectiveMatch(route), score: scoreRouteMatch(route.MatchPolicy)})
 		table.byID[route.ID] = route
 	}

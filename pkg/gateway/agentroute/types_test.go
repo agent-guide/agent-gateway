@@ -33,7 +33,7 @@ func TestNormalizeGeneratesDeterministicID(t *testing.T) {
 			if cfg.ID != tc.wantID {
 				t.Fatalf("generated id = %q, want %q", cfg.ID, tc.wantID)
 			}
-			if cfg.Kind != routecore.RouteKindAgent || cfg.Protocol != routecore.RouteProtocolAgent {
+			if cfg.Kind != routecore.RouteKindAgent || cfg.Protocol != routecore.RouteProtocolAT {
 				t.Fatalf("normalized kind/protocol = %q/%q", cfg.Kind, cfg.Protocol)
 			}
 		})
@@ -78,7 +78,7 @@ func TestConfigRoundTripThroughPersistedShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ToConfig: %v", err)
 	}
-	if stored.Kind != routecore.RouteKindAgent || stored.Protocol != routecore.RouteProtocolAgent {
+	if stored.Kind != routecore.RouteKindAgent || stored.Protocol != routecore.RouteProtocolAT {
 		t.Fatalf("stored kind/protocol = %q/%q", stored.Kind, stored.Protocol)
 	}
 	var target struct {
@@ -129,7 +129,7 @@ func TestDecodeStoredAgentRoute(t *testing.T) {
 	stored := RouteConfig{
 		ID:           "agent:reviewer:root",
 		Kind:         routecore.RouteKindAgent,
-		Protocol:     routecore.RouteProtocolAgent,
+		Protocol:     routecore.RouteProtocolAT,
 		TargetPolicy: json.RawMessage(`{"kind":"agent","agent_id":"reviewer"}`),
 	}
 	data, err := json.Marshal(stored)
@@ -165,7 +165,7 @@ func TestDecodeTargetAgentIDRejectsForeignTargetKind(t *testing.T) {
 	stored := RouteConfig{
 		ID:           "agent:reviewer:root",
 		Kind:         routecore.RouteKindAgent,
-		Protocol:     routecore.RouteProtocolAgent,
+		Protocol:     routecore.RouteProtocolAT,
 		TargetPolicy: json.RawMessage(`{"kind":"logical-model","agent_id":"reviewer"}`),
 	}
 	data, err := json.Marshal(stored)
@@ -187,7 +187,7 @@ func TestMatcherPriorityAcrossRouteFamilies(t *testing.T) {
 	routes := []routecore.RouteConfig{
 		mk("llm", routecore.RouteKindLLM, routecore.RouteProtocolOpenAI, "/v1"),
 		mk("mcp", routecore.RouteKindMCP, routecore.RouteProtocolMCP, "/mcp"),
-		mk("agent", routecore.RouteKindAgent, routecore.RouteProtocolAgent, "/agents/reviewer"),
+		mk("agent", routecore.RouteKindAgent, routecore.RouteProtocolAT, "/agents/reviewer"),
 	}
 	cases := []struct {
 		path string
@@ -298,7 +298,8 @@ func (s *memoryRouteStore) GetByIndex(context.Context, string, any) (any, error)
 
 func TestResolverValidatesTarget(t *testing.T) {
 	ctx := context.Background()
-	manager := routecore.NewRouteConfigManager(newMemoryRouteStore())
+	store := newMemoryRouteStore()
+	manager := routecore.NewRouteConfigManager(store)
 	manager.InitStaticRoutes(nil)
 	resolver := NewAgentRouteResolver(manager)
 	resolver.SetAgentLookup(staticAgentLookup{"reviewer": true, "disabled-agent": true})
@@ -331,19 +332,30 @@ func TestResolverValidatesTarget(t *testing.T) {
 	if err := resolver.CreateConfig(ctx, build("disabled-agent", "/agents/disabled"), "test"); err != nil {
 		t.Fatalf("CreateConfig(disabled target): %v", err)
 	}
-	if err := resolver.CreateConfig(ctx, build("reviewer", "/agents/reviewer"), "test"); err != nil {
+	reviewer := build("reviewer", "/agents/reviewer")
+	reviewer.Protocol = "agent"
+	if err := resolver.CreateConfig(ctx, reviewer, "test"); err != nil {
 		t.Fatalf("CreateConfig(reviewer): %v", err)
+	}
+	if got := store.items[reviewer.ID].Protocol; got != RouteProtocolAT {
+		t.Fatalf("created protocol = %q, want %q", got, RouteProtocolAT)
 	}
 	// Updates re-validate the target.
 	if err := resolver.UpdateConfig(ctx, "agent:reviewer:agents-reviewer", build("ghost", "/agents/reviewer")); err == nil {
 		t.Fatal("UpdateConfig accepted an unknown target agent")
+	}
+	if err := resolver.UpdateConfig(ctx, reviewer.ID, reviewer); err != nil {
+		t.Fatalf("UpdateConfig with legacy protocol: %v", err)
+	}
+	if got := store.items[reviewer.ID].Protocol; got != RouteProtocolAT {
+		t.Fatalf("updated protocol = %q, want %q", got, RouteProtocolAT)
 	}
 
 	route, err := resolver.ResolveByID(ctx, "agent:reviewer:agents-reviewer")
 	if err != nil {
 		t.Fatalf("ResolveByID: %v", err)
 	}
-	if route == nil || route.AgentID != "reviewer" {
+	if route == nil || route.AgentID != "reviewer" || route.Protocol != RouteProtocolAT {
 		t.Fatalf("resolved route = %+v", route)
 	}
 }

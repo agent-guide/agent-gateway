@@ -107,7 +107,7 @@ route URL, ID, or VirtualKey allowlist:
 {
   "id": "agent:codex-main:agents-codex",
   "kind": "agent",
-  "protocol": "agent",
+  "protocol": "at",
   "agent_id": "codex-main",
   "match_policy": {
     "path_prefix": "/agents/codex"
@@ -124,6 +124,11 @@ When `id` is omitted, it defaults to the deterministic, slash-free
 `root`). Route ids must be slash-free so they are addressable as a single Admin
 API path segment. Manage these routes through bundle `agentRoutes`,
 `/admin/agents/routes`, or `agwctl agent-route`.
+
+Agent Turn Protocol (`at`) is the default when `protocol` is omitted or empty.
+Clients send JSON to `POST /<route-prefix>/turn` and receive SSE events. Admin
+requests, bundles, and stored routes accept the legacy value `agent` and
+normalize it to `at`. Admin responses and bundle exports use `at`.
 
 For native A2A ingress, use `protocol: "a2a"`. The target must be a ready HTTP
 Agent, `match_policy.host` is required, and `methods` must be empty or contain

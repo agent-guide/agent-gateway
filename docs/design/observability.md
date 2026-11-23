@@ -123,7 +123,7 @@ Builtin turns persist topology, model/tool step, event-count, permission, run,
 and asynchronous-resume link dimensions without storing prompt or response
 content. HTTP Agent Path A and Path B each persist one request-level event with
 `runtime_type=http`, the target Agent, outcome, and latency. Path A uses
-`route_protocol=a2a`; Path B uses `route_protocol=agent`. A2A does not define
+`route_protocol=a2a`; Path B uses `route_protocol=at`. A2A does not define
 token reporting, so the gateway does not fabricate token usage for either
 path.
 
@@ -525,7 +525,7 @@ started_at
 finished_at
 route_id
 route_kind          agent
-route_protocol      agent
+route_protocol      at
 virtual_key_id
 success
 status_code

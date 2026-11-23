@@ -59,7 +59,7 @@ Primary detailed documents:
 - [architecture/acp-architecture.md](architecture/acp-architecture.md): current ACP gateway architecture
 - [architecture/http-agent-architecture.md](architecture/http-agent-architecture.md): current HTTP Agent Path A and Path B architecture
 - [getting-started/quickstart-acp.md](getting-started/quickstart-acp.md): ACP gateway quick start
-- [getting-started/quickstart-http-agent.md](getting-started/quickstart-http-agent.md): HTTP Agent quick start for common turns and native A2A ingress
+- [getting-started/quickstart-http-agent.md](getting-started/quickstart-http-agent.md): HTTP Agent quick start for Agent Turn Protocol and native A2A ingress
 - [guides/http-agents.md](guides/http-agents.md): configure, secure, and operate remote HTTP Agents
 - [reference/a2a-ingress.md](reference/a2a-ingress.md): native A2A route, method, error, header, and limit reference
 - [reference/acp-api.md](reference/acp-api.md): ACP dispatcher and Admin API reference

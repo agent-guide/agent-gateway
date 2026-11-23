@@ -24,7 +24,7 @@ func TestGatewayAgentRouteCommands(t *testing.T) {
 				return
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"id": "assistant", "kind": "agent", "protocol": "agent", "agent_id": "assistant", "source": "store",
+				"id": "assistant", "kind": "agent", "protocol": "at", "agent_id": "assistant", "source": "store",
 			})
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -39,8 +39,8 @@ func TestGatewayAgentRouteCommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agent-route list: %v\nstderr=%s", err, stderr)
 	}
-	if !strings.Contains(stdout, `"agent_id": "assistant"`) {
-		t.Fatalf("list output missing Agent target:\n%s", stdout)
+	if !strings.Contains(stdout, `"agent_id": "assistant"`) || !strings.Contains(stdout, `"protocol": "at"`) {
+		t.Fatalf("list output missing Agent target or canonical protocol:\n%s", stdout)
 	}
 	stdout, stderr, err = executeAGWCTL(t, append([]string{"--output", "json"}, args("agent-route", "get", "assistant")...)...)
 	if err != nil {

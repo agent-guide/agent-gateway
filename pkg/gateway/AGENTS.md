@@ -174,15 +174,16 @@ Defines the unified `kind=agent` ingress route model described by
 [`docs/design/agents-control-plane.md`](../../docs/design/agents-control-plane.md): an AgentRoute targets a stable
 `agent_id`, and the resolved Agent's `runtime.type` selects the execution
 backend, so a runtime change never changes the route id, URL, or VirtualKey
-allowlist. `Normalize`/`ToConfig` accept `protocol = agent` or `protocol = a2a`;
-the latter is Path A of
+allowlist. Agent Turn Protocol (`at`) is the default. AgentRoute
+normalization accepts the legacy input `protocol: agent` and canonicalizes it
+to `at` on config reads and writes. Native `protocol: a2a` is Path A of
 [`docs/design/http-agent-runtime.md`](../../docs/design/http-agent-runtime.md)
 on the same kind and does not change that ownership rule. Route ids follow the shared convention with the
 `agent:<agent_id>:<path-slug>` shape. `AgentRouteResolver.CreateConfig`/
 `UpdateConfig` validate target existence through the optional `AgentLookup`
 (wired to `agent.Manager.HasAgent`). Native A2A routes additionally require a
 trusted host, GET+POST reachability, and a ready shared HTTP proxy snapshot;
-ordinary `protocol=agent` routes may still target disabled or currently
+Agent Turn Protocol routes may still target disabled or currently
 non-executable Agents and fail at dispatch with their normalized runtime error.
 Its public surfaces are `/admin/agents/routes`, bundle `agentRoutes`,
 CLI `agent-route`, and dispatcher `EnableAgent`/`agent`.

@@ -17,12 +17,12 @@ semantics, governance behavior, and observability contract.
 | Anthropic-compatible | Messages API; count-tokens is recognized but unsupported | shared Messages core plus `anthropic` profile | LLM resource access |
 | Claude Code-compatible | Messages-compatible `cc` profile with local count-tokens estimate | shared Messages core plus `cc` profile | Claude Code client ingress |
 | MCP | Streamable HTTP JSON-RPC ingress | dispatcher plus `pkg/connector` | tool/resource/prompt access |
-| Agent common turn | `protocol=agent` SSE turn API | `pkg/agent/execution` backend selected by Agent | runtime-neutral Agent execution |
+| Agent Turn Protocol | `protocol=at`, HTTP JSON request and SSE response | `pkg/agent/execution` backend selected by Agent | runtime-neutral Agent execution |
 | Native A2A | `protocol=a2a` A2A 1.0 JSON-RPC/SSE | dispatcher plus `pkg/a2a/proxy` | governed native HTTP Agent access |
 
-ACP is an Agent runtime protocol, not a separate public route family. ACP and
-builtin Agents use the common Agent turn contract. HTTP Agents can use that
-translated contract or native A2A ingress.
+ACP is the runtime protocol the gateway uses with managed ACP processes. ACP,
+builtin, and HTTP Agents expose Agent Turn Protocol to clients. HTTP Agents
+can also expose native A2A ingress.
 
 ## 3. Separation Principles
 

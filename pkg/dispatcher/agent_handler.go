@@ -19,7 +19,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// dispatchAgent serves the unified kind=agent ingress
+// dispatchAgent serves kind=agent ingress for Agent Turn Protocol and A2A
 // (docs/design/agents-control-plane.md): resolve the AgentRouteConfig,
 // resolve the target Agent from the manager's definition snapshot (never the
 // config store), reject disabled Agents before any stream starts, match the
@@ -53,7 +53,7 @@ func (h *Handler) dispatchAgent(w http.ResponseWriter, r *http.Request, next Nex
 	if route.Protocol == routecore.RouteProtocolA2A {
 		return h.dispatchA2A(w, rewritten, route)
 	}
-	if route.Protocol != routecore.RouteProtocolAgent {
+	if route.Protocol != routecore.RouteProtocolAT {
 		return WriteDispatchError(h.logger, string(route.Protocol), route.ID, "", http.StatusServiceUnavailable, w, rewritten, "dispatch agent request", "agent route protocol is not configured", fmt.Errorf("unsupported agent route protocol %q", route.Protocol))
 	}
 	endpoint, sessionID, matched := matchAgentRouteEndpoint(rewritten.URL.Path)

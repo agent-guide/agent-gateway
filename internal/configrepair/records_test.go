@@ -118,3 +118,30 @@ func TestValidateRejectsMissingLLMPolicy(t *testing.T) {
 		})
 	}
 }
+
+func TestInspectNormalizesAgentProtocolForRouteConflicts(t *testing.T) {
+	records := []Record{
+		{
+			Family: "routes",
+			ID:     "native",
+			Data: json.RawMessage(`{
+				"id":"native","kind":"agent","protocol":" a2a ",
+				"match_policy":{"host":"agent.example","path_prefix":"/agent","methods":["GET","POST"]},
+				"target_policy":{"kind":"agent","agent_id":"remote"}
+			}`),
+		},
+		{
+			Family: "routes",
+			ID:     "turn",
+			Data: json.RawMessage(`{
+				"id":"turn","kind":"agent","protocol":"at",
+				"match_policy":{"host":"agent.example","path_prefix":"/agent","methods":["PUT"]},
+				"target_policy":{"kind":"agent","agent_id":"builtin"}
+			}`),
+		},
+	}
+	issues := Inspect(records)
+	if len(issues) != 1 || issues[0].Field != "match_policy" || !strings.Contains(issues[0].Action, `ambiguous routes "native" and "turn"`) {
+		t.Fatalf("Inspect returned %v, want conflict between native and turn routes", issues)
+	}
+}

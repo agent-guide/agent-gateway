@@ -635,7 +635,7 @@ func TestAgentAttributionDoesNotUseHistoricalACPServiceID(t *testing.T) {
 		t.Fatalf("insert mcp: %v", err)
 	}
 	if err := InsertACPUsageEvent(db, usage.ACPUsageEvent{
-		InteractionEvent: usage.InteractionEvent{EventID: "agent-acp", SpanID: "s3", StartedAt: now, FinishedAt: now, RouteID: "agent-route", RouteKind: "agent", RouteProtocol: "agent", Success: true, StatusCode: 200, AgentID: "coding-agent", RunID: "run-1", RuntimeType: "acp"},
+		InteractionEvent: usage.InteractionEvent{EventID: "agent-acp", SpanID: "s3", StartedAt: now, FinishedAt: now, RouteID: "agent-route", RouteKind: "agent", RouteProtocol: "at", Success: true, StatusCode: 200, AgentID: "coding-agent", RunID: "run-1", RuntimeType: "acp"},
 		AgentType:        "codex", Operation: "turn", SessionID: "sess-new",
 	}); err != nil {
 		t.Fatalf("insert unified acp: %v", err)
@@ -1026,7 +1026,7 @@ func TestInteractionsTimeseriesIncludesBuiltinAndA2ARuntimeTables(t *testing.T) 
 	if err := InsertBuiltinUsageEvent(db, usage.BuiltinUsageEvent{
 		InteractionEvent: usage.InteractionEvent{
 			EventID: "builtin-turn", SpanID: "builtin-span", StartedAt: now, FinishedAt: now.Add(10 * time.Millisecond),
-			RouteID: "agent-route", RouteKind: "agent", RouteProtocol: "agent", RuntimeType: "builtin",
+			RouteID: "agent-route", RouteKind: "agent", RouteProtocol: "at", RuntimeType: "builtin",
 			Success: true, StatusCode: 200, LatencyMS: 10,
 		},
 		Operation: "turn",

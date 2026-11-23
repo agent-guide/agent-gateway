@@ -10,10 +10,10 @@ One HTTP Agent can have either or both route forms:
 
 | Route protocol | Client-facing contract | Gateway behavior |
 | --- | --- | --- |
-| `agent` | `POST /<prefix>/turn` and common Agent SSE events | translates between the common turn model and A2A |
+| Agent Turn Protocol (`at`, default) | `POST /<prefix>/turn` and Agent Turn Protocol SSE events | translates between the turn envelope and A2A |
 | `a2a` | Agent Card GET plus native A2A JSON-RPC POST | governs and forwards accepted JSON-RPC/SSE bytes without re-encoding |
 
-Use `protocol: agent` when clients should be independent of the remote
+Use `protocol: at` when clients should be independent of the remote
 runtime. Use `protocol: a2a` when clients need native tasks, subscriptions, or
 other admitted A2A methods.
 
@@ -66,11 +66,11 @@ selected upstream bearer credential.
 
 ## Configure Routes
 
-A common turn route needs an Agent ID and path prefix:
+An Agent Turn Protocol route needs an Agent ID and path prefix:
 
 ```yaml
 - id: reviewer-turn
-  protocol: agent
+  protocol: at
   agent_id: remote-reviewer
   match_policy:
     path_prefix: /agents/reviewer
@@ -142,8 +142,8 @@ Use the Agent management surface:
 ./agwctl agent runs remote-reviewer
 ```
 
-Both HTTP Agent paths use `route_kind=agent` and `runtime_type=http`. Common
-turns use `route_protocol=agent`; native A2A requests use
+Both HTTP Agent paths use `route_kind=agent` and `runtime_type=http`. New
+Agent Turn Protocol events use `route_protocol=at`. Native A2A requests use
 `route_protocol=a2a`. SQLite stores both in `a2a_usage_events`; they also
 appear in unified interaction queries, OTLP export, and Prometheus request
 counters.

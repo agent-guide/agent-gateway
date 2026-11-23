@@ -130,7 +130,7 @@ agents:
     policy: {}
 agentRoutes:
   - id: smoke-turn
-    protocol: agent
+    protocol: at
     agent_id: smoke-agent
     match_policy:
       path_prefix: /agents/smoke

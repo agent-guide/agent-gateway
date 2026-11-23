@@ -433,8 +433,8 @@ func (b *GatewayBundle) validate(_ bool) error {
 		if b.AgentRoutes[i].Kind != agentroute.RouteKindAgent {
 			errs.Append(fmt.Errorf("agentRoutes[%q]: kind must be %q", id, agentroute.RouteKindAgent))
 		}
-		if b.AgentRoutes[i].Protocol != agentroute.RouteProtocolAgent && b.AgentRoutes[i].Protocol != agentroute.RouteProtocolA2A {
-			errs.Append(fmt.Errorf("agentRoutes[%q]: protocol must be %q or %q", id, agentroute.RouteProtocolAgent, agentroute.RouteProtocolA2A))
+		if b.AgentRoutes[i].Protocol != agentroute.RouteProtocolAT && b.AgentRoutes[i].Protocol != agentroute.RouteProtocolA2A {
+			errs.Append(fmt.Errorf("agentRoutes[%q]: protocol must be %q or %q", id, agentroute.RouteProtocolAT, agentroute.RouteProtocolA2A))
 		}
 		if b.AgentRoutes[i].Protocol == agentroute.RouteProtocolA2A {
 			a2aAgentRouteIDs[id] = struct{}{}

@@ -854,6 +854,9 @@ agentRoutes:
   - agent_id: reviewer
     match_policy: {path_prefix: /agents/reviewer}
     auth_policy: {require_virtual_key: true}
+  - agent_id: reviewer
+    protocol: agent
+    match_policy: {path_prefix: /legacy/reviewer}
 virtualKeys:
   - id: reviewer-key
     allowed_route_ids: [agent:reviewer:agents-reviewer]
@@ -866,6 +869,18 @@ virtualKeys:
 	}
 	if got := bundle.AgentRoutes[0].ID; got != "agent:reviewer:agents-reviewer" {
 		t.Fatalf("route id = %q", got)
+	}
+	for _, route := range bundle.AgentRoutes {
+		if route.Protocol != agentroute.RouteProtocolAT {
+			t.Fatalf("route %q protocol = %q, want at", route.ID, route.Protocol)
+		}
+	}
+	exported, err := EncodeYAML(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(exported), "protocol: at") != len(bundle.AgentRoutes) {
+		t.Fatalf("export must use the canonical protocol:\n%s", exported)
 	}
 }
 

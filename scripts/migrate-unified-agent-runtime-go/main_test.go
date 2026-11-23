@@ -39,6 +39,9 @@ func TestMigrateACPAndBuiltinRoutesAndVirtualKeys(t *testing.T) {
 		t.Fatalf("refs = %#v", refs)
 	}
 	converted := objectList(root["agentRoutes"])[0]
+	if converted["kind"] != "agent" || converted["protocol"] != "at" {
+		t.Fatalf("converted route kind/protocol = %#v", converted)
+	}
 	if _, ok := converted["created_at"]; ok {
 		t.Fatalf("converted route retained created_at: %#v", converted)
 	}

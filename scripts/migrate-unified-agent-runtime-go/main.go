@@ -149,7 +149,7 @@ func migrate(root map[string]any) (map[string]string, error) {
 			return fmt.Errorf("route ID collision %q from %q and %q", newID, prior, oldID)
 		}
 		ids[newID], routeMap[oldID] = oldID, newID
-		route["id"], route["kind"], route["protocol"], route["agent_id"] = newID, "agent", "agent", targetID
+		route["id"], route["kind"], route["protocol"], route["agent_id"] = newID, "agent", "at", targetID
 		delete(route, "service_id")
 		delete(route, "created_at")
 		delete(route, "updated_at")

@@ -86,7 +86,11 @@ func (m *RouteConfigManager) Reset() {
 func (m *RouteConfigManager) InitStaticRoutes(routes []RouteConfig) error {
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
-	candidate := append([]RouteConfig(nil), routes...)
+	staticRoutes := make([]RouteConfig, len(routes))
+	for i, route := range routes {
+		staticRoutes[i] = route.withNormalizedProtocol()
+	}
+	candidate := staticRoutes
 	for _, r := range m.base.Snapshot(configmgr.ListQuery{}) {
 		if !m.base.IsStatic(r.ID) {
 			candidate = append(candidate, r)
@@ -95,7 +99,7 @@ func (m *RouteConfigManager) InitStaticRoutes(routes []RouteConfig) error {
 	if err := m.validateSnapshot(candidate); err != nil {
 		return err
 	}
-	m.base.InitStatic(routes)
+	m.base.InitStatic(staticRoutes)
 	m.mu.RLock()
 	loaded := m.dynamicLoaded
 	m.mu.RUnlock()
@@ -175,7 +179,7 @@ func matchRouteConfigs(routes []RouteConfig, r *http.Request) (RouteConfig, bool
 }
 
 func (m *RouteConfigManager) Create(ctx context.Context, route RouteConfig, tag string) error {
-	route = cloneRouteConfig(route)
+	route = cloneRouteConfig(route).withNormalizedProtocol()
 	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationCreate, route.ID, &route, func(ctx context.Context) error { return m.create(ctx, route, tag) })
 }
 
@@ -200,7 +204,7 @@ func (m *RouteConfigManager) create(ctx context.Context, route RouteConfig, tag 
 }
 
 func (m *RouteConfigManager) Update(ctx context.Context, routeID string, route RouteConfig) error {
-	route = cloneRouteConfig(route)
+	route = cloneRouteConfig(route).withNormalizedProtocol()
 	route.ID = routeID
 	return configmgr.GuardMutation(m.guard, ctx, configmgr.MutationUpdate, routeID, &route, func(ctx context.Context) error { return m.update(ctx, routeID, route) })
 }
@@ -284,6 +288,7 @@ func DecodeStoredRouteConfig(data []byte) (any, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("decode route config: %w", err)
 	}
+	cfg = cfg.withNormalizedProtocol()
 	if cfg.Kind == RouteKindMCP {
 		if err := ValidateMCPTargetFields(cfg.ID, cfg.TargetPolicy); err != nil {
 			return nil, err
@@ -303,12 +308,12 @@ func decodeRouteConfigItem(routeID string, item any) (RouteConfig, error) {
 		if route == nil || route.ID == "" {
 			break
 		}
-		return *route, nil
+		return route.withNormalizedProtocol(), nil
 	case RouteConfig:
 		if route.ID == "" {
 			break
 		}
-		return route, nil
+		return route.withNormalizedProtocol(), nil
 	}
 	if routeID == "" {
 		routeID = "<unknown>"

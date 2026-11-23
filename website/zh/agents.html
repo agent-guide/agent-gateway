@@ -61,10 +61,11 @@
   <section class="section" id="runtimes">
     <div class="wrap">
       <p class="eyebrow">运行时</p>
-      <h2>三种执行运行时，一套受治理的轮次 API。</h2>
+      <h2>三种执行运行时，一套 Agent Turn Protocol。</h2>
       <p class="lede">
-        agent 是一等对象，拥有路由、资源、策略、用量与健康状况
-        —— builtin、ACP 与 HTTP 今天均可由网关执行；HTTP Path B 将通用轮次 API 翻译为 A2A Protocol 1.0 JSON-RPC。
+        Agent 是一等对象，拥有路由、资源、策略、用量与健康状况。
+        Builtin、ACP 与 HTTP Agent 都支持 Agent Turn Protocol（<code>at</code>）。
+        网关将 HTTP Agent 的轮次请求转换为 A2A Protocol 1.0 JSON-RPC。
       </p>
       <p class="lede">
         Claude Code 是模型客户端，不是第四种 Agent Runtime。它通过专用的
@@ -118,14 +119,14 @@
           <h3>HTTP — 注册你的外部 Agent</h3>
           <p>
             用兼容框架构建、运行在你自己基础设施上的 Agent，可以注册 Agent Card URL 与管理身份。
-            执行使用 A2A Protocol 1.0：既可通过通用 <code>/turn</code> API 翻译调用，
-            也可使用原生受治理 A2A JSON-RPC 代理入口；网关不持有远端 task 的持久状态。
+            执行使用 A2A Protocol 1.0。客户端可通过 <code>/turn</code> 使用 Agent Turn
+            Protocol，也可使用受治理的原生 A2A JSON-RPC 代理入口。远端任务的持久状态由上游管理。
           </p>
         </div>
         <ul class="feature-list">
           <li><b>同一套身份模型</b> 路由、资源、策略、用量与健康，与其他运行时一致。</li>
           <li><b>显式轮次归因</b> 两种入口的交互事件都记录 Agent 身份；仅声明 LLM 资源引用不会让外部调用自动归因。</li>
-          <li><b>双入口</b> 通用轮次使用请求绑定的翻译器；原生 A2A 在同一治理边界内保留 JSON-RPC 请求体与 SSE 帧。</li>
+          <li><b>双入口</b> Agent Turn Protocol 将每轮请求转换为 A2A。原生 A2A 在同一治理边界内保留 JSON-RPC 请求体与 SSE 帧。</li>
           <li><b>框架无关的契约</b> LangChain、ADK 与自研栈只要暴露受支持的 A2A 契约即可接入。</li>
         </ul>
       </div>
@@ -160,7 +161,7 @@
               <td>HTTP</td>
               <td>你（外部服务）</td>
               <td>兼容 A2A 的存量 Agent</td>
-              <td><span class="tag-steel tag">通用轮次与原生 A2A</span></td>
+              <td><span class="tag-steel tag">Agent Turn Protocol 与原生 A2A</span></td>
               <td>轮次事件显式记录 Agent 身份</td>
             </tr>
           </tbody>

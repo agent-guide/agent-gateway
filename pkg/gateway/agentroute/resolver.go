@@ -109,15 +109,16 @@ func (r *AgentRouteResolver) lookups() (AgentLookup, A2AProxyLookup) {
 }
 
 // validateTarget enforces that a persisted AgentRouteConfig names an existing Agent.
-// Protocol-agent routes may target disabled or currently non-executable Agents
-// and report their normalized runtime error at dispatch. Protocol-a2a routes
-// instead require a ready Path A proxy target at create/update time.
+// Agent Turn Protocol routes may target disabled or currently non-executable
+// Agents and report their runtime error at dispatch. A2A routes require a
+// ready Path A proxy target at create/update time.
 func (r *AgentRouteResolver) validateTarget(route routecore.RouteConfig) error {
 	if route.Kind != routecore.RouteKindAgent {
 		return fmt.Errorf("route %q kind must be %q", route.ID, routecore.RouteKindAgent)
 	}
-	if route.Protocol != routecore.RouteProtocolAgent && route.Protocol != routecore.RouteProtocolA2A {
-		return fmt.Errorf("route %q protocol must be %q or %q", route.ID, routecore.RouteProtocolAgent, routecore.RouteProtocolA2A)
+	route.Protocol = routecore.NormalizeAgentRouteProtocol(route.Protocol)
+	if route.Protocol != routecore.RouteProtocolAT && route.Protocol != routecore.RouteProtocolA2A {
+		return fmt.Errorf("route %q protocol must be %q or %q", route.ID, routecore.RouteProtocolAT, routecore.RouteProtocolA2A)
 	}
 	agentID, err := DecodeTargetAgentID(route.TargetPolicy)
 	if err != nil {

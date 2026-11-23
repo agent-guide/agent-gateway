@@ -21,7 +21,7 @@ agents:
 
 agentRoutes:
   - id: coding-agent-turn
-    protocol: agent
+    protocol: at
     agent_id: coding-agent
     match_policy:
       path_prefix: /agents/coding

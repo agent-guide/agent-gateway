@@ -1,7 +1,7 @@
 # Quick Start: HTTP Agent
 
 This guide registers an A2A Protocol 1.0 service as an HTTP Agent, then exposes
-both the common Agent turn API and governed native A2A ingress. You can use the
+both Agent Turn Protocol (`at`) and governed native A2A ingress. You can use the
 repository's local fixture or bring your own service.
 
 ## Prerequisites
@@ -94,7 +94,7 @@ agents:
 
 agentRoutes:
   - id: reviewer-turn
-    protocol: agent
+    protocol: at
     agent_id: remote-reviewer
     match_policy:
       path_prefix: /agents/reviewer
@@ -130,7 +130,7 @@ Route creation fails closed unless the Card contains a usable, same-origin
 `JSONRPC` interface for A2A 1.0. If the Card requires bearer authentication,
 configure an Agent-owned credential as described in the HTTP Agent guide.
 
-## 3. Send A Common Turn
+## 3. Send A Turn With Agent Turn Protocol
 
 ```bash
 AGENT_API_KEY=$(./agwctl virtualkey get reviewer-key | jq -r '.key')
@@ -141,7 +141,7 @@ curl -N -s http://127.0.0.1:8080/agents/reviewer/turn \
   -d '{"input":"Review this change"}'
 ```
 
-The gateway translates the turn to A2A and returns the common Agent SSE event
+The gateway translates the turn to A2A and returns Agent Turn Protocol SSE
 contract. Reuse the emitted `session_id` on a later request to continue the
 same remote context.
 

@@ -50,7 +50,7 @@ func ValidateRouteConfigs(routes []RouteConfig) error {
 // Scoring still uses the original declaration, including its method specificity.
 func EffectiveMatch(route RouteConfig) RouteMatchPolicy {
 	match := route.MatchPolicy
-	if route.Kind == RouteKindAgent && route.Protocol == RouteProtocolA2A {
+	if route.Kind == RouteKindAgent && NormalizeAgentRouteProtocol(route.Protocol) == RouteProtocolA2A {
 		match.Methods = nil
 	}
 	return match

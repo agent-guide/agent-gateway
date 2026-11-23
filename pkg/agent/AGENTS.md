@@ -30,8 +30,8 @@ merge them or extend the Agent policy to other runtimes in this refactoring.
   other runtime implementations; adapters in `pkg/agent/runtimebackend` sit above
   both sides.
   `AgentGateway` registers the shipping ACP and builtin adapters during
-  bootstrap; all public ACP/builtin turns enter through unified AgentRoute
-  dispatch and share its run sequencer and identity bridge.
+  bootstrap. Public ACP/builtin turns enter through Agent Turn Protocol
+  (`protocol: at`) routes and share the run sequencer and identity bridge.
   The gateway-owned run registry and permission broker provide exact-run
   cancellation, bounded terminal tombstones, and one-shot opaque continuation
   claims. Claimed permission ids retain short-lived owner/runtime routing
@@ -65,7 +65,7 @@ merge them or extend the Agent policy to other runtimes in this refactoring.
   and optional `timeout_seconds`; the obsolete design-only `endpoint` field is
   not accepted. The
   selected Card interface owns the service URL and tenant. Path B dispatches
-  HTTP Agents through the common `/turn` contract using the `HTTPBackend` in
+  HTTP Agents through the Agent Turn Protocol `/turn` contract using the `HTTPBackend` in
   `pkg/agent/runtimebackend`; native Path A proxy ingress executes through `protocol=a2a`
   AgentRoutes. A2A wire types and the JSON-RPC client/proxy live in
   `pkg/a2a`; this package must not import it. HTTP `auth_ref` points to an

@@ -341,7 +341,7 @@ it is why this feature adopts the Runner primitive.
   `tool_search`) are always exempt: they have no external side effects, and
   gating them would interrupt on bookkeeping.
 
-**Turn protocol.** The event vocabulary gains `permission` (still a marked
+**Agent Turn Protocol.** The event vocabulary gains `permission` (still a marked
 subset of the ACP vocabulary). When a gated call interrupts:
 
 1. every event in the streamed segment carries the stable logical `run_id`

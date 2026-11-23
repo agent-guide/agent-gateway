@@ -61,7 +61,7 @@ covers `card_url`, selected interface URL/tenant, protocol, `auth_ref`, and
 transport policy, and any change retires active claims/task bindings before the
 replacement generation dispatches. Interrupted bindings are atomically claimed
 per `(agent_id, session_id)` so concurrent continuations fail `session_busy`.
-HTTP Agents stay `runtime_not_executable` on `protocol agent` until the backend
+HTTP Agents stay `runtime_not_executable` on Agent Turn Protocol (`at`) until the backend
 registration exists; Path A uses the manager's independent proxy-ready gate.
 The manager compares a separate definition-input fingerprint before any Card
 fetch. It separately tracks Card-input and secret-free credential-eligibility

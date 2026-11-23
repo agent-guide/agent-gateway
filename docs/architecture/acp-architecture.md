@@ -47,6 +47,9 @@ request from repopulating retired state.
 
 ## Request Flow
 
+Clients use Agent Turn Protocol (`at`). The gateway exchanges native ACP
+messages with the managed process.
+
 ```text
 POST /<agent-route>/turn
   -> dispatcher matches kind=agent route

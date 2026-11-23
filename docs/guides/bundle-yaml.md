@@ -117,6 +117,8 @@ Current dynamic workflow behavior:
 
 - `agwctl apply` supports logical-model routes
 - `agwctl apply` supports provider models
+- `agentRoutes` defaults to Agent Turn Protocol (`at`). Existing bundles with
+  `protocol: agent` import as `at`, and exports use `at`.
 - VirtualKeys are valid in config-store-backed bundle workflows
 - VirtualKeys may include optional request-frequency limits:
 

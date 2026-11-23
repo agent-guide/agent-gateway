@@ -62,7 +62,7 @@ func TestObserverSelectsTypedStoreForUnifiedAgentRoute(t *testing.T) {
 		t.Run(tc.runtimeType, func(t *testing.T) {
 			sink := &captureEventSink{}
 			span, _ := NewObserver(sink).Begin(t.Context(), InteractionDimensions{
-				RouteKind: "agent", RouteProtocol: "agent", AgentID: "a1", RuntimeType: tc.runtimeType, RunID: "run-1",
+				RouteKind: "agent", RouteProtocol: "at", AgentID: "a1", RuntimeType: tc.runtimeType, RunID: "run-1",
 			})
 			span.Finish(InteractionOutcome{Success: true, StatusCode: 200})
 			if len(sink.events) != 1 {

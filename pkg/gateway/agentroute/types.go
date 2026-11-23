@@ -23,8 +23,8 @@ const (
 type RouteProtocol = routecore.RouteProtocol
 
 const (
-	RouteProtocolAgent = routecore.RouteProtocolAgent
-	RouteProtocolA2A   = routecore.RouteProtocolA2A
+	RouteProtocolAT  = routecore.RouteProtocolAT
+	RouteProtocolA2A = routecore.RouteProtocolA2A
 )
 
 type RouteConfig = routecore.RouteConfig
@@ -47,10 +47,7 @@ type routeTargetPolicy struct {
 func normalizeConfigDefaults(cfg RouteConfig) RouteConfig {
 	cfg.ID = strings.TrimSpace(cfg.ID)
 	cfg.Kind = RouteKindAgent
-	cfg.Protocol = RouteProtocol(strings.TrimSpace(string(cfg.Protocol)))
-	if cfg.Protocol == "" {
-		cfg.Protocol = RouteProtocolAgent
-	}
+	cfg.Protocol = routecore.NormalizeAgentRouteProtocol(cfg.Protocol)
 	cfg.Description = strings.TrimSpace(cfg.Description)
 	cfg.MatchPolicy.Host = strings.TrimSpace(cfg.MatchPolicy.Host)
 	cfg.MatchPolicy.PathPrefix = strings.TrimSpace(cfg.MatchPolicy.PathPrefix)

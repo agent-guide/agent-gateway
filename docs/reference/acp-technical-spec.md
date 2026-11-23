@@ -24,6 +24,7 @@ agents:
 
 agentRoutes:
   - id: agent-codex
+    protocol: at
     agent_id: codex-main
     match_policy: {path_prefix: /agents/codex}
     auth_policy: {require_virtual_key: true}
@@ -52,7 +53,7 @@ POST /<agent-route>/turn
   -> emit the common Agent SSE envelope
 ```
 
-The request uses the common turn envelope:
+The HTTP request uses the Agent Turn Protocol (`at`) envelope:
 
 ```json
 {

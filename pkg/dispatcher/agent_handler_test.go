@@ -507,7 +507,22 @@ func TestDispatchAgentRouteACPTurnSuccess(t *testing.T) {
 		t.Fatalf("accepted fingerprint was not established at agent create: %v", native.retirements)
 	}
 
-	createAgentRoute(t, gw, "acp-agent", "/agents/acp", false)
+	routeStore, err := backend.Get(configschema.StoreRoutes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Write the previous on-disk format through the store, bypassing the
+	// route manager's canonical write path.
+	if err := routeStore.Create(ctx, routecore.RouteConfig{
+		ID: "legacy-acp", Kind: routecore.RouteKindAgent, Protocol: "agent",
+		MatchPolicy:  routecore.RouteMatchPolicy{PathPrefix: "/agents/acp"},
+		TargetPolicy: json.RawMessage(`{"kind":"agent","agent_id":"acp-agent"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.AgentRouteResolver().ConfigManager().Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
 	handler := NewHandler(gw, nil, zap.NewNop(), HandlerOptions{EnableAgent: true})
 
 	body := `{"input":"hello","options":{"version":"v1","runtime":{"thread_id":"thread-1","model":"model-b"}}}`
@@ -575,7 +590,7 @@ func TestDispatchAgentRouteACPTurnSuccess(t *testing.T) {
 		t.Fatalf("no interaction events recorded: %#v", sink.events)
 	}
 	turnEvent := turnEvents[len(turnEvents)-1]
-	if turnEvent.AgentID != "acp-agent" || turnEvent.RunID != native.req.RunID || turnEvent.RouteKind != "agent" || turnEvent.RuntimeType != "acp" {
+	if turnEvent.AgentID != "acp-agent" || turnEvent.RunID != native.req.RunID || turnEvent.RouteKind != "agent" || turnEvent.RouteProtocol != "at" || turnEvent.RuntimeType != "acp" {
 		t.Fatalf("interaction event = %+v", turnEvent)
 	}
 	if turnEvent.ServiceID != "" || turnEvent.Operation != "turn" || turnEvent.ThreadID != "thread-1" || turnEvent.SessionID != "native-session" {

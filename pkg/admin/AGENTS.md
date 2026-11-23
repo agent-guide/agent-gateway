@@ -8,6 +8,8 @@ Root rules and the affected subsystem AGENTS apply. Provider, VirtualKey,
 credential, route, Agent and extension business invariants belong to their
 application managers; every internal, HTTP and Bundle entry must share them.
 Do not restore reference checking or multi-store mutations in HTTP handlers.
+AgentRoute responses use the canonical Agent Turn Protocol value `at`. The
+shared route model normalizes the legacy request value `agent`.
 
 Routes() is only the endpoint registry. providers.go and virtualkeys.go own their
 DTOs and HTTP adapters; metrics.go owns typed protocol query flows and

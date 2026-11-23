@@ -68,7 +68,7 @@ make smoke-release
 
 The smoke builds all three shipped binaries, starts the local A2A fixture and
 gateway on ephemeral loopback ports, applies an HTTP Agent through `agwctl`,
-exercises common `/turn` plus native A2A Card, JSON, and SSE traffic, waits for
+exercises Agent Turn Protocol `/turn` plus native A2A Card, JSON, and SSE traffic, waits for
 the matching persisted interaction, and then checks standalone `agwd`
 readiness. Child processes and temporary SQLite files are cleaned up on every
 exit path.

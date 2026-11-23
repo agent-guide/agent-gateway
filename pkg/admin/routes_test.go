@@ -776,29 +776,22 @@ func TestAgentRouteCRUD(t *testing.T) {
 	handler := NewHandler(gw, nil)
 	token := loginForTest(t, handler, "admin", "secret-pass")
 
-	createBody, err := json.Marshal(agentroute.AgentRouteConfig{
-		RouteMetadata: agentroute.RouteMetadata{
-			ID:          "assistant",
-			MatchPolicy: agentroute.RouteMatch{PathPrefix: "/agents/assistant"},
-			AuthPolicy:  agentroute.RouteAuthPolicy{RequireVirtualKey: true},
-		},
-		AgentID: "assistant",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	createReq := httptest.NewRequest(http.MethodPost, "/admin/agents/routes", bytes.NewReader(createBody))
+	createBody := `{"id":"assistant","agent_id":"assistant","protocol":"agent","match_policy":{"path_prefix":"/agents/assistant"},"auth_policy":{"require_virtual_key":true}}`
+	createReq := httptest.NewRequest(http.MethodPost, "/admin/agents/routes", strings.NewReader(createBody))
 	createReq.Header.Set("Authorization", "Bearer "+token)
 	createRec := httptest.NewRecorder()
 	handler.ServeHTTP(createRec, createReq)
 	if createRec.Code != http.StatusCreated {
 		t.Fatalf("create AgentRouteConfig: status=%d body=%s", createRec.Code, createRec.Body.String())
 	}
+	if !strings.Contains(createRec.Body.String(), `"protocol":"at"`) {
+		t.Fatalf("create response must publish the canonical protocol: %s", createRec.Body.String())
+	}
 	var created AgentRouteView
 	if err := json.NewDecoder(createRec.Body).Decode(&created); err != nil {
 		t.Fatal(err)
 	}
-	if created.Kind != agentroute.RouteKindAgent || created.Protocol != agentroute.RouteProtocolAgent || created.AgentID != "assistant" {
+	if created.Kind != agentroute.RouteKindAgent || created.Protocol != agentroute.RouteProtocolAT || created.AgentID != "assistant" {
 		t.Fatalf("created AgentRouteConfig = %#v", created)
 	}
 

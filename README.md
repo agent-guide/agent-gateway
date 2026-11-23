@@ -126,6 +126,11 @@ separate systems.
 | **HTTP/A2A** | Connect an Agent implemented in any stack | A remote A2A Protocol 1.0 Agent Card and service |
 | **Builtin** | Materialize configuration-defined Agents in process | A gateway LLM route, optional managed MCP tools, and a supported eino ADK topology |
 
+All three runtimes support **Agent Turn Protocol** (`protocol: at`), the
+default AgentRoute ingress. Clients send JSON to `POST /<route-prefix>/turn`
+and receive SSE events. HTTP Agents can also expose native A2A ingress.
+Existing route configurations using `protocol: agent` are read as `at`.
+
 Claude Code uses the gateway differently: it is a client of the dedicated `cc`
 Anthropic Messages ingress profile, not an ACP Agent runtime. That profile can
 route Claude Code traffic to compatible domestic or international model
@@ -140,8 +145,8 @@ in-memory table without loading configuration storage.
 
 The gateway exposes two directions of traffic:
 
-- **Agent Control API (Agent / ACP / HTTP / A2A)** — consumers launch and drive
-  Agents through protected routes.
+- **Agent Control API (Agent Turn Protocol / A2A)** — consumers launch and
+  drive Agents through protected routes.
 - **Resource Access API (LLM / MCP)** — applications and Agents reach models
   and tools through governed routes.
 

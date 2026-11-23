@@ -119,6 +119,11 @@ OpenTelemetry Collector 和 Grafana。Fixture 和允许本地匿名访问的 Gra
 | **HTTP/A2A** | 连接由任意技术栈实现的 Agent | 远程 A2A Protocol 1.0 Agent Card 和服务 |
 | **Builtin** | 在进程内实例化由配置定义的 Agent | Gateway LLM Route、可选的统一管理 MCP 工具，以及受支持的 eino ADK Topology |
 
+三种运行时都支持 **Agent Turn Protocol**（`protocol: at`），这是 AgentRoute
+的默认入口。客户端向 `POST /<路由前缀>/turn` 发送 JSON，并接收 SSE 事件。
+HTTP Agent 也可以开放原生 A2A 入口。旧路由配置中的 `protocol: agent` 会按
+`at` 读取。
+
 Claude Code 的使用方式不同：它是专用 `cc` Anthropic Messages 入口 Profile 的
 客户端，而不是 ACP Agent Runtime。该 Profile 可以把 Claude Code 流量路由到
 兼容的国内或国际模型 Provider。
@@ -131,7 +136,7 @@ Claude Code 的使用方式不同：它是专用 `cc` Anthropic Messages 入口 
 
 网关处理两个方向的流量：
 
-- **Agent Control API（Agent / ACP / HTTP / A2A）**——调用方通过受保护的路由
+- **Agent Control API（Agent Turn Protocol / A2A）**——调用方通过受保护的路由
   启动和驱动 Agent。
 - **Resource Access API（LLM / MCP）**——应用和 Agent 通过受治理的路由访问
   模型和工具。

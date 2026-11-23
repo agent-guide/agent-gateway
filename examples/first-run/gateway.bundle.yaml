@@ -17,7 +17,7 @@ agents:
 
 agentRoutes:
   - id: first-run-turn
-    protocol: agent
+    protocol: at
     agent_id: first-run-agent
     match_policy:
       path_prefix: /agents/first-run

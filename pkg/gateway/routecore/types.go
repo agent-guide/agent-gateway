@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -25,9 +26,28 @@ const (
 	RouteProtocolAnthropic RouteProtocol = "anthropic"
 	RouteProtocolCC        RouteProtocol = "cc"
 	RouteProtocolMCP       RouteProtocol = "mcp"
-	RouteProtocolAgent     RouteProtocol = "agent"
+	RouteProtocolAT        RouteProtocol = "at"
 	RouteProtocolA2A       RouteProtocol = "a2a"
 )
+
+// NormalizeAgentRouteProtocol defaults Agent routes to Agent Turn Protocol and
+// accepts the previous "agent" spelling in configuration input.
+func NormalizeAgentRouteProtocol(protocol RouteProtocol) RouteProtocol {
+	protocol = RouteProtocol(strings.TrimSpace(string(protocol)))
+	switch protocol {
+	case "", "agent":
+		return RouteProtocolAT
+	default:
+		return protocol
+	}
+}
+
+func (c RouteConfig) withNormalizedProtocol() RouteConfig {
+	if c.Kind == RouteKindAgent {
+		c.Protocol = NormalizeAgentRouteProtocol(c.Protocol)
+	}
+	return c
+}
 
 type RouteTargetPolicyKind string
 

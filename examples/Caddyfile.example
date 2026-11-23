@@ -283,10 +283,10 @@ http://127.0.0.1:8080 {
 	agent_route_dispatcher {
 		# LLM bodies default to 16 MiB. Optional 64 MiB override (integer bytes):
 		# max_llm_request_body_bytes 67108864
-		# The same `agent` enablement serves both protocol=agent common turns and
-		# protocol=a2a native HTTP Agent routes created through the Admin API or a
-		# gateway bundle. Native A2A Card GET is public; JSON-RPC POST keeps the
-		# AgentRoute's VirtualKey policy.
+		# The `agent` option serves Agent Turn Protocol (at) for all Agent runtimes
+		# and native A2A (a2a) for HTTP Agents. Create routes through Admin or a
+		# gateway bundle. A2A Card GET is public. JSON-RPC POST uses the route's
+		# VirtualKey policy.
 		llm_api openai
 		llm_api anthropic
 		llm_api cc

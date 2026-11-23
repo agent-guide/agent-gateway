@@ -9,8 +9,8 @@ governed proxy (non-translating ingress).
 
 Capability status: **Implemented**.
 
-HTTP Agents execute through the common
-`protocol agent` `/turn` ingress using A2A 1.0 JSON-RPC southbound, or through
+HTTP Agents execute through Agent Turn Protocol (`protocol: at`) at `/turn`
+using A2A 1.0 JSON-RPC southbound, or through
 native governed `protocol a2a` routes (Path A, §8).
 
 The design records the direction chosen after evaluating alternatives:
@@ -21,8 +21,8 @@ The design records the direction chosen after evaluating alternatives:
   wire-contract blocker; the remaining work is mapping and governance, not
   protocol invention. The current scope does not dual-stack A2A v0.3.
 - **The target architecture has two northbound paths** for the same agents.
-  The implemented `protocol agent` route translates A2A into the common turn
-  envelope (Path B). An implemented `protocol a2a` route proxies A2A JSON-RPC
+  Agent Turn Protocol (`at`) translates between the turn envelope and A2A
+  (Path B). An implemented `protocol a2a` route proxies A2A JSON-RPC
   end-to-end without event translation (Path A). Both use the same ingress
   governance model and share the `pkg/a2a` protocol package as their common
   lower layer.
@@ -60,7 +60,7 @@ northbound protocol are three separate axes:
 |---|---|---|
 | `runtime.type` | `acp` / `http` / `builtin` | Who owns the agent's lifecycle? |
 | `runtime.http.protocol` | `a2a` (`custom` reserved, undesigned) | What dialect does the gateway speak to the service? |
-| AgentRoute `protocol` | `agent` / `a2a` / LLM family protocols | What protocol does the client speak to the gateway? |
+| AgentRoute `protocol` | `at` / `a2a` | What protocol does the client speak to the gateway? |
 
 `runtime.type = "http"` keeps its control-plane meaning — "an external
 service owns its lifecycle; the gateway is a client over HTTP" — and every
@@ -496,12 +496,11 @@ Validation rules:
   before it is rejected.
 - Consistency: an AgentRoute with `protocol a2a` must target an Agent with
   `runtime.type = "http"` and `runtime.http.protocol = "a2a"`. Mismatch fails
-  at route validation, so the two axes never drift apart. A `protocol agent`
+  at route validation, so the two axes never drift apart. A `protocol at`
   route accepts any executable `http` Agent regardless of dialect.
 
-The AgentRoute model (`pkg/gateway/agentroute`) currently forces
-`protocol = agent` or `protocol = a2a` in `Normalize` / `ToConfig`: `kind`
-stays `agent` for both paths.
+The AgentRoute model (`pkg/gateway/agentroute`) uses `kind: agent` for both
+paths. Omitted `protocol` and the legacy value `agent` normalize to `at`.
 Changing runtime type or dialect still must not change the route id, URL, or
 VirtualKey allowlist. Dispatcher matching stays kind-based; `dispatchAgent`
 branches on `protocol` so `a2a` does not enter the `/turn` family.
@@ -715,7 +714,7 @@ client's own `CancelTask` / `SubscribeToTask`, forwarded. Run views,
 permission resolution, and transcripts are fail-closed for these routes.
 Admin capability surfaces present the two implemented paths independently:
 native `protocol=a2a` reachability requires a ready Path A proxy target, while
-common `protocol=agent` turns execute through Path B.
+common `protocol=at` turns execute through Path B.
 
 Path A has its own dispatch-time admission path; it must not borrow or bypass
 Path B readiness accidentally. `dispatchAgent` is refactored in this order:
@@ -728,7 +727,7 @@ Path B readiness accidentally. `dispatchAgent` is refactored in this order:
    `HTTPRuntimeManager.ResolveProxyTarget(agent_id)` and reject a missing,
    invalid, or non-ready snapshot before serving the Card, resolving a
    credential, or forwarding;
-4. for `protocol=agent`, retain the existing `/turn`/optional endpoint matcher,
+4. for `protocol=at`, retain the existing `/turn`/optional endpoint matcher,
    resolve the runtime backend, and require `Capabilities().Executable`;
 5. JSON-RPC POST on both protocol branches retains common VirtualKey/rate-limit
    admission and Agent attribution; the Path A Card GET is the explicit public
@@ -909,7 +908,7 @@ replaced by the `-32006` envelope before downstream commit.
 ## 9. Path B: translating backend (`agentexecution`)
 
 Path B makes `runtime.type = "http"` executable for existing
-`protocol agent` routes: an `HTTPBackend` registered in the
+`protocol at` routes: an `HTTPBackend` registered in the
 `agentexecution.Registry` (`pkg/agent/runtimebackend/runtime_backends.go`, wired in
 `agentgateway.go` alongside `ACPBackend`/`BuiltinBackend`). The backend
 consumes the shared manager's typed execution handle; that manager imports
@@ -1201,8 +1200,8 @@ Path A (implemented; protocol a2a, no event translation):
     -> GET /.well-known/agent-card.json served from Agent-owned card
     -> pkg/a2a/proxy body/SSE <-> selected AgentInterface.url (JSON-RPC only)
 
-Path B (implemented; protocol agent, translation):
-  client --POST /turn + common envelope--> AgentRoute(protocol agent)
+Path B (implemented; protocol at, translation):
+  client --POST /turn + common envelope--> AgentRoute(protocol at)
     -> existing dispatch (agent_handler.go)
     -> agentexecution.Registry.Resolve("http") -> HTTPBackend
     -> HTTPRuntimeManager.ResolveExecution(agent_id)

@@ -177,9 +177,9 @@ shim; provider authentication and Claude Code fingerprint shaping remain in the
 provider layer.
 
 MCP handling is enabled with the dispatcher-local `mcp` option instead of a
-separate HTTP handler module. Unified Agent handling is enabled with `agent`;
-it dispatches `protocol=agent` turns to the target Agent runtime backend and
-handles `protocol=a2a` routes through the native HTTP Agent proxy path.
+separate HTTP handler module. The dispatcher option `agent` enables Agent
+ingress. It dispatches Agent Turn Protocol (`at`) requests to the target runtime
+backend and routes `a2a` requests through the native HTTP Agent proxy.
 
 The runtime dispatcher in `pkg/dispatcher` asks the shared gateway route manager
 to match the HTTP request against `match_policy`. It validates VirtualKey access,
@@ -226,8 +226,8 @@ The `/admin/agents` family provides CRUD, unified AgentRoute CRUD,
 workspace/activity/usage/interactions/resources/health, runtime capabilities,
 exact-run list/cancel, one-shot permission list/decision, and capability-gated
 session/transcript reads. ACP, builtin, and HTTP runtimes enter through
-`kind=agent`, `protocol=agent` routes; HTTP Agents may additionally use
-`protocol=a2a`.
+Agent Turn Protocol routes (`kind=agent`, `protocol=at`). HTTP Agents may
+also use native A2A (`protocol=a2a`).
 
 This makes the admin package the control-plane entrypoint for LLM, MCP, ACP,
 agents, and metrics inspection. The reserved memory family returns `501 Not
@@ -716,7 +716,7 @@ turn-first `agentexecution.Backend` layer registered by `AgentGateway`. The
 gateway-owned adapters execute through one run sequencer behind a unified
 `AgentRoute.agent_id` relationship. There is no unbound ACP ingress or
 runtime-specific public route family. HTTP Agents execute through the same
-`protocol agent` `/turn` ingress and a Path B backend translating to A2A
+Agent Turn Protocol (`at`) `/turn` ingress and a Path B backend translating to A2A
 Protocol 1.0 JSON-RPC via `pkg/a2a`. The same HTTP Agents can expose native
 governed A2A JSON-RPC through `protocol a2a` Path A routes, including a
 gateway-owned Agent Card, VirtualKey admission, credential replacement, and
