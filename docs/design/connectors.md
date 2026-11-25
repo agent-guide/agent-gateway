@@ -1082,9 +1082,10 @@ when a POST may have been transmitted and no valid success result is available,
 including response loss or mapping failure. A sanitized tool error states that
 the write outcome is unconfirmed and must not encourage automatic replay.
 `HTTPExecution.NetworkErrorCategory` is populated only for network, timeout or
-cancellation failures, not business statuses or mapping errors. Builtin converts
-tool error results into its existing call-error behavior; ingress transport
-cancellation retains its existing request lifecycle rather than promising a
+cancellation failures, not business statuses or mapping errors. Builtin returns
+tool error results as model-visible content while recording the call as failed;
+boundary errors still abort the tool node. Ingress transport cancellation
+retains its existing request lifecycle rather than promising a
 JSON-RPC response after disconnect. No entry point retries HTTP execution.
 
 A successful call has non-nil `Result`, `IsError=false`, and no failure. A known

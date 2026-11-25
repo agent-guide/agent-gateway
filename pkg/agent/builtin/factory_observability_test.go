@@ -136,7 +136,7 @@ func TestObservedToolPreservesHTTPFailureCategory(t *testing.T) {
 	for _, category := range []string{"timeout", "cancelled", "egress_denied", "response_mapping", "network_error"} {
 		t.Run(category, func(t *testing.T) {
 			source := &factoryTestLease{outcome: cr.CallOutcome{
-				Result:  &mcp.ToolResult{IsError: true},
+				Result:  &mcp.ToolResult{IsError: true, Content: []any{map[string]any{"type": "text", "text": "write outcome is unconfirmed; do not automatically retry"}}},
 				HTTP:    &cr.HTTPExecution{Method: "POST"},
 				Failure: &cr.ExecutionFailure{Category: category, OutcomeUncertain: true},
 			}}
@@ -146,8 +146,9 @@ func TestObservedToolPreservesHTTPFailureCategory(t *testing.T) {
 			}
 			events := &usage.InMemorySink{}
 			observed := newObservedTool(tools[0], usage.NewObserver(events), "orders", "lookup", "agent").(tool.InvokableTool)
-			if _, err := observed.InvokableRun(t.Context(), "{}"); err == nil {
-				t.Fatal("failed HTTP tool returned success")
+			text, err := observed.InvokableRun(t.Context(), "{}")
+			if err != nil || text != "write outcome is unconfirmed; do not automatically retry" {
+				t.Fatalf("tool failure content lost: text=%q err=%v", text, err)
 			}
 			if len(events.Events) != 1 {
 				t.Fatalf("events=%d", len(events.Events))

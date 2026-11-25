@@ -779,3 +779,51 @@ func TestConcurrentAgentsShareModelRouteWithIndependentUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestToolErrorReachesModelAndRecordsFailure(t *testing.T) {
+	const toolError = "file not found"
+	var sawToolError bool
+	model := &fakeChatModel{script: func(input []*schema.Message) *schema.Message {
+		last := input[len(input)-1]
+		if last.Role != schema.Tool {
+			return &schema.Message{Role: schema.Assistant, ToolCalls: []schema.ToolCall{{
+				ID: "read", Type: "function", Function: schema.FunctionCall{Name: "read_file", Arguments: "{}"},
+			}}}
+		}
+		sawToolError = last.Content == toolError
+		return schema.AssistantMessage("Please check the file path.", nil)
+	}}
+	tools := &fakeToolResolver{
+		tools: []basemcp.Tool{{Name: "read_file"}},
+		result: &basemcp.ToolResult{IsError: true, Content: []any{
+			map[string]any{"type": "text", "text": toolError},
+		}},
+	}
+	a := testAgent("tool-error")
+	a.Resources.ConnectorIDs = []string{"fs"}
+	a.Runtime.Builtin.Tools = []agent.BuiltinToolSelection{{ConnectorID: "fs", Tools: []string{"read_file"}}}
+	events := &usage.InMemorySink{}
+	host := NewHost(Config{
+		Agents: &fakeAgentSource{agents: map[string]agent.Agent{a.ID: a}},
+		Models: &fakeModelResolver{model: model}, Tools: tools, Observer: usage.NewObserver(events),
+	})
+	t.Cleanup(func() { _ = host.CloseContext(context.Background()) })
+	if err := host.ServeTurn(t.Context(), a.ID, TurnRequest{Input: "read it"}, (&collectedEvents{}).sink); err != nil {
+		t.Fatalf("tool error aborted turn: %v", err)
+	}
+	if !sawToolError || tools.calls != 1 {
+		t.Fatalf("model saw error=%v tool calls=%d, want true and 1", sawToolError, tools.calls)
+	}
+	var toolEvents int
+	for _, raw := range events.Events {
+		if ev, ok := raw.(usage.MCPUsageEvent); ok {
+			toolEvents++
+			if ev.Success || ev.ResultStatus != "error" || ev.ErrorType != "tool_call_failed" || ev.StatusCode != 502 {
+				t.Fatalf("tool failure recorded incorrectly: %+v", ev)
+			}
+		}
+	}
+	if toolEvents != 1 {
+		t.Fatalf("tool usage events=%d, want 1", toolEvents)
+	}
+}

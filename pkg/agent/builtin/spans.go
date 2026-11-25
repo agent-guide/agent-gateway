@@ -181,6 +181,7 @@ func (t *observedTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 	})
 	var out string
 	var err error
+	var failed bool
 	errorType := "tool_call_failed"
 	if typed, ok := t.inner.(interface {
 		RunWithOutcome(context.Context, string, ...tool.Option) (string, cr.CallOutcome, error)
@@ -188,6 +189,7 @@ func (t *observedTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 	}); ok {
 		var outcome cr.CallOutcome
 		out, outcome, err = typed.RunWithOutcome(cctx, argumentsInJSON, opts...)
+		failed = (outcome.Result != nil && outcome.Result.IsError) || outcome.Failure != nil
 		span.SetExtension(usage.MCPExtension{ConnectorType: typed.ConnectorType(), HTTPExecution: outcome.HTTP})
 		if outcome.Failure != nil {
 			errorType = outcome.Failure.Category
@@ -195,11 +197,12 @@ func (t *observedTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 	} else {
 		out, err = t.inner.InvokableRun(cctx, argumentsInJSON, opts...)
 	}
-	if err != nil {
+	if err != nil || failed {
 		span.SetExtension(usage.MCPExtension{ResultStatus: "error"})
 		span.AddAnnotation("error_type", errorType)
 		span.Finish(usage.InteractionOutcome{Success: false, StatusCode: 502})
-		return "", err
+		// Tool-level failures still reach the model; only boundary errors abort.
+		return out, err
 	}
 	span.SetExtension(usage.MCPExtension{ResultStatus: "success"})
 	span.Finish(usage.InteractionOutcome{Success: true, StatusCode: 200})
