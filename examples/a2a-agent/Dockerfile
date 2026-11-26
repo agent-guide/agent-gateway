@@ -9,7 +9,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags=-buildid= -o /out/a2a-agent ./examples/a2a-agent
 
-FROM alpine:3.22
+FROM alpine:3.23
 
 ARG VERSION=dev
 ARG REVISION=unknown

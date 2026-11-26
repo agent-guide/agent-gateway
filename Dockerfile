@@ -14,7 +14,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags=-buildid= -o /out/agwctl ./cmd/agwctl
 
-FROM alpine:3.22
+FROM alpine:3.23
 
 ARG VERSION=dev
 ARG REVISION=unknown
