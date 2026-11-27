@@ -11,6 +11,7 @@ import (
 	"os"
 
 	"github.com/agent-guide/agent-gateway/internal/configrepair"
+	"github.com/agent-guide/agent-gateway/pkg/acp/launcher"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/anthropic"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/claudecode"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/codex"
@@ -37,26 +38,44 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	dbPath := flags.String("db", "", "existing SQLite file (inspection never starts the gateway)")
 	staticPath := flags.String("static-config", "", "static GatewayBundle YAML or adapted Caddy JSON")
 	caddy := flags.Bool("caddy-json", false, "static file is adapted Caddy JSON")
-	convertConnectors := flags.Bool("convert-connectors", false, "atomically convert legacy MCP services and Agent/route references")
-	operations := flags.String("repair", "", "JSON file containing an explicit repair operation array; omit for inspection")
+	convertConnectors := flags.Bool("convert-connectors", false, "convert legacy MCP services and Agent/route references after stopping services")
+	migrateACP := flags.Bool("migrate-acp-launchers", false, "migrate legacy ACP Agents and their launchers into SQLite after stopping services")
+	importACP := flags.String("import-acp-launchers", "", "import a previous deployment launcher file into SQLite once")
+	setACP := flags.String("set-acp-launcher", "", "store a deployment launcher by name, with executable arguments after --")
+	acpCommand := flags.String("acp-command", "", "executable for --set-acp-launcher")
+	acpCWDFlag := flags.String("acp-cwd-flag", "", "optional working-directory flag for --set-acp-launcher")
+	operations := flags.String("repair", "", "JSON file containing repair operations to apply after stopping services")
 	target := flags.String("target", "db", "repair target: db or static (the other source is read-only)")
 	backup := flags.String("backup", "", "unused backup filename, required for repairs")
-	stopped := flags.Bool("service-stopped", false, "confirm all services using these configuration files are stopped")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if flags.NArg() != 0 || (*dbPath == "" && *staticPath == "") {
-		return fmt.Errorf("provide --db and/or --static-config; unexpected positional arguments are rejected")
+	if *dbPath == "" && *staticPath == "" {
+		return fmt.Errorf("provide --db and/or --static-config")
 	}
 	if *target != "db" && *target != "static" {
 		return fmt.Errorf("--target must be db or static")
 	}
-	if (*operations != "" || *convertConnectors) && (!*stopped || *backup == "") {
-		return fmt.Errorf("repairs require --service-stopped and an unused --backup path")
+	if *setACP == "" && (*acpCommand != "" || *acpCWDFlag != "" || flags.NArg() != 0) {
+		return fmt.Errorf("executable settings and positional arguments require --set-acp-launcher")
+	}
+	if *setACP != "" && (*acpCommand == "" || *migrateACP || *importACP != "") {
+		return fmt.Errorf("--set-acp-launcher requires --acp-command and must run separately from ACP migration or import")
+	}
+	acpWrite := *migrateACP || *importACP != "" || *setACP != ""
+	if acpWrite && (*dbPath == "" || *target != "db") {
+		return fmt.Errorf("ACP launcher changes require --db and --target db")
+	}
+	acpOptions := configrepair.ACPRepairOptions{Migrate: *migrateACP, Import: *importACP, ConvertConnectors: *convertConnectors}
+	if *setACP != "" {
+		acpOptions.Set = &launcher.Definition{ID: *setACP, Launcher: launcher.Launcher{Command: *acpCommand, Args: flags.Args(), CWDFlag: *acpCWDFlag}}
+	}
+	if (*operations != "" || *convertConnectors || acpWrite) && *backup == "" {
+		return fmt.Errorf("repairs require an unused --backup path")
 	}
 	if *convertConnectors {
 		if *dbPath == "" || *staticPath != "" {
-			return fmt.Errorf("--convert-connectors requires only --db, --backup and --service-stopped")
+			return fmt.Errorf("--convert-connectors requires --db and --backup for a SQLite-only conversion")
 		}
 		db, err := configrepair.OpenSQLite(*dbPath, true)
 		if err != nil {
@@ -70,7 +89,12 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 				return err
 			}
 		}
-		if err := configrepair.ConvertConnectors(ctx, db, *backup, *stopped, ops...); err != nil {
+		if acpWrite {
+			err = configrepair.RepairACPLaunchers(ctx, db, *backup, nil, ops, acpOptions)
+		} else {
+			err = configrepair.ConvertConnectors(ctx, db, *backup, ops...)
+		}
+		if err != nil {
 			return err
 		}
 		fmt.Fprintln(out, "Connector conversion committed; backup:", *backup)
@@ -96,25 +120,34 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		}
 	}
 	if *dbPath != "" {
-		db, err := configrepair.OpenSQLite(*dbPath, *operations != "" && *target == "db")
+		writeDB := *target == "db" && (*operations != "" || acpWrite)
+		db, err := configrepair.OpenSQLite(*dbPath, writeDB)
 		if err != nil {
 			return err
 		}
 		defer db.Close()
-		records, err = configrepair.ReadSQLite(ctx, db)
-		if err != nil {
-			return err
-		}
-		if *operations != "" && *target == "db" {
-			ops, err := readOperations(*operations)
-			if err != nil {
-				return err
+		if writeDB {
+			var ops []configrepair.Operation
+			if *operations != "" {
+				ops, err = readOperations(*operations)
+				if err != nil {
+					return err
+				}
 			}
-			if err := configrepair.RepairSQLite(ctx, db, *backup, *stopped, static, ops); err != nil {
+			if acpWrite {
+				err = configrepair.RepairACPLaunchers(ctx, db, *backup, static, ops, acpOptions)
+			} else {
+				err = configrepair.RepairSQLite(ctx, db, *backup, static, ops)
+			}
+			if err != nil {
 				return err
 			}
 			fmt.Fprintln(out, "Repair committed and rechecked; backup:", *backup)
 			return nil
+		}
+		records, err = configrepair.ReadSQLite(ctx, db)
+		if err != nil {
+			return err
 		}
 	}
 	if *operations == "" {

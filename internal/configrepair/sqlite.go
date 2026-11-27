@@ -21,6 +21,7 @@ var tables = []struct {
 }{
 	{"providers", "providers", "config", []string{"id"}}, {"routes", "routes", "config", []string{"id"}},
 	{"agents", "agents", "config", []string{"id"}}, {"mcp_services", "mcp_services", "config", []string{"id"}}, {"connectors", "connectors", "config", []string{"id"}},
+	{"acp_launchers", "acp_launchers", "config", []string{"id"}},
 	{"virtual_keys", "virtual_keys", "config", []string{"id"}}, {"credentials", "cliauth_credentials", "data", []string{"id"}},
 	{"provider_models", "model_configs", "data", []string{"provider_id", "upstream_model"}},
 	{"logical_models", "logical_models", "data", []string{"id"}},
@@ -105,13 +106,18 @@ func ReadSQLite(ctx context.Context, db queryer) ([]Record, error) {
 	return out, nil
 }
 
-// RepairSQLite requires an operator-declared stopped service. That prerequisite
-// does not claim multi-process coordination. VACUUM INTO captures committed WAL
-// contents in a standalone backup before the single transactional repair batch.
-func RepairSQLite(ctx context.Context, db *sql.DB, backup string, stopped bool, static []Record, operations []Operation) error {
-	if !stopped {
-		return fmt.Errorf("stop every service using this SQLite file and pass --service-stopped")
-	}
+// RepairSQLite applies one transactional repair batch after the operator stops
+// every service using the database. VACUUM INTO captures committed WAL contents
+// in a standalone backup before writes.
+func RepairSQLite(ctx context.Context, db *sql.DB, backup string, static []Record, operations []Operation) error {
+	return repairSQLite(ctx, db, backup, static, func(records []Record) ([]Record, []Operation, error) {
+		return records, operations, nil
+	})
+}
+
+type prepareSQLiteRepair func([]Record) ([]Record, []Operation, error)
+
+func repairSQLite(ctx context.Context, db *sql.DB, backup string, static []Record, prepare prepareSQLiteRepair) error {
 	if backup == "" {
 		return fmt.Errorf("an unused --backup path is required")
 	}
@@ -135,7 +141,10 @@ func RepairSQLite(ctx context.Context, db *sql.DB, backup string, stopped bool, 
 	if err != nil {
 		return err
 	}
-	records = append(records, static...)
+	records, operations, err := prepare(append(records, static...))
+	if err != nil {
+		return err
+	}
 	next, err := Apply(records, operations)
 	if err != nil {
 		return err
@@ -179,6 +188,13 @@ func RepairSQLite(ctx context.Context, db *sql.DB, backup string, stopped bool, 
 		}
 	}
 	for _, op := range operations {
+		if op.Family == "acp_launchers" {
+			r := byKey[op.Family+"/"+op.ID]
+			if err := writeACPLauncher(ctx, tx, r); err != nil {
+				return err
+			}
+			continue
+		}
 		if op.Family != "routes" && op.Family != "agents" && op.Family != "connectors" && op.Family != "mcp_services" && op.Family != "logical_models" && op.Family != "provider_models" {
 			return fmt.Errorf("repair only supports routes, agents and connector records")
 		}
@@ -245,6 +261,14 @@ func RepairSQLite(ctx context.Context, db *sql.DB, backup string, stopped bool, 
 		return fmt.Errorf("persisted recheck: %w", err)
 	}
 	return tx.Commit()
+}
+
+func writeACPLauncher(ctx context.Context, tx *sql.Tx, r Record) error {
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS acp_launchers (id TEXT NOT NULL PRIMARY KEY, config TEXT NOT NULL)`); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO acp_launchers (id,config) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET config=excluded.config`, r.ID, string(r.Data))
+	return err
 }
 
 // Verify the complete staged result, including unchanged records: triggers may

@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/agent-guide/agent-gateway/pkg/acp/launcher"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	"github.com/agent-guide/agent-gateway/pkg/configstore"
 	connectorpkg "github.com/agent-guide/agent-gateway/pkg/connector"
@@ -31,6 +32,7 @@ func RegisterDefaultStores(backend configstore.ConfigStoreBackend) error {
 		LogicalModelSchema,
 		ConnectorSchema,
 		AgentSchema,
+		ACPLauncherSchema,
 	}
 	for _, storeSchema := range schemas {
 		if err := backend.Register(storeSchema.Name, storeSchema); err != nil {
@@ -172,6 +174,26 @@ var ConnectorSchema = configstore.StoreSchema{
 		PrimaryKeyFunc: primaryKeyFromStringFields("ID"),
 		TagFunc:        requiredTagFromStringField("Type", "type"),
 	},
+}
+
+var ACPLauncherSchema = configstore.StoreSchema{
+	Name:              StoreACPLaunchers,
+	Kind:              "ACP launcher",
+	Table:             "acp_launchers",
+	PrimaryKeyColumns: []string{"id"},
+	DataColumn:        "config",
+	Codec: typedJSONCodec{
+		kind:   "ACP launcher",
+		decode: func(data []byte) (any, error) { return launcher.DecodeDefinition(data) },
+		validate: func(obj any) error {
+			def, ok := unwrapConfigObject(obj).(launcher.Definition)
+			if !ok {
+				return fmt.Errorf("ACP launcher object has unexpected type %T", obj)
+			}
+			return def.Validate()
+		},
+	},
+	Metadata: configstore.MetadataFuncs{PrimaryKeyFunc: primaryKeyFromStringFields("ID")},
 }
 
 var AgentSchema = configstore.StoreSchema{

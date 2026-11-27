@@ -260,7 +260,7 @@ func (h *Handler) handleListAgentSessions(w http.ResponseWriter, r *http.Request
 		return
 	}
 	caps, err := b.Capabilities(r.Context(), a)
-	if err != nil || !caps.Sessions.List {
+	if err != nil || (!caps.Sessions.List && !caps.Sessions.DiscoveryPending) {
 		if err == nil {
 			err = agentexecution.NewError(agentexecution.ErrorCapabilityNotSupported, "session listing is not supported")
 		}
@@ -295,7 +295,7 @@ func (h *Handler) handleGetAgentTranscript(w http.ResponseWriter, r *http.Reques
 		writeRuntimeError(w, capErr)
 		return
 	}
-	if !caps.Sessions.Transcript {
+	if !caps.Sessions.Transcript && !caps.Sessions.DiscoveryPending {
 		writeRuntimeError(w, agentexecution.NewError(agentexecution.ErrorCapabilityNotSupported, "transcript is not supported"))
 		return
 	}

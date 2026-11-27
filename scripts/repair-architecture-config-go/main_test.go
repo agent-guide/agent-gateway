@@ -8,9 +8,87 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/agent-guide/agent-gateway/pkg/acp/launcher"
 )
+
+func TestMigrateACPLaunchersThroughCommand(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "config.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE agents (id TEXT PRIMARY KEY, tag TEXT, config TEXT, created_at DATETIME, updated_at DATETIME)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE mcp_services (id TEXT PRIMARY KEY, tag TEXT, config TEXT, created_at DATETIME, updated_at DATETIME)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO mcp_services (id, tag, config) VALUES ('legacy-tools', 'mcp', '{"id":"legacy-tools","name":"Tools","transport":"stdio","command":"unused"}')`); err != nil {
+		t.Fatal(err)
+	}
+	for id, settings := range map[string]string{
+		"current": `"launcher":"legacy-acp-1"`,
+		"default": `"agent_type":"codex"`,
+		"legacy":  `"agent_type":"codex","codex":{"adapter_args":["--profile","two words",""]}`,
+		"open":    `"agent_type":"opencode"`,
+	} {
+		config := fmt.Sprintf(`{"id":%q,"name":%q,"runtime":{"type":"acp","acp":{"cwd":"/workspace",%s}}}`, id, id, settings)
+		if _, err := db.Exec(`INSERT INTO agents (id, config) VALUES (?, ?)`, id, config); err != nil {
+			t.Fatal(err)
+		}
+	}
+	legacyPath := filepath.Join(dir, "old.json")
+	legacy := `{"codex":{"command":"/opt/codex-acp"},"legacy-acp-1":{"command":"imported"}}`
+	if err := os.WriteFile(legacyPath, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run(t.Context(), []string{"--db", dbPath}, &out); err == nil || !strings.Contains(out.String(), "register ACP launcher") {
+		t.Fatalf("missing launcher detection: %v", err)
+	}
+	if err := run(t.Context(), []string{"--db", dbPath, "--backup", dbPath + ".bak", "--convert-connectors", "--migrate-acp-launchers", "--import-acp-launchers", legacyPath}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(legacyPath); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]string{"current": "legacy-acp-1", "default": "legacy-acp-2", "legacy": "legacy-acp-3", "open": "opencode"} {
+		var name string
+		if err := db.QueryRow(`SELECT json_extract(config, '$.runtime.acp.launcher') FROM agents WHERE id = ?`, id).Scan(&name); err != nil || name != want {
+			t.Fatalf("Agent %s launcher = %q, want %q, err = %v", id, name, want, err)
+		}
+	}
+
+	if err := run(t.Context(), []string{"--db", dbPath, "--backup", dbPath + ".register.bak", "--set-acp-launcher", "third-party", "--acp-command", "/opt/bin/agent", "--acp-cwd-flag=--cwd", "--", "--stdio", "two words", ""}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []launcher.Definition{
+		{ID: "codex", Launcher: launcher.Launcher{Command: "/opt/codex-acp"}},
+		{ID: "legacy-acp-1", Launcher: launcher.Launcher{Command: "imported"}},
+		{ID: "legacy-acp-2", Launcher: launcher.Launcher{Command: "codex-acp"}},
+		{ID: "legacy-acp-3", Launcher: launcher.Launcher{Command: "codex-acp", Args: []string{"--profile", "two words", ""}}},
+		{ID: "third-party", Launcher: launcher.Launcher{Command: "/opt/bin/agent", Args: []string{"--stdio", "two words", ""}, CWDFlag: "--cwd"}},
+	} {
+		var data []byte
+		if err := db.QueryRow(`SELECT config FROM acp_launchers WHERE id = ?`, want.ID).Scan(&data); err != nil {
+			t.Fatal(err)
+		}
+		got, err := launcher.DecodeDefinition(data)
+		if err != nil || got.ID != want.ID || got.Command != want.Command || got.CWDFlag != want.CWDFlag || !slices.Equal(got.Args, want.Args) {
+			t.Fatalf("stored launcher = %+v, want %+v, err = %v", got, want, err)
+		}
+	}
+	out.Reset()
+	if err := run(t.Context(), []string{"--db", dbPath}, &out); err != nil || out.String() != "[]\n" {
+		t.Fatalf("recheck = %q, err = %v", out.String(), err)
+	}
+}
 
 func TestModelRepairThroughCommand(t *testing.T) {
 	for _, family := range []string{"provider_models", "logical_models"} {
@@ -58,7 +136,7 @@ func TestModelRepairThroughCommand(t *testing.T) {
 					t.Fatal(err)
 				}
 				var out bytes.Buffer
-				if err := run(t.Context(), []string{"--db", path, "--repair", operations, "--backup", path + ".bak", "--service-stopped"}, &out); err != nil {
+				if err := run(t.Context(), []string{"--db", path, "--repair", operations, "--backup", path + ".bak"}, &out); err != nil {
 					t.Fatalf("model repair: %v; %s", err, out.String())
 				}
 				var count int
@@ -108,7 +186,7 @@ func TestConnectorRepairThroughCommand(t *testing.T) {
 			if err := os.WriteFile(operations, []byte(fmt.Sprintf(`[{"family":%q,"id":"tools","action":"replace","data":%s}]`, family, replacement)), 0600); err != nil {
 				t.Fatal(err)
 			}
-			args := []string{"--db", path, "--repair", operations, "--backup", path + ".bak", "--service-stopped"}
+			args := []string{"--db", path, "--repair", operations, "--backup", path + ".bak"}
 			if family == "mcp_services" {
 				args = append(args, "--convert-connectors")
 			}
@@ -183,7 +261,7 @@ providers:
 	if err := os.WriteFile(ops, []byte(`[{"family":"routes","id":"a","action":"convert-target","data":{"models":[{"name":"gpt-4.1","upstream_model":"gpt-4.1"}]}},{"family":"routes","id":"b","action":"delete"},{"family":"agents","id":"agent","action":"remove-budget"}]`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := run(context.Background(), []string{"--static-config", path, "--target", "static", "--repair", ops, "--backup", path + ".bak", "--service-stopped"}, &out); err != nil {
+	if err := run(context.Background(), []string{"--static-config", path, "--target", "static", "--repair", ops, "--backup", path + ".bak"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	backed, _ := os.ReadFile(path + ".bak")
@@ -211,7 +289,7 @@ func TestCaddyJSONAndDeleteLastRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := run(context.Background(), []string{"--static-config", path, "--caddy-json", "--target", "static", "--repair", ops, "--backup", path + ".bak", "--service-stopped"}, &out); err != nil {
+	if err := run(context.Background(), []string{"--static-config", path, "--caddy-json", "--target", "static", "--repair", ops, "--backup", path + ".bak"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	if err := run(context.Background(), []string{"--static-config", path, "--caddy-json"}, &out); err != nil {
@@ -223,9 +301,9 @@ func TestCaddyJSONAndDeleteLastRoute(t *testing.T) {
 	}
 }
 
-func TestRepairFlagsFailBeforeWriting(t *testing.T) {
+func TestRepairRequiresBackupBeforeOpeningDatabase(t *testing.T) {
 	var out bytes.Buffer
-	if err := run(context.Background(), []string{"--db", "missing.db", "--repair", "missing.json"}, &out); err == nil || !strings.Contains(err.Error(), "service-stopped") {
+	if err := run(context.Background(), []string{"--db", "missing.db", "--repair", "missing.json"}, &out); err == nil || !strings.Contains(err.Error(), "--backup") {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -252,7 +330,7 @@ func TestStaticInspectionAndRepairEnforceStartupRestrictions(t *testing.T) {
 			if err := os.WriteFile(ops, []byte(`[{"family":"routes","id":"a","action":"replace","data":`+route+`}]`), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := run(context.Background(), []string{"--static-config", path, "--target", "static", "--repair", ops, "--backup", path + ".bak", "--service-stopped"}, &out); err == nil {
+			if err := run(context.Background(), []string{"--static-config", path, "--target", "static", "--repair", ops, "--backup", path + ".bak"}, &out); err == nil {
 				t.Fatalf("invalid static repair accepted: %v", err)
 			}
 			after, err := os.ReadFile(path)

@@ -11,7 +11,7 @@ import (
 	"github.com/agent-guide/agent-gateway/internal/httpcapture"
 	"github.com/agent-guide/agent-gateway/internal/httplog"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
-	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
+	acpsession "github.com/agent-guide/agent-gateway/pkg/acp/session"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	builtinpkg "github.com/agent-guide/agent-gateway/pkg/agent/builtin"
 	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
@@ -49,7 +49,7 @@ type Handler struct {
 	providerManager          *gateway.ProviderManager
 	modelCatalog             modelcatalog.Service
 	mcpRuntimeRegistry       *mcptracking.Registry
-	acpRuntimeManager        *acphost.Manager
+	acpRuntimeManager        *acpsession.Manager
 	runtimeRegistry          *agentexecution.Registry
 	runRegistry              *agentexecution.RunRegistry
 	permissionBroker         *agentexecution.PermissionBroker
@@ -82,7 +82,7 @@ func NewHandler(agentGateway *gateway.AgentGateway, logger *zap.Logger) *Handler
 	var providerManager *gateway.ProviderManager
 	var modelCatalogSvc modelcatalog.Service
 	var mcpRuntimeRegistry *mcptracking.Registry
-	var acpRuntimeManager *acphost.Manager
+	var acpRuntimeManager *acpsession.Manager
 	var runtimeRegistry *agentexecution.Registry
 	var runRegistry *agentexecution.RunRegistry
 	var permissionBroker *agentexecution.PermissionBroker

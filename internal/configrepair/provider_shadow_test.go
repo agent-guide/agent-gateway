@@ -18,7 +18,7 @@ func TestOfflineRepairAllowsStaticProviderShadow(t *testing.T) {
 			t.Fatalf("valid static shadow reported as a hazard: %+v", issue)
 		}
 	}
-	if err := RepairSQLite(t.Context(), db, path+".bak", true, static, repairOperations()); err != nil {
+	if err := RepairSQLite(t.Context(), db, path+".bak", static, repairOperations()); err != nil {
 		t.Fatal(err)
 	}
 	after, err := ReadSQLite(t.Context(), db)

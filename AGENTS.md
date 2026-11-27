@@ -210,13 +210,14 @@ or a cross-cutting adapter for it (for example `caddy/admin`,
 `caddy/dispatcher`, `standalone/server`, `pkg/gateway/bundle`, or `pkg/distribution/ctlcmd`):
 
 - `pkg/gateway/` — runtime route/VirtualKey/provider resolution (`AgentGateway`) and the public route-model packages (`llmroute`, `modelcatalog`, `mcproute`, `agentroute`, `virtualkey`) → `pkg/gateway/AGENTS.md`
-- `pkg/acp/` — native ACP runtime (`codex`, `opencode`): host configuration, pooling, sessions, permissions, transcripts → `pkg/acp/AGENTS.md`
+- `pkg/acp/` — standard ACP v1 stdio integration. `pkg/acp/session` manages
+  process pools, sessions, permissions, and transcripts → `pkg/acp/AGENTS.md`
 - `pkg/credential/` — cross-cutting credential model, persistence, scheduling, expiry detection, and external refresh transport → `pkg/credential/AGENTS.md`
 - `pkg/llm/` — provider interface/registry, built-in providers, and the `einomodel` eino bridge → `pkg/llm/AGENTS.md`
 - `pkg/connector/` — Connector management and shared admission, `httpapi/` and `mcp/` execution engines, `execution/` common tool contracts and builtin bridge → `pkg/connector/AGENTS.md`
 - `pkg/mcp/` — MCP protocol primitives, `transport/` wire transports and `tracking/` ingress request tracking → `pkg/mcp/AGENTS.md`
 - `pkg/a2a/` — A2A Protocol 1.0 JSON-RPC (Path B translating client/backend and Path A governed native proxy are implemented) → `pkg/a2a/AGENTS.md`
-- `pkg/configstore/` — generic config store/backends (persisted backend: `sqlite`; stores `providers`, `credentials`, `routes`, `connectors`, `agents`, `virtual_keys`, `provider_models`, `logical_models`, `extensions`) → `pkg/configstore/AGENTS.md`
+- `pkg/configstore/` — generic config store/backends (persisted backend: `sqlite`; stores `providers`, `credentials`, `routes`, `connectors`, `agents`, `acp_launchers`, `virtual_keys`, `provider_models`, `logical_models`, `extensions`) → `pkg/configstore/AGENTS.md`
 - `pkg/agent/` — agent control plane (`pkg/agent/execution` contracts, `Agent` model, route/service → agent index) → `pkg/agent/AGENTS.md`; builtin eino ADK host → `pkg/agent/builtin/AGENTS.md`
 - `internal/observability/` — usage events, event pipeline, OTLP export, `einotap` → `internal/observability/AGENTS.md`
 - `pkg/dispatcher/llmapi/` — LLM protocol handler runtimes; see "Protocol handler modules" above
@@ -304,6 +305,12 @@ Important current directives:
 - providers use `provider_type <name>`
 - LLM `type: models` routes expose named `provider-model` references (Provider ID + upstream model) or `logical-model` references (`logical_model_id`). ProviderModels and LogicalModels are independent catalog resources; scheduling and fallback belong to LogicalModel. Model registration never implicitly expands route exposure. Caddyfile/Caddy JSON and standalone static Bundles support model declarations and references. Static models are read-only through Admin; static/dynamic identity conflicts fail loading. Old inline logical definitions require offline `extract-models` repair.
 - LLM routes use `protocol <openai|anthropic|cc>` and MCP routes use `protocol mcp`. Agent ingress routes use Agent Turn Protocol (`protocol: at`, the default) or native A2A (`protocol: a2a`, HTTP Agent Path A). Legacy AgentRoute input `protocol: agent` normalizes to `at` in Admin, Bundle, and persisted route loading. See `docs/design/http-agent-runtime.md`.
+- `runtime.acp.launcher` names a deployment-owned stdio ACP v1 command. The
+  packaged defaults are `codex` (`codex-acp`) and `opencode`. Both hosts load
+  custom definitions from the `acp_launchers` ConfigStore at startup. Agent
+  writes and stored loading validate launcher references. Deployment operators
+  register launchers with the offline SQLite tool. `--migrate-acp-launchers`
+  commits legacy Agent and launcher changes together.
 - `agent_route_dispatcher` uses `llm_api <name>`, `mcp`, and `agent`
 - dispatcher `max_llm_request_body_bytes` (Caddyfile/Caddy JSON) and standalone
   `--max-llm-request-body-bytes` bound the received LLM JSON body. Omitted/zero

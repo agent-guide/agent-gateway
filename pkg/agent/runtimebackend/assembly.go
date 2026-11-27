@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
+	acplauncher "github.com/agent-guide/agent-gateway/pkg/acp/launcher"
+	acpsession "github.com/agent-guide/agent-gateway/pkg/acp/session"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	builtinhost "github.com/agent-guide/agent-gateway/pkg/agent/builtin"
 	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
@@ -16,19 +17,20 @@ import (
 // AssemblyOptions injects application capabilities without depending on Gateway.
 // Registry, Runs and Permissions remain owned by the application lifecycle.
 type AssemblyOptions struct {
-	Agents      *agentpkg.Manager
-	Credentials *credential.Manager
-	Builtin     builtinhost.Config
-	Registry    *agentexecution.Registry
-	Controls    RuntimeControls
-	ACPRuntime  ACPTurnServer
-	HTTPBackend agentexecution.Backend
+	Agents       *agentpkg.Manager
+	Credentials  *credential.Manager
+	Builtin      builtinhost.Config
+	Registry     *agentexecution.Registry
+	Controls     RuntimeControls
+	ACPLaunchers acplauncher.Launchers
+	ACPRuntime   ACPTurnServer
+	HTTPBackend  agentexecution.Backend
 }
 
 // Set owns concrete runtime resources and their single definition listeners.
 // Native proxy and common HTTP turns use this same HTTP manager.
 type Set struct {
-	ACP     *acphost.Manager
+	ACP     *acpsession.Manager
 	HTTP    *HTTPRuntimeManager
 	Builtin *builtinhost.Host
 	once    sync.Once
@@ -36,7 +38,7 @@ type Set struct {
 }
 
 func Assemble(ctx context.Context, opts AssemblyOptions) (_ *Set, result error) {
-	set := &Set{ACP: acphost.NewManager(), HTTP: NewHTTPRuntimeManager(opts.Agents, opts.Credentials, nil, opts.Controls.Logger)}
+	set := &Set{ACP: acpsession.NewManager(), HTTP: NewHTTPRuntimeManager(opts.Agents, opts.Credentials, nil, opts.Controls.Logger)}
 	defer func() {
 		if result != nil {
 			_ = set.CloseContext(context.Background())
@@ -53,6 +55,9 @@ func Assemble(ctx context.Context, opts AssemblyOptions) (_ *Set, result error) 
 	}
 	var builtinBackend *BuiltinBackend
 	acp := NewACPBackend(server, opts.Controls)
+	if opts.ACPLaunchers != nil {
+		acp.launchers = opts.ACPLaunchers
+	}
 	backends := []agentexecution.Backend{acp}
 	if set.Builtin != nil {
 		builtinBackend = NewBuiltinBackend(set.Builtin, opts.Controls)

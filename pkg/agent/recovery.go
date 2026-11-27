@@ -137,7 +137,7 @@ func (m *Manager) persistVerified(ctx context.Context, a Agent, action configmgr
 			return err
 		}
 		persisted.Normalize()
-		return persisted.Validate()
+		return m.validateDefinition(persisted)
 	}
 	if tx, ok := m.store.(configstore.TransactionalStore); ok {
 		var callbackErr error
@@ -203,7 +203,7 @@ func (m *Manager) Recover(ctx context.Context, id string) error {
 				return m.pendingFailure(id, err)
 			}
 			stored.Normalize()
-			if err := stored.Validate(); err != nil {
+			if err := m.validateDefinition(stored); err != nil {
 				return m.pendingFailure(id, err)
 			}
 			if m.validateResourceRoutes != nil {

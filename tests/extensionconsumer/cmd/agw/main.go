@@ -9,8 +9,6 @@ import (
 	_ "github.com/agent-guide/agent-gateway/caddy/dispatcher/llmapi/cc"
 	_ "github.com/agent-guide/agent-gateway/caddy/dispatcher/llmapi/openai"
 	_ "github.com/agent-guide/agent-gateway/caddy/gateway"
-	_ "github.com/agent-guide/agent-gateway/pkg/acp/agent/codex"
-	_ "github.com/agent-guide/agent-gateway/pkg/acp/agent/opencode"
 	"github.com/agent-guide/agent-gateway/pkg/distribution/caddycmd"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/anthropic"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/anthropicbase"

@@ -113,7 +113,7 @@ func acpAgent(id string, routeIDs ...string) Agent {
 	return Agent{
 		ID:      id,
 		Name:    id,
-		Runtime: Runtime{Type: RuntimeTypeACP, ACP: &ACPRuntime{AgentType: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"}}},
+		Runtime: Runtime{Type: RuntimeTypeACP, ACP: &ACPRuntime{Launcher: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"}}},
 		Routes:  Routes{LLMRouteIDs: routeIDs},
 	}
 }

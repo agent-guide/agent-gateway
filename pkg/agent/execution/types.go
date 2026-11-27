@@ -113,6 +113,8 @@ type SessionCapabilities struct {
 	List       bool `json:"list"`
 	Transcript bool `json:"transcript"`
 	Durable    bool `json:"durable"`
+	// DiscoveryPending marks optional session capabilities awaiting a handshake.
+	DiscoveryPending bool `json:"discovery_pending,omitempty"`
 }
 
 type PermissionCapabilities struct {

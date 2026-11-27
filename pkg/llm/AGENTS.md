@@ -56,7 +56,7 @@ callbacks handlers observe every chat provider uniformly.
 Provider registration rules:
 
 Compatibility dimensions remain separate: ingress `cc`, upstream provider type,
-`options.compact` shaping and ACP `agent_type` have different owners. Keep
+`options.compact` shaping and ACP `runtime.acp.launcher` have different owners. Keep
 `docs/design/provider-compatibility.md` aligned with constructors and actual
 request construction. Base embedding alone does not prove that a provider uses
 CCCompat, and parser availability does not prove strict constructor validation.

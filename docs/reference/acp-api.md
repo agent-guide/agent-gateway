@@ -15,11 +15,11 @@ Authorization: Bearer <virtual-key>
 ```json
 {
   "input": "Reply with one sentence",
+  "session_id": "optional-session-id",
   "options": {
     "version": "v1",
     "runtime": {
       "thread_id": "thread-1",
-      "session_id": "optional-session-id",
       "cwd": "/workspace",
       "model": "optional-model",
       "fresh_session": false
@@ -27,6 +27,9 @@ Authorization: Bearer <virtual-key>
   }
 }
 ```
+
+For a new session, omit `session_id`. To continue, use the ID from a `session`
+event received with the same route and VirtualKey.
 
 The response is SSE. Event data uses the common envelope:
 
@@ -50,8 +53,10 @@ GET /<agent-route>/sessions?cwd=/workspace&cursor=...
 GET /<agent-route>/sessions/{session_id}/transcript?cwd=/workspace
 ```
 
-Both requests use the AgentRoute's VirtualKey policy. Availability depends on
-the native adapter's advertised session capabilities.
+Both requests use the AgentRoute's VirtualKey policy. The first request can
+discover the Agent's ACP session capabilities. Session reads cancel any ACP
+permission requests. Transcript reads return an error if the update buffer
+overflows.
 
 ## Agent Admin Operations
 
@@ -64,6 +69,11 @@ POST   /admin/agents/{agent_id}/permissions/{request_id}
 GET    /admin/agents/{agent_id}/sessions
 GET    /admin/agents/{agent_id}/sessions/{session_id}/transcript
 ```
+
+The capabilities endpoint reports `sessions.discovery_pending: true` until
+the current ACP configuration has completed a handshake. Session listing,
+resume, and transcript support reflect the Agent's advertised capabilities
+after that handshake.
 
 An ACP permission decision preserves the native option ID:
 

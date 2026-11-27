@@ -55,6 +55,8 @@
 	}
 
 	agent_gateway {
+		# Custom ACP launchers are stored in SQLite. Register them with the offline repair tool.
+
 		# provider_model openai-main gpt-4.1 {
 		#     streaming true
 		#     tools true

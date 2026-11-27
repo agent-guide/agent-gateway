@@ -35,6 +35,10 @@ writers and avoid package-global flags, output state or command pointers.
 selects the 16 MiB default; negative values fail before server/storage startup.
 Keep this host-owned request-byte limit aligned with the Caddy dispatcher setting.
 
+Both hosts read the `acp_launchers` ConfigStore at startup. Agents reference
+launcher names. Deployment operators manage the executables and arguments
+through the offline SQLite tool.
+
 Public signatures and their required transitive types must not expose Community
 `internal/` types. Public metrics values translate through `serverassembly.UsageConfig`.
 Run `make test-extension-consumer` when changing this boundary; root `go test

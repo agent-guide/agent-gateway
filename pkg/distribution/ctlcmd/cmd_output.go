@@ -330,7 +330,7 @@ func (s *commandState) printGatewayAgentsTable(items []adminclient.AgentView) {
 	for _, item := range items {
 		target := ""
 		if item.Runtime.ACP != nil {
-			target = item.Runtime.ACP.AgentType
+			target = item.Runtime.ACP.Launcher
 		} else if item.Runtime.HTTP != nil {
 			target = item.Runtime.HTTP.CardURL
 		}

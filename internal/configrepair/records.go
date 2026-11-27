@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	acplauncher "github.com/agent-guide/agent-gateway/pkg/acp/launcher"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/llmroute"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
 )
@@ -120,6 +121,12 @@ func Inspect(records []Record) []Issue {
 	var issues []Issue
 	var routes []routecore.RouteConfig
 	seen := map[string]uint8{}
+	launchers := acplauncher.DefaultLaunchers()
+	for _, record := range records {
+		if record.Family == "acp_launchers" && !record.StaticInput {
+			launchers[record.ID] = acplauncher.Launcher{}
+		}
+	}
 	for _, r := range records {
 		add := func(field, action string) { issues = append(issues, Issue{r.Family, r.ID, field, action}) }
 		key := r.Family + "/" + r.ID
@@ -196,7 +203,25 @@ func Inspect(records []Record) []Issue {
 					add("target_policy", "replace route: "+err.Error())
 				}
 			}
+		case "acp_launchers":
+			if r.StaticInput {
+				add("record", "store the ACP launcher through offline SQLite repair")
+			} else if _, err := acplauncher.DecodeDefinition(r.Data); err != nil {
+				add("record", "repair the stored entry with --set-acp-launcher")
+			}
 		case "agents":
+			if _, acp, err := rawACP(obj); err == nil && acp != nil {
+				_, oldType := acp["agent_type"]
+				_, oldCodex := acp["codex"]
+				var launcher string
+				if oldType || oldCodex {
+					add("runtime.acp", "run --migrate-acp-launchers or explicitly replace legacy Agent ACP configuration")
+				} else if json.Unmarshal(acp["launcher"], &launcher) != nil || strings.TrimSpace(launcher) == "" {
+					add("runtime.acp.launcher", "replace with a registered ACP launcher name")
+				} else if _, known := launchers[strings.TrimSpace(launcher)]; !known {
+					add("runtime.acp.launcher", fmt.Sprintf("register ACP launcher %q in SQLite or import its legacy file", strings.TrimSpace(launcher)))
+				}
+			}
 			if value, ok := obj["policy"]; ok && !bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 				policy, err := object(value)
 				if err != nil {
@@ -305,7 +330,6 @@ func Apply(records []Record, operations []Operation) ([]Record, error) {
 					out = append(out, m)
 				}
 			}
-
 		case "remove-budget":
 			if op.Family != "agents" {
 				return nil, fmt.Errorf("remove-budget requires agents")

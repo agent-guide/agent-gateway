@@ -84,13 +84,10 @@ func TestOfflineSQLiteRepairAndRestart(t *testing.T) {
 		t.Fatalf("invalid startup was not rejected with recovery guidance: %v", err)
 	}
 	startup.Close()
-	if err := RepairSQLite(ctx, db, path+".bak", false, nil, repairOperations()); err == nil {
-		t.Fatal("repair did not require stopped service")
+	if err := RepairSQLite(ctx, db, "", nil, repairOperations()); err == nil || !strings.Contains(err.Error(), "--backup") {
+		t.Fatalf("repair without a backup path: %v", err)
 	}
-	if _, err := os.Stat(path + ".bak"); !os.IsNotExist(err) {
-		t.Fatal("created backup before confirmation")
-	}
-	if err := RepairSQLite(ctx, db, path+".bak", true, nil, repairOperations()); err != nil {
+	if err := RepairSQLite(ctx, db, path+".bak", nil, repairOperations()); err != nil {
 		t.Fatal(err)
 	}
 	backup, err := OpenSQLite(path+".bak", false)
@@ -162,7 +159,7 @@ func TestRepairRollbackAndReferenceProtection(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := RepairSQLite(ctx, db, path+".bak", true, nil, ops); err == nil {
+			if err := RepairSQLite(ctx, db, path+".bak", nil, ops); err == nil {
 				t.Fatal("invalid repair committed")
 			}
 			after, err := ReadSQLite(ctx, db)
@@ -220,7 +217,7 @@ func TestOldBudgetCanBeRepairedAfterStartupRejection(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `agent "agent" policy.budget is unsupported`) || !strings.Contains(err.Error(), "repair-architecture-config") {
 		t.Fatalf("startup error = %v", err)
 	}
-	if err := RepairSQLite(ctx, db, path+".bak", true, nil, []Operation{{Family: "agents", ID: "agent", Action: "remove-budget"}}); err != nil {
+	if err := RepairSQLite(ctx, db, path+".bak", nil, []Operation{{Family: "agents", ID: "agent", Action: "remove-budget"}}); err != nil {
 		t.Fatal(err)
 	}
 	restarted := gateway.NewAgentGateway()
@@ -239,7 +236,7 @@ func TestRepairRollsBackSilentlyIgnoredWrites(t *testing.T) {
 		t.Run(trigger, func(t *testing.T) {
 			ctx := context.Background()
 			path, db := oldDatabase(t)
-			if err := RepairSQLite(ctx, db, path+".initial.bak", true, nil, repairOperations()); err != nil {
+			if err := RepairSQLite(ctx, db, path+".initial.bak", nil, repairOperations()); err != nil {
 				t.Fatal(err)
 			}
 			before, err := ReadSQLite(ctx, db)
@@ -253,7 +250,7 @@ func TestRepairRollsBackSilentlyIgnoredWrites(t *testing.T) {
 			if !strings.Contains(trigger, "change_other") {
 				ops = append(ops, Operation{Family: "agents", ID: "agent", Action: "delete"})
 			}
-			if err := RepairSQLite(ctx, db, path+".bak", true, nil, ops); err == nil || !strings.Contains(err.Error(), "persisted repair") {
+			if err := RepairSQLite(ctx, db, path+".bak", nil, ops); err == nil || !strings.Contains(err.Error(), "persisted repair") {
 				t.Fatalf("expected staged readback mismatch, got %v", err)
 			}
 			after, err := ReadSQLite(ctx, db)
@@ -277,7 +274,7 @@ func TestRepairPreservesRetainedAgentReferences(t *testing.T) {
 		'$.runtime.http.auth_ref','revoked-credential') WHERE id='agent'`); err != nil {
 		t.Fatal(err)
 	}
-	if err := RepairSQLite(ctx, db, path+".bak", true, nil, repairOperations()); err != nil {
+	if err := RepairSQLite(ctx, db, path+".bak", nil, repairOperations()); err != nil {
 		t.Fatalf("retained references blocked unrelated repairs: %v", err)
 	}
 	records, err := ReadSQLite(ctx, db)
@@ -350,7 +347,7 @@ func TestRepairRollsBackProviderModelAndExtensionChanges(t *testing.T) {
 			if _, err := db.Exec(`CREATE TRIGGER change_config AFTER UPDATE ON routes BEGIN ` + tc.trigger + ` END`); err != nil {
 				t.Fatal(err)
 			}
-			if err := RepairSQLite(ctx, db, path+".bak", true, nil, repairOperations()); err == nil || !strings.Contains(err.Error(), "persisted repair") {
+			if err := RepairSQLite(ctx, db, path+".bak", nil, repairOperations()); err == nil || !strings.Contains(err.Error(), "persisted repair") {
 				t.Fatalf("expected cross-table readback mismatch, got %v", err)
 			}
 			after, err := ReadSQLite(ctx, db)
@@ -363,5 +360,62 @@ func TestRepairRollsBackProviderModelAndExtensionChanges(t *testing.T) {
 				t.Fatal("cross-table changes escaped rollback")
 			}
 		})
+	}
+}
+
+func TestLegacyACPConfigCanBeMigratedOffline(t *testing.T) {
+	ctx := t.Context()
+	path, db := oldDatabase(t)
+	if _, err := db.Exec(`DELETE FROM routes`); err != nil {
+		t.Fatal(err)
+	}
+	const legacy = `{"id":"agent","name":"Agent","runtime":{"type":"acp","acp":{"agent_type":"codex","cwd":"/workspace","codex":{"adapter_command":"/opt/bin/codex-acp","adapter_args":["--profile","work"],"trace_json":true}}}}`
+	if _, err := db.Exec(`UPDATE agents SET config=? WHERE id='agent'`, legacy); err != nil {
+		t.Fatal(err)
+	}
+	creator, err := configsqlite.Open(ctx, configsqlite.Config{SQLitePath: path}, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := configstore.NewBackend(creator)
+	t.Cleanup(func() { _ = backend.Close() })
+	if err := schema.RegisterDefaultStores(backend); err != nil {
+		t.Fatal(err)
+	}
+	startup := gateway.NewAgentGateway()
+	err = startup.Bootstrap(ctx, gateway.BootstrapOptions{ConfigStoreBackend: backend})
+	startup.Close()
+	if err == nil || !strings.Contains(err.Error(), "repair-architecture-config") {
+		t.Fatalf("startup error = %v", err)
+	}
+	record := Record{Family: "agents", ID: "agent", Data: json.RawMessage(legacy)}
+	if issues := Inspect([]Record{record}); len(issues) != 1 || issues[0].Field != "runtime.acp" {
+		t.Fatalf("inspection issues = %+v", issues)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER ignore_agent_repair BEFORE UPDATE ON agents BEGIN SELECT RAISE(IGNORE); END`); err != nil {
+		t.Fatal(err)
+	}
+	options := ACPRepairOptions{Migrate: true}
+	if err := RepairACPLaunchers(ctx, db, path+".failed.bak", nil, nil, options); err == nil || !strings.Contains(err.Error(), "persisted repair") {
+		t.Fatalf("expected readback rejection, got %v", err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM acp_launchers`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("launcher escaped rollback, count=%d, err=%v", count, err)
+	}
+	if _, err := db.Exec(`DROP TRIGGER ignore_agent_repair`); err != nil {
+		t.Fatal(err)
+	}
+	if err := RepairACPLaunchers(ctx, db, path+".bak", nil, nil, options); err != nil {
+		t.Fatal(err)
+	}
+	restarted := gateway.NewAgentGateway()
+	defer restarted.Close()
+	if err := restarted.Bootstrap(ctx, gateway.BootstrapOptions{ConfigStoreBackend: backend}); err != nil {
+		t.Fatal(err)
+	}
+	a, err := restarted.AgentManager().Get(ctx, "agent")
+	if err != nil || a.Runtime.ACP.Launcher != "legacy-acp-1" {
+		t.Fatalf("migrated agent = %+v, err=%v", a, err)
 	}
 }

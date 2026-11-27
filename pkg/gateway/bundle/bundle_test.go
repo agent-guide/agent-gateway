@@ -330,7 +330,7 @@ func TestEncodeYAMLPreservesNestedTimestampNamedConfig(t *testing.T) {
 		Agents: []agentpkg.Agent{{
 			ID: "a", Name: "A",
 			Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeACP, ACP: &agentpkg.ACPRuntime{
-				AgentType: "codex", CWD: "/work",
+				Launcher: "codex", CWD: "/work",
 				ConfigOverrides: map[string]string{"updated_at": "runtime-value"},
 			}},
 		}},
@@ -842,7 +842,7 @@ agents:
     runtime:
       type: acp
       acp:
-        agent_type: codex
+        launcher: codex
         cwd: /workspace
         allowed_roots: [/workspace]
         permission_mode: deny

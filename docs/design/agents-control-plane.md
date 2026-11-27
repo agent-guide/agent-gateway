@@ -114,7 +114,7 @@ lower-level protocol packages must not depend on `pkg/agent`.
 
 ```text
 pkg/agent
-  -> pkg/acp/host
+  -> pkg/acp/session
   -> pkg/gateway/agentroute + pkg/gateway/llmroute + pkg/gateway/mcproute
   -> pkg/llm/provider + pkg/credential + pkg/gateway/modelcatalog
   -> pkg/connector + pkg/mcp/tracking
@@ -139,17 +139,12 @@ Stored shape:
   "runtime": {
     "type": "acp",
     "acp": {
-      "agent_type": "codex",
+      "launcher": "codex",
       "cwd": "/workspace",
       "allowed_roots": ["/workspace"],
-      "default_model": "gpt-5",
       "permission_mode": "interactive",
-      "idle_ttl": "30m",
-      "max_instances": 4,
-      "codex": {
-        "mode": "adapter",
-        "adapter_command": "codex-acp"
-      }
+      "idle_ttl": 1800000000000,
+      "max_instances": 4
     }
   },
   "routes": {
@@ -170,9 +165,10 @@ Stored shape:
 }
 ```
 
-The released stored shape is the Agent-owned schema above. Pre-unification
-databases used a second ACP identity and runtime-specific route references;
-startup detects those shapes and requires offline migration.
+The stored `idle_ttl` is an integer number of nanoseconds. The example keeps
+idle instances for 30 minutes. Pre-unification databases used a second ACP
+identity and runtime-specific route references. Startup detects those shapes
+and requires offline migration.
 
 The model defines three built-in runtime types, split by a single axis —
 **who owns the agent's
@@ -233,9 +229,8 @@ the runtime backend belong under `runtime.<type>`, not under `policy`:
   the builtin host. Non-null `policy.budget` is unsupported and rejected.
   Budget execution, retention and transcript-visibility policy remain Proposed;
   schedule policy belongs to the upper-layer workbench.
-- `runtime.acp` owns `agent_type`, cwd/allowed roots, default model, environment,
-  config overrides, pool limits, permission mode, and agent-specific adapter
-  config.
+- `runtime.acp` owns the launcher name, cwd/allowed roots, default model,
+  environment, config overrides, pool limits, and permission mode.
 - `runtime.http` owns the Agent Card URL, southbound `protocol` (A2A Protocol
   1.0 JSON-RPC first), auth, and timeouts. The actual service URL and tenant
   come from the selected, validated Card interface. See
@@ -247,17 +242,18 @@ remain generic identity/lifecycle metadata and are not repeated inside
 `runtime.acp`. Conversely, ACP execution fields do not move into `policy`.
 This leaves one source of truth without erasing the runtime-specific schema.
 
-The host owns normalization and validation of common execution settings.
-The Codex config package owns the schema and validation for
-`runtime.acp.codex`. The Agent projects `Agent.runtime.acp` into `host.Config`
-with the effective command and arguments. The host projects process launch
-settings into `agentspi.OpenRequest`. The ACP packages remain below the Agent
-control plane.
+The host owns normalization and validation of ACP execution settings. A
+deployment-owned launcher names an executable and argument vector in ConfigStore.
+Offline operators manage that registry. Agent writes select a launcher by name,
+and the runtime prepares the effective `session.Config`
+before publication. All launchers use the same ACP v1 stdio client. The ACP
+packages remain below the Agent control plane.
 
 #### Source of truth: `runtime` vs `routes`
 
 `runtime` is authoritative for execution. For an ACP-backed Agent,
-`runtime.acp` is the complete execution configuration and `agent_id` is the
+`runtime.acp` declares the Agent-owned execution settings and launcher reference.
+`agent_id` is the
 owner key passed separately to the ACP runtime manager. AgentRoute uses one
 ownership direction: `AgentRoute.agent_id` targets the Agent. There is
 no persisted reverse `agent_route_ids` list. Workspace views derive ingress
@@ -469,7 +465,7 @@ path.
 
 - **`acp`** — the gateway owns the agent's external process lifecycle. Its
   adapter translates the Agent-owned `runtime.acp` block into
-  `host.Config` and invokes the pool with `agent_id` as owner, reusing
+  `session.Config` and invokes the pool with `agent_id` as owner, reusing
   sessions, scope rebind, permission flow, and transcript. A turn ending does
   not tear down the process; the pool governs it by `IdleTTL`.
 - **`http`** — the agent service owns its lifecycle. Its Path B adapter

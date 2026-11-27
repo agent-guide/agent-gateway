@@ -29,7 +29,7 @@ agents:
     runtime:
       type: acp
       acp:
-        agent_type: codex
+        launcher: codex
         cwd: /workspaces/codex-main
         allowed_roots: [/workspaces/codex-main]
         env:
@@ -46,7 +46,7 @@ agents:
   #   runtime:
   #     type: acp
   #     acp:
-  #       agent_type: opencode
+  #       launcher: opencode
   #       cwd: /workspaces/opencode-main
   #       allowed_roots: [/workspaces/opencode-main]
   #       env:

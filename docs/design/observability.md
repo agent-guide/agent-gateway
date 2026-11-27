@@ -39,7 +39,7 @@ The current implementation baseline is:
   target Agent directly, and selects ACP, builtin, HTTP, or native A2A event
   handling from the route protocol and resolved `runtime.type`
 - MCP runtime inspection uses the in-memory registry in `pkg/mcp/tracking/registry.go`
-- ACP runtime inspection uses `pkg/acp/host.Manager`
+- ACP runtime inspection uses `pkg/acp/session.Manager`
 - the persisted config backend is SQLite through `pkg/configstore/sqlite`
 - Admin API handlers live under `pkg/admin`
 
@@ -144,7 +144,7 @@ path.
    llmapi/...       mcp_handler.go    agent_handler.go
         │                │                │
         ▼                ▼                ▼
- pkg/gateway/      pkg/connector   pkg/acp/host
+ pkg/gateway/      pkg/connector   pkg/acp/session
  RoutedProvider
         │                │                │
         └────────────────┼────────────────┘
@@ -534,7 +534,7 @@ latency_ms
 
 -- ACP extension --
 agent_id
-agent_type          codex | opencode | other registered adapter type
+agent_type          ACP launcher name (for example codex or opencode)
 operation           turn | permission | sessions | transcript
 thread_id           populated for turn and permission when available
 session_id          populated when the route operation addresses a session
@@ -822,7 +822,7 @@ The shared entry records route match, route disabled, and virtual key failures w
 - for `sessions` and `transcript`, record query shape without storing transcript content
 - finish the ACP span on runtime success, validation error, upstream error, client cancellation, or permission lookup failure
 
-`pkg/acp/host.Manager`:
+`pkg/acp/session.Manager`:
 
 - does not own metrics persistence
 - may expose structured summaries to the dispatcher through return values or event sink metadata when the dispatcher cannot derive them itself

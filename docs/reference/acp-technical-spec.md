@@ -12,10 +12,9 @@ agents:
     runtime:
       type: acp
       acp:
-        agent_type: codex
+        launcher: codex
         cwd: /workspace
         allowed_roots: [/workspace]
-        default_model: gpt-5
         max_instances: 4
         permission_mode: deny
     routes: {}
@@ -33,12 +32,48 @@ agentRoutes:
 The persisted stores are `agents` and the shared `routes` store. Databases or
 bundles containing pre-unification ACP service or runtime-specific route fields
 are rejected with `legacy_agent_runtime_config`; export them with the old binary,
-migrate the bundle offline, then apply it to a fresh current database.
+migrate the bundle offline, then apply it to a fresh current database. Existing
+inline ACP definitions can use the [offline launcher migration](../guides/architecture-config-recovery.md#migrate-acp-launchers).
 
-Supported ACP fields include `agent_type`, `cwd`, `allowed_roots`,
-`default_model`, `env`, `config_overrides`, `idle_ttl`, `max_instances`,
-`permission_mode`, and Codex-specific configuration. An empty permission mode
-normalizes to fail-closed `deny`.
+Supported ACP fields are `launcher`, `cwd`, `allowed_roots`, `default_model`,
+`env`, `config_overrides`, `idle_ttl`, `max_instances`, and `permission_mode`.
+Set `idle_ttl` as an integer number of nanoseconds. A positive value enables
+idle expiration for pooled processes.
+An empty permission mode defaults to `deny`. Auto-approval requires an attached
+turn stream. Session listing and transcript replay cancel permission requests.
+
+### Deployment launchers
+
+Select a registered launcher by name. The defaults are `codex` (`codex-acp`) and
+`opencode` (`opencode acp --cwd <cwd>`). Deployment-owned definitions are stored
+in `acp_launchers` in the same SQLite database as the Agents. A definition
+with a built-in name overrides that default.
+
+Stop services using the database before registering or replacing a launcher.
+Pass the executable's arguments after `--`, keeping each argument separate.
+
+```sh
+./scripts/repair-architecture-config --db ./data/configstore.db \
+  --backup ./data/configstore.before-launcher.db \
+  --set-acp-launcher coding-agent --acp-command /opt/agents/bin/coding-agent \
+  --acp-cwd-flag=--cwd -- acp
+```
+
+Set `launcher: coding-agent` in the Agent definition. The gateway resolves
+executables by name using its PATH and resolves explicit relative paths from
+its own working directory. The host passes each argument directly. It sets the
+Agent process working directory and sends it in ACP session
+requests. `--acp-cwd-flag` adds the flag and effective working directory as two
+arguments. Both hosts load the SQLite launcher registry at startup.
+
+The process must negotiate ACP v1 over stdio using JSON-RPC 2.0.
+Session listing and loading require the advertised capabilities. The agent
+controls persistence and concurrent loading. A session may become available
+for replay after the first completed turn or after its owning process exits. Model
+selection applies at session creation when `default_model` or the turn
+`model` is supplied. The host sets the advertised `select` option with
+`category: model`, then applies explicit `config_overrides`. An explicit
+model requires an advertised model selector.
 
 ## Dispatch
 
@@ -58,11 +93,11 @@ The HTTP request uses the Agent Turn Protocol (`at`) envelope:
 ```json
 {
   "input": "Fix the failing test",
+  "session_id": "optional-native-session",
   "options": {
     "version": "v1",
     "runtime": {
       "thread_id": "thread-1",
-      "session_id": "optional-native-session",
       "cwd": "/workspace",
       "model": "optional-override",
       "fresh_session": false
@@ -76,7 +111,8 @@ Each event carries `agent_id`, `run_id`, and a monotonically increasing
 
 ## Pool And Snapshot Invariants
 
-- Runtime configuration is snapshotted exclusively from `Agent.runtime.acp`.
+- Runtime configuration is prepared from `Agent.runtime.acp` and its resolved
+  deployment launcher.
 - Pool ownership is keyed by `agent_id`, never a service ID.
 - A change to the effective host configuration fingerprint, disabling an Agent,
   switching runtimes, or deleting an Agent retires stale instances. Active turns
@@ -118,7 +154,15 @@ GET /admin/agents/{agent_id}/sessions/{session_id}/transcript
 ```
 
 The gateway canonicalizes the optional `cwd` filter and checks advertised ACP
-capabilities before calling session list or load.
+capabilities before calling session list or load. The Admin capabilities
+response reports `sessions.discovery_pending: true` until the current Agent
+configuration completes an ACP handshake. A first session list or transcript
+request can perform that handshake. Subsequent capability reads reuse the
+recorded result. ACP load support does not certify durability of session state.
+
+A full update buffer fails the turn or transcript read. A turn that has already
+started streaming reports an `error` event. A transcript read returns an
+error response in place of partial history.
 
 ## Runtime Operations
 
@@ -137,7 +181,8 @@ cancellation uses `DELETE /admin/agents/{agent_id}/runs/{run_id}`.
 - missing AgentRoute or Agent: `404`
 - disabled/non-executable Agent: normalized runtime error
 - VirtualKey rate limit: `429` with `Retry-After`
-- native process or transport failure: `502`
+- unsupported session capability: `501`
+- native process or transport failure before streaming, including update buffer overflow: `502`
 - unavailable runtime/backend: `503`
 
 See [acp-api.md](acp-api.md) for endpoint examples and

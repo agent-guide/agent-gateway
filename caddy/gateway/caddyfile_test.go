@@ -485,3 +485,16 @@ func TestConnectorEgressRejectsInvalidConfiguration(t *testing.T) {
 		t.Fatal("legacy JSON option accepted")
 	}
 }
+
+func TestRejectLegacyACPLaunchersFile(t *testing.T) {
+	d := caddyfile.NewTestDispenser(`agent_gateway {
+ acp_launchers_file "/etc/agent gateway/acp-launchers.json"
+}`)
+	if _, err := parseApp(d, nil); err == nil {
+		t.Fatal("legacy Caddyfile directive accepted")
+	}
+	var app App
+	if err := json.Unmarshal([]byte(`{"acp_launchers_file":"/legacy.json"}`), &app); err == nil {
+		t.Fatal("legacy Caddy JSON key accepted")
+	}
+}

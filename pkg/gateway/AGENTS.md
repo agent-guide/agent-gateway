@@ -281,3 +281,9 @@ and use real upstream model names; omitted target names derive from upstream_mod
 and differing aliases are rejected. LogicalModel routes own the exposed logical
 references; cross-provider selection and aliases belong to LogicalModels. Never
 mix target kinds. Caddyfile concrete syntax is `target model <provider-id> <upstream-model>`.
+
+
+ACP executable launchers are deployment-owned. Bootstrap loads the shared
+`acp_launchers` ConfigStore and validates Agent references before publishing
+definitions. The offline SQLite migration commits legacy Agent references and
+launcher definitions together.

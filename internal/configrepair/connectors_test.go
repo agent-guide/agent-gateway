@@ -49,7 +49,7 @@ func TestConnectorConversionAndLegacyPreflight(t *testing.T) {
 	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name='connectors'`).Scan(&count); err != nil || count != 0 {
 		t.Fatal("startup created target table")
 	}
-	if err := ConvertConnectors(ctx, db, path+".bak", true); err != nil {
+	if err := ConvertConnectors(ctx, db, path+".bak"); err != nil {
 		t.Fatal(err)
 	}
 	var raw, created, updated string
@@ -95,7 +95,7 @@ func TestConnectorConversionConflictAndRollback(t *testing.T) {
 			} else {
 				db.Exec(`INSERT INTO mcp_services(id,config) VALUES('broken','{"id":"broken","name":"Broken","transport":"unknown"}')`)
 			}
-			if err := ConvertConnectors(context.Background(), db, path+".bak", true); err == nil {
+			if err := ConvertConnectors(context.Background(), db, path+".bak"); err == nil {
 				t.Fatal("invalid conversion succeeded")
 			}
 			var old int
@@ -116,7 +116,7 @@ func TestConnectorConversionRepairsDamagedRawLegacyRecordsAtomically(t *testing.
 		t.Fatal(err)
 	}
 	op := Operation{Family: "mcp_services", ID: "damaged", Action: "replace", Data: json.RawMessage(`{"id":"damaged","name":"Repaired","transport":"stdio","command":"mcp"}`)}
-	if err := ConvertConnectors(context.Background(), db, path+".bak", true, op); err != nil {
+	if err := ConvertConnectors(context.Background(), db, path+".bak", op); err != nil {
 		t.Fatal(err)
 	}
 	var raw string

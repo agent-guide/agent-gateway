@@ -46,7 +46,7 @@ func TestExtractLogicalModelsOfflineAndRestart(t *testing.T) {
 			ops := repairOperations()
 			ops[0].Action = "extract-models"
 			ops = append(ops, Operation{Family: "provider_models", ID: recordKey([]string{"p", "a"}), Action: "replace", Data: json.RawMessage(`{"provider_id":"p","upstream_model":"a","enabled":true}`)})
-			err := RepairSQLite(ctx, db, path+".bak", true, nil, ops)
+			err := RepairSQLite(ctx, db, path+".bak", nil, ops)
 			if failReadback {
 				if err == nil {
 					t.Fatal("readback failure committed extraction")
@@ -119,7 +119,7 @@ func TestRepairInvalidModelRoutePolicies(t *testing.T) {
 		t.Run(targets, func(t *testing.T) {
 			ctx := t.Context()
 			path, db := oldDatabase(t)
-			if err := RepairSQLite(ctx, db, path+".initial.bak", true, nil, repairOperations()); err != nil {
+			if err := RepairSQLite(ctx, db, path+".initial.bak", nil, repairOperations()); err != nil {
 				t.Fatal(err)
 			}
 			valid := `{"id":"a","kind":"llm","protocol":"openai","match_policy":{"path_prefix":"/api"},"target_policy":{"type":"models","default_model":"gpt-4.1","model_targets":[{"kind":"provider-model","provider_id":"p","upstream_model":"gpt-4.1"}]}}`
@@ -134,7 +134,7 @@ func TestRepairInvalidModelRoutePolicies(t *testing.T) {
 			if len(Inspect(records)) == 0 || Validate(records) == nil {
 				t.Fatal("invalid model policy was not reported")
 			}
-			if err := RepairSQLite(ctx, db, path+".models.bak", true, nil, []Operation{{Family: "routes", ID: "a", Action: "replace", Data: json.RawMessage(valid)}}); err != nil {
+			if err := RepairSQLite(ctx, db, path+".models.bak", nil, []Operation{{Family: "routes", ID: "a", Action: "replace", Data: json.RawMessage(valid)}}); err != nil {
 				t.Fatal(err)
 			}
 			creator, err := configsqlite.Open(ctx, configsqlite.Config{SQLitePath: path}, nil)

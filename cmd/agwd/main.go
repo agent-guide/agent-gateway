@@ -1,8 +1,6 @@
 package main
 
 import (
-	_ "github.com/agent-guide/agent-gateway/pkg/acp/agent/codex"
-	_ "github.com/agent-guide/agent-gateway/pkg/acp/agent/opencode"
 	"github.com/agent-guide/agent-gateway/pkg/distribution"
 	"github.com/agent-guide/agent-gateway/pkg/distribution/daemoncmd"
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/anthropic"

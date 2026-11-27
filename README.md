@@ -237,8 +237,10 @@ production path.
   not implemented.
 - Interactive Agent tool permission decisions are implemented, but they are not
   a general human-task workflow system.
-- ACP execution requires a workspace and upstream authentication. For binary
-  deployments, install the selected adapter, `codex-acp` or `opencode`.
+- ACP execution requires a workspace and upstream authentication. Select the
+  `codex` or `opencode` launcher, or register another
+  [ACP v1 stdio launcher](docs/reference/acp-technical-spec.md#deployment-launchers)
+  in the gateway SQLite database using the offline configuration tool.
 - OAuth refresh requires the separately installed `agw-auth` command or a
   compatible external refresher.
 - Operational events and traces provide telemetry; they are not a compliance

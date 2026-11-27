@@ -339,18 +339,15 @@ Current status:
   - `pkg/mcp/tracking` tracks in-flight requests and progress for the MCP dispatcher
   - `streamable_http`, `stdio`, and legacy `sse` are integrated upstream transports
 - `pkg/acp/`
-  - `Agent.runtime.acp` resolves to `host.Config` with effective execution settings. The host passes working directory, environment, and optional command and arguments via `agentspi.OpenRequest`
-  - ACP runtime config supports `codex` and `opencode`
-  - `opencode` uses the fixed `opencode acp --cwd <cwd>` stdio process shape
-  - `codex` launches the `codex-acp` stdio adapter by default
-  - the repository container build supplies `opencode`, `codex-acp`, and the Codex CLI
-  - the runtime driver handles `initialize`, `session/new`, `session/load`, `session/prompt`, full `session/update` parsing (`pkg/acp/host/acpupdate`: text, reasoning, tool calls, plan, usage, available commands, session info, mode, config options), route-scoped and Admin `session/list` and transcript replay (`session/load` over a transient connection) after ACP capability checking, model selection and `config_overrides` via `session/set_config_option`, and spec-correct fail-closed permission replies with an off-loop timeout
+  - `Agent.runtime.acp.launcher` selects a deployment-owned executable and arguments. The backend resolves these into `session.Config` before publishing the Agent.
+  - one stdio ACP v1 client drives all launchers. Bundled defaults run `codex-acp` and `opencode acp --cwd <cwd>`. Both hosts load deployment-owned `acp_launchers` records from ConfigStore at startup.
+  - the repository container build supplies `opencode`, `codex-acp`, and the
+    Codex CLI. The default entry point uses Tini to forward signals to the
+    gateway and reap orphaned ACP subprocesses.
+  - the runtime driver handles `initialize`, `session/new`, `session/load`, `session/prompt`, full `session/update` parsing (`pkg/acp/session/acpupdate`: text, reasoning, tool calls, plan, usage, available commands, session info, mode, config options), route-scoped and Admin `session/list` and transcript replay (`session/load` over a transient connection) after ACP capability checking, model selection and `config_overrides` via `session/set_config_option`, and spec-correct fail-closed permission replies with an off-loop timeout
   - each pooled instance caches the latest session metadata (config options, slash commands, title, mode, usage) from a lifetime updates subscription; the cache is replayed as snapshot events at every turn start and exposed through the runtime Admin inspection
   - runtime hardening: `PATH` preflight, stderr capture, a setup-handshake timeout, an idle janitor, dead-instance eviction, `fresh_session`, scope rebind (a session-addressed turn adopts the thread's live instance instead of spawning a second process), and `CloseScope`/`CloseThread` teardown
   - permission modes `deny`/`auto_approve`/`interactive`: interactive requests follow the runtime capability's advertised continuation mode and common Agent permission controls
-  - verified end to end against the real `opencode acp` and `codex-acp`
-    binaries; automatic crash retry and an in-repository Codex app-server
-    bridge are not supported
 - `pkg/agent/`
   - the external agent control plane: the `Agent` model, `agents` store, unified `AgentRoute.agent_id` ingress, and runtime-neutral capability APIs
   - `pkg/agent/builtin/` is the in-process eino ADK host for `runtime.type = "builtin"` agents and executes behind the same AgentRoute contract as ACP

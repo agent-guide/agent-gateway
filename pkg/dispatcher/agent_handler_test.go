@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,8 +14,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
-	baseacp "github.com/agent-guide/agent-gateway/pkg/acp"
-	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
+	acplauncher "github.com/agent-guide/agent-gateway/pkg/acp/launcher"
+	acpsession "github.com/agent-guide/agent-gateway/pkg/acp/session"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
 	"github.com/agent-guide/agent-gateway/pkg/agent/execution/executiontest"
@@ -85,6 +86,10 @@ type agentHandlerCapabilityBackend struct {
 func (b *agentHandlerCapabilityBackend) ResolvePermission(_ context.Context, _ agentpkg.Agent, decision agentexecution.PermissionDecision) error {
 	b.permissionCalls = append(b.permissionCalls, decision)
 	return nil
+}
+
+func (*agentHandlerCapabilityBackend) ListSessions(context.Context, agentpkg.Agent, agentexecution.ListSessionsRequest) (agentexecution.ListSessionsResponse, error) {
+	return agentexecution.ListSessionsResponse{Sessions: []agentexecution.Session{{SessionID: "discovered"}}}, nil
 }
 
 func (b *agentHandlerCapabilityBackend) LoadTranscript(_ context.Context, _ agentpkg.Agent, req agentexecution.TranscriptRequest) (agentexecution.TranscriptResponse, error) {
@@ -207,6 +212,17 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 	llmRouteCfg, err := llmRoute.ToConfig()
 	if err != nil {
 		t.Fatalf("llm route ToConfig: %v", err)
+	}
+
+	store, err := backend.Get(configschema.StoreACPLaunchers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Create(ctx, acplauncher.Definition{
+		ID:       "unavailable",
+		Launcher: acplauncher.Launcher{Command: filepath.Join(t.TempDir(), "missing-agent")},
+	}); err != nil {
+		t.Fatal(err)
 	}
 
 	sink := &builtinCaptureSink{}
@@ -380,13 +396,13 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 		ID:   "unified",
 		Name: "Unified",
 		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeACP, ACP: &agentpkg.ACPRuntime{
-			AgentType: baseacp.AgentTypeCodex, CWD: "/tmp", AllowedRoots: []string{"/tmp"},
+			Launcher: "unavailable", CWD: "/tmp", AllowedRoots: []string{"/tmp"},
 		}},
 	}); err != nil {
 		t.Fatalf("switch runtime type: %v", err)
 	}
 	if rec := turn(`{"input":"hello","options":{"version":"v1","runtime":{"thread_id":"t1"}}}`); rec.Code != http.StatusBadGateway {
-		t.Fatalf("acp-runtime turn status = %d body = %q, want 502 from unavailable test adapter", rec.Code, rec.Body.String())
+		t.Fatalf("acp-runtime turn status = %d body = %q, want 502 from unavailable test launcher", rec.Code, rec.Body.String())
 	}
 
 	// A non-ready HTTP runtime fails closed before a southbound turn.
@@ -438,24 +454,24 @@ func TestDispatchAgentRouteEndToEnd(t *testing.T) {
 type agentRouteACPRuntime struct {
 	stopReason  string
 	owner       string
-	cfg         acphost.Config
-	req         acphost.TurnRequest
+	cfg         acpsession.Config
+	req         acpsession.TurnRequest
 	retirements []string
 }
 
-func (r *agentRouteACPRuntime) ServeConfiguredTurn(_ context.Context, owner string, cfg acphost.Config, req acphost.TurnRequest, emit acphost.EventSink) error {
+func (r *agentRouteACPRuntime) ServeConfiguredTurn(_ context.Context, owner string, cfg acpsession.Config, req acpsession.TurnRequest, emit acpsession.EventSink) error {
 	r.owner, r.cfg, r.req = owner, cfg, req
-	if err := emit(acphost.TurnEvent{Event: agentexecution.EventSession, SessionID: "native-session"}); err != nil {
+	if err := emit(acpsession.TurnEvent{Event: agentexecution.EventSession, SessionID: "native-session"}); err != nil {
 		return err
 	}
-	if err := emit(acphost.TurnEvent{Event: agentexecution.EventContent, Text: "acp answer"}); err != nil {
+	if err := emit(acpsession.TurnEvent{Event: agentexecution.EventContent, Text: "acp answer"}); err != nil {
 		return err
 	}
 	reason := r.stopReason
 	if reason == "" {
 		reason = "end_turn"
 	}
-	return emit(acphost.TurnEvent{Event: agentexecution.EventDone, StopReason: reason})
+	return emit(acpsession.TurnEvent{Event: agentexecution.EventDone, StopReason: reason})
 }
 
 func (r *agentRouteACPRuntime) RetireOwnerDeferred(ownerID, keep string) (int, func()) {
@@ -494,7 +510,7 @@ func TestDispatchAgentRouteACPTurnSuccess(t *testing.T) {
 	if err := gw.AgentManager().Create(ctx, agentpkg.Agent{
 		ID: "acp-agent", Name: "ACP Agent",
 		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeACP, ACP: &agentpkg.ACPRuntime{
-			AgentType: baseacp.AgentTypeOpencode, CWD: cwd,
+			Launcher: "opencode", CWD: cwd,
 			AllowedRoots: []string{cwd}, DefaultModel: "model-a",
 		}},
 	}); err != nil {
@@ -572,7 +588,7 @@ func TestDispatchAgentRouteACPTurnSuccess(t *testing.T) {
 	if native.owner != "acp-agent" {
 		t.Fatalf("native owner = %q, want the agent_id owner key", native.owner)
 	}
-	if native.cfg.AgentType != baseacp.AgentTypeOpencode || native.cfg.DefaultModel != "model-a" || len(native.cfg.AllowedRoots) != 1 || native.cfg.AllowedRoots[0] != cwd {
+	if native.cfg.Launcher != "opencode" || native.cfg.DefaultModel != "model-a" || len(native.cfg.AllowedRoots) != 1 || native.cfg.AllowedRoots[0] != cwd {
 		t.Fatalf("native runtime config = %+v", native.cfg)
 	}
 	if !strings.HasPrefix(native.req.ThreadID, "client:") || native.req.Model != "model-b" || native.req.Input != "hello" {
@@ -618,7 +634,7 @@ func TestServeAgentPermissionDecodeFailureMarksTypedError(t *testing.T) {
 	a := agentpkg.Agent{
 		ID: "acp-agent",
 		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeACP, ACP: &agentpkg.ACPRuntime{
-			AgentType: baseacp.AgentTypeOpencode,
+			Launcher: "opencode",
 		}},
 	}
 	backend := &agentHandlerCapabilityBackend{Backend: executiontest.NewBackend(agentpkg.RuntimeTypeACP)}
@@ -743,5 +759,22 @@ func TestDispatchAgentOptionalCapabilitiesAndPreBackendRejections(t *testing.T) 
 	}
 	if recMissing.Code != http.StatusNotFound || len(fake.TurnCalls()) != 0 {
 		t.Fatalf("missing status/ServeTurn calls = %d/%d, body = %q", recMissing.Code, len(fake.TurnCalls()), recMissing.Body.String())
+	}
+}
+
+func TestAgentRouteSessionReadsCanDiscoverCapabilities(t *testing.T) {
+	handler := &Handler{}
+	backend := &agentHandlerCapabilityBackend{Backend: executiontest.NewBackend(agentpkg.RuntimeTypeACP)}
+	a := agentpkg.Agent{ID: "worker"}
+	req := httptest.NewRequest(http.MethodGet, "/agents/worker/sessions", nil)
+	caps := agentexecution.Capabilities{Sessions: agentexecution.SessionCapabilities{DiscoveryPending: true}}
+
+	list := httptest.NewRecorder()
+	if err := handler.serveAgentSessions(list, req, backend, a, caps); err != nil || list.Code != http.StatusOK || !strings.Contains(list.Body.String(), "discovered") {
+		t.Fatalf("first session list status=%d body=%s err=%v", list.Code, list.Body, err)
+	}
+	transcript := httptest.NewRecorder()
+	if err := handler.serveAgentTranscript(transcript, req, backend, a, "discovered", caps); err != nil || transcript.Code != http.StatusOK || len(backend.transcriptCalls) != 1 {
+		t.Fatalf("first transcript status=%d body=%s err=%v", transcript.Code, transcript.Body, err)
 	}
 }

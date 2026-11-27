@@ -70,7 +70,7 @@ func snapshotTestAgent(id string) Agent {
 		ID:   id,
 		Name: id,
 		Runtime: Runtime{Type: RuntimeTypeACP, ACP: &ACPRuntime{
-			AgentType: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"}, Env: map[string]string{"OWNER": id},
+			Launcher: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"}, Env: map[string]string{"OWNER": id},
 		}},
 		Resources: Resources{ConnectorIDs: []string{"docs"}},
 	}

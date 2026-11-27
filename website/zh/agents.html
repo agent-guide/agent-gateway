@@ -100,9 +100,9 @@
           <span class="kicker">runtime · acp</span>
           <h3>ACP — 托管编码 Agent</h3>
           <p>
-            网关托管 Agent Client Protocol agent（如 Codex 与 OpenCode）的生命周期：
-            进程池化、SSE 流式轮次、转录回放，权限请求经由你的策略裁决
-            —— 拒绝、自动批准或交互式人工决定。
+            网关托管通过 stdio 提供 ACP v1 的 Agent，包括经 <code>codex-acp</code> 接入的
+            Codex、OpenCode 和自行配置的其他 Agent。网关管理进程池、通过 SSE 流式传输轮次，
+            并按你的策略处理权限请求。会话列表和转录回放取决于 Agent 声明的能力。
           </p>
         </div>
         <ul class="feature-list">

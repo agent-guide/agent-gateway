@@ -26,6 +26,7 @@ type AgentRouteLookup interface {
 type Manager struct {
 	store                  configstore.ConfigStore
 	routeLookup            AgentRouteLookup
+	validateRuntime        func(Runtime) error
 	validateResourceRoutes func(context.Context, Routes) error
 	guard                  configmgr.MutationGuard[Agent]
 
@@ -72,6 +73,21 @@ func (m *Manager) SetRouteLookup(lookup AgentRouteLookup) {
 // the manager is used. The callback runs under writeMu and must not reenter it.
 func (m *Manager) SetResourceRouteValidator(validate func(context.Context, Routes) error) {
 	m.validateResourceRoutes = validate
+}
+
+// SetRuntimeValidator wires deployment-dependent validation before manager use.
+func (m *Manager) SetRuntimeValidator(validate func(Runtime) error) {
+	m.validateRuntime = validate
+}
+
+func (m *Manager) validateDefinition(a Agent) error {
+	if err := a.Validate(); err != nil {
+		return err
+	}
+	if m.validateRuntime != nil {
+		return m.validateRuntime(a.Runtime)
+	}
+	return nil
 }
 
 // DeleteUnreferencedLLMRoute serializes the reference check and deletion with
@@ -169,7 +185,7 @@ func (m *Manager) createLocked(ctx context.Context, a Agent) error {
 	if err := m.ensureWritableDefinition(a.ID); err != nil {
 		return err
 	}
-	if err := a.Validate(); err != nil {
+	if err := m.validateDefinition(a); err != nil {
 		return err
 	}
 	if m.validateResourceRoutes != nil {
@@ -226,7 +242,7 @@ func (m *Manager) updateLocked(ctx context.Context, id string, a Agent) error {
 	a.ID = id
 	a.CreatedAt = current.CreatedAt
 	a.Normalize()
-	if err := a.Validate(); err != nil {
+	if err := m.validateDefinition(a); err != nil {
 		return err
 	}
 	if m.validateResourceRoutes != nil {
@@ -355,7 +371,7 @@ func (m *Manager) refreshLocked(ctx context.Context) error {
 			return err
 		}
 		cloned.Normalize()
-		if err := cloned.Validate(); err != nil {
+		if err := m.validateDefinition(cloned); err != nil {
 			return fmt.Errorf("refresh agent %q: %w", cloned.ID, err)
 		}
 		next[cloned.ID] = cloned

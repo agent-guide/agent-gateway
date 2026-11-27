@@ -75,7 +75,7 @@ agents:
     runtime:
       type: acp
       acp:
-        agent_type: codex
+        launcher: codex
         cwd: /tmp/acp-codex-test
         allowed_roots: [/tmp/acp-codex-test]
         max_instances: 4

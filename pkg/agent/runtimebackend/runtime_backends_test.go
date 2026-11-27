@@ -12,9 +12,8 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
-	baseacp "github.com/agent-guide/agent-gateway/pkg/acp"
-	codexconfig "github.com/agent-guide/agent-gateway/pkg/acp/agent/codex/config"
-	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
+	acplauncher "github.com/agent-guide/agent-gateway/pkg/acp/launcher"
+	acpsession "github.com/agent-guide/agent-gateway/pkg/acp/session"
 	"github.com/agent-guide/agent-gateway/pkg/agent"
 	builtinhost "github.com/agent-guide/agent-gateway/pkg/agent/builtin"
 	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
@@ -24,10 +23,10 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-func inlineACPRuntime(cfg acphost.Config) *agent.ACPRuntime {
+func inlineACPRuntime(cfg acpsession.Config) *agent.ACPRuntime {
 	cfg = cfg.Clone()
 	return &agent.ACPRuntime{
-		AgentType: cfg.AgentType, CWD: cfg.CWD, AllowedRoots: cfg.AllowedRoots,
+		Launcher: cfg.Launcher, CWD: cfg.CWD, AllowedRoots: cfg.AllowedRoots,
 		DefaultModel: cfg.DefaultModel, Env: cfg.Env, ConfigOverrides: cfg.ConfigOverrides,
 		IdleTTL: cfg.IdleTTL, MaxInstances: cfg.MaxInstances, PermissionMode: cfg.PermissionMode,
 	}
@@ -36,8 +35,8 @@ func inlineACPRuntime(cfg acphost.Config) *agent.ACPRuntime {
 type captureACPRuntime struct {
 	t     *testing.T
 	owner string
-	cfg   acphost.Config
-	req   acphost.TurnRequest
+	cfg   acpsession.Config
+	req   acpsession.TurnRequest
 }
 
 type preNativeRegistrationACPRuntime struct {
@@ -45,35 +44,35 @@ type preNativeRegistrationACPRuntime struct {
 	release chan struct{}
 }
 
-func (r *preNativeRegistrationACPRuntime) ServeConfiguredTurn(context.Context, string, acphost.Config, acphost.TurnRequest, acphost.EventSink) error {
+func (r *preNativeRegistrationACPRuntime) ServeConfiguredTurn(context.Context, string, acpsession.Config, acpsession.TurnRequest, acpsession.EventSink) error {
 	close(r.entered)
 	<-r.release
 	return nil
 }
 
 func (*preNativeRegistrationACPRuntime) CancelRun(string, string) error {
-	return acphost.ErrRunNotFound
+	return acpsession.ErrRunNotFound
 }
 
-func (r *captureACPRuntime) ServeConfiguredTurn(ctx context.Context, owner string, cfg acphost.Config, req acphost.TurnRequest, emit acphost.EventSink) error {
+func (r *captureACPRuntime) ServeConfiguredTurn(ctx context.Context, owner string, cfg acpsession.Config, req acpsession.TurnRequest, emit acpsession.EventSink) error {
 	r.owner, r.cfg, r.req = owner, cfg, req
 	ids, _ := agentexecution.IdentitiesFromContext(ctx)
 	dims, _ := usage.DimensionsFromContext(ctx)
 	if ids.AgentID != owner || ids.RunID == "" || dims.RunID != ids.RunID || dims.RuntimeType != agent.RuntimeTypeACP {
 		r.t.Fatalf("ACP identity bridge ids=%+v dims=%+v", ids, dims)
 	}
-	if err := emit(acphost.TurnEvent{Event: agentexecution.EventSession, SessionID: "native-session"}); err != nil {
+	if err := emit(acpsession.TurnEvent{Event: agentexecution.EventSession, SessionID: "native-session"}); err != nil {
 		return err
 	}
-	if err := emit(acphost.TurnEvent{Event: agentexecution.EventContent, Text: "answer"}); err != nil {
+	if err := emit(acpsession.TurnEvent{Event: agentexecution.EventContent, Text: "answer"}); err != nil {
 		return err
 	}
-	return emit(acphost.TurnEvent{Event: agentexecution.EventDone, StopReason: "end_turn"})
+	return emit(acpsession.TurnEvent{Event: agentexecution.EventDone, StopReason: "end_turn"})
 }
 
 func TestACPBackendTranslatesOptionsIntoIdentityFreeRuntime(t *testing.T) {
-	config := acphost.Config{
-		AgentType: "opencode", CWD: "/workspace",
+	config := acpsession.Config{
+		Launcher: "opencode", CWD: "/workspace",
 		AllowedRoots: []string{"/workspace"}, DefaultModel: "model-a", Env: map[string]string{"A": "B"},
 		ConfigOverrides: map[string]string{"base": "true"}, PermissionMode: "interactive",
 	}
@@ -93,7 +92,7 @@ func TestACPBackendTranslatesOptionsIntoIdentityFreeRuntime(t *testing.T) {
 	if _, err := run.ServeSegment(ctx, backend, a, req, func(ev agentexecution.TurnEvent) error { events = append(events, ev); return nil }); err != nil {
 		t.Fatalf("ServeSegment: %v", err)
 	}
-	if native.owner != a.ID || native.cfg.AgentType != config.AgentType || native.cfg.CWD != config.CWD {
+	if native.owner != a.ID || native.cfg.Launcher != config.Launcher || native.cfg.CWD != config.CWD {
 		t.Fatalf("native owner/config = %q %+v", native.owner, native.cfg)
 	}
 	if native.req.ThreadID != "thread-1" || native.req.SessionID != "session-1" || native.req.CWD != "/workspace/repo" || native.req.Model != "model-b" || !native.req.FreshSession || native.req.ConfigOverrides["turn"] != "yes" {
@@ -118,7 +117,7 @@ func TestACPBackendTranslatesOptionsIntoIdentityFreeRuntime(t *testing.T) {
 }
 
 func TestACPBackendCancelBeforeNativeRegistrationIsRetryable(t *testing.T) {
-	config := acphost.Config{AgentType: "opencode", CWD: "/workspace", AllowedRoots: []string{"/workspace"}}
+	config := acpsession.Config{Launcher: "opencode", CWD: "/workspace", AllowedRoots: []string{"/workspace"}}
 	native := &preNativeRegistrationACPRuntime{entered: make(chan struct{}), release: make(chan struct{})}
 	backend := NewACPBackend(native, RuntimeControls{Runs: agentexecution.NewRunRegistry()})
 	a := agent.Agent{ID: "agent-1", Runtime: agent.Runtime{Type: agent.RuntimeTypeACP, ACP: inlineACPRuntime(config)}}
@@ -397,7 +396,7 @@ func TestBuiltinResumeMapsMissingRunToPermissionNotFound(t *testing.T) {
 
 func TestACPSummaryAndHealthDoNotReadServiceStore(t *testing.T) {
 	backend := NewACPBackend(&captureACPRuntime{})
-	a := agent.Agent{ID: "a1", Runtime: agent.Runtime{Type: agent.RuntimeTypeACP, ACP: &agent.ACPRuntime{AgentType: "codex", CWD: "/workspace"}}}
+	a := agent.Agent{ID: "a1", Runtime: agent.Runtime{Type: agent.RuntimeTypeACP, ACP: &agent.ACPRuntime{Launcher: "codex", CWD: "/workspace"}}}
 	if _, err := backend.RuntimeSummary(t.Context(), a); err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +429,7 @@ type permissionResolverStub struct {
 	err   error
 }
 
-func (r *permissionResolverStub) ResolvePermission(acphost.PermissionDecision) error {
+func (r *permissionResolverStub) ResolvePermission(acpsession.PermissionDecision) error {
 	r.calls++
 	return r.err
 }
@@ -438,7 +437,7 @@ func (r *permissionResolverStub) ResolvePermission(acphost.PermissionDecision) e
 func TestACPLostContinuationUsesSpecificAuditResult(t *testing.T) {
 	broker := agentexecution.NewPermissionBroker()
 	t.Cleanup(func() { broker.Close(agentexecution.WithPermissionSource(context.Background(), "test_cleanup")) })
-	native := &permissionResolverStub{err: acphost.ErrPermissionNotFound}
+	native := &permissionResolverStub{err: acpsession.ErrPermissionNotFound}
 	backend := NewACPBackend(nil)
 	info := agentexecution.PendingPermission{RequestID: "perm-lost", AgentID: "a1", RuntimeType: agent.RuntimeTypeACP, RunID: "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ExpiresAt: time.Now().Add(time.Minute)}
 	backend.storeACPContinuation("cont-lost", acpPermissionContinuation{runtime: native, requestID: info.RequestID})
@@ -794,46 +793,37 @@ func (r *retireRecordingACPRuntime) RetireOwnerDeferred(ownerID, keep string) (i
 	return 0, func() {}
 }
 
-func TestACPRefreshTracksEffectiveCodexLaunchSettings(t *testing.T) {
+func TestACPRefreshTracksEffectiveLaunchSettings(t *testing.T) {
 	native := &retireRecordingACPRuntime{}
 	backend := NewACPBackend(native)
-	cfg := &agent.ACPRuntime{AgentType: baseacp.AgentTypeCodex, CWD: t.TempDir()}
+	cfg := &agent.ACPRuntime{Launcher: "codex", CWD: t.TempDir()}
 	a := agent.Agent{ID: "agent-1", Runtime: agent.Runtime{Type: agent.RuntimeTypeACP, ACP: cfg}}
 	backend.RefreshRuntimeConfigs(t.Context(), []agent.Agent{a})
 	initial, err := backend.agentRuntimeConfig(a.ID)
-	if err != nil || initial.config.Command != codexconfig.DefaultAdapterCommand {
-		t.Fatalf("initial Codex command = %q, err = %v", initial.config.Command, err)
-	}
-	initialOwnerFingerprint := a.ID + "|" + initial.fingerprint
-
-	cfg.Codex = &codexconfig.Config{Mode: codexconfig.ModeAdapter, TraceJSON: true}
-	backend.RefreshRuntimeConfigs(t.Context(), []agent.Agent{a})
-	unchanged, err := backend.agentRuntimeConfig(a.ID)
-	if err != nil || unchanged.fingerprint != initial.fingerprint ||
-		!slices.Equal(native.retirements, []string{initialOwnerFingerprint, initialOwnerFingerprint}) {
-		t.Fatalf("non-executed settings changed the accepted fingerprint: %v, err = %v", native.retirements, err)
+	if err != nil || initial.config.Command != "codex-acp" {
+		t.Fatalf("initial command = %q, err = %v", initial.config.Command, err)
 	}
 
-	cfg.Codex.AdapterArgs = []string{"--profile", "work"}
+	backend.launchers["codex"] = acplauncher.Launcher{Command: "/usr/local/bin/codex-acp", Args: []string{"--profile", "work"}}
 	backend.RefreshRuntimeConfigs(t.Context(), []agent.Agent{a})
 	updated, err := backend.agentRuntimeConfig(a.ID)
-	if err != nil || len(native.retirements) != 3 || native.retirements[2] != a.ID+"|"+updated.fingerprint ||
+	if err != nil || len(native.retirements) != 2 || native.retirements[1] != a.ID+"|"+updated.fingerprint ||
 		updated.fingerprint == initial.fingerprint ||
-		!slices.Equal(updated.config.Args, cfg.Codex.AdapterArgs) {
-		t.Fatalf("updated Codex arguments = %v, retirements = %v, err = %v", updated.config.Args, native.retirements, err)
+		!slices.Equal(updated.config.Args, backend.launchers["codex"].Args) {
+		t.Fatalf("updated launcher arguments = %v, retirements = %v, err = %v", updated.config.Args, native.retirements, err)
 	}
 
-	cfg.Codex.Mode = codexconfig.ModeAppServer
+	cfg.Launcher = "unknown"
 	backend.RefreshRuntimeConfigs(t.Context(), []agent.Agent{a})
 	if _, err := backend.agentRuntimeConfig(a.ID); !errors.Is(err, agentexecution.ErrBackendUnavailable) ||
-		len(native.retirements) != 4 || native.retirements[3] != a.ID+"|" {
-		t.Fatalf("unsupported Codex mode retained an accepted fingerprint: %v, err = %v", native.retirements, err)
+		len(native.retirements) != 3 || native.retirements[2] != a.ID+"|" {
+		t.Fatalf("unknown launcher retained an accepted fingerprint: %v, err = %v", native.retirements, err)
 	}
 }
 
 func TestACPRefreshRuntimeConfigsIsAtomicAndRetiresFingerprints(t *testing.T) {
-	config := acphost.Config{
-		AgentType: "opencode", CWD: "/workspace",
+	config := acpsession.Config{
+		Launcher: "opencode", CWD: "/workspace",
 		AllowedRoots: []string{"/workspace"}, DefaultModel: "model-a",
 	}
 	native := &retireRecordingACPRuntime{captureACPRuntime: captureACPRuntime{t: t}}
@@ -880,7 +870,7 @@ func TestACPRefreshRuntimeConfigsIsAtomicAndRetiresFingerprints(t *testing.T) {
 		t.Fatalf("retired fingerprint left permission claimable: pending=%v expired=%d", got, permissionResolver.count())
 	}
 
-	// Disabled is management state rather than part of acphost.Config, but its
+	// Disabled is management state rather than part of acpsession.Config, but its
 	// transition still retires every Agent-owned instance and rejects execution.
 	a.Disabled = true
 	backend.RefreshRuntimeConfigs(t.Context(), []agent.Agent{a})
@@ -910,5 +900,44 @@ func TestACPRefreshRuntimeConfigsIsAtomicAndRetiresFingerprints(t *testing.T) {
 	}
 	if len(native.retirements) != 5 || native.retirements[4] != "agent-1|" {
 		t.Fatalf("retirements = %v, want trailing retire-all", native.retirements)
+	}
+}
+
+type acpHandshakeRuntime struct {
+	captureACPRuntime
+	sessionCapabilities acpsession.SessionCapabilities
+	observed            bool
+}
+
+func (r *acpHandshakeRuntime) ConfiguredSessionCapabilities(string, string) (acpsession.SessionCapabilities, bool) {
+	return r.sessionCapabilities, r.observed
+}
+
+func TestACPSessionCapabilitiesReflectHandshake(t *testing.T) {
+	native := &acpHandshakeRuntime{}
+	backend := NewACPBackend(native)
+	a := agent.Agent{ID: "worker", Runtime: agent.Runtime{
+		Type: agent.RuntimeTypeACP,
+		ACP:  &agent.ACPRuntime{Launcher: "codex", CWD: t.TempDir()},
+	}}
+	backend.RefreshRuntimeConfigs(t.Context(), []agent.Agent{a})
+	for _, test := range []struct {
+		name     string
+		observed bool
+		native   acpsession.SessionCapabilities
+		want     agentexecution.SessionCapabilities
+	}{
+		{name: "pending", want: agentexecution.SessionCapabilities{DiscoveryPending: true}},
+		{name: "confirmed absent", observed: true},
+		{name: "list only", observed: true, native: acpsession.SessionCapabilities{List: true}, want: agentexecution.SessionCapabilities{List: true}},
+		{name: "load only", observed: true, native: acpsession.SessionCapabilities{Load: true}, want: agentexecution.SessionCapabilities{Resume: true, Transcript: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			native.observed, native.sessionCapabilities = test.observed, test.native
+			got, err := backend.Capabilities(t.Context(), a)
+			if err != nil || !got.Executable || got.Sessions != test.want {
+				t.Fatalf("capabilities = %+v, err=%v, want sessions %+v", got, err, test.want)
+			}
+		})
 	}
 }

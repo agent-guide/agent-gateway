@@ -10,7 +10,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
-	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
+	acpsession "github.com/agent-guide/agent-gateway/pkg/acp/session"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	builtinpkg "github.com/agent-guide/agent-gateway/pkg/agent/builtin"
 	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
@@ -273,9 +273,9 @@ type agentRouteRef struct {
 }
 
 type agentRuntimeSummary struct {
-	PooledInstances    []acphost.PooledInstanceInfo    `json:"pooled_instances"`
-	InFlightTurns      int                             `json:"in_flight_turns"`
-	PendingPermissions []acphost.PendingPermissionInfo `json:"pending_permissions"`
+	PooledInstances    []acpsession.PooledInstanceInfo    `json:"pooled_instances"`
+	InFlightTurns      int                                `json:"in_flight_turns"`
+	PendingPermissions []acpsession.PendingPermissionInfo `json:"pending_permissions"`
 }
 
 func (h *Handler) handleGetAgentWorkspace(w http.ResponseWriter, r *http.Request) {
@@ -380,12 +380,12 @@ func (h *Handler) acpRuntimeSummaryForOwner(agentID string) *agentRuntimeSummary
 	}
 	summary := &agentRuntimeSummary{}
 	for _, inst := range h.acpRuntimeManager.ListInstances() {
-		if acphost.ScopeOwnerID(inst.Scope) == agentID {
+		if acpsession.ScopeOwnerID(inst.Scope) == agentID {
 			summary.PooledInstances = append(summary.PooledInstances, inst)
 		}
 	}
 	for _, turn := range h.acpRuntimeManager.ListInFlight() {
-		if acphost.ScopeOwnerID(turn.Scope) == agentID {
+		if acpsession.ScopeOwnerID(turn.Scope) == agentID {
 			summary.InFlightTurns++
 		}
 	}

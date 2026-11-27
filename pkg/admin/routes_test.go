@@ -133,7 +133,7 @@ func (s *testConfigStore) Get(name string) (configstore.ConfigStore, error) {
 		return s.modelStore, nil
 	case configstoreschema.StoreAgents:
 		return s.agentStore, nil
-	case configstoreschema.StoreCredentials:
+	case configstoreschema.StoreCredentials, configstoreschema.StoreACPLaunchers:
 		return nil, nil
 	default:
 		return nil, configstore.ErrNotFound

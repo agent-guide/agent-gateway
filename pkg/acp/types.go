@@ -1,9 +1,6 @@
 package acp
 
-const (
-	AgentTypeCodex    = "codex"
-	AgentTypeOpencode = "opencode"
-)
+const ()
 
 const (
 	PermissionModeDeny        = "deny"

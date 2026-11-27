@@ -141,6 +141,8 @@ func Validate(records []Record) error {
 			// Validate the stored envelope without starting linked factories or
 			// resolving secrets; offline repair cannot change module configuration.
 			_, err = schema.ExtensionSchema.Codec.Decode(r.Data)
+		case "acp_launchers":
+			// Inspect validates the stored definition and its Agent references.
 		default:
 			return fmt.Errorf("unsupported family %q", r.Family)
 		}

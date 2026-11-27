@@ -10,4 +10,5 @@ const (
 	StoreProviderModels = "provider_models"
 	StoreConnectors     = "connectors"
 	StoreAgents         = "agents"
+	StoreACPLaunchers   = "acp_launchers"
 )

@@ -16,8 +16,9 @@ restoring them together.
    `mcp_services` table prevents normal startup; the conversion must run before
    the new server or CLI opens the store. Inspect the complete database and
    static configuration with `scripts/repair-architecture-config`.
-2. Convert the legacy MCP service layout using `--convert-connectors`, an
-   unused `--backup` path and `--service-stopped`. Update source Bundles to
+2. Convert the legacy MCP service layout using `--convert-connectors` and an
+   unused `--backup` path. Use the repair tool's `--help` in the target checkout
+   for version-specific flags. Update source Bundles to
    `connectors`, nested MCP connection settings and Connector references;
    replace `/admin/mcp/services` integrations with `/admin/connectors`.
    Conversion preserves IDs and stored references. Connector definitions are
@@ -83,8 +84,9 @@ The historical `cliauth_credentials` table is unchanged.
    Caddyfile without provisioning and inspect the JSON with `--caddy-json`.
 3. Follow the [offline recovery guide](architecture-config-recovery.md) to
    prepare explicit conversions, budget removals and route replacements or
-   deletions. Stop all services using the files before applying repairs; supply
-   an unused backup path and `--service-stopped`. Conflicting Provider targets
+   deletions. Stop all services using the files before applying repairs and
+   supply an unused backup path. Use the repair tool's `--help` in the v0.7.3
+   checkout for its required flags. Conflicting Provider targets
    require an explicit choice. Database and static-file repairs are separate
    operations, so validate the complete prospective configuration together.
 4. Repeat inspection until it reports an empty array with exit code zero.

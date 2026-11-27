@@ -20,7 +20,7 @@ func referenceConnector(id string) connector.ConnectorConfig {
 	return connector.ConnectorConfig{ID: id, Name: "Tools", Type: "mcp", MCP: &connectormcp.Config{Transport: connector.TransportStdio, Command: "unused"}}
 }
 func referencingAgent(id, connectorID string) agent.Agent {
-	return agent.Agent{ID: id, Name: "Worker", Disabled: true, Runtime: agent.Runtime{Type: agent.RuntimeTypeACP, ACP: &agent.ACPRuntime{AgentType: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"}}}, Resources: agent.Resources{ConnectorIDs: []string{connectorID}}}
+	return agent.Agent{ID: id, Name: "Worker", Disabled: true, Runtime: agent.Runtime{Type: agent.RuntimeTypeACP, ACP: &agent.ACPRuntime{Launcher: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"}}}, Resources: agent.Resources{ConnectorIDs: []string{connectorID}}}
 }
 func TestConnectorDeletionRequiresReleasingAgentReferences(t *testing.T) {
 	g, _, _ := controlPlaneGateway(t)

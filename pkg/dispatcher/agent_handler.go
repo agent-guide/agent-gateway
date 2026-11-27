@@ -12,7 +12,7 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/httpjson"
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
-	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
+	acpsession "github.com/agent-guide/agent-gateway/pkg/acp/session"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
 	"github.com/agent-guide/agent-gateway/pkg/gateway/routecore"
@@ -195,7 +195,7 @@ func (h *Handler) serveAgentTurn(w http.ResponseWriter, r *http.Request, backend
 		dims, _ := usage.DimensionsFromContext(r.Context())
 		logger := h.logger.With(zap.String("agent_id", a.ID), zap.String("runtime_type", a.Runtime.Type),
 			zap.String("run_id", req.RunID), zap.String("trace_id", dims.TraceID), zap.String("span_id", dims.SpanID))
-		r = r.WithContext(acphost.WithDiagnosticLogger(r.Context(), logger))
+		r = r.WithContext(acpsession.WithDiagnosticLogger(r.Context(), logger))
 	}
 
 	// SSE headers are written lazily on the first event so synchronous backend
@@ -295,7 +295,7 @@ func setAgentOperationExtension(ctx context.Context, a agentpkg.Agent, operation
 	case agentpkg.RuntimeTypeACP:
 		agentType := ""
 		if a.Runtime.ACP != nil {
-			agentType = a.Runtime.ACP.AgentType
+			agentType = a.Runtime.ACP.Launcher
 		}
 		span.SetExtension(usage.ACPExtension{
 			AgentType: agentType, Operation: operation, SessionID: strings.TrimSpace(sessionID), ResultStatus: resultStatus,
@@ -329,7 +329,7 @@ func observeAgentACPEvents(ctx context.Context, next agentexecution.EventSink, c
 
 func (h *Handler) serveAgentSessions(w http.ResponseWriter, r *http.Request, backend agentexecution.Backend, a agentpkg.Agent, caps agentexecution.Capabilities) error {
 	lister, ok := backend.(agentexecution.SessionLister)
-	if !ok || !caps.Sessions.List {
+	if !ok || (!caps.Sessions.List && !caps.Sessions.DiscoveryPending) {
 		return writeAgentRuntimePreStreamError(w, r, a, "sessions", "", agentexecution.NewError(agentexecution.ErrorCapabilityNotSupported, "session listing is not supported on this route"))
 	}
 	result, err := lister.ListSessions(r.Context(), a, agentexecution.ListSessionsRequest{
@@ -345,7 +345,7 @@ func (h *Handler) serveAgentSessions(w http.ResponseWriter, r *http.Request, bac
 
 func (h *Handler) serveAgentTranscript(w http.ResponseWriter, r *http.Request, backend agentexecution.Backend, a agentpkg.Agent, sessionID string, caps agentexecution.Capabilities) error {
 	loader, ok := backend.(agentexecution.TranscriptLoader)
-	if !ok || !caps.Sessions.Transcript {
+	if !ok || (!caps.Sessions.Transcript && !caps.Sessions.DiscoveryPending) {
 		return writeAgentRuntimePreStreamError(w, r, a, "transcript", sessionID, agentexecution.NewError(agentexecution.ErrorCapabilityNotSupported, "transcript loading is not supported on this route"))
 	}
 	result, err := loader.LoadTranscript(r.Context(), a, agentexecution.TranscriptRequest{

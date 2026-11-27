@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -373,4 +375,67 @@ func writeJSON(w *bufio.Writer, value any) {
 	}
 	_, _ = w.Write(append(data, '\n'))
 	_ = w.Flush()
+}
+
+func TestUpdateOverflowIsReportedPerSubscriber(t *testing.T) {
+	tr := &StdioTransport{updates: make(map[chan Message]*updateSubscriber)}
+	slow, overflow, stopSlow := tr.Updates(1)
+	fast, fastOverflow, stopFast := tr.Updates(2)
+	tr.publish(Message{Method: "first"})
+	tr.publish(Message{Method: "second"})
+
+	select {
+	case <-overflow:
+	default:
+		t.Fatal("full update buffer did not signal overflow")
+	}
+	select {
+	case <-fastOverflow:
+		t.Fatal("slow subscriber affected a separate update stream")
+	default:
+	}
+	if err := stopSlow(); !errors.Is(err, ErrUpdateOverflow) {
+		t.Fatalf("unsubscribe error = %v", err)
+	}
+	if msg := <-slow; msg.Method != "first" {
+		t.Fatalf("queued message = %+v", msg)
+	}
+	if _, open := <-slow; open {
+		t.Fatal("unsubscribed stream is still open")
+	}
+	if err := stopFast(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"first", "second"} {
+		if msg := <-fast; msg.Method != want {
+			t.Fatalf("queued message = %+v, want %s", msg, want)
+		}
+	}
+}
+
+func TestOpenKeepsRelativeLauncherAnchoredToGatewayDirectory(t *testing.T) {
+	bin, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	gatewayDir, workspace := t.TempDir(), t.TempDir()
+	if err := os.Symlink(bin, filepath.Join(gatewayDir, "acp-helper")); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(gatewayDir)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	tr, err := Open(ctx, ProcessConfig{
+		Command: "./acp-helper",
+		Args:    []string{"-test.run=TestStdioTransportHelper", "--"},
+		Dir:     workspace,
+		Env:     append(os.Environ(), "AGW_ACP_STDIO_HELPER=large"),
+	}, Handlers{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tr.Close()
+	if _, err := tr.Request(ctx, "ping", nil); err != nil {
+		t.Fatal(err)
+	}
 }

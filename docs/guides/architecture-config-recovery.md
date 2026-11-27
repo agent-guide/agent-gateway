@@ -44,11 +44,51 @@ repeat adaptation and inspection. The tool can repair the adapted JSON if
 that JSON is the configuration you actually run. It does not rewrite the
 Caddyfile from adapted JSON.
 
+## Migrate ACP launchers
+
+Stop all services that use the database. Run the migration against that
+deployment's SQLite file.
+
+```sh
+./scripts/repair-architecture-config --db ./data/configstore.db \
+  --migrate-acp-launchers --backup ./data/configstore.before-acp.db
+./scripts/repair-architecture-config --db ./data/configstore.db
+```
+
+The tool derives launcher names and settings from the stored Agents. It keeps
+the original executable, argument order and working-directory flag. Built-in
+settings reuse `codex` and `opencode` when they match. The launcher definitions
+and Agent references are committed in the same transaction.
+
+If a previous migration already gave an Agent a custom launcher name stored
+in a deployment file, import that file once in the same command.
+
+```sh
+./scripts/repair-architecture-config --db ./data/configstore.db \
+  --migrate-acp-launchers --import-acp-launchers ./data/acp-repair/acp-launchers.json \
+  --backup ./data/configstore.before-acp-registry.db
+```
+
+Use the file that defines the launchers used by those Agents. The importer
+preserves their names and refuses conflicting stored definitions. Remove the
+legacy launcher-file setting from the gateway startup configuration after
+importing. This setting was `acp_launchers_file` in Caddy or
+`--acp-launchers-file` in standalone. After migration, SQLite backups carry
+both sets of records.
+
+Supply static input on apply and recheck when the deployment uses static
+configuration. To resolve unrelated hazards in the same transaction, include
+a `--repair` operation batch. For a legacy Agent that needs explicit changes
+beyond launcher conversion, supply a complete `replace` operation with the
+intended launcher reference. When the database still has the legacy MCP service
+table, combine `--convert-connectors` and `--migrate-acp-launchers` in the same
+SQLite repair. Update source Bundles to use `runtime.acp.launcher`. Review
+explicit `default_model` values before turning on Codex execution because model
+configuration now uses the ACP model option it advertises.
+
 ## Prepare an explicit batch
 
 Stop every service using the database or static file before repairing it.
-`--service-stopped` records this operational prerequisite; it is not a lock or
-a guarantee of coordination between processes.
 
 Write a JSON array of operations. This example converts one direct target,
 deletes an ambiguous route selected by the operator, and explicitly removes an
@@ -96,7 +136,7 @@ Choose an unused backup filename; the tool never overwrites a backup.
 ```sh
 scripts/repair-architecture-config --db /absolute/path/gateway.db \
   --repair /absolute/path/repairs.json --target db \
-  --backup /absolute/path/gateway.before-repair.db --service-stopped
+  --backup /absolute/path/gateway.before-repair.db
 scripts/repair-architecture-config --db /absolute/path/gateway.db
 ```
 
@@ -112,8 +152,8 @@ Extension checks validate stored envelopes without starting module factories or
 resolving secrets.
 
 To repair the static file separately, use `--target static` with
-`--static-config`, `--repair`, `--backup`, and `--service-stopped`; optionally
-supply `--db` as read-only reference context. Static repair saves a private
+`--static-config`, `--repair`, and `--backup`. Supply `--db` when you need
+read-only reference context. Static repair saves a private
 backup and atomically replaces that file after rechecking the emitted bytes.
 Database and static repairs are separate operations, not a shared transaction.
 When both sources need repair, prepare and inspect repaired static input first
@@ -133,7 +173,7 @@ inline authentication and environment values may contain secrets. Run:
 
 ```sh
 scripts/repair-architecture-config --db /path/gateway.db --convert-connectors \
-  --backup /path/gateway.before-connectors.db --service-stopped
+  --backup /path/gateway.before-connectors.db
 ```
 
 The conversion validates the prospective configuration, atomically renames the

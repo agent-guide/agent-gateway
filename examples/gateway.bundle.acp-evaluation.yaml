@@ -11,7 +11,7 @@ agents:
       type: acp
       acp:
         # For OpenCode, use its per-Agent XDG environment from gateway.bundle.acp.yaml.
-        agent_type: codex
+        launcher: codex
         cwd: /workspaces/coding-agent
         allowed_roots: [/workspaces/coding-agent]
         env:

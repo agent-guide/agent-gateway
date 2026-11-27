@@ -11,7 +11,7 @@ Repeated Claude/Codex product names describe separate configuration dimensions:
 | Client ingress | Route `protocol: cc` | Dispatcher CC profile over the shared Anthropic Messages core; includes the local `count_tokens` estimate |
 | Upstream LLM | Provider `provider_type: claudecode` or `codex` | Provider authentication, native protocol, request shaping and capabilities |
 | Provider compatibility | `options.compact: cc` or `codex` | Selected provider's client compatibility shaping; not context compaction |
-| ACP execution | Agent `runtime.acp.agent_type: codex` | Native Agent execution through `codex-acp`; independent of the LLM provider |
+| ACP execution | Agent `runtime.acp.launcher: codex` | Native Agent execution through `codex-acp`; independent of the LLM provider |
 
 These dimensions can be combined independently where the requested protocol
 features are supported. A `cc` route does not require a `claudecode` provider or

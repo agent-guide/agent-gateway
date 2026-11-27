@@ -15,9 +15,8 @@ import (
 	"time"
 
 	"github.com/agent-guide/agent-gateway/internal/strictjson"
-	baseacp "github.com/agent-guide/agent-gateway/pkg/acp"
-	codexconfig "github.com/agent-guide/agent-gateway/pkg/acp/agent/codex/config"
-	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
+	acplauncher "github.com/agent-guide/agent-gateway/pkg/acp/launcher"
+	acpsession "github.com/agent-guide/agent-gateway/pkg/acp/session"
 )
 
 var (
@@ -68,16 +67,15 @@ type Runtime struct {
 // ACPRuntime is the Agent-owned ACP execution configuration. Agent identity,
 // lifecycle metadata, and disabled state stay on Agent itself.
 type ACPRuntime struct {
-	AgentType       string              `json:"agent_type"`
-	CWD             string              `json:"cwd"`
-	AllowedRoots    []string            `json:"allowed_roots,omitempty"`
-	DefaultModel    string              `json:"default_model,omitempty"`
-	Env             map[string]string   `json:"env,omitempty"`
-	ConfigOverrides map[string]string   `json:"config_overrides,omitempty"`
-	IdleTTL         time.Duration       `json:"idle_ttl,omitempty"`
-	MaxInstances    int                 `json:"max_instances,omitempty"`
-	PermissionMode  string              `json:"permission_mode,omitempty"`
-	Codex           *codexconfig.Config `json:"codex,omitempty"`
+	Launcher        string            `json:"launcher"`
+	CWD             string            `json:"cwd"`
+	AllowedRoots    []string          `json:"allowed_roots,omitempty"`
+	DefaultModel    string            `json:"default_model,omitempty"`
+	Env             map[string]string `json:"env,omitempty"`
+	ConfigOverrides map[string]string `json:"config_overrides,omitempty"`
+	IdleTTL         time.Duration     `json:"idle_ttl,omitempty"`
+	MaxInstances    int               `json:"max_instances,omitempty"`
+	PermissionMode  string            `json:"permission_mode,omitempty"`
 }
 
 // HTTPRuntime identifies a remote Agent Card and the policy used to execute it.
@@ -260,39 +258,35 @@ func (c *ACPRuntime) normalize() {
 	}
 	cfg := c.commonHostConfig()
 	cfg.Normalize()
-	c.AgentType, c.CWD, c.AllowedRoots = cfg.AgentType, cfg.CWD, cfg.AllowedRoots
+	c.Launcher, c.CWD, c.AllowedRoots = cfg.Launcher, cfg.CWD, cfg.AllowedRoots
 	c.DefaultModel, c.Env, c.ConfigOverrides = cfg.DefaultModel, cfg.Env, cfg.ConfigOverrides
 	c.IdleTTL, c.MaxInstances, c.PermissionMode = cfg.IdleTTL, cfg.MaxInstances, cfg.PermissionMode
-	c.Codex = c.Codex.Normalized()
 }
 
-func (c ACPRuntime) validate() error {
-	if err := c.commonHostConfig().Validate(); err != nil {
-		return err
+func (c *ACPRuntime) UnmarshalJSON(data []byte) error {
+	type plain ACPRuntime
+	var cfg plain
+	if err := strictjson.Decode(data, &cfg, 4<<20, 64); err != nil {
+		return fmt.Errorf("runtime.acp: %w (use scripts/repair-architecture-config for old stored Agent configurations)", err)
 	}
-	if c.AgentType == baseacp.AgentTypeCodex {
-		return c.Codex.Validate()
-	}
+	*c = ACPRuntime(cfg)
 	return nil
 }
 
-// HostConfig resolves the Agent-owned settings into normalized host settings.
-func (c ACPRuntime) HostConfig() (acphost.Config, error) {
-	cfg := c.commonHostConfig()
-	cfg.Normalize()
-	if cfg.AgentType == baseacp.AgentTypeCodex && c.Codex != nil {
-		codex := c.Codex.Normalized()
-		if err := codex.Validate(); err != nil {
-			return acphost.Config{}, err
-		}
-		cfg.Command, cfg.Args = codex.AdapterCommand, codex.AdapterArgs
-	}
-	return cfg, nil
+func (c ACPRuntime) validate() error {
+	return c.commonHostConfig().ValidateDefinition()
 }
 
-func (c ACPRuntime) commonHostConfig() acphost.Config {
-	cfg := acphost.Config{
-		AgentType:       c.AgentType,
+// HostConfig resolves the Agent-owned settings against deployment launchers.
+func (c ACPRuntime) HostConfig(launchers acplauncher.Launchers) (acpsession.Config, error) {
+	cfg := c.commonHostConfig()
+	cfg.Normalize()
+	return cfg.ResolveLauncher(launchers)
+}
+
+func (c ACPRuntime) commonHostConfig() acpsession.Config {
+	cfg := acpsession.Config{
+		Launcher:        c.Launcher,
 		CWD:             c.CWD,
 		AllowedRoots:    c.AllowedRoots,
 		DefaultModel:    c.DefaultModel,

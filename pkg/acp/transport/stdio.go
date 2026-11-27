@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,19 +17,11 @@ import (
 	"time"
 )
 
-type PermissionMode string
-
-const (
-	PermissionModeDeny        PermissionMode = "deny"
-	PermissionModeAutoApprove PermissionMode = "auto_approve"
-)
-
 type ProcessConfig struct {
-	Command        string
-	Args           []string
-	Dir            string
-	Env            []string
-	PermissionMode PermissionMode
+	Command string
+	Args    []string
+	Dir     string
+	Env     []string
 }
 
 const (
@@ -65,10 +59,16 @@ type Message struct {
 	Params json.RawMessage
 }
 
+// ErrUpdateOverflow means a subscriber could not keep up with the agent.
+var ErrUpdateOverflow = errors.New("ACP update buffer overflow")
+
 type Transport interface {
 	Request(ctx context.Context, method string, params any) (json.RawMessage, error)
 	Notify(method string, params any) error
-	Updates(buffer int) (<-chan Message, func())
+	// Updates subscribes without blocking JSON-RPC responses. On the first
+	// dropped update, overflow closes. Unsubscribe stops delivery and returns
+	// ErrUpdateOverflow if any update was dropped during this subscription.
+	Updates(buffer int) (messages <-chan Message, overflow <-chan struct{}, unsubscribe func() error)
 	// Alive reports whether the underlying connection is still usable. A pooled
 	// transport whose process has exited must not be reused.
 	Alive() bool
@@ -100,12 +100,16 @@ type StdioTransport struct {
 	pending   map[string]chan response
 
 	updatesMu sync.Mutex
-	updates   map[chan Message]struct{}
+	updates   map[chan Message]*updateSubscriber
 
 	done chan struct{}
 
-	handlers       Handlers
-	permissionMode PermissionMode
+	handlers Handlers
+}
+
+type updateSubscriber struct {
+	overflow chan struct{}
+	dropped  bool
 }
 
 // ringBuffer keeps the most recent bytes written to it, bounded to max.
@@ -158,12 +162,17 @@ func Open(ctx context.Context, cfg ProcessConfig, handlers Handlers) (Transport,
 	if command == "" {
 		return nil, fmt.Errorf("acp command is required")
 	}
-	// Preflight: surface a clear error before spawning when the command is not
-	// resolvable, rather than a cryptic exec failure.
-	if _, err := exec.LookPath(command); err != nil {
+	resolved, err := exec.LookPath(command)
+	if err != nil {
 		return nil, fmt.Errorf("acp command %q not found: %w", command, err)
 	}
-	cmd := exec.Command(command, cfg.Args...)
+	// Anchor an explicit relative command before applying the Agent workspace.
+	resolved, err = filepath.Abs(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("resolve acp command %q: %w", command, err)
+	}
+	cmd := exec.Command(resolved, cfg.Args...)
+	cmd.Args[0] = command
 	cmd.Dir = strings.TrimSpace(cfg.Dir)
 	if len(cfg.Env) > 0 {
 		cmd.Env = cfg.Env
@@ -184,14 +193,13 @@ func Open(ctx context.Context, cfg ProcessConfig, handlers Handlers) (Transport,
 		return nil, err
 	}
 	t := &StdioTransport{
-		cmd:            cmd,
-		in:             stdin,
-		stderr:         stderr,
-		pending:        map[string]chan response{},
-		updates:        map[chan Message]struct{}{},
-		done:           make(chan struct{}),
-		handlers:       handlers,
-		permissionMode: cfg.PermissionMode,
+		cmd:      cmd,
+		in:       stdin,
+		stderr:   stderr,
+		pending:  map[string]chan response{},
+		updates:  map[chan Message]*updateSubscriber{},
+		done:     make(chan struct{}),
+		handlers: handlers,
 	}
 	go t.readLoop(stdout)
 	go func() {
@@ -248,19 +256,26 @@ func (t *StdioTransport) Notify(method string, params any) error {
 	return t.write(wireMessage{JSONRPC: "2.0", Method: method, Params: mustMarshal(params)})
 }
 
-func (t *StdioTransport) Updates(buffer int) (<-chan Message, func()) {
+func (t *StdioTransport) Updates(buffer int) (<-chan Message, <-chan struct{}, func() error) {
 	if buffer <= 0 {
 		buffer = 64
 	}
 	ch := make(chan Message, buffer)
+	sub := &updateSubscriber{overflow: make(chan struct{})}
 	t.updatesMu.Lock()
-	t.updates[ch] = struct{}{}
+	t.updates[ch] = sub
 	t.updatesMu.Unlock()
-	return ch, func() {
+	return ch, sub.overflow, func() error {
 		t.updatesMu.Lock()
-		delete(t.updates, ch)
-		close(ch)
-		t.updatesMu.Unlock()
+		defer t.updatesMu.Unlock()
+		if _, ok := t.updates[ch]; ok {
+			delete(t.updates, ch)
+			close(ch)
+		}
+		if sub.dropped {
+			return ErrUpdateOverflow
+		}
+		return nil
 	}
 }
 
@@ -296,8 +311,10 @@ func (t *StdioTransport) readLoop(r io.Reader) {
 			continue
 		}
 		var msg wireMessage
-		if err := json.Unmarshal([]byte(line), &msg); err != nil {
-			continue
+		if err := json.Unmarshal([]byte(line), &msg); err != nil || msg.JSONRPC != "2.0" {
+			t.closePending(fmt.Errorf("ACP stdout contained an invalid JSON-RPC 2.0 message"))
+			_ = t.Close()
+			return
 		}
 		method := strings.TrimSpace(msg.Method)
 		if len(msg.ID) > 0 && method == "" {
@@ -347,10 +364,14 @@ func (t *StdioTransport) handleResponse(msg wireMessage) {
 func (t *StdioTransport) publish(msg Message) {
 	t.updatesMu.Lock()
 	defer t.updatesMu.Unlock()
-	for ch := range t.updates {
+	for ch, sub := range t.updates {
 		select {
 		case ch <- msg:
 		default:
+			if !sub.dropped {
+				sub.dropped = true
+				close(sub.overflow)
+			}
 		}
 	}
 }
@@ -386,13 +407,9 @@ func (t *StdioTransport) answerPermission(id json.RawMessage, params json.RawMes
 }
 
 // resolvePermission runs the host permission decision with a fail-closed
-// timeout. A nil handler uses the configured mode; any timeout, handler error,
-// or absent decision yields "cancelled".
+// timeout. A missing handler or timed-out decision yields "cancelled".
 func (t *StdioTransport) resolvePermission(params json.RawMessage) PermissionResponse {
 	if t.handlers.Permission == nil {
-		if t.permissionMode == PermissionModeAutoApprove {
-			return autoApprovePermission(params)
-		}
 		return PermissionResponse{Outcome: PermissionOutcomeCancelled}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), permissionTimeout)
@@ -423,13 +440,6 @@ func (t *StdioTransport) permissionWire(id json.RawMessage, res PermissionRespon
 		ID:      id,
 		Result:  mustMarshal(wire),
 	}
-}
-
-func autoApprovePermission(params json.RawMessage) PermissionResponse {
-	if id := AllowOptionID(params); id != "" {
-		return PermissionResponse{Outcome: PermissionOutcomeSelected, SelectedOptionID: id}
-	}
-	return PermissionResponse{Outcome: PermissionOutcomeCancelled}
 }
 
 // AllowOptionID returns the id of the permission option that grants access, or

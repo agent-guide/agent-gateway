@@ -19,14 +19,20 @@ helper.
 - `pkg/gateway/agentroute` owns unified ingress matching and `agent_id`
   targeting.
 - `pkg/agent/runtimebackend.ACPBackend` adapts common Agent execution to the native ACP
-  runtime and maintains the canonical `agent_id -> host.Config` snapshot.
-- `pkg/acp/host.Config` defines, normalizes, and validates ACP execution
-  settings. The Agent resolves the effective command and arguments using
-  the `runtime.acp.codex` schema and validator in `pkg/acp/agent/codex/config`.
-  The host passes the working directory, environment, and optional command and
-  arguments to the adapter via `agentspi.OpenRequest`.
-- `pkg/acp/host.Manager` owns process pools, native sessions, permissions,
-  transcripts, and exact-run cancellation.
+  runtime and maintains the canonical `agent_id -> session.Config` snapshot.
+- `pkg/acp/launcher` owns the bundled Codex and OpenCode launch presets and the
+  persisted launcher record format.
+- `pkg/acp/session.Config` normalizes and validates ACP execution settings.
+  The Agent references a deployment-owned launcher by name. Both gateway hosts
+  load `acp_launchers` from ConfigStore and resolve its executable and arguments
+  before publishing Agent definitions. Deployment operators manage the registry
+  through the offline SQLite tool.
+- `pkg/acp/client` provides one stdio client for all launchers. It sends
+  standard ACP v1 requests and uses the same JSON-RPC transport for bundled
+  `codex-acp`, OpenCode, and deployment-provided agents.
+- `pkg/acp/session.Manager` owns process pools, native sessions, permissions,
+  transcripts, and exact-run cancellation. Within the host, session setup,
+  prompt streaming, option handling, and cached metadata have separate files.
 - `pkg/agent/execution` owns common run IDs, event envelopes, capabilities,
   permission brokering, and normalized errors.
 
@@ -49,7 +55,10 @@ retire stale instances. The fingerprint covers the resolved command and
 arguments. Active instances drain and idle ones close immediately. The native
 manager rechecks the accepted owner fingerprint before inserting a newly
 created process, preventing an old
-request from repopulating retired state.
+request from repopulating retired state. Optional session capabilities are
+recorded from the ACP handshake for the current fingerprint. The Admin
+capabilities response reports discovery pending until an ordinary turn or
+session read produces evidence.
 
 ## Request Flow
 
@@ -63,7 +72,7 @@ POST /<agent-route>/turn
   -> resolve AgentRoute.agent_id from memory
   -> resolve Agent definition from immutable snapshot
   -> runtime registry selects ACPBackend
-  -> ACPBackend reads the agent_id keyed host.Config snapshot
+  -> ACPBackend reads the agent_id keyed session.Config snapshot
   -> native manager reuses or creates a fingerprint-matching process
   -> native ACP session/new or session/load + session/prompt
   -> common Agent SSE envelope
@@ -99,12 +108,12 @@ independent of the logger's console timestamp format. `elapsed_ms` measures
 monotonic elapsed time from diagnostic context creation, and completed phases
 include `duration_ms`, `success`, `cancelled`, and `deadline_exceeded`.
 
-Records distinguish instance creation/reuse/adoption, process opening, session
-initialization (including adapter-owned model selection requests), individual ACP
-requests (`initialize`, `session/new`,
-`session/load`, `session/set_config_option`, `session/prompt`), per-turn config
-overrides, first updates by kind, tool status updates, interactive permission
-waits, post-result draining, deferred stable-session lookup, and turn completion.
+Records distinguish instance creation/reuse/adoption, process opening, and
+session initialization. Individual ACP requests include `initialize`,
+`session/new`, `session/load`, `session/set_config_option` (including model
+selection), and `session/prompt`. Turn records cover config overrides, first
+updates by kind, tool status updates, interactive permission waits,
+post-result draining, and turn completion.
 Permission wait completion reports delivery/setup failures separately from context
 cancellation and deadline expiry.
 The prompt loop emits a waiting record every ten seconds with event counts and
@@ -154,6 +163,9 @@ GET /admin/agents/{agent_id}/sessions/{session_id}/transcript
 
 The gateway checks advertised native capabilities before list/load and applies
 the optional `cwd` filter only after symlink-canonicalizing both sides.
+Transient session readers cancel permission requests. Prompt streams and
+transcript reads fail if their update subscription overflows. A prompt
+overflow also closes the affected process before another turn can reuse it.
 
 ## Runtime Diagnostics
 
@@ -186,11 +198,13 @@ builtin Agent follows the same Agent attribution rules.
 New binaries run a read-only SQLite preflight before normal open. Legacy ACP
 service rows, `kind=acp|builtin` routes, and Agent JSON containing service
 ownership fields fail with `legacy_agent_runtime_config`. Operators export
-with the old binary, run `scripts/migrate-unified-agent-runtime`, apply the
-converted bundle to a clean store, and then switch binaries. The helper embeds
+with the old binary and run `scripts/migrate-unified-agent-runtime`. Update the
+resulting inline ACP definitions to use `launcher` before applying the bundle
+to a clean store. The helper embeds
 ACP service config into Agents, converts runtime-specific routes to
 AgentRoutes, rewrites VirtualKey references, removes server timestamps, and
-checks route-ID collisions across all families.
+checks route-ID collisions across all families. For inline Agent definitions in
+an existing SQLite store, use [offline launcher migration](../guides/architecture-config-recovery.md#migrate-acp-launchers).
 
 Client session and permission identifiers are not authority. The Gateway ACP
 adapter binds them to authenticated dispatcher VirtualKey/route/runtime scope

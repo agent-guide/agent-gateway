@@ -254,6 +254,7 @@ const (
  StoreLogicalModels = "logical_models"
 	StoreConnectors   = "connectors"
 	StoreAgents        = "agents"
+ StoreACPLaunchers  = "acp_launchers"
  StoreExtensions    = "extensions"
 )
 ```
@@ -377,7 +378,20 @@ store.Delete(ctx, providerID, upstreamModel)
 - timestamped: yes
 - decoded type: `*agent.Agent`
 
-### 6.8 Extensions
+### 6.8 ACP launchers
+
+- schema variable: `schema.ACPLauncherSchema`
+- store name and table: `acp_launchers`
+- primary key: `id`
+- data column: `config`
+- timestamped: no
+- decoded type: `launcher.Definition`
+
+Both hosts load a startup snapshot of these deployment-managed records. The
+offline SQLite tool manages the registry and commits legacy launcher definitions
+with their Agent references.
+
+### 6.9 Extensions
 
 - schema variable: `schema.ExtensionSchema`
 - store name and table: `extensions`

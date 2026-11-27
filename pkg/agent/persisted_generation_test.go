@@ -26,7 +26,7 @@ func (s timestampStore) Update(ctx context.Context, value any) error {
 func TestPublishedSnapshotMatchesPersistedTimes(t *testing.T) {
 	store := timestampStore{newTestConfigStore()}
 	manager := NewManager(store)
-	a := Agent{ID: "persisted", Name: "Persisted", Runtime: Runtime{Type: RuntimeTypeACP, ACP: &ACPRuntime{AgentType: "codex", CWD: "/tmp"}}}
+	a := Agent{ID: "persisted", Name: "Persisted", Runtime: Runtime{Type: RuntimeTypeACP, ACP: &ACPRuntime{Launcher: "codex", CWD: "/tmp"}}}
 	if err := manager.Create(t.Context(), a); err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func (s *readbackFailureStore) Get(ctx context.Context, id ...any) (any, error) 
 func TestPersistedMutationReadbackFailureRecoversOnRefresh(t *testing.T) {
 	store := &readbackFailureStore{ConfigStore: newTestConfigStore()}
 	manager := NewManager(store)
-	a := Agent{ID: "recover", Name: "Before", Runtime: Runtime{Type: RuntimeTypeACP, ACP: &ACPRuntime{AgentType: "codex", CWD: "/tmp"}}}
+	a := Agent{ID: "recover", Name: "Before", Runtime: Runtime{Type: RuntimeTypeACP, ACP: &ACPRuntime{Launcher: "codex", CWD: "/tmp"}}}
 	if err := manager.Create(t.Context(), a); err == nil {
 		t.Fatal("claimed verified creation")
 	}

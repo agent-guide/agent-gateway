@@ -195,8 +195,8 @@ Responses 转 Chat 时自动使用可逆别名展开工具；原生 Responses �
 - Memory、持久化 Workflow、Schedule、持久化 Human Task、企业 IAM/SSO、组织
   Role、成本预算和持久化合规审计账本尚未实现。
 - 交互式 Agent 工具权限决策已经实现，但它不是通用 Human Task 工作流系统。
-- ACP 执行需要 Workspace 和上游鉴权。二进制部署需安装所选的
-  `codex-acp` 或 `opencode`。
+- ACP 执行需要 Workspace 和上游鉴权。可选用 `codex` 或 `opencode`
+  启动配置，也可以用离线配置工具将其他 [ACP v1 stdio 启动配置](docs/reference/acp-technical-spec.md#deployment-launchers) 注册到网关的 SQLite 数据库。
 - OAuth 刷新需要单独安装 `agw-auth` 命令或兼容的外部刷新程序。
 - 运维 Event 和 Trace 提供遥测证据，但不构成合规记录。
 

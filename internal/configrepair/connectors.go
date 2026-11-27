@@ -12,9 +12,15 @@ import (
 
 // ConvertConnectors is an explicit stopped-service cutover. It never opens the
 // runtime stores, creates credentials, or modifies historical usage tables.
-func ConvertConnectors(ctx context.Context, db *sql.DB, backup string, stopped bool, operations ...Operation) error {
-	if !stopped || backup == "" {
-		return fmt.Errorf("conversion requires --service-stopped and unused --backup")
+func ConvertConnectors(ctx context.Context, db *sql.DB, backup string, operations ...Operation) error {
+	return convertConnectors(ctx, db, backup, func(records []Record) ([]Record, []Operation, error) {
+		return records, operations, nil
+	})
+}
+
+func convertConnectors(ctx context.Context, db *sql.DB, backup string, prepare prepareSQLiteRepair) error {
+	if backup == "" {
+		return fmt.Errorf("conversion requires an unused --backup path")
 	}
 	var old, target int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='mcp_services'`).Scan(&old); err != nil {
@@ -50,6 +56,16 @@ func ConvertConnectors(ctx context.Context, db *sql.DB, backup string, stopped b
 		return err
 	}
 	original := append([]Record(nil), records...)
+	records, operations, err := prepare(records)
+	if err != nil {
+		return err
+	}
+	launcherWrites := map[string]bool{}
+	for _, op := range operations {
+		if op.Family == "acp_launchers" {
+			launcherWrites[op.ID] = true
+		}
+	}
 	if len(operations) > 0 {
 		records, err = Apply(records, operations)
 		if err != nil {
@@ -147,6 +163,11 @@ func ConvertConnectors(ctx context.Context, db *sql.DB, backup string, stopped b
 		}
 	}
 	for _, r := range records {
+		if r.Family == "acp_launchers" && launcherWrites[r.ID] {
+			if err := writeACPLauncher(ctx, tx, r); err != nil {
+				return err
+			}
+		}
 		if r.Family != "connectors" && r.Family != "agents" && r.Family != "routes" {
 			continue
 		}

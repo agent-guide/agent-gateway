@@ -30,13 +30,15 @@ Read pkg/acp, pkg/agent/builtin and pkg/a2a AGENTS before changing behavior.
 
 ## Runtime-config snapshots (`runtime_backends.go`)
 
-`ACPBackend` builds the canonical `agent_id -> host.Config`
-snapshot solely from `Agent.runtime.acp` during the three-stage Agent
-definition commit. The fingerprint covers effective host settings including
+`ACPBackend` builds the canonical `agent_id -> session.Config`
+snapshot from `Agent.runtime.acp` and deployment-owned launchers during the
+three-stage Agent definition commit. The fingerprint covers effective host settings including
 the resolved command and arguments. A changed fingerprint, disabled state,
 runtime switch, or deletion retires stale pools and drains pending permissions before the
 replacement generation becomes dispatchable. There is no ACP service store or
-fallback configuration source.
+fallback configuration source. ACP session capability values come from Host
+handshake evidence for the current fingerprint. Before evidence is available,
+expose discovery pending and let the actual operation negotiate support.
 
 The shared `HTTPRuntimeManager` and Path B adapter (`HTTPBackend`) are implemented
 according to

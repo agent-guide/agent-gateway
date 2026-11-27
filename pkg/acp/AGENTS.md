@@ -8,19 +8,21 @@ status belong in `docs/architecture/acp-architecture.md`.
 
 - ACP is implemented natively in this repository; do not add a dependency on
   `github.com/beyond5959/ngent`.
-- Supported runtime adapters are registered through `pkg/acp/agentspi`; shared
-  wire parsing belongs in `pkg/acp/host`, with `session/update` parsing in
-  `pkg/acp/host/acpupdate`.
-- `pkg/acp/host` owns the complete ACP execution config, its normalization
-  and validation. At the gateway adapter boundary, pass the Agent-owned
-  settings as `host.Config` with `agent_id` supplied separately as the
-  runtime owner key. Keep Agent control-plane dependencies out of `pkg/acp`.
-  `pkg/acp/agent/codex/config` defines and validates the `runtime.acp.codex`
-  block independently of adapter registration. Convert that block into the
-  effective command and arguments when preparing `host.Config`. The host
-  passes process launch settings to the adapter SPI in `agentspi.OpenRequest`.
+- All deployment launchers use the same stdio ACP v1 client in
+  `pkg/acp/client`. Require a JSON-RPC 2.0 envelope and ACP v1 handshake
+  before any session operation. Shared update parsing belongs in
+  `pkg/acp/session/acpupdate`.
+- `pkg/acp/launcher` owns bundled per-agent launch presets and the persisted
+  launcher record format. Launchers supply a trusted executable, arguments and
+  optional cwd flag. `pkg/acp/session` applies the launcher to execution config.
+  Both gateway hosts load the `acp_launchers` ConfigStore at startup and validate
+  launcher references before Agent publication. Deployment operators manage
+  the registry offline.
+  Agent-owned settings supply cwd, environment and session options.
+  Supply `agent_id` separately as the runtime owner key and keep Agent
+  control-plane dependencies out of `pkg/acp`.
 - Pooled instances record the config content fingerprint they were created
-  under (`host.Config.Fingerprint` / the internal `configFingerprint`). A
+  under (`session.Config.Fingerprint` / the internal `configFingerprint`). A
   turn never reuses an instance whose fingerprint differs from the current
   config, and `Manager.RetireOwner(ownerID, keepFingerprint)` closes idle
   stale instances immediately while active ones drain their in-flight turn
@@ -36,24 +38,30 @@ status belong in `docs/architecture/acp-architecture.md`.
   ACP outcome shape and preserve the exact option ids supplied by the agent;
   never reply with a flat `approved`/`declined` outcome.
 - Do not add `model` or `modelId` to `session/new` or `session/prompt`. Apply
-  model selection and other overrides through `session/set_config_option`.
+  model selection and other overrides through `session/set_config_option` using
+  agent-advertised option IDs.
 - Keep permission replies off the transport read loop. Missing streaming
   clients, timeouts, and transient session-list/transcript connections must
   not auto-approve requests.
 - Continue draining prompt updates for the configured quiet grace period after
   the prompt result; real adapters may deliver final message chunks after the
   result.
-- Keep raw wire session ids distinct from host-bound ids. Use the existing
-  `StableSessionResolver`/`SessionLoadResolver` seams for adapters whose ids
-  differ instead of rewriting shared driver semantics.
+- Keep raw wire session IDs and host ownership distinct. All launchers use
+  the same ACP v1 session operations.
+- Prompt and transcript subscribers must report buffer overflow as an error.
+  The lifetime metadata cache uses a separate best-effort subscription. A
+  prompt whose stream overflows must retire its process from reuse.
 
 ## Sessions and errors
 
 - Check advertised ACP capabilities before calling session list or load.
+  Cache handshake evidence for the current owner fingerprint and discard
+  observations from retired configurations. Capability reads do not start
+  subprocesses.
 - Apply the optional session-list `cwd` filter in the gateway after
   symlink-canonicalizing both sides; never forward that filter to the agent.
 - Preserve the shared HTTP error contract: missing Agent is `404`,
-  client-correctable input represented by `acphost.ErrInvalidRequest` is
+  client-correctable input represented by `acpsession.ErrInvalidRequest` is
   `400`, and agent/transport failure is `502`.
 - Pool changes must preserve dead-instance eviction, idle cleanup, instance
   caps, and scope rebind: a session-addressed turn adopts the live instance

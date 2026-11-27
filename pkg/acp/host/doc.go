@@ -1,6 +1,0 @@
-// Package host owns the gateway-managed ACP process configuration and
-// lifecycle, pooled instances, sessions, permissions, transcripts, and native
-// turn execution.
-// It implements ACP-specific execution facilities below the unified Agent
-// contracts in pkg/agent/execution.
-package host

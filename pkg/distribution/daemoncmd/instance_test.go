@@ -92,3 +92,13 @@ func TestConnectorEgressFlagReachesServerValidation(t *testing.T) {
 		t.Fatalf("invalid egress created storage: %v", err)
 	}
 }
+
+func TestRejectLegacyACPLaunchersFileFlag(t *testing.T) {
+	cmd := NewCommand(Options{Assembly: distribution.CommunityRuntime()})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--acp-launchers-file", "legacy.json"})
+	if err := cmd.ExecuteContext(t.Context()); err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("legacy ACP launcher flag error = %v", err)
+	}
+}

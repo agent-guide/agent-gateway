@@ -95,7 +95,7 @@ The OpenAI-compatible chat providers (`openai`, `deepseek`, `openrouter`, `zhipu
 
 `compact` means client compatibility shaping, not context compaction. It is
 independent of route `protocol=cc`, provider `provider_type=codex|claudecode`,
-and Agent `runtime.acp.agent_type=codex`. Inapplicable valid modes can be accepted
+and Agent `runtime.acp.launcher=codex`. Inapplicable valid modes can be accepted
 and ignored. Invalid modes produce constructor errors in the six Chat providers,
 Codex and Claude Code; Anthropic, Gemini and Ollama accept and ignore them.
 Check the [complete support matrix](../design/provider-compatibility.md) before

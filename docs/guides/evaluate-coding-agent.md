@@ -121,7 +121,7 @@ podman exec -e HOME=/workspaces/coding-agent/home \
 Enable device-code login in the ChatGPT account or workspace if required.
 See [Codex authentication](https://learn.chatgpt.com/docs/auth#login-on-headless-devices).
 
-To evaluate OpenCode instead, set `agent_type: opencode` in the evaluation
+To evaluate OpenCode instead, set `launcher: opencode` in the evaluation
 Bundle and replace its `env` with the OpenCode environment from the ACP Bundle
 example, using `/workspaces/coding-agent` as the workspace in the environment
 and login command.

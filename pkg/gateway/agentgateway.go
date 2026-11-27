@@ -18,7 +18,8 @@ import (
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
 	"github.com/agent-guide/agent-gateway/internal/statuserr"
-	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
+	acplauncher "github.com/agent-guide/agent-gateway/pkg/acp/launcher"
+	acpsession "github.com/agent-guide/agent-gateway/pkg/acp/session"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	builtinpkg "github.com/agent-guide/agent-gateway/pkg/agent/builtin"
 	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
@@ -167,7 +168,11 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	if err := g.configureConnectorManager(ctx, opts); err != nil {
 		return err
 	}
-	if err := g.configureAgentManager(ctx, opts.ConfigStoreBackend); err != nil {
+	launchers, err := loadACPLaunchers(ctx, opts.ConfigStoreBackend)
+	if err != nil {
+		return fmt.Errorf("load ACP launchers: %w", err)
+	}
+	if err := g.configureAgentManager(ctx, opts.ConfigStoreBackend, launchers); err != nil {
 		return err
 	}
 	if err := g.configureVirtualKeyManager(ctx, opts.ConfigStoreBackend); err != nil {
@@ -201,10 +206,10 @@ func (g *AgentGateway) Bootstrap(ctx context.Context, opts BootstrapOptions) err
 	// Concrete runtime assembly consumes only explicitly injected capabilities.
 	backends, err := runtimebackend.Assemble(ctx, runtimebackend.AssemblyOptions{
 		Agents: g.agentManager, Credentials: g.credentialManager,
-		Builtin:    builtinpkg.Config{Models: routedChatModelResolver{gateway: g}, Tools: g.connectorManager, Observer: g.usageObserver},
-		Registry:   g.runtimeRegistry,
-		Controls:   runtimebackend.RuntimeControls{Runs: g.runRegistry, Permissions: g.permissionBroker, Logger: opts.Logger},
-		ACPRuntime: opts.ACPRuntime, HTTPBackend: opts.HTTPBackend,
+		Builtin:      builtinpkg.Config{Models: routedChatModelResolver{gateway: g}, Tools: g.connectorManager, Observer: g.usageObserver},
+		Registry:     g.runtimeRegistry,
+		Controls:     runtimebackend.RuntimeControls{Runs: g.runRegistry, Permissions: g.permissionBroker, Logger: opts.Logger},
+		ACPLaunchers: launchers, ACPRuntime: opts.ACPRuntime, HTTPBackend: opts.HTTPBackend,
 	})
 	if err != nil {
 		return err
@@ -375,7 +380,7 @@ func (g *AgentGateway) MCPRuntimeRegistry() *mcptracking.Registry {
 	return g.mcpRuntimeRegistry
 }
 
-func (g *AgentGateway) ACPRuntimeManager() *acphost.Manager {
+func (g *AgentGateway) ACPRuntimeManager() *acpsession.Manager {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	if g.backends == nil {
@@ -619,7 +624,41 @@ func (g *AgentGateway) configureConnectorManager(ctx context.Context, opts Boots
 	return g.connectorManager.Refresh(ctx)
 }
 
-func (g *AgentGateway) configureAgentManager(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend) error {
+func loadACPLaunchers(ctx context.Context, backend configstore.ConfigStoreBackend) (acplauncher.Launchers, error) {
+	launchers := acplauncher.DefaultLaunchers()
+	if backend == nil {
+		return launchers, nil
+	}
+	store, err := backend.Get(schema.StoreACPLaunchers)
+	if errors.Is(err, configstore.ErrUnknownStoreName) {
+		return launchers, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if store == nil {
+		return launchers, nil
+	}
+	records, err := store.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool, len(records))
+	for _, record := range records {
+		definition, ok := record.(acplauncher.Definition)
+		if !ok {
+			return nil, fmt.Errorf("unexpected launcher record type %T", record)
+		}
+		if seen[definition.ID] {
+			return nil, fmt.Errorf("duplicate stored ACP launcher %q", definition.ID)
+		}
+		seen[definition.ID] = true
+		launchers[definition.ID] = definition.Launcher
+	}
+	return launchers, nil
+}
+
+func (g *AgentGateway) configureAgentManager(ctx context.Context, configStoreBackend configstore.ConfigStoreBackend, launchers acplauncher.Launchers) error {
 	if g.agentManager != nil {
 		return nil
 	}
@@ -633,6 +672,13 @@ func (g *AgentGateway) configureAgentManager(ctx context.Context, configStoreBac
 	manager := agentpkg.NewManager(store, g.control.agentMutation)
 	manager.SetRouteLookup(agentRouteLookup{agent: g.agentRouteResolver})
 	manager.SetResourceRouteValidator(g.validateAgentResourceRoutes)
+	manager.SetRuntimeValidator(func(runtime agentpkg.Runtime) error {
+		if runtime.Type != agentpkg.RuntimeTypeACP || runtime.ACP == nil {
+			return nil
+		}
+		_, err := runtime.ACP.HostConfig(launchers)
+		return err
+	})
 	if err := manager.Refresh(ctx); err != nil {
 		return fmt.Errorf("load agents: %w", err)
 	}

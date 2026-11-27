@@ -17,8 +17,6 @@ import (
 	_ "github.com/agent-guide/agent-gateway/caddy/gateway"
 
 	// ACP agents register runtime factories through init.
-	_ "github.com/agent-guide/agent-gateway/pkg/acp/agent/codex"
-	_ "github.com/agent-guide/agent-gateway/pkg/acp/agent/opencode"
 
 	// LLM Providers (register runtime factories via init())
 	_ "github.com/agent-guide/agent-gateway/pkg/llm/provider/anthropic"

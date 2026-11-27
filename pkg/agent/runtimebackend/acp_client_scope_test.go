@@ -8,26 +8,26 @@ import (
 	"testing"
 
 	"github.com/agent-guide/agent-gateway/internal/observability/usage"
-	acphost "github.com/agent-guide/agent-gateway/pkg/acp/host"
+	acpsession "github.com/agent-guide/agent-gateway/pkg/acp/session"
 	agentpkg "github.com/agent-guide/agent-gateway/pkg/agent"
 	agentexecution "github.com/agent-guide/agent-gateway/pkg/agent/execution"
 )
 
 type scopedACPRuntime struct {
-	requests  []acphost.TurnRequest
+	requests  []acpsession.TurnRequest
 	decisions int
 }
 
-func (r *scopedACPRuntime) ServeConfiguredTurn(_ context.Context, _ string, _ acphost.Config, req acphost.TurnRequest, emit acphost.EventSink) error {
+func (r *scopedACPRuntime) ServeConfiguredTurn(_ context.Context, _ string, _ acpsession.Config, req acpsession.TurnRequest, emit acpsession.EventSink) error {
 	r.requests = append(r.requests, req)
 	id := "session-" + req.ThreadID
-	if err := emit(acphost.TurnEvent{Event: agentexecution.EventSession, SessionID: id}); err != nil {
+	if err := emit(acpsession.TurnEvent{Event: agentexecution.EventSession, SessionID: id}); err != nil {
 		return err
 	}
-	return emit(acphost.TurnEvent{Event: agentexecution.EventPermission, SessionID: id, RequestID: "pending-" + req.RunID,
+	return emit(acpsession.TurnEvent{Event: agentexecution.EventPermission, SessionID: id, RequestID: "pending-" + req.RunID,
 		Data: json.RawMessage(`{"options":[{"optionId":"allow-once","kind":"allow_once"}]}`)})
 }
-func (r *scopedACPRuntime) ResolvePermission(acphost.PermissionDecision) error {
+func (r *scopedACPRuntime) ResolvePermission(acpsession.PermissionDecision) error {
 	r.decisions++
 	return nil
 }
@@ -37,7 +37,7 @@ func TestACPClientScopesGuardNativeSessionsAndPermissions(t *testing.T) {
 	broker := agentexecution.NewPermissionBroker()
 	t.Cleanup(func() { broker.Close(t.Context()) })
 	backend := NewACPBackend(native, RuntimeControls{Permissions: broker})
-	a := agentpkg.Agent{ID: "agent", Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeACP, ACP: inlineACPRuntime(acphost.Config{AgentType: "opencode", CWD: "/workspace", PermissionMode: "interactive"})}}
+	a := agentpkg.Agent{ID: "agent", Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeACP, ACP: inlineACPRuntime(acpsession.Config{Launcher: "opencode", CWD: "/workspace", PermissionMode: "interactive"})}}
 	backend.RefreshRuntimeConfigs(t.Context(), []agentpkg.Agent{a})
 	client := func(key, route string) context.Context {
 		return usage.ContextWithDimensions(t.Context(), usage.InteractionDimensions{VirtualKeyID: key, RouteID: route})
@@ -106,14 +106,14 @@ func TestACPClientScopesGuardNativeSessionsAndPermissions(t *testing.T) {
 	}
 }
 
-func (r *scopedACPRuntime) ListConfiguredSessions(_ context.Context, _ string, _ acphost.Config, req acphost.ListSessionsRequest) (acphost.ListSessionsResponse, error) {
+func (r *scopedACPRuntime) ListConfiguredSessions(_ context.Context, _ string, _ acpsession.Config, req acpsession.ListSessionsRequest) (acpsession.ListSessionsResponse, error) {
 	seen := map[string]bool{}
-	out := acphost.ListSessionsResponse{NextCursor: req.Cursor}
+	out := acpsession.ListSessionsResponse{NextCursor: req.Cursor}
 	for _, request := range r.requests {
 		id := "session-" + request.ThreadID
 		if !seen[id] {
 			seen[id] = true
-			out.Sessions = append(out.Sessions, acphost.SessionInfo{SessionID: id, Title: "retained metadata"})
+			out.Sessions = append(out.Sessions, acpsession.SessionInfo{SessionID: id, Title: "retained metadata"})
 		}
 	}
 	return out, nil
@@ -121,7 +121,7 @@ func (r *scopedACPRuntime) ListConfiguredSessions(_ context.Context, _ string, _
 func TestACPScopedSessionListingRetainsPaginationAndMetadata(t *testing.T) {
 	native := &scopedACPRuntime{}
 	backend := NewACPBackend(native)
-	a := agentpkg.Agent{ID: "agent", Runtime: agentpkg.Runtime{Type: "acp", ACP: inlineACPRuntime(acphost.Config{AgentType: "opencode", CWD: "/workspace"})}}
+	a := agentpkg.Agent{ID: "agent", Runtime: agentpkg.Runtime{Type: "acp", ACP: inlineACPRuntime(acpsession.Config{Launcher: "opencode", CWD: "/workspace"})}}
 	backend.RefreshRuntimeConfigs(t.Context(), []agentpkg.Agent{a})
 	ctx := usage.ContextWithDimensions(t.Context(), usage.InteractionDimensions{RouteID: "route", VirtualKeyID: "key"})
 	if err := backend.ServeTurn(ctx, a, agentexecution.TurnRequest{Input: "hello", Options: agentexecution.TurnOptions{Runtime: json.RawMessage(`{"thread_id":"thread"}`)}}, func(agentexecution.TurnEvent) error { return nil }); err != nil {

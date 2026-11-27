@@ -45,7 +45,7 @@ func TestOfflineSQLiteNullPayloadInspectionAndRepair(t *testing.T) {
 				}
 				ops := repairOperations()
 				ops[opIndex] = Operation{Family: family, ID: id, Action: action, Data: data}
-				if err := RepairSQLite(t.Context(), db, path+".bak", true, nil, ops); err != nil {
+				if err := RepairSQLite(t.Context(), db, path+".bak", nil, ops); err != nil {
 					t.Fatal(err)
 				}
 				after, err := ReadSQLite(t.Context(), db)

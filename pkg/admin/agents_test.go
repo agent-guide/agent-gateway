@@ -387,7 +387,7 @@ func TestAgentInteractionsAllowsDiagnosticFilters(t *testing.T) {
 		ID:   "coding-agent",
 		Name: "Coding Agent",
 		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeACP, ACP: &agentpkg.ACPRuntime{
-			AgentType: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"},
+			Launcher: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"},
 		}},
 	}); err != nil {
 		t.Fatalf("create agent: %v", err)
@@ -439,7 +439,7 @@ func TestMetricInteractionsResolvesAgentAttribution(t *testing.T) {
 		ID:   "coding-agent",
 		Name: "Coding Agent",
 		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeACP, ACP: &agentpkg.ACPRuntime{
-			AgentType: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"},
+			Launcher: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"},
 		}},
 		Routes: agentpkg.Routes{LLMRouteIDs: []string{"llm-route"}},
 	}); err != nil {
@@ -580,7 +580,7 @@ func TestAgentUsageIncludesAttributedLLMTimeseries(t *testing.T) {
 		ID:   "coding-agent",
 		Name: "Coding Agent",
 		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeACP, ACP: &agentpkg.ACPRuntime{
-			AgentType: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"},
+			Launcher: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"},
 		}},
 		Routes: agentpkg.Routes{LLMRouteIDs: []string{"llm-route"}},
 	}); err != nil {
@@ -636,7 +636,7 @@ func TestMetricsTimeseriesResolvesAgentAttribution(t *testing.T) {
 		ID:   "coding-agent",
 		Name: "Coding Agent",
 		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeACP, ACP: &agentpkg.ACPRuntime{
-			AgentType: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"},
+			Launcher: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"},
 		}},
 		Routes: agentpkg.Routes{LLMRouteIDs: []string{"llm-route"}},
 	}); err != nil {
@@ -726,7 +726,7 @@ func TestAgentUsageReturnsBadRequestOnMetricQueryError(t *testing.T) {
 		ID:   "coding-agent",
 		Name: "Coding Agent",
 		Runtime: agentpkg.Runtime{Type: agentpkg.RuntimeTypeACP, ACP: &agentpkg.ACPRuntime{
-			AgentType: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"},
+			Launcher: "codex", CWD: "/tmp", AllowedRoots: []string{"/tmp"},
 		}},
 	}); err != nil {
 		t.Fatalf("create agent: %v", err)
@@ -740,5 +740,49 @@ func TestAgentUsageReturnsBadRequestOnMetricQueryError(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, body = %s; want 400", rec.Code, rec.Body.String())
+	}
+}
+
+type sessionDiscoveryBackend struct{}
+
+func (sessionDiscoveryBackend) RuntimeType() string { return agentpkg.RuntimeTypeACP }
+func (sessionDiscoveryBackend) Capabilities(context.Context, agentpkg.Agent) (agentexecution.Capabilities, error) {
+	return agentexecution.Capabilities{
+		Executable: true, Sessions: agentexecution.SessionCapabilities{DiscoveryPending: true},
+	}, nil
+}
+func (sessionDiscoveryBackend) ServeTurn(context.Context, agentpkg.Agent, agentexecution.TurnRequest, agentexecution.EventSink) error {
+	return nil
+}
+func (sessionDiscoveryBackend) ListSessions(context.Context, agentpkg.Agent, agentexecution.ListSessionsRequest) (agentexecution.ListSessionsResponse, error) {
+	return agentexecution.ListSessionsResponse{Sessions: []agentexecution.Session{{SessionID: "discovered"}}}, nil
+}
+func (sessionDiscoveryBackend) LoadTranscript(_ context.Context, _ agentpkg.Agent, req agentexecution.TranscriptRequest) (agentexecution.TranscriptResponse, error) {
+	return agentexecution.TranscriptResponse{SessionID: req.SessionID}, nil
+}
+
+func TestAdminSessionReadsCanDiscoverCapabilities(t *testing.T) {
+	store := newAgentConfigStore()
+	a := &agentpkg.Agent{ID: "worker", Name: "Worker", Runtime: agentpkg.Runtime{
+		Type: agentpkg.RuntimeTypeACP, ACP: &agentpkg.ACPRuntime{Launcher: "codex", CWD: t.TempDir()},
+	}}
+	if err := store.Create(t.Context(), a); err != nil {
+		t.Fatal(err)
+	}
+	registry := agentexecution.NewRegistry()
+	if err := registry.Register(sessionDiscoveryBackend{}); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{agentManager: agentpkg.NewManager(store), runtimeRegistry: registry}
+	req := httptest.NewRequest(http.MethodGet, "/admin/agents/worker/sessions", nil)
+	req.SetPathValue("id", a.ID)
+	req.SetPathValue("session_id", "discovered")
+
+	for _, handle := range []http.HandlerFunc{h.handleListAgentSessions, h.handleGetAgentTranscript} {
+		rec := httptest.NewRecorder()
+		handle.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "discovered") {
+			t.Fatalf("first session read status=%d body=%s", rec.Code, rec.Body)
+		}
 	}
 }
