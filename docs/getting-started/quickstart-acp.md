@@ -9,14 +9,17 @@ Protocol (`at`), and inspects the Agent runtime.
 - Codex auth already configured
 - `codex-acp` on `PATH`
 
-Install the adapter if needed:
+For a binary deployment, install the adapter:
 
 ```bash
-npm install -g @zed-industries/codex-acp
+npm install -g @agentclientprotocol/codex-acp
 ```
 
-For OpenCode, install and authenticate `opencode`, then set
-`runtime.acp.agent_type: opencode`.
+For the container build and Codex login, see the
+[coding-agent evaluation guide](../guides/evaluate-coding-agent.md#use-the-gateway-container-with-podman).
+
+For OpenCode, use the
+[per-Agent workspace and login example](../guides/evaluate-coding-agent.md#give-each-agent-its-own-workspace-and-login).
 
 ## 1. Build And Configure
 

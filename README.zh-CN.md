@@ -115,7 +115,7 @@ OpenTelemetry Collector 和 Grafana。Fixture 和允许本地匿名访问的 Gra
 
 | 路径 | 适用场景 | 需要自行提供 |
 | --- | --- | --- |
-| **ACP** | 把 Codex 或 OpenCode 作为受保护的内部 Agent API 驱动 | 外部 ACP Adapter、Workspace 及其上游鉴权 |
+| **ACP** | 把 Codex 或 OpenCode 作为受保护的内部 Agent API 驱动 | Workspace 和上游鉴权。仓库构建的容器镜像包含两个 Adapter。 |
 | **HTTP/A2A** | 连接由任意技术栈实现的 Agent | 远程 A2A Protocol 1.0 Agent Card 和服务 |
 | **Builtin** | 在进程内实例化由配置定义的 Agent | Gateway LLM Route、可选的统一管理 MCP 工具，以及受支持的 eino ADK Topology |
 
@@ -151,7 +151,7 @@ Claude Code 的使用方式不同：它是专用 `cc` Anthropic Messages 入口 
 | 目标 | 从这里开始 | 额外要求 |
 | --- | --- | --- |
 | 验证一次受治理的 Agent 请求 | [无需 Provider Key 的首次运行](docs/getting-started/first-run.md) | 只需要 Docker Compose |
-| 验证 Codex 或 OpenCode | [Coding Agent 验证指南](docs/guides/evaluate-coding-agent.md) | 外部 ACP Adapter、Workspace 和上游鉴权 |
+| 验证 Codex 或 OpenCode | [Coding Agent 验证指南](docs/guides/evaluate-coding-agent.md) | Workspace 和上游鉴权，Adapter 的安装方式见指南。 |
 | 连接远程 A2A Agent | [HTTP Agent 快速开始](docs/getting-started/quickstart-http-agent.md) | A2A Protocol 1.0 服务或本地 Fixture |
 | 路由 OpenAI、Anthropic 或 Claude Code 流量 | [LLM 快速开始](docs/getting-started/quickstart-llm.md) | 兼容的 Provider 和凭证 |
 | 治理 MCP 工具 | [MCP 快速开始](docs/getting-started/quickstart-mcp.md) | Streamable HTTP 或 stdio MCP Service |
@@ -195,7 +195,8 @@ Responses 转 Chat 时自动使用可逆别名展开工具；原生 Responses �
 - Memory、持久化 Workflow、Schedule、持久化 Human Task、企业 IAM/SSO、组织
   Role、成本预算和持久化合规审计账本尚未实现。
 - 交互式 Agent 工具权限决策已经实现，但它不是通用 Human Task 工作流系统。
-- ACP 执行需要另行提供 Codex 或 OpenCode Adapter、Workspace 和上游鉴权。
+- ACP 执行需要 Workspace 和上游鉴权。二进制部署需安装所选的
+  `codex-acp` 或 `opencode`。
 - OAuth 刷新需要单独安装 `agw-auth` 命令或兼容的外部刷新程序。
 - 运维 Event 和 Trace 提供遥测证据，但不构成合规记录。
 

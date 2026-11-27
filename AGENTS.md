@@ -100,6 +100,9 @@ go test ./path/to/package -run TestName -v
 
 Notes:
 
+- The root `Dockerfile` bundles `codex-acp`, its Codex CLI, and `opencode`.
+  UID/GID 10001 needs access to the Agent workspace and writable runtime
+  state. Authenticate each Agent using its configured environment.
 - `make build` builds `agw` from `cmd/agw/main.go`, `agwd` from `cmd/agwd/main.go`, and `agwctl` from `cmd/agwctl/main.go`.
 - The three mains own explicit linked-module imports and delegate to `pkg/distribution/caddycmd`, `daemoncmd`, and `ctlcmd`. Command construction must keep flag state local; dotenv, signals, and process exit belong to execution.
 - Both hosts use `internal/serverassembly` for credential/scheduler and usage

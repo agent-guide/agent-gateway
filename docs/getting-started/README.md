@@ -13,4 +13,4 @@ Current pages:
 After the base quick starts, use
 [the coding-agent evaluation guide](../guides/evaluate-coding-agent.md) to test
 exact-run cancellation, conditional session replay, and interactive ACP
-permissions with an externally installed Codex or OpenCode adapter.
+permissions with Codex or OpenCode.

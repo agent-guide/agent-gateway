@@ -7,10 +7,13 @@ kind: GatewayBundle
 #   agwctl apply -f examples/gateway.bundle.acp.yaml
 #
 # Prerequisites:
-#   - the agent working directories below must exist before the first turn
-#   - codex: `codex-acp` on PATH (npm install -g @zed-industries/codex-acp)
-#     with codex auth configured
-#   - opencode: `opencode` on PATH with opencode auth configured
+#   - create each /workspaces/<agent-id> directory with its own home subdirectory
+#   - the repository image includes `codex-acp` and `opencode`. For a binary
+#     deployment, install the selected adapter on PATH.
+#   - enable the OpenCode Agent and AgentRoute together
+#   - sign in once per Agent with the same environment used by its runtime
+#   - the gateway and adapters share an OS user. Give route keys only to
+#     callers trusted with the workspace, including its credential files.
 #
 # runtime.acp.permission_mode is one of:
 #   deny         — fail-closed default; agent permission requests are rejected
@@ -27,9 +30,13 @@ agents:
       type: acp
       acp:
         agent_type: codex
-        cwd: /tmp/acp-codex-test
+        cwd: /workspaces/codex-main
+        allowed_roots: [/workspaces/codex-main]
+        env:
+          HOME: /workspaces/codex-main/home
+          CODEX_HOME: /workspaces/codex-main/home/.codex
         max_instances: 4
-        permission_mode: auto_approve
+        permission_mode: deny
     routes: {}
     resources: {}
     policy: {}
@@ -40,9 +47,16 @@ agents:
   #     type: acp
   #     acp:
   #       agent_type: opencode
-  #       cwd: /tmp/acp-opencode-test
+  #       cwd: /workspaces/opencode-main
+  #       allowed_roots: [/workspaces/opencode-main]
+  #       env:
+  #         HOME: /workspaces/opencode-main/home
+  #         XDG_CONFIG_HOME: /workspaces/opencode-main/home/.config
+  #         XDG_DATA_HOME: /workspaces/opencode-main/home/.local/share
+  #         XDG_STATE_HOME: /workspaces/opencode-main/home/.local/state
+  #         XDG_CACHE_HOME: /workspaces/opencode-main/home/.cache
   #       max_instances: 4
-  #       permission_mode: auto_approve
+  #       permission_mode: deny
   #   routes: {}
   #   resources: {}
   #   policy: {}

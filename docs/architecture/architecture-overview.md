@@ -342,7 +342,8 @@ Current status:
   - `Agent.runtime.acp` resolves to `host.Config` with effective execution settings. The host passes working directory, environment, and optional command and arguments via `agentspi.OpenRequest`
   - ACP runtime config supports `codex` and `opencode`
   - `opencode` uses the fixed `opencode acp --cwd <cwd>` stdio process shape
-  - `codex` uses the fixed external ACP adapter binary `codex-acp` by default; it does not launch `codex acp`
+  - `codex` launches the `codex-acp` stdio adapter by default
+  - the repository container build supplies `opencode`, `codex-acp`, and the Codex CLI
   - the runtime driver handles `initialize`, `session/new`, `session/load`, `session/prompt`, full `session/update` parsing (`pkg/acp/host/acpupdate`: text, reasoning, tool calls, plan, usage, available commands, session info, mode, config options), route-scoped and Admin `session/list` and transcript replay (`session/load` over a transient connection) after ACP capability checking, model selection and `config_overrides` via `session/set_config_option`, and spec-correct fail-closed permission replies with an off-loop timeout
   - each pooled instance caches the latest session metadata (config options, slash commands, title, mode, usage) from a lifetime updates subscription; the cache is replayed as snapshot events at every turn start and exposed through the runtime Admin inspection
   - runtime hardening: `PATH` preflight, stderr capture, a setup-handshake timeout, an idle janitor, dead-instance eviction, `fresh_session`, scope rebind (a session-addressed turn adopts the thread's live instance instead of spawning a second process), and `CloseScope`/`CloseThread` teardown

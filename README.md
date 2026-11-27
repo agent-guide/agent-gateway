@@ -122,7 +122,7 @@ separate systems.
 
 | Path | Use it for | What you bring |
 | --- | --- | --- |
-| **ACP** | Drive Codex or OpenCode as a protected internal Agent API | An external ACP adapter, workspace, and its upstream authentication |
+| **ACP** | Drive Codex or OpenCode as a protected internal Agent API | A workspace and upstream authentication. The repository container build includes both adapters. |
 | **HTTP/A2A** | Connect an Agent implemented in any stack | A remote A2A Protocol 1.0 Agent Card and service |
 | **Builtin** | Materialize configuration-defined Agents in process | A gateway LLM route, optional managed MCP tools, and a supported eino ADK topology |
 
@@ -163,7 +163,7 @@ implements the ACP, builtin, and HTTP backends selected by `Agent.runtime.type`.
 | Goal | Start here | Additional requirement |
 | --- | --- | --- |
 | Verify a governed Agent request | [Provider-key-free first run](docs/getting-started/first-run.md) | Docker Compose only |
-| Evaluate Codex or OpenCode | [Coding Agent evaluation](docs/guides/evaluate-coding-agent.md) | External ACP adapter, workspace, and upstream authentication |
+| Evaluate Codex or OpenCode | [Coding Agent evaluation](docs/guides/evaluate-coding-agent.md) | A workspace and upstream authentication. See the guide for adapter setup. |
 | Connect a remote A2A Agent | [HTTP Agent quick start](docs/getting-started/quickstart-http-agent.md) | An A2A Protocol 1.0 service, or the local fixture |
 | Route OpenAI, Anthropic, or Claude Code traffic | [LLM quick start](docs/getting-started/quickstart-llm.md) | A compatible provider and credential |
 | Govern MCP tools | [MCP quick start](docs/getting-started/quickstart-mcp.md) | A Streamable HTTP or stdio MCP connector |
@@ -237,8 +237,8 @@ production path.
   not implemented.
 - Interactive Agent tool permission decisions are implemented, but they are not
   a general human-task workflow system.
-- ACP execution requires a separately supplied Codex or OpenCode adapter,
-  workspace, and upstream authentication.
+- ACP execution requires a workspace and upstream authentication. For binary
+  deployments, install the selected adapter, `codex-acp` or `opencode`.
 - OAuth refresh requires the separately installed `agw-auth` command or a
   compatible external refresher.
 - Operational events and traces provide telemetry; they are not a compliance
