@@ -25,7 +25,8 @@ restoring them together.
    dynamic resources; static definitions are rejected.
 3. Rename Bundle `managedModels` to `providerModels`, define independent
    `logicalModels`, and expose explicit references in LLM `model_targets`.
-   For persisted inline logical targets, prepare `extract-models` operations.
+   Generate `extract-models` operations for persisted inline logical targets
+   with `--export-repairs ./repairs.json`.
    For Provider-only targets, use `convert-target` with an explicit
    `data.models` allowlist. ProviderModel routes use one Provider and real
    upstream model names; aliases and cross-provider selection require

@@ -621,8 +621,10 @@ paths use the same pending gate. See
 
 Offline recovery is separate from serving: `internal/configrepair`, exposed
 through `scripts/repair-architecture-config`, inspects raw SQLite records and
-static configuration without bootstrap. Explicit stopped-service repair batches
-back up first, validate references and persisted readback, and commit together.
+static configuration without bootstrap. It can export a validated SQLite repair
+batch from stored configuration and operator-supplied choices. Stopped-service
+repair batches back up first, validate references and persisted readback, and
+commit together.
 See [configuration recovery](../guides/architecture-config-recovery.md).
 
 ### 7.4 External CLI Login

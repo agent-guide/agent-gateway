@@ -192,8 +192,11 @@ func Inspect(records []Record) []Issue {
 				if _, err := CanonicalTarget(r.Data); err != nil {
 					add("target_policy", err.Error())
 				} else {
-					add("target_policy", "convert-target with an explicit model allowlist to ProviderModel references")
+					add("target_policy", "convert-target with an explicit model allowlist to ProviderModel references. For export, use --allow-model route-id=upstream-model")
 				}
+			}
+			if hasInlineModelTargets(policy) {
+				add("target_policy.model_targets", "extract-models for a stored route or explicitly replace the static route")
 			}
 			if kind == "models" {
 				var p llmroute.RouteModelPolicy
@@ -219,7 +222,7 @@ func Inspect(records []Record) []Issue {
 				} else if json.Unmarshal(acp["launcher"], &launcher) != nil || strings.TrimSpace(launcher) == "" {
 					add("runtime.acp.launcher", "replace with a registered ACP launcher name")
 				} else if _, known := launchers[strings.TrimSpace(launcher)]; !known {
-					add("runtime.acp.launcher", fmt.Sprintf("register ACP launcher %q in SQLite or import its legacy file", strings.TrimSpace(launcher)))
+					add("runtime.acp.launcher", fmt.Sprintf("register ACP launcher %q in SQLite with --set-acp-launcher", strings.TrimSpace(launcher)))
 				}
 			}
 			if value, ok := obj["policy"]; ok && !bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
@@ -228,7 +231,7 @@ func Inspect(records []Record) []Issue {
 					add("policy", "replace invalid policy")
 					continue
 				}
-				if budget, ok := policy["budget"]; ok && !bytes.Equal(bytes.TrimSpace(budget), []byte("null")) {
+				if hasAgentBudget(policy) {
 					add("policy.budget", "budget is not enforced; explicitly remove-budget or replace/delete the Agent")
 				}
 			}
@@ -244,6 +247,28 @@ func Inspect(records []Record) []Issue {
 	return issues
 }
 
+func hasAgentBudget(policy map[string]json.RawMessage) bool {
+	budget, ok := policy["budget"]
+	return ok && !bytes.Equal(bytes.TrimSpace(budget), []byte("null"))
+}
+
+func removeAgentBudget(data json.RawMessage) (json.RawMessage, error) {
+	obj, err := object(data)
+	if err != nil {
+		return nil, err
+	}
+	policy, err := object(obj["policy"])
+	if err != nil {
+		return nil, err
+	}
+	delete(policy, "budget")
+	obj["policy"], err = json.Marshal(policy)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(obj)
+}
+
 type Operation struct {
 	Family string          `json:"family"`
 	ID     string          `json:"id"`
@@ -254,6 +279,21 @@ type Operation struct {
 // Apply stages the whole batch. It never modifies the caller's records.
 // Validation and persistence belong to the enclosing offline transaction.
 func Apply(records []Record, operations []Operation) ([]Record, error) {
+	out, err := applyOperations(records, operations)
+	if err != nil {
+		return nil, err
+	}
+	if issues := Inspect(out); len(issues) > 0 {
+		var errs []error
+		for _, i := range issues {
+			errs = append(errs, fmt.Errorf("%s/%s %s: %s", i.Family, i.ID, i.Field, i.Action))
+		}
+		return nil, errors.Join(errs...)
+	}
+	return out, nil
+}
+
+func applyOperations(records []Record, operations []Operation) ([]Record, error) {
 	out := append([]Record(nil), records...)
 	seen := map[string]bool{}
 	for _, op := range operations {
@@ -264,15 +304,26 @@ func Apply(records []Record, operations []Operation) ([]Record, error) {
 		seen[key] = true
 		index := -1
 		for i, r := range out {
-			if r.Family == op.Family && r.ID == op.ID && !r.Static {
+			if r.Family == op.Family && r.ID == op.ID && (!r.Static || op.Action == "create") {
 				index = i
 				break
 			}
+		}
+		if op.Family == "acp_launchers" && op.Action == "create" {
+			if index >= 0 {
+				return nil, fmt.Errorf("record %s already exists", key)
+			}
+			// The final inspection validates the stored definition and its identity.
+			out = append(out, Record{Family: op.Family, ID: op.ID, Data: op.Data})
+			continue
 		}
 		if index < 0 {
 			return nil, fmt.Errorf("mutable record %s not found", key)
 		}
 		r := &out[index]
+		if op.Family == "acp_launchers" && op.Action != "replace" {
+			return nil, fmt.Errorf("acp_launchers supports create and replace only")
+		}
 		switch op.Action {
 		case "delete":
 			out = append(out[:index], out[index+1:]...)
@@ -298,7 +349,7 @@ func Apply(records []Record, operations []Operation) ([]Record, error) {
 		case "extract-models":
 			converted, models, err := ExtractModels(*r)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("%s: %w", key, err)
 			}
 			out[index] = converted
 			for _, m := range models {
@@ -315,7 +366,7 @@ func Apply(records []Record, operations []Operation) ([]Record, error) {
 			}
 			converted, models, err := ConvertProviderRoute(*r, op.Data)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("%s: %w", key, err)
 			}
 			out[index] = converted
 			for _, m := range models {
@@ -334,27 +385,14 @@ func Apply(records []Record, operations []Operation) ([]Record, error) {
 			if op.Family != "agents" {
 				return nil, fmt.Errorf("remove-budget requires agents")
 			}
-			obj, err := object(r.Data)
+			data, err := removeAgentBudget(r.Data)
 			if err != nil {
 				return nil, err
 			}
-			policy, err := object(obj["policy"])
-			if err != nil {
-				return nil, err
-			}
-			delete(policy, "budget")
-			obj["policy"], _ = json.Marshal(policy)
-			r.Data, _ = json.Marshal(obj)
+			r.Data = data
 		default:
 			return nil, fmt.Errorf("unsupported action %q", op.Action)
 		}
-	}
-	if issues := Inspect(out); len(issues) > 0 {
-		var errs []error
-		for _, i := range issues {
-			errs = append(errs, fmt.Errorf("%s/%s %s: %s", i.Family, i.ID, i.Field, i.Action))
-		}
-		return nil, errors.Join(errs...)
 	}
 	return out, nil
 }

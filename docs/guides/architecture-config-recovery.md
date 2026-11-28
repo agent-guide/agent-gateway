@@ -46,8 +46,8 @@ Caddyfile from adapted JSON.
 
 ## Migrate ACP launchers
 
-Stop all services that use the database. Run the migration against that
-deployment's SQLite file.
+To migrate inline ACP settings already stored on Agents, stop all services
+that use the database and run the migration against that deployment's SQLite file.
 
 ```sh
 ./scripts/repair-architecture-config --db ./data/configstore.db \
@@ -60,21 +60,9 @@ the original executable, argument order and working-directory flag. Built-in
 settings reuse `codex` and `opencode` when they match. The launcher definitions
 and Agent references are committed in the same transaction.
 
-If a previous migration already gave an Agent a custom launcher name stored
-in a deployment file, import that file once in the same command.
-
-```sh
-./scripts/repair-architecture-config --db ./data/configstore.db \
-  --migrate-acp-launchers --import-acp-launchers ./data/acp-repair/acp-launchers.json \
-  --backup ./data/configstore.before-acp-registry.db
-```
-
-Use the file that defines the launchers used by those Agents. The importer
-preserves their names and refuses conflicting stored definitions. Remove the
-legacy launcher-file setting from the gateway startup configuration after
-importing. This setting was `acp_launchers_file` in Caddy or
-`--acp-launchers-file` in standalone. After migration, SQLite backups carry
-both sets of records.
+SQLite `acp_launchers` is the sole configuration source for custom launchers.
+Register a launcher with `--set-acp-launcher` before referencing it from an
+Agent. SQLite backups contain both the definitions and Agent references.
 
 Supply static input on apply and recheck when the deployment uses static
 configuration. To resolve unrelated hazards in the same transaction, include
@@ -86,7 +74,45 @@ SQLite repair. Update source Bundles to use `runtime.acp.launcher`. Review
 explicit `default_model` values before turning on Codex execution because model
 configuration now uses the ACP model option it advertises.
 
-## Prepare an explicit batch
+## Generate a repair batch from SQLite
+
+Run the exporter against the old database from the repository root. It opens
+SQLite read-only, validates the prospective configuration in memory, and writes
+the operations to a new file with owner-only permissions.
+
+```sh
+./scripts/repair-architecture-config --db /absolute/path/gateway.db \
+  --export-repairs ./repairs.json
+```
+
+The exporter extracts stored inline logical models, removes unsupported Agent
+budgets, and derives ACP launcher definitions and references from legacy Agent
+settings. Review the generated operations before applying them with `--repair`.
+The export already includes the ACP launcher and Agent operations derived from
+SQLite, so apply it with the normal `--repair` command.
+
+Include the deployment's `--static-config` on export, apply, and recheck when
+applicable. For an old `mcp_services` table, include `--convert-connectors` on
+export and apply. A database with no required record changes produces no batch;
+if connector table conversion is the only required change, apply it with
+`--convert-connectors` and `--backup`.
+
+Some repairs need a deployment decision. For a legacy Provider-only route,
+specify the allowed upstream models explicitly. Repeat `--allow-model` to expose
+more than one model or to select models for other routes.
+
+```sh
+./scripts/repair-architecture-config --db /absolute/path/gateway.db \
+  --export-repairs ./repairs.json --allow-model chat-prod=gpt-4.1
+```
+
+For other explicit choices, such as which competing route to keep, save the
+chosen operations in `choices.json` using the format below. Rerun export with
+`--repair ./choices.json` to include them in the validated batch. The tool
+reports remaining issues and only writes a file after the full recheck passes.
+Choose an unused output filename.
+
+## Prepare explicit repair operations
 
 Stop every service using the database or static file before repairing it.
 
@@ -102,7 +128,9 @@ unenforced Agent budget:
 ]
 ```
 
-Supported families are `routes`, `agents`, and database-backed `connectors`, `provider_models` and `logical_models`.
+Supported families are `routes`, `agents`, and database-backed `connectors`,
+`provider_models`, `logical_models`, and `acp_launchers`. ACP launcher operations
+use `create` for new definitions and `replace` for existing definitions.
 Use the legacy `mcp_services` family with `--convert-connectors` when repairing
 rows during the stopped-service conversion described below. `replace` supplies
 a complete raw record in `data`, with the same ID. Route replacement uses the persisted
@@ -196,7 +224,8 @@ stored in SQLite `model_configs`, plus a separate `logical_models` table. Curren
 Bundles use `providerModels` and `logicalModels`. Rename the former
 `managedModels` Bundle field explicitly when editing your deployment files.
 
-For each persisted route with inline `model_targets[].candidates`, select:
+The exporter selects persisted routes with inline `model_targets[].candidates`.
+Use the following operation to select one manually.
 
 ```json
 [

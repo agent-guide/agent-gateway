@@ -302,6 +302,8 @@ v0.7.3 tightens configuration validation. Before replacing binaries, inspect
 existing routes and Agents for legacy direct-provider targets, non-null budgets,
 and ambiguous route matches using the [offline recovery tool](docs/guides/architecture-config-recovery.md).
 Affected configurations require explicit repair and can otherwise prevent startup.
+Use `--export-repairs ./repairs.json` to generate a validated repair batch from an
+old SQLite database.
 Review the [upgrade guide](docs/guides/upgrade.md) for backup, repair and rollback
 steps, including the external CLI-auth cutover for older stores.
 

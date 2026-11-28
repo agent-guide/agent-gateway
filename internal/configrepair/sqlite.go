@@ -152,6 +152,25 @@ func repairSQLite(ctx context.Context, db *sql.DB, backup string, static []Recor
 	if err := Validate(next); err != nil {
 		return fmt.Errorf("full recheck: %w", err)
 	}
+	if err := writeSQLiteRepair(ctx, tx, records, next, operations); err != nil {
+		return err
+	}
+	// Read back the persisted batch before commit; a readback or validation
+	// failure rolls back every mutation, never compensates after committing.
+	stored, err := ReadSQLite(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if err := verifySQLiteRecords(next, stored); err != nil {
+		return err
+	}
+	if err := Validate(append(stored, static...)); err != nil {
+		return fmt.Errorf("persisted recheck: %w", err)
+	}
+	return tx.Commit()
+}
+
+func writeSQLiteRepair(ctx context.Context, tx *sql.Tx, records, next []Record, operations []Operation) error {
 	byKey := map[string]Record{}
 	for _, r := range next {
 		if !r.Static {
@@ -248,19 +267,7 @@ func repairSQLite(ctx context.Context, db *sql.DB, backup string, static []Recor
 			return err
 		}
 	}
-	// Read back the persisted batch before commit; a readback or validation
-	// failure rolls back every mutation, never compensates after committing.
-	stored, err := ReadSQLite(ctx, tx)
-	if err != nil {
-		return err
-	}
-	if err := verifySQLiteRecords(next, stored); err != nil {
-		return err
-	}
-	if err := Validate(append(stored, static...)); err != nil {
-		return fmt.Errorf("persisted recheck: %w", err)
-	}
-	return tx.Commit()
+	return nil
 }
 
 func writeACPLauncher(ctx context.Context, tx *sql.Tx, r Record) error {

@@ -51,10 +51,10 @@ successful transaction return are separate facts; consumers treat uncertain
 commit errors as pending recovery rather than blindly replaying writes.
 
 `internal/configrepair` and `scripts/repair-architecture-config` provide offline
-raw-record inspection and repair without schema registration or data-plane
-startup. Operators stop services before applying repairs. Repairs back up
-committed SQLite contents, validate the prospective full configuration and
-references, and perform one transaction with readback before commit. Do not turn
+raw-record inspection, read-only batch export, and repair without schema
+registration or data-plane startup. Operators stop services before applying
+repairs. Repairs back up committed SQLite contents, validate the prospective full
+configuration and references, and perform one transaction with readback before commit. Do not turn
 this recovery-only reader into a runtime dual-read compatibility path.
 
 The optional Database() handle is generic borrowed SQL access. Usage-specific

@@ -15,9 +15,9 @@ status belong in `docs/architecture/acp-architecture.md`.
 - `pkg/acp/launcher` owns bundled per-agent launch presets and the persisted
   launcher record format. Launchers supply a trusted executable, arguments and
   optional cwd flag. `pkg/acp/session` applies the launcher to execution config.
-  Both gateway hosts load the `acp_launchers` ConfigStore at startup and validate
-  launcher references before Agent publication. Deployment operators manage
-  the registry offline.
+  Both gateway hosts load custom definitions exclusively from the `acp_launchers`
+  SQLite ConfigStore and validate launcher references before Agent publication.
+  Offline migration derives launcher definitions from stored Agent settings.
   Agent-owned settings supply cwd, environment and session options.
   Supply `agent_id` separately as the runtime owner key and keep Agent
   control-plane dependencies out of `pkg/acp`.

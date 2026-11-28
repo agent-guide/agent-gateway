@@ -7,11 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"os"
 	"slices"
 	"strings"
 
-	"github.com/agent-guide/agent-gateway/internal/strictjson"
 	acplauncher "github.com/agent-guide/agent-gateway/pkg/acp/launcher"
 )
 
@@ -81,27 +79,14 @@ func sameACPLauncher(a, b acplauncher.Launcher) bool {
 // ACPRepairOptions describes an explicit deployment-side launcher change.
 type ACPRepairOptions struct {
 	Migrate           bool
-	Import            string
 	Set               *acplauncher.Definition
 	ConvertConnectors bool
 }
 
 func RepairACPLaunchers(ctx context.Context, db *sql.DB, backup string, static []Record, operations []Operation, opts ACPRepairOptions) error {
-	var imported acplauncher.Launchers
-	if opts.Import != "" {
-		data, err := os.ReadFile(opts.Import)
-		if err != nil {
-			return fmt.Errorf("read legacy ACP launchers: %w", err)
-		}
-		if err := strictjson.Decode(data, &imported, 4<<20, 16); err != nil {
-			return fmt.Errorf("decode legacy ACP launchers: %w", err)
-		}
-		if imported == nil {
-			return fmt.Errorf("legacy ACP launchers must be a JSON object")
-		}
-	}
 	prepare := func(records []Record) ([]Record, []Operation, error) {
-		return stageACPLauncherRepair(records, operations, opts, imported)
+		ops, err := stageACPLauncherRepair(records, operations, opts)
+		return records, ops, err
 	}
 	if opts.ConvertConnectors {
 		if len(static) != 0 {
@@ -112,7 +97,20 @@ func RepairACPLaunchers(ctx context.Context, db *sql.DB, backup string, static [
 	return repairSQLite(ctx, db, backup, static, prepare)
 }
 
-func stageACPLauncherRepair(records []Record, operations []Operation, opts ACPRepairOptions, imported acplauncher.Launchers) ([]Record, []Operation, error) {
+func stageACPLauncherRepair(records []Record, operations []Operation, opts ACPRepairOptions) ([]Operation, error) {
+	var launcherOps []Operation
+	for _, op := range operations {
+		if op.Family == "acp_launchers" {
+			launcherOps = append(launcherOps, op)
+		}
+	}
+	if len(launcherOps) > 0 {
+		var err error
+		records, err = applyOperations(records, launcherOps)
+		if err != nil {
+			return nil, err
+		}
+	}
 	launchers := acplauncher.DefaultLaunchers()
 	stored := map[string]bool{}
 	for _, record := range records {
@@ -124,16 +122,15 @@ func stageACPLauncherRepair(records []Record, operations []Operation, opts ACPRe
 			}
 			def, err := acplauncher.DecodeDefinition(record.Data)
 			if err != nil {
-				return nil, nil, fmt.Errorf("acp_launchers/%s: %w", record.ID, err)
+				return nil, fmt.Errorf("acp_launchers/%s: %w", record.ID, err)
 			}
 			if record.StaticInput || record.Static || record.ID != def.ID || stored[def.ID] {
-				return nil, nil, fmt.Errorf("acp_launchers/%s has an invalid or duplicate storage identity", record.ID)
+				return nil, fmt.Errorf("acp_launchers/%s has an invalid or duplicate storage identity", record.ID)
 			}
 			stored[def.ID] = true
 			launchers[def.ID] = def.Launcher
 		}
 	}
-	records = slices.Clone(records)
 	ops := slices.Clone(operations)
 	put := func(id string, launcher acplauncher.Launcher) error {
 		launcher.Command = strings.TrimSpace(launcher.Command)
@@ -153,31 +150,22 @@ func stageACPLauncherRepair(records []Record, operations []Operation, opts ACPRe
 		if _, err := acplauncher.DecodeDefinition(data); err != nil {
 			return fmt.Errorf("ACP launcher %q: %w", id, err)
 		}
-		if !stored[id] {
-			records = append(records, Record{Family: "acp_launchers", ID: id, Data: data})
+		action := "create"
+		if stored[id] {
+			action = "replace"
 		}
-		ops = append(ops, Operation{Family: "acp_launchers", ID: id, Action: "replace", Data: data})
+		ops = append(ops, Operation{Family: "acp_launchers", ID: id, Action: action, Data: data})
 		stored[id] = true
 		launchers[id] = launcher
 		return nil
 	}
-	for _, name := range slices.Sorted(maps.Keys(imported)) {
-		launcher := imported[name]
-		launcher.Command = strings.TrimSpace(launcher.Command)
-		if stored[name] && !sameACPLauncher(launchers[name], launcher) {
-			return nil, nil, fmt.Errorf("imported ACP launcher %q conflicts with the stored definition", name)
-		}
-		if err := put(name, launcher); err != nil {
-			return nil, nil, err
-		}
-	}
 	if opts.Set != nil {
 		if err := put(opts.Set.ID, opts.Set.Launcher); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 	if !opts.Migrate {
-		return records, ops, nil
+		return ops, nil
 	}
 
 	reserved := map[string]bool{}
@@ -216,7 +204,7 @@ func stageACPLauncherRepair(records []Record, operations []Operation, opts ACPRe
 		}
 		name, legacy, err := legacyACPLauncher(acp)
 		if err != nil {
-			return nil, nil, fmt.Errorf("agents/%s: %w", record.ID, err)
+			return nil, fmt.Errorf("agents/%s: %w", record.ID, err)
 		}
 		if !sameACPLauncher(launchers[name], legacy) {
 			name = ""
@@ -234,7 +222,7 @@ func stageACPLauncherRepair(records []Record, operations []Operation, opts ACPRe
 				continue
 			}
 			if err := put(candidate, legacy); err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			names = append(names, candidate)
 			name = candidate
@@ -247,5 +235,5 @@ func stageACPLauncherRepair(records []Record, operations []Operation, opts ACPRe
 		data, _ := json.Marshal(obj)
 		ops = append(ops, Operation{Family: "agents", ID: record.ID, Action: "replace", Data: data})
 	}
-	return records, ops, nil
+	return ops, nil
 }

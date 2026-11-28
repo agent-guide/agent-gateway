@@ -65,7 +65,7 @@ Releases use `vX.Y.Z-preview.N` or stable `vX.Y.Z` tags with matching
 prereleases and never advance GitHub/container `latest`. See
 `docs/development/README.md` for candidate preparation.
 
-Offline configuration inspection and explicit transactional repairs use
+Offline configuration inspection, repair batch export, and transactional repairs use
 `scripts/repair-architecture-config`; see
 `docs/guides/architecture-config-recovery.md`. Recovery reads raw records without
 normal startup decoding. Keep its checks aligned with route and Agent contracts;
@@ -306,11 +306,11 @@ Important current directives:
 - LLM `type: models` routes expose named `provider-model` references (Provider ID + upstream model) or `logical-model` references (`logical_model_id`). ProviderModels and LogicalModels are independent catalog resources; scheduling and fallback belong to LogicalModel. Model registration never implicitly expands route exposure. Caddyfile/Caddy JSON and standalone static Bundles support model declarations and references. Static models are read-only through Admin; static/dynamic identity conflicts fail loading. Old inline logical definitions require offline `extract-models` repair.
 - LLM routes use `protocol <openai|anthropic|cc>` and MCP routes use `protocol mcp`. Agent ingress routes use Agent Turn Protocol (`protocol: at`, the default) or native A2A (`protocol: a2a`, HTTP Agent Path A). Legacy AgentRoute input `protocol: agent` normalizes to `at` in Admin, Bundle, and persisted route loading. See `docs/design/http-agent-runtime.md`.
 - `runtime.acp.launcher` names a deployment-owned stdio ACP v1 command. The
-  packaged defaults are `codex` (`codex-acp`) and `opencode`. Both hosts load
-  custom definitions from the `acp_launchers` ConfigStore at startup. Agent
-  writes and stored loading validate launcher references. Deployment operators
-  register launchers with the offline SQLite tool. `--migrate-acp-launchers`
-  commits legacy Agent and launcher changes together.
+  packaged defaults are `codex` (`codex-acp`) and `opencode`. The `acp_launchers`
+  SQLite ConfigStore is the sole configuration source for custom launchers.
+  Agent writes and stored loading validate launcher references. Deployment
+  operators register launchers with the offline SQLite tool. Migration derives
+  changes from stored Agent settings and commits Agent and launcher changes together.
 - `agent_route_dispatcher` uses `llm_api <name>`, `mcp`, and `agent`
 - dispatcher `max_llm_request_body_bytes` (Caddyfile/Caddy JSON) and standalone
   `--max-llm-request-body-bytes` bound the received LLM JSON body. Omitted/zero

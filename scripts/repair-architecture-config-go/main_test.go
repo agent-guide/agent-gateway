@@ -43,19 +43,19 @@ func TestMigrateACPLaunchersThroughCommand(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	legacyPath := filepath.Join(dir, "old.json")
-	legacy := `{"codex":{"command":"/opt/codex-acp"},"legacy-acp-1":{"command":"imported"}}`
-	if err := os.WriteFile(legacyPath, []byte(legacy), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	var out bytes.Buffer
 	if err := run(t.Context(), []string{"--db", dbPath}, &out); err == nil || !strings.Contains(out.String(), "register ACP launcher") {
 		t.Fatalf("missing launcher detection: %v", err)
 	}
-	if err := run(t.Context(), []string{"--db", dbPath, "--backup", dbPath + ".bak", "--convert-connectors", "--migrate-acp-launchers", "--import-acp-launchers", legacyPath}, &out); err != nil {
+	if _, err := db.Exec(`CREATE TABLE acp_launchers (id TEXT PRIMARY KEY, config TEXT NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(legacyPath); err != nil {
+	if _, err := db.Exec(`INSERT INTO acp_launchers (id, config) VALUES
+		('codex', '{"id":"codex","command":"/opt/codex-acp"}'),
+		('legacy-acp-1', '{"id":"legacy-acp-1","command":"/opt/custom-acp"}')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(t.Context(), []string{"--db", dbPath, "--backup", dbPath + ".bak", "--convert-connectors", "--migrate-acp-launchers"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for id, want := range map[string]string{"current": "legacy-acp-1", "default": "legacy-acp-2", "legacy": "legacy-acp-3", "open": "opencode"} {
@@ -70,7 +70,7 @@ func TestMigrateACPLaunchersThroughCommand(t *testing.T) {
 	}
 	for _, want := range []launcher.Definition{
 		{ID: "codex", Launcher: launcher.Launcher{Command: "/opt/codex-acp"}},
-		{ID: "legacy-acp-1", Launcher: launcher.Launcher{Command: "imported"}},
+		{ID: "legacy-acp-1", Launcher: launcher.Launcher{Command: "/opt/custom-acp"}},
 		{ID: "legacy-acp-2", Launcher: launcher.Launcher{Command: "codex-acp"}},
 		{ID: "legacy-acp-3", Launcher: launcher.Launcher{Command: "codex-acp", Args: []string{"--profile", "two words", ""}}},
 		{ID: "third-party", Launcher: launcher.Launcher{Command: "/opt/bin/agent", Args: []string{"--stdio", "two words", ""}, CWDFlag: "--cwd"}},

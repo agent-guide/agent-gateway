@@ -251,7 +251,8 @@ LLM 请求体默认上限为 16 MiB。较长会话或内嵌附件需要更大空
 
 v0.7.3 收紧了配置校验。替换二进制前，请使用[离线修复工具](docs/guides/architecture-config-recovery.md)
 检查旧版直接 Provider 目标、非空 Agent budget 和歧义路由。受影响的配置需要显式
-修复，否则可能无法启动。请阅读[升级指南](docs/guides/upgrade.md)中的备份、修复
+修复，否则可能无法启动。可以用 `--export-repairs ./repairs.json` 从旧 SQLite 库生成
+经过校验的修复操作。请阅读[升级指南](docs/guides/upgrade.md)中的备份、修复
 和回滚步骤；更早版本的 Store 还需检查外部 CLI 鉴权切换要求。
 
 ## 社区与许可证

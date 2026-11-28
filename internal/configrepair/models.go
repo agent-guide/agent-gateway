@@ -9,6 +9,26 @@ import (
 	"github.com/agent-guide/agent-gateway/pkg/llm/provider"
 )
 
+func hasInlineModelTargets(policy map[string]json.RawMessage) bool {
+	var kind string
+	if raw := policy["type"]; len(raw) != 0 && json.Unmarshal(raw, &kind) != nil {
+		return false
+	}
+	if (kind != "" && kind != "logical-model") || policy["provider_id"] != nil || policy["provider_target"] != nil {
+		return false
+	}
+	var targets []map[string]json.RawMessage
+	if json.Unmarshal(policy["model_targets"], &targets) != nil || len(targets) == 0 {
+		return false
+	}
+	for _, target := range targets {
+		if target["candidates"] == nil || target["kind"] != nil || target["logical_model_id"] != nil || target["provider_id"] != nil || target["upstream_model"] != nil {
+			return false
+		}
+	}
+	return true
+}
+
 // ExtractModels converts only explicitly selected legacy route records. New IDs
 // are route-scoped to preserve independent definitions with equal display names.
 func ExtractModels(r Record) (Record, []Record, error) {

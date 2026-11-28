@@ -22,18 +22,8 @@ func convertConnectors(ctx context.Context, db *sql.DB, backup string, prepare p
 	if backup == "" {
 		return fmt.Errorf("conversion requires an unused --backup path")
 	}
-	var old, target int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='mcp_services'`).Scan(&old); err != nil {
+	if err := checkConnectorLayout(ctx, db, true); err != nil {
 		return err
-	}
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='connectors'`).Scan(&target); err != nil {
-		return err
-	}
-	if old != 1 {
-		return fmt.Errorf("legacy mcp_services table not found")
-	}
-	if target != 0 {
-		return fmt.Errorf("target connectors table already exists; resolve table conflict through explicit offline repair")
 	}
 	f, err := os.OpenFile(backup, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
@@ -55,41 +45,79 @@ func convertConnectors(ctx context.Context, db *sql.DB, backup string, prepare p
 	if err != nil {
 		return err
 	}
-	original := append([]Record(nil), records...)
+	original := records
 	records, operations, err := prepare(records)
 	if err != nil {
 		return err
 	}
-	launcherWrites := map[string]bool{}
+	records, err = stageConnectorConversion(records, operations)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE mcp_services RENAME TO connectors`); err != nil {
+		return err
+	}
+	var otherOps []Operation
 	for _, op := range operations {
-		if op.Family == "acp_launchers" {
-			launcherWrites[op.ID] = true
+		switch op.Family {
+		case "acp_launchers", "provider_models", "logical_models":
+			otherOps = append(otherOps, op)
 		}
 	}
+	if err := writeSQLiteRepair(ctx, tx, original, records, otherOps); err != nil {
+		return err
+	}
+	if err := writeConvertedConnectors(ctx, tx, original, records); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func checkConnectorLayout(ctx context.Context, db queryer, convert bool) error {
+	var old, target int
+	if err := db.QueryRowContext(ctx, `SELECT count(CASE WHEN name='mcp_services' THEN 1 END), count(CASE WHEN name='connectors' THEN 1 END) FROM sqlite_master WHERE type='table'`).Scan(&old, &target); err != nil {
+		return err
+	}
+	if !convert && old != 0 {
+		return fmt.Errorf("legacy mcp_services table found, rerun with --convert-connectors")
+	}
+	if convert && old == 0 {
+		return fmt.Errorf("legacy mcp_services table not found")
+	}
+	if convert && target != 0 {
+		return fmt.Errorf("target connectors table already exists; resolve table conflict through explicit offline repair")
+	}
+	return nil
+}
+
+func stageConnectorConversion(records []Record, operations []Operation) ([]Record, error) {
 	if len(operations) > 0 {
+		var err error
 		records, err = Apply(records, operations)
 		if err != nil {
-			return err
+			return nil, err
 		}
+	} else {
+		records = append([]Record(nil), records...)
 	}
 	for i := range records {
 		r := &records[i]
 		v, err := strictjson.Parse(r.Data, 4<<20, 64)
 		if err != nil {
-			return fmt.Errorf("invalid raw %s/%s", r.Family, r.ID)
+			return nil, fmt.Errorf("invalid raw %s/%s", r.Family, r.ID)
 		}
 		obj, ok := v.(map[string]any)
 		if !ok {
-			return fmt.Errorf("invalid record %s/%s", r.Family, r.ID)
+			return nil, fmt.Errorf("invalid record %s/%s", r.Family, r.ID)
 		}
 		changed := false
 		switch r.Family {
 		case "mcp_services":
 			if _, exists := obj["type"]; exists {
-				return fmt.Errorf("legacy connector contains type")
+				return nil, fmt.Errorf("mcp_services/%s: legacy connector contains type", r.ID)
 			}
 			if _, exists := obj["mcp"]; exists {
-				return fmt.Errorf("legacy connector contains mcp branch")
+				return nil, fmt.Errorf("mcp_services/%s: legacy connector contains mcp branch", r.ID)
 			}
 			connection := map[string]any{}
 			for _, k := range []string{"transport", "command", "args", "url", "post_url", "env", "auto_auth", "auth"} {
@@ -105,13 +133,13 @@ func convertConnectors(ctx context.Context, db *sql.DB, backup string, prepare p
 		case "agents":
 			if resources, ok := obj["resources"].(map[string]any); ok {
 				if err := moveField(resources, "mcp_service_ids", "connector_ids"); err != nil {
-					return err
+					return nil, fmt.Errorf("agents/%s resources: %w", r.ID, err)
 				}
 			}
 			if runtime, ok := obj["runtime"].(map[string]any); ok {
 				if builtin, ok := runtime["builtin"].(map[string]any); ok {
 					if err := moveBuiltin(builtin); err != nil {
-						return err
+						return nil, fmt.Errorf("agents/%s runtime.builtin: %w", r.ID, err)
 					}
 				}
 			}
@@ -123,7 +151,7 @@ func convertConnectors(ctx context.Context, db *sql.DB, backup string, prepare p
 						policy["kind"] = "connector"
 					}
 					if err := moveField(policy, "service_id", "connector_id"); err != nil {
-						return err
+						return nil, fmt.Errorf("routes/%s target_policy: %w", r.ID, err)
 					}
 					changed = true
 				}
@@ -132,16 +160,17 @@ func convertConnectors(ctx context.Context, db *sql.DB, backup string, prepare p
 		if changed {
 			r.Data, err = json.Marshal(obj)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
 	if err := Validate(records); err != nil {
-		return fmt.Errorf("conversion final-state validation: %w", err)
+		return nil, fmt.Errorf("conversion final-state validation: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `ALTER TABLE mcp_services RENAME TO connectors`); err != nil {
-		return err
-	}
+	return records, nil
+}
+
+func writeConvertedConnectors(ctx context.Context, tx *sql.Tx, original, records []Record) error {
 	nextIDs := map[string]bool{}
 	for _, r := range records {
 		nextIDs[r.Family+"/"+r.ID] = true
@@ -157,17 +186,10 @@ func convertConnectors(ctx context.Context, db *sql.DB, backup string, prepare p
 				if _, err := tx.ExecContext(ctx, `DELETE FROM `+family+` WHERE id=?`, r.ID); err != nil {
 					return err
 				}
-			default:
-				return fmt.Errorf("connector conversion cannot delete unrelated families")
 			}
 		}
 	}
 	for _, r := range records {
-		if r.Family == "acp_launchers" && launcherWrites[r.ID] {
-			if err := writeACPLauncher(ctx, tx, r); err != nil {
-				return err
-			}
-		}
 		if r.Family != "connectors" && r.Family != "agents" && r.Family != "routes" {
 			continue
 		}
@@ -206,7 +228,7 @@ func convertConnectors(ctx context.Context, db *sql.DB, backup string, prepare p
 			return fmt.Errorf("conversion readback mismatch")
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 func moveField(obj map[string]any, old, next string) error {
 	v, ok := obj[old]

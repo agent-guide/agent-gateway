@@ -8,7 +8,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+	"slices"
+	"strings"
 
 	"github.com/agent-guide/agent-gateway/internal/configrepair"
 	"github.com/agent-guide/agent-gateway/pkg/acp/launcher"
@@ -39,12 +42,21 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	staticPath := flags.String("static-config", "", "static GatewayBundle YAML or adapted Caddy JSON")
 	caddy := flags.Bool("caddy-json", false, "static file is adapted Caddy JSON")
 	convertConnectors := flags.Bool("convert-connectors", false, "convert legacy MCP services and Agent/route references after stopping services")
-	migrateACP := flags.Bool("migrate-acp-launchers", false, "migrate legacy ACP Agents and their launchers into SQLite after stopping services")
-	importACP := flags.String("import-acp-launchers", "", "import a previous deployment launcher file into SQLite once")
+	migrateACP := flags.Bool("migrate-acp-launchers", false, "migrate inline ACP launcher settings already in SQLite after stopping services")
 	setACP := flags.String("set-acp-launcher", "", "store a deployment launcher by name, with executable arguments after --")
 	acpCommand := flags.String("acp-command", "", "executable for --set-acp-launcher")
 	acpCWDFlag := flags.String("acp-cwd-flag", "", "optional working-directory flag for --set-acp-launcher")
-	operations := flags.String("repair", "", "JSON file containing repair operations to apply after stopping services")
+	operations := flags.String("repair", "", "repair operations JSON to apply after stopping services or include in an export")
+	export := flags.String("export-repairs", "", "write a validated SQLite repair batch to a new JSON file without applying it")
+	allowedModels := make(map[string][]allowedModel)
+	flags.Func("allow-model", "explicit model for a legacy direct route in an export (route-id=upstream-model, repeatable)", func(value string) error {
+		route, model, ok := strings.Cut(value, "=")
+		if !ok || route == "" || model == "" {
+			return fmt.Errorf("expected route-id=upstream-model")
+		}
+		allowedModels[route] = append(allowedModels[route], allowedModel{Name: model, UpstreamModel: model})
+		return nil
+	})
 	target := flags.String("target", "db", "repair target: db or static (the other source is read-only)")
 	backup := flags.String("backup", "", "unused backup filename, required for repairs")
 	if err := flags.Parse(args); err != nil {
@@ -56,27 +68,33 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if *target != "db" && *target != "static" {
 		return fmt.Errorf("--target must be db or static")
 	}
+	if *export != "" && (*dbPath == "" || *target != "db") {
+		return fmt.Errorf("--export-repairs requires --db and --target db")
+	}
+	if len(allowedModels) > 0 && *export == "" {
+		return fmt.Errorf("--allow-model requires --export-repairs")
+	}
 	if *setACP == "" && (*acpCommand != "" || *acpCWDFlag != "" || flags.NArg() != 0) {
 		return fmt.Errorf("executable settings and positional arguments require --set-acp-launcher")
 	}
-	if *setACP != "" && (*acpCommand == "" || *migrateACP || *importACP != "") {
-		return fmt.Errorf("--set-acp-launcher requires --acp-command and must run separately from ACP migration or import")
+	if *setACP != "" && (*acpCommand == "" || *migrateACP) {
+		return fmt.Errorf("--set-acp-launcher requires --acp-command and must run separately from ACP migration")
 	}
-	acpWrite := *migrateACP || *importACP != "" || *setACP != ""
+	acpWrite := *migrateACP || *setACP != ""
 	if acpWrite && (*dbPath == "" || *target != "db") {
 		return fmt.Errorf("ACP launcher changes require --db and --target db")
 	}
-	acpOptions := configrepair.ACPRepairOptions{Migrate: *migrateACP, Import: *importACP, ConvertConnectors: *convertConnectors}
+	acpOptions := configrepair.ACPRepairOptions{Migrate: *migrateACP, ConvertConnectors: *convertConnectors}
 	if *setACP != "" {
 		acpOptions.Set = &launcher.Definition{ID: *setACP, Launcher: launcher.Launcher{Command: *acpCommand, Args: flags.Args(), CWDFlag: *acpCWDFlag}}
 	}
-	if (*operations != "" || *convertConnectors || acpWrite) && *backup == "" {
+	if *export == "" && (*operations != "" || *convertConnectors || acpWrite) && *backup == "" {
 		return fmt.Errorf("repairs require an unused --backup path")
 	}
-	if *convertConnectors {
-		if *dbPath == "" || *staticPath != "" {
-			return fmt.Errorf("--convert-connectors requires --db and --backup for a SQLite-only conversion")
-		}
+	if *convertConnectors && (*dbPath == "" || *staticPath != "" || *target != "db") {
+		return fmt.Errorf("--convert-connectors requires SQLite-only input and --target db")
+	}
+	if *convertConnectors && *export == "" {
 		db, err := configrepair.OpenSQLite(*dbPath, true)
 		if err != nil {
 			return err
@@ -118,6 +136,26 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
+	}
+	if *export != "" {
+		var explicit []configrepair.Operation
+		if *operations != "" {
+			var err error
+			explicit, err = readOperations(*operations)
+			if err != nil {
+				return err
+			}
+		}
+		for _, id := range slices.Sorted(maps.Keys(allowedModels)) {
+			data, err := json.Marshal(struct {
+				Models []allowedModel `json:"models"`
+			}{Models: allowedModels[id]})
+			if err != nil {
+				return err
+			}
+			explicit = append(explicit, configrepair.Operation{Family: "routes", ID: id, Action: "convert-target", Data: data})
+		}
+		return exportRepairs(ctx, out, *dbPath, *export, static, explicit, acpOptions)
 	}
 	if *dbPath != "" {
 		writeDB := *target == "db" && (*operations != "" || acpWrite)
@@ -179,6 +217,11 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	for _, op := range ops {
+		if op.Family == "acp_launchers" {
+			return fmt.Errorf("ACP launcher operations require --target db")
+		}
+	}
 	for i := range static {
 		static[i].Static = false
 	}
@@ -221,6 +264,48 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	return nil
 }
 
+type allowedModel struct {
+	Name          string `json:"name"`
+	UpstreamModel string `json:"upstream_model"`
+}
+
+func exportRepairs(ctx context.Context, out io.Writer, dbPath, outputPath string, static []configrepair.Record, explicit []configrepair.Operation, opts configrepair.ACPRepairOptions) error {
+	db, err := configrepair.OpenSQLite(dbPath, false)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	ops, err := configrepair.GenerateSQLiteRepairs(ctx, db, static, explicit, opts)
+	if err != nil {
+		return fmt.Errorf("cannot export a complete repair batch: %w", err)
+	}
+	if len(ops) == 0 {
+		if opts.ConvertConnectors {
+			fmt.Fprintln(out, "Connector conversion validated. Apply with --convert-connectors and --backup.")
+		} else {
+			fmt.Fprintln(out, "Configuration passed validation. No repair operations needed.")
+		}
+		return nil
+	}
+	data, err := json.MarshalIndent(ops, "", "  ")
+	if err != nil {
+		return err
+	}
+	file, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create repair export: %w", err)
+	}
+	_, writeErr := file.Write(append(data, '\n'))
+	if err := errors.Join(writeErr, file.Close()); err != nil {
+		return errors.Join(err, os.Remove(outputPath))
+	}
+	fmt.Fprintf(out, "Exported %d validated repair operations to %s\n", len(ops), outputPath)
+	if opts.ConvertConnectors {
+		fmt.Fprintln(out, "Include --convert-connectors when applying this batch.")
+	}
+	return nil
+}
+
 func readOperations(path string) ([]configrepair.Operation, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -239,8 +324,10 @@ func readOperations(path string) ([]configrepair.Operation, error) {
 		return nil, fmt.Errorf("unexpected trailing JSON")
 	}
 	for _, op := range ops {
-		if op.Family != "routes" && op.Family != "agents" && op.Family != "connectors" && op.Family != "mcp_services" && op.Family != "provider_models" && op.Family != "logical_models" {
-			return nil, fmt.Errorf("repair supports routes, agents, connectors, provider_models, logical_models and legacy mcp_services only")
+		switch op.Family {
+		case "routes", "agents", "connectors", "mcp_services", "provider_models", "logical_models", "acp_launchers":
+		default:
+			return nil, fmt.Errorf("unknown repair family %q", op.Family)
 		}
 	}
 	return ops, nil
