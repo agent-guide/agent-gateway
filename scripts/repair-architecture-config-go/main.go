@@ -42,7 +42,6 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	staticPath := flags.String("static-config", "", "static GatewayBundle YAML or adapted Caddy JSON")
 	caddy := flags.Bool("caddy-json", false, "static file is adapted Caddy JSON")
 	convertConnectors := flags.Bool("convert-connectors", false, "convert legacy MCP services and Agent/route references after stopping services")
-	migrateACP := flags.Bool("migrate-acp-launchers", false, "migrate inline ACP launcher settings already in SQLite after stopping services")
 	setACP := flags.String("set-acp-launcher", "", "store a deployment launcher by name, with executable arguments after --")
 	acpCommand := flags.String("acp-command", "", "executable for --set-acp-launcher")
 	acpCWDFlag := flags.String("acp-cwd-flag", "", "optional working-directory flag for --set-acp-launcher")
@@ -58,7 +57,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return nil
 	})
 	target := flags.String("target", "db", "repair target: db or static (the other source is read-only)")
-	backup := flags.String("backup", "", "unused backup filename, required for repairs")
+	backup := flags.String("backup", "", "unused backup filename, required when applying changes")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -77,22 +76,38 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if *setACP == "" && (*acpCommand != "" || *acpCWDFlag != "" || flags.NArg() != 0) {
 		return fmt.Errorf("executable settings and positional arguments require --set-acp-launcher")
 	}
-	if *setACP != "" && (*acpCommand == "" || *migrateACP) {
-		return fmt.Errorf("--set-acp-launcher requires --acp-command and must run separately from ACP migration")
+	if *setACP != "" && *acpCommand == "" {
+		return fmt.Errorf("--set-acp-launcher requires --acp-command")
 	}
-	acpWrite := *migrateACP || *setACP != ""
+	acpWrite := *setACP != ""
 	if acpWrite && (*dbPath == "" || *target != "db") {
 		return fmt.Errorf("ACP launcher changes require --db and --target db")
 	}
-	acpOptions := configrepair.ACPRepairOptions{Migrate: *migrateACP, ConvertConnectors: *convertConnectors}
+	acpOptions := configrepair.SQLiteRepairOptions{ConvertConnectors: *convertConnectors}
 	if *setACP != "" {
 		acpOptions.Set = &launcher.Definition{ID: *setACP, Launcher: launcher.Launcher{Command: *acpCommand, Args: flags.Args(), CWDFlag: *acpCWDFlag}}
 	}
-	if *export == "" && (*operations != "" || *convertConnectors || acpWrite) && *backup == "" {
-		return fmt.Errorf("repairs require an unused --backup path")
-	}
 	if *convertConnectors && (*dbPath == "" || *staticPath != "" || *target != "db") {
 		return fmt.Errorf("--convert-connectors requires SQLite-only input and --target db")
+	}
+	var ops []configrepair.Operation
+	if *operations != "" {
+		if *export == "" {
+			if *target == "db" && *dbPath == "" {
+				return fmt.Errorf("--db is required for --target db")
+			}
+			if *target == "static" && *staticPath == "" {
+				return fmt.Errorf("--static-config is required for --target static")
+			}
+		}
+		var err error
+		ops, err = readOperations(*operations)
+		if err != nil {
+			return err
+		}
+	}
+	if *export == "" && (len(ops) > 0 || *convertConnectors || acpWrite) && *backup == "" {
+		return fmt.Errorf("repairs require an unused --backup path")
 	}
 	if *convertConnectors && *export == "" {
 		db, err := configrepair.OpenSQLite(*dbPath, true)
@@ -100,15 +115,8 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			return err
 		}
 		defer db.Close()
-		var ops []configrepair.Operation
-		if *operations != "" {
-			ops, err = readOperations(*operations)
-			if err != nil {
-				return err
-			}
-		}
 		if acpWrite {
-			err = configrepair.RepairACPLaunchers(ctx, db, *backup, nil, ops, acpOptions)
+			err = configrepair.RegisterACPLauncher(ctx, db, *backup, nil, ops, acpOptions)
 		} else {
 			err = configrepair.ConvertConnectors(ctx, db, *backup, ops...)
 		}
@@ -138,14 +146,6 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		}
 	}
 	if *export != "" {
-		var explicit []configrepair.Operation
-		if *operations != "" {
-			var err error
-			explicit, err = readOperations(*operations)
-			if err != nil {
-				return err
-			}
-		}
 		for _, id := range slices.Sorted(maps.Keys(allowedModels)) {
 			data, err := json.Marshal(struct {
 				Models []allowedModel `json:"models"`
@@ -153,27 +153,20 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			if err != nil {
 				return err
 			}
-			explicit = append(explicit, configrepair.Operation{Family: "routes", ID: id, Action: "convert-target", Data: data})
+			ops = append(ops, configrepair.Operation{Family: "routes", ID: id, Action: "convert-target", Data: data})
 		}
-		return exportRepairs(ctx, out, *dbPath, *export, static, explicit, acpOptions)
+		return exportRepairs(ctx, out, *dbPath, *export, static, ops, acpOptions)
 	}
 	if *dbPath != "" {
-		writeDB := *target == "db" && (*operations != "" || acpWrite)
+		writeDB := *target == "db" && (len(ops) > 0 || acpWrite)
 		db, err := configrepair.OpenSQLite(*dbPath, writeDB)
 		if err != nil {
 			return err
 		}
 		defer db.Close()
 		if writeDB {
-			var ops []configrepair.Operation
-			if *operations != "" {
-				ops, err = readOperations(*operations)
-				if err != nil {
-					return err
-				}
-			}
 			if acpWrite {
-				err = configrepair.RepairACPLaunchers(ctx, db, *backup, static, ops, acpOptions)
+				err = configrepair.RegisterACPLauncher(ctx, db, *backup, static, ops, acpOptions)
 			} else {
 				err = configrepair.RepairSQLite(ctx, db, *backup, static, ops)
 			}
@@ -188,7 +181,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			return err
 		}
 	}
-	if *operations == "" {
+	if len(ops) == 0 {
 		records = append(records, static...)
 		issues := configrepair.Inspect(records)
 		if len(issues) == 0 {
@@ -206,16 +199,6 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			return fmt.Errorf("configuration needs explicit offline repair; see docs/guides/architecture-config-recovery.md")
 		}
 		return nil
-	}
-	if *target == "db" {
-		return fmt.Errorf("--db is required for --target db")
-	}
-	if doc == nil {
-		return fmt.Errorf("--static-config is required for --target static")
-	}
-	ops, err := readOperations(*operations)
-	if err != nil {
-		return err
 	}
 	for _, op := range ops {
 		if op.Family == "acp_launchers" {
@@ -269,7 +252,7 @@ type allowedModel struct {
 	UpstreamModel string `json:"upstream_model"`
 }
 
-func exportRepairs(ctx context.Context, out io.Writer, dbPath, outputPath string, static []configrepair.Record, explicit []configrepair.Operation, opts configrepair.ACPRepairOptions) error {
+func exportRepairs(ctx context.Context, out io.Writer, dbPath, outputPath string, static []configrepair.Record, explicit []configrepair.Operation, opts configrepair.SQLiteRepairOptions) error {
 	db, err := configrepair.OpenSQLite(dbPath, false)
 	if err != nil {
 		return err
@@ -279,13 +262,8 @@ func exportRepairs(ctx context.Context, out io.Writer, dbPath, outputPath string
 	if err != nil {
 		return fmt.Errorf("cannot export a complete repair batch: %w", err)
 	}
-	if len(ops) == 0 {
-		if opts.ConvertConnectors {
-			fmt.Fprintln(out, "Connector conversion validated. Apply with --convert-connectors and --backup.")
-		} else {
-			fmt.Fprintln(out, "Configuration passed validation. No repair operations needed.")
-		}
-		return nil
+	if ops == nil {
+		ops = []configrepair.Operation{}
 	}
 	data, err := json.MarshalIndent(ops, "", "  ")
 	if err != nil {
@@ -317,8 +295,8 @@ func readOperations(path string) ([]configrepair.Operation, error) {
 	if err := decoder.Decode(&ops); err != nil {
 		return nil, err
 	}
-	if len(ops) == 0 {
-		return nil, fmt.Errorf("repair batch must not be empty")
+	if ops == nil {
+		return nil, fmt.Errorf("repair batch must be a JSON array")
 	}
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("unexpected trailing JSON")

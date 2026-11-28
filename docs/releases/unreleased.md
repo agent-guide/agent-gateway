@@ -9,8 +9,8 @@
 - ACP Agents share one ACP v1 stdio client. Use `runtime.acp.launcher` and
   the built-in `codex` or `opencode` configuration, or register a third-party
   launcher in SQLite through the offline tool. Both gateway hosts load the
-  registry from ConfigStore. Update source bundles and migrate old Agent
-  definitions and previous external launchers with the
+  registry from ConfigStore. Update source bundles and migrate inline ACP
+  settings stored on old Agents with the
   [ACP launcher migration](../guides/architecture-config-recovery.md#migrate-acp-launchers).
   Explicit model selection now uses the model option advertised by the Agent.
 

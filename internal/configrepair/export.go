@@ -9,7 +9,7 @@ import (
 
 // GenerateSQLiteRepairs stages a complete repair batch from one SQLite read
 // transaction. Explicit operations supply any decisions the stored data lacks.
-func GenerateSQLiteRepairs(ctx context.Context, db *sql.DB, static []Record, explicit []Operation, opts ACPRepairOptions) ([]Operation, error) {
+func GenerateSQLiteRepairs(ctx context.Context, db *sql.DB, static []Record, explicit []Operation, opts SQLiteRepairOptions) ([]Operation, error) {
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, err
@@ -23,8 +23,7 @@ func GenerateSQLiteRepairs(ctx context.Context, db *sql.DB, static []Record, exp
 		return nil, err
 	}
 	records = append(records, static...)
-	opts.Migrate = true
-	ops, err := stageACPLauncherRepair(records, explicit, opts)
+	ops, err := stageACPLauncherRepair(records, explicit, opts.Set, true)
 	if err != nil {
 		return nil, err
 	}

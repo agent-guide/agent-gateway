@@ -218,7 +218,7 @@ func Inspect(records []Record) []Issue {
 				_, oldCodex := acp["codex"]
 				var launcher string
 				if oldType || oldCodex {
-					add("runtime.acp", "run --migrate-acp-launchers or explicitly replace legacy Agent ACP configuration")
+					add("runtime.acp", "generate a repair batch with --export-repairs or explicitly replace the legacy Agent ACP configuration")
 				} else if json.Unmarshal(acp["launcher"], &launcher) != nil || strings.TrimSpace(launcher) == "" {
 					add("runtime.acp.launcher", "replace with a registered ACP launcher name")
 				} else if _, known := launchers[strings.TrimSpace(launcher)]; !known {

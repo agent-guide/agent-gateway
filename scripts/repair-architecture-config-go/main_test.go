@@ -55,7 +55,11 @@ func TestMigrateACPLaunchersThroughCommand(t *testing.T) {
 		('legacy-acp-1', '{"id":"legacy-acp-1","command":"/opt/custom-acp"}')`); err != nil {
 		t.Fatal(err)
 	}
-	if err := run(t.Context(), []string{"--db", dbPath, "--backup", dbPath + ".bak", "--convert-connectors", "--migrate-acp-launchers"}, &out); err != nil {
+	plan := filepath.Join(dir, "repairs.json")
+	if err := run(t.Context(), []string{"--db", dbPath, "--export-repairs", plan, "--convert-connectors"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(t.Context(), []string{"--db", dbPath, "--repair", plan, "--backup", dbPath + ".bak", "--convert-connectors"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for id, want := range map[string]string{"current": "legacy-acp-1", "default": "legacy-acp-2", "legacy": "legacy-acp-3", "open": "opencode"} {
@@ -302,8 +306,13 @@ func TestCaddyJSONAndDeleteLastRoute(t *testing.T) {
 }
 
 func TestRepairRequiresBackupBeforeOpeningDatabase(t *testing.T) {
+	dir := t.TempDir()
+	plan := filepath.Join(dir, "repairs.json")
+	if err := os.WriteFile(plan, []byte(`[{"family":"routes","id":"chat","action":"delete"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	var out bytes.Buffer
-	if err := run(context.Background(), []string{"--db", "missing.db", "--repair", "missing.json"}, &out); err == nil || !strings.Contains(err.Error(), "--backup") {
+	if err := run(t.Context(), []string{"--db", filepath.Join(dir, "missing.db"), "--repair", plan}, &out); err == nil || !strings.Contains(err.Error(), "--backup") {
 		t.Fatalf("error = %v", err)
 	}
 }

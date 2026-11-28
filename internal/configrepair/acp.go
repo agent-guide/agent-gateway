@@ -76,16 +76,15 @@ func sameACPLauncher(a, b acplauncher.Launcher) bool {
 	return a.Command == b.Command && a.CWDFlag == b.CWDFlag && slices.Equal(a.Args, b.Args)
 }
 
-// ACPRepairOptions describes an explicit deployment-side launcher change.
-type ACPRepairOptions struct {
-	Migrate           bool
+// SQLiteRepairOptions configures launcher registration and connector conversion.
+type SQLiteRepairOptions struct {
 	Set               *acplauncher.Definition
 	ConvertConnectors bool
 }
 
-func RepairACPLaunchers(ctx context.Context, db *sql.DB, backup string, static []Record, operations []Operation, opts ACPRepairOptions) error {
+func RegisterACPLauncher(ctx context.Context, db *sql.DB, backup string, static []Record, operations []Operation, opts SQLiteRepairOptions) error {
 	prepare := func(records []Record) ([]Record, []Operation, error) {
-		ops, err := stageACPLauncherRepair(records, operations, opts)
+		ops, err := stageACPLauncherRepair(records, operations, opts.Set, false)
 		return records, ops, err
 	}
 	if opts.ConvertConnectors {
@@ -97,7 +96,7 @@ func RepairACPLaunchers(ctx context.Context, db *sql.DB, backup string, static [
 	return repairSQLite(ctx, db, backup, static, prepare)
 }
 
-func stageACPLauncherRepair(records []Record, operations []Operation, opts ACPRepairOptions) ([]Operation, error) {
+func stageACPLauncherRepair(records []Record, operations []Operation, set *acplauncher.Definition, migrateLegacy bool) ([]Operation, error) {
 	var launcherOps []Operation
 	for _, op := range operations {
 		if op.Family == "acp_launchers" {
@@ -115,7 +114,7 @@ func stageACPLauncherRepair(records []Record, operations []Operation, opts ACPRe
 	stored := map[string]bool{}
 	for _, record := range records {
 		if record.Family == "acp_launchers" {
-			if opts.Set != nil && record.ID == opts.Set.ID && !record.Static && !record.StaticInput {
+			if set != nil && record.ID == set.ID && !record.Static && !record.StaticInput {
 				stored[record.ID] = true
 				delete(launchers, record.ID)
 				continue
@@ -159,12 +158,12 @@ func stageACPLauncherRepair(records []Record, operations []Operation, opts ACPRe
 		launchers[id] = launcher
 		return nil
 	}
-	if opts.Set != nil {
-		if err := put(opts.Set.ID, opts.Set.Launcher); err != nil {
+	if set != nil {
+		if err := put(set.ID, set.Launcher); err != nil {
 			return nil, err
 		}
 	}
-	if !opts.Migrate {
+	if !migrateLegacy {
 		return ops, nil
 	}
 

@@ -108,9 +108,61 @@ func TestExportUsesExplicitModelAllowlist(t *testing.T) {
 	if err := run(t.Context(), []string{"--db", path, "--repair", plan, "--backup", path + ".bak"}, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := run(t.Context(), args, &bytes.Buffer{}); err != nil {
-		t.Fatalf("clean database export: %v", err)
-	}
+}
+
+func TestExportEmptyRepairBatch(t *testing.T) {
+	t.Run("clean database", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "gateway.db")
+		openExportFixture(t, path, nil)
+		plan := filepath.Join(dir, "repairs.json")
+		original, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		export := []string{"--db", path, "--export-repairs", plan}
+		var out bytes.Buffer
+		if err := run(t.Context(), export, &out); err != nil || !strings.Contains(out.String(), "Exported 0 validated repair operations") {
+			t.Fatalf("empty export: %q, %v", out.String(), err)
+		}
+		if data, err := os.ReadFile(plan); err != nil || string(data) != "[]\n" {
+			t.Fatalf("exported file = %q, %v", data, err)
+		}
+		if err := run(t.Context(), export, &out); !errors.Is(err, os.ErrExist) {
+			t.Fatalf("export to an existing filename: %v", err)
+		}
+		out.Reset()
+		if err := run(t.Context(), []string{"--db", path, "--repair", plan}, &out); err != nil || out.String() != "[]\n" {
+			t.Fatalf("empty batch recheck: %q, %v", out.String(), err)
+		}
+		if current, err := os.ReadFile(path); err != nil || !bytes.Equal(current, original) {
+			t.Fatalf("empty batch changed the database: %v", err)
+		}
+	})
+
+	t.Run("connector layout only", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "gateway.db")
+		db := openExportFixture(t, path, []string{
+			`CREATE TABLE mcp_services(id TEXT PRIMARY KEY, tag TEXT, config TEXT)`,
+			`INSERT INTO mcp_services VALUES ('tools', 'mcp', '{"id":"tools","name":"Tools","transport":"stdio","command":"unused"}')`,
+		})
+		plan := filepath.Join(dir, "repairs.json")
+		var out bytes.Buffer
+		if err := run(t.Context(), []string{"--db", path, "--export-repairs", plan, "--convert-connectors"}, &out); err != nil || !strings.Contains(out.String(), "Include --convert-connectors") {
+			t.Fatalf("connector conversion export: %q, %v", out.String(), err)
+		}
+		if data, err := os.ReadFile(plan); err != nil || string(data) != "[]\n" {
+			t.Fatalf("exported file = %q, %v", data, err)
+		}
+		if err := run(t.Context(), []string{"--db", path, "--repair", plan, "--convert-connectors", "--backup", path + ".bak"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		var kind string
+		if err := db.QueryRow(`SELECT json_extract(config, '$.type') FROM connectors WHERE id='tools'`).Scan(&kind); err != nil || kind != "mcp" {
+			t.Fatalf("converted connector type = %q, %v", kind, err)
+		}
+	})
 }
 
 func openExportFixture(t *testing.T, path string, statements []string) *sql.DB {

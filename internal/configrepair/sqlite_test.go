@@ -392,11 +392,14 @@ func TestLegacyACPConfigCanBeMigratedOffline(t *testing.T) {
 	if issues := Inspect([]Record{record}); len(issues) != 1 || issues[0].Field != "runtime.acp" {
 		t.Fatalf("inspection issues = %+v", issues)
 	}
+	ops, err := GenerateSQLiteRepairs(ctx, db, nil, nil, SQLiteRepairOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`CREATE TRIGGER ignore_agent_repair BEFORE UPDATE ON agents BEGIN SELECT RAISE(IGNORE); END`); err != nil {
 		t.Fatal(err)
 	}
-	options := ACPRepairOptions{Migrate: true}
-	if err := RepairACPLaunchers(ctx, db, path+".failed.bak", nil, nil, options); err == nil || !strings.Contains(err.Error(), "persisted repair") {
+	if err := RepairSQLite(ctx, db, path+".failed.bak", nil, ops); err == nil || !strings.Contains(err.Error(), "persisted repair") {
 		t.Fatalf("expected readback rejection, got %v", err)
 	}
 	var count int
@@ -406,7 +409,7 @@ func TestLegacyACPConfigCanBeMigratedOffline(t *testing.T) {
 	if _, err := db.Exec(`DROP TRIGGER ignore_agent_repair`); err != nil {
 		t.Fatal(err)
 	}
-	if err := RepairACPLaunchers(ctx, db, path+".bak", nil, nil, options); err != nil {
+	if err := RepairSQLite(ctx, db, path+".bak", nil, ops); err != nil {
 		t.Fatal(err)
 	}
 	restarted := gateway.NewAgentGateway()

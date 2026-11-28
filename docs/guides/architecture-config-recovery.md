@@ -46,12 +46,18 @@ Caddyfile from adapted JSON.
 
 ## Migrate ACP launchers
 
-To migrate inline ACP settings already stored on Agents, stop all services
-that use the database and run the migration against that deployment's SQLite file.
+Export a repair batch from the SQLite database that holds the old Agent settings.
 
 ```sh
 ./scripts/repair-architecture-config --db ./data/configstore.db \
-  --migrate-acp-launchers --backup ./data/configstore.before-acp.db
+  --export-repairs ./repairs.json
+```
+
+Stop all services that use the database before applying the batch.
+
+```sh
+./scripts/repair-architecture-config --db ./data/configstore.db \
+  --repair ./repairs.json --backup ./data/configstore.before-acp.db
 ./scripts/repair-architecture-config --db ./data/configstore.db
 ```
 
@@ -64,13 +70,12 @@ SQLite `acp_launchers` is the sole configuration source for custom launchers.
 Register a launcher with `--set-acp-launcher` before referencing it from an
 Agent. SQLite backups contain both the definitions and Agent references.
 
-Supply static input on apply and recheck when the deployment uses static
-configuration. To resolve unrelated hazards in the same transaction, include
-a `--repair` operation batch. For a legacy Agent that needs explicit changes
-beyond launcher conversion, supply a complete `replace` operation with the
-intended launcher reference. When the database still has the legacy MCP service
-table, combine `--convert-connectors` and `--migrate-acp-launchers` in the same
-SQLite repair. Update source Bundles to use `runtime.acp.launcher`. Review
+Supply static input on export, apply, and recheck when the deployment uses
+static configuration. For a legacy Agent that needs explicit changes beyond
+launcher conversion, supply a complete `replace` operation with the intended
+launcher reference when exporting. When the database still has the legacy MCP
+service table, include `--convert-connectors` on export and apply. Update source
+Bundles to use `runtime.acp.launcher`. Review
 explicit `default_model` values before turning on Codex execution because model
 configuration now uses the ACP model option it advertises.
 
@@ -93,9 +98,10 @@ SQLite, so apply it with the normal `--repair` command.
 
 Include the deployment's `--static-config` on export, apply, and recheck when
 applicable. For an old `mcp_services` table, include `--convert-connectors` on
-export and apply. A database with no required record changes produces no batch;
-if connector table conversion is the only required change, apply it with
-`--convert-connectors` and `--backup`.
+export and apply. A successful export always creates the specified file. When
+there are no record changes, the file contains `[]`. Applying an empty batch
+performs the read-only recheck. If connector table conversion is the only
+required change, apply the batch with `--convert-connectors` and `--backup`.
 
 Some repairs need a deployment decision. For a legacy Provider-only route,
 specify the allowed upstream models explicitly. Repeat `--allow-model` to expose
